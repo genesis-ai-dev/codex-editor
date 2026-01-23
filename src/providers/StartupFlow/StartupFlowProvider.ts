@@ -21,7 +21,7 @@ import {
     createWorkspaceWithProjectName,
     checkProjectNameExists,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
-import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName, extractAnyProjectIdFromFolderName, extendProjectId, STANDARD_PROJECT_ID_LENGTH } from "../../projectManager/utils/projectUtils";
+import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
@@ -3032,47 +3032,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         await vscode.workspace.fs.delete(gitPath, { recursive: true, useTrash: false });
 
                         progress.report({ message: "Updating project identity..." });
-                        // 4. Update metadata with new UUID (or extend existing one)
-                        const oldMetadataId = metadata.projectId;
-
+                        // 4. Update metadata with UUID
                         // 5. Rename folder logic
                         const parentDir = path.dirname(projectPath);
                         const currentFolderName = path.basename(projectPath);
 
-                        // Check if folder already has a UUID-like suffix (even shorter legacy ones)
-                        const existingFolderIdInfo = extractAnyProjectIdFromFolderName(currentFolderName);
+                        // Check if folder already has a UUID-like suffix (15+ alphanumeric chars)
+                        const existingFolderId = extractProjectIdFromFolderName(currentFolderName);
 
                         let newId: string;
                         let newFolderName = currentFolderName;
 
-                        if (existingFolderIdInfo) {
-                            // Folder already has a UUID suffix - extend it if needed instead of adding a new one
-                            if (existingFolderIdInfo.needsExtension) {
-                                // Extend the existing shorter ID to standard length
-                                newId = extendProjectId(existingFolderIdInfo.id);
-                                newFolderName = currentFolderName.replace(existingFolderIdInfo.id, newId);
-                                console.log(`Extended project ID from ${existingFolderIdInfo.id} (${existingFolderIdInfo.id.length} chars) to ${newId} (${newId.length} chars)`);
-                            } else {
-                                // ID is already standard length - just use it
-                                newId = existingFolderIdInfo.id;
-                                // Folder name doesn't need to change for the ID
-                            }
+                        if (existingFolderId) {
+                            // Folder already has a UUID suffix - use it as-is (don't extend)
+                            newId = existingFolderId;
+                            // Folder name doesn't need to change
 
                             // Extract the base name for projectName if needed
                             if (!metadata.projectName || metadata.projectName.trim() === "") {
-                                const baseName = currentFolderName.replace(`-${existingFolderIdInfo.id}`, "").replace(/-+$/, "").replace(/^-+/, "");
-                                metadata.projectName = sanitizeProjectName(baseName);
-                            }
-                        } else if (oldMetadataId && currentFolderName.includes(oldMetadataId)) {
-                            // Folder contains the metadata's ID (but extractAnyProjectIdFromFolderName didn't find it,
-                            // which means it's in the middle of the name or has unusual format)
-                            newId = oldMetadataId.length < STANDARD_PROJECT_ID_LENGTH
-                                ? extendProjectId(oldMetadataId)
-                                : generateProjectId();
-                            newFolderName = currentFolderName.replace(oldMetadataId, newId);
-
-                            if (!metadata.projectName || metadata.projectName.trim() === "") {
-                                const baseName = currentFolderName.replace(oldMetadataId, "").replace(/-+$/, "").replace(/^-+/, "");
+                                const baseName = currentFolderName.replace(`-${existingFolderId}`, "").replace(/-+$/, "").replace(/^-+/, "");
                                 metadata.projectName = sanitizeProjectName(baseName);
                             }
                         } else {
