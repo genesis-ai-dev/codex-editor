@@ -87,7 +87,8 @@ export async function llmCompletion(
     currentCellId: string,
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken,
-    returnHTML: boolean = true
+    returnHTML: boolean = true,
+    isBatchOperation: boolean = false
 ): Promise<LLMCompletionResult> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage, fewShotExampleFormat } = completionConfig;
 
@@ -235,19 +236,23 @@ export async function llmCompletion(
             );
 
             // Unified AB testing via registry with random test selection (global gating)
+            // A/B testing is disabled during batch operations (chapter autocomplete, batch transcription)
+            // to avoid interrupting the user with variant selection UI
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
-            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true);
+            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true) && !isBatchOperation;
             const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
             const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.15));
             const randomValue = Math.random();
             const triggerAB = abEnabled && randomValue < abProbability;
 
             if (completionConfig.debugMode) {
-                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
+                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, isBatchOperation=${isBatchOperation}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
             }
 
             if (!triggerAB && completionConfig.debugMode) {
-                if (!abEnabled) {
+                if (isBatchOperation) {
+                    console.debug(`[llmCompletion] A/B testing disabled during batch operation`);
+                } else if (!abEnabled) {
                     console.debug(`[llmCompletion] A/B testing disabled in settings`);
                 } else {
                     console.debug(`[llmCompletion] A/B test not triggered (random ${randomValue.toFixed(3)} >= probability ${abProbability})`);

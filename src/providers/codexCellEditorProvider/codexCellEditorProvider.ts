@@ -3385,12 +3385,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         this.singleCellQueueCancellation?.token ||
                         new vscode.CancellationTokenSource().token;
 
+                    // Determine if this is a batch operation (chapter autocomplete or multiple cells queued)
+                    // A/B testing is disabled during batch operations to avoid interrupting the workflow
+                    const isBatchOperation = this.autocompletionState.isProcessing ||
+                        (this.singleCellQueueState.isProcessing && this.singleCellQueueState.totalCells > 1);
+
                     // Perform LLM completion (always returns AB-style result)
                     const completionResult = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
-                        cancellationToken
+                        cancellationToken,
+                        true, // returnHTML
+                        isBatchOperation
                     );
 
                     // Check for cancellation before updating document - this is crucial to prevent cell population
