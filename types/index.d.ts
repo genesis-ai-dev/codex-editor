@@ -655,9 +655,6 @@ export type EditorPostMessages =
             deleteFootnote?: string;
         };
     }
-    | { command: "openBookNameEditor"; }
-    | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
-    | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
     | { command: "triggerSync"; }
     // removed: requestAudioAttachments
@@ -1407,7 +1404,6 @@ type ProjectManagerMessageFromWebview =
         data: { autoSyncEnabled: boolean; syncDelayMinutes: number; };
     }
     | { command: "triggerSync"; }
-    | { command: "openBookNameEditor"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "openCellLabelImporter"; }
