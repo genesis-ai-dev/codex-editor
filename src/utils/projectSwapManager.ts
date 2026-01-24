@@ -117,8 +117,16 @@ export async function checkProjectSwapRequired(
         // Get git origin URL to fetch remote metadata
         gitOriginUrl = await getGitOriginUrl(projectPath);
 
-        // Try to fetch remote metadata for the latest swap status
+        // Import local swap file helpers
+        const { readLocalProjectSwapFile, writeLocalProjectSwapFile } = await import("./localProjectSettings");
+        const projectUri = vscode.Uri.file(projectPath);
+
+        // Collect swap info from all sources - we check BOTH and use whichever has valid info
         let remoteSwapInfo: ProjectSwapInfo | undefined;
+        let localSwapFileInfo: ProjectSwapInfo | undefined;
+        const localMetadataSwapInfo: ProjectSwapInfo | undefined = metadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
+
+        // Try to fetch remote metadata for the latest swap status
         if (gitOriginUrl) {
             try {
                 const { fetchRemoteMetadata, extractProjectIdFromUrl } = await import("./remoteUpdatingManager");
@@ -128,6 +136,19 @@ export async function checkProjectSwapRequired(
                     if (remoteMetadata?.meta?.projectSwap) {
                         remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
                         debug("Fetched remote metadata for swap check");
+
+                        // Cache the remote swap info locally for offline use
+                        // This creates .project/localProjectSwap.json which is gitignored
+                        try {
+                            await writeLocalProjectSwapFile({
+                                remoteSwapInfo,
+                                fetchedAt: Date.now(),
+                                sourceOriginUrl: gitOriginUrl,
+                            }, projectUri);
+                            debug("Cached remote swap info to localProjectSwap.json");
+                        } catch (cacheError) {
+                            debug("Failed to cache remote swap info (non-fatal):", cacheError);
+                        }
                     }
                 }
             } catch (e) {
@@ -135,8 +156,62 @@ export async function checkProjectSwapRequired(
             }
         }
 
-        // Use remote swap info if available, otherwise fall back to local
-        const effectiveSwapInfo = remoteSwapInfo || metadata?.meta?.projectSwap;
+        // Always check localProjectSwap.json - it may have been written by admin (Step 2)
+        // or cached from a previous remote fetch. Check it even if remote succeeded.
+        try {
+            const cachedSwapFile = await readLocalProjectSwapFile(projectUri);
+            if (cachedSwapFile?.remoteSwapInfo) {
+                // Verify the cached file is for the same origin (if we have one)
+                if (!gitOriginUrl || cachedSwapFile.sourceOriginUrl === gitOriginUrl) {
+                    localSwapFileInfo = cachedSwapFile.remoteSwapInfo;
+                    debug("Found swap info in localProjectSwap.json (fetched at:", new Date(cachedSwapFile.fetchedAt).toISOString(), ")");
+                }
+            }
+        } catch (e) {
+            debug("Could not read cached swap file (non-fatal):", e);
+        }
+
+        // Determine which swap info to use - prioritize by source:
+        // 1. Remote metadata (most authoritative, freshly fetched)
+        // 2. localProjectSwap.json (may have been written by admin or cached from remote)
+        // 3. Local metadata.json (synced copy)
+        // We use the first one that has an ACTIVE swap entry
+        let effectiveSwapInfo: ProjectSwapInfo | undefined;
+        
+        // Check remote first
+        if (remoteSwapInfo) {
+            const normalized = normalizeProjectSwapInfo(remoteSwapInfo);
+            const active = getActiveSwapEntry(normalized);
+            if (active) {
+                effectiveSwapInfo = remoteSwapInfo;
+                debug("Using remote metadata swap info (has active entry)");
+            }
+        }
+        
+        // If remote doesn't have active swap, check localProjectSwap.json
+        if (!effectiveSwapInfo && localSwapFileInfo) {
+            const normalized = normalizeProjectSwapInfo(localSwapFileInfo);
+            const active = getActiveSwapEntry(normalized);
+            if (active) {
+                effectiveSwapInfo = localSwapFileInfo;
+                debug("Using localProjectSwap.json swap info (has active entry)");
+            }
+        }
+        
+        // Fall back to local metadata.json
+        if (!effectiveSwapInfo && localMetadataSwapInfo) {
+            const normalized = normalizeProjectSwapInfo(localMetadataSwapInfo);
+            const active = getActiveSwapEntry(normalized);
+            if (active) {
+                effectiveSwapInfo = localMetadataSwapInfo;
+                debug("Using local metadata.json swap info (has active entry)");
+            }
+        }
+        
+        // If none have active entries, use any available for the "no active swap" response
+        if (!effectiveSwapInfo) {
+            effectiveSwapInfo = remoteSwapInfo || localSwapFileInfo || localMetadataSwapInfo;
+        }
 
         if (!effectiveSwapInfo) {
             debug("No project swap information found");

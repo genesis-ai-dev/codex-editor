@@ -1255,21 +1255,44 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
  */
 async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalProject[]> {
     const filtered: LocalProject[] = [];
+    const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 
     for (const project of projects) {
         try {
+            const projectUri = vscode.Uri.file(project.path);
             const metadataPath = vscode.Uri.file(path.join(project.path, "metadata.json"));
-            const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
-            const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+            let metadata: ProjectMetadata | null = null;
+            
+            try {
+                const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+                metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+            } catch {
+                // metadata.json might not exist
+            }
 
-            if (!metadata?.meta?.projectSwap) {
+            // Check BOTH metadata.json AND localProjectSwap.json for swap info
+            let effectiveSwapInfo = metadata?.meta?.projectSwap;
+            
+            if (!effectiveSwapInfo) {
+                try {
+                    const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                    if (localSwapFile?.remoteSwapInfo) {
+                        effectiveSwapInfo = localSwapFile.remoteSwapInfo;
+                        debug("Using swap info from localProjectSwap.json for filtering");
+                    }
+                } catch {
+                    // Non-fatal - localProjectSwap.json might not exist
+                }
+            }
+
+            if (!effectiveSwapInfo) {
                 // No swap info - show project
                 filtered.push(project);
                 continue;
             }
 
-            const swapInfo = metadata.meta.projectSwap;
-            const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+            const swapInfo = normalizeProjectSwapInfo(effectiveSwapInfo);
             const activeEntry = getActiveSwapEntry(swapInfo);
 
             // Hide old projects that have no pending swap (all swaps cancelled or completed)
@@ -1478,9 +1501,27 @@ async function processProjectDirectory(
         }
 
         // Populate convenience fields on projectSwap for webview access
-        let projectSwapWithConvenience = projectMetadata?.meta?.projectSwap;
+        // Check BOTH metadata.json AND localProjectSwap.json (same as checkProjectSwapRequired)
+        const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+        const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+        
+        let effectiveSwapInfo = projectMetadata?.meta?.projectSwap;
+        
+        // Also check localProjectSwap.json - it may have swap info from remote that wasn't synced yet
+        if (!effectiveSwapInfo) {
+            try {
+                const localSwapFile = await readLocalProjectSwapFile(vscode.Uri.file(projectPath));
+                if (localSwapFile?.remoteSwapInfo) {
+                    effectiveSwapInfo = localSwapFile.remoteSwapInfo;
+                    debug("Using swap info from localProjectSwap.json for project list");
+                }
+            } catch {
+                // Non-fatal - localProjectSwap.json might not exist
+            }
+        }
+        
+        let projectSwapWithConvenience = effectiveSwapInfo;
         if (projectSwapWithConvenience) {
-            const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
             const normalized = normalizeProjectSwapInfo(projectSwapWithConvenience);
             const activeEntry = getActiveSwapEntry(normalized);
             projectSwapWithConvenience = {
@@ -1598,6 +1639,7 @@ async function updateGitignoreFile(): Promise<void> {
         "# Don't sync user-specific files",
         ".project/complete_drafts.txt",
         ".project/localProjectSettings.json",
+        ".project/localProjectSwap.json",
         "copilot-messages.log",
         "",
         "# Archive formats",

@@ -387,4 +387,117 @@ export async function clearUpdateCompletedLocally(
     }
 }
 
+// =============================================================================
+// LOCAL PROJECT SWAP FILE (.project/localProjectSwap.json)
+// =============================================================================
+// This file caches the projectSwap info fetched from the remote metadata.json.
+// It's separate from localProjectSettings.json and is NEVER synced to git.
+// Purpose: Store remote swap info locally so users can perform swap operations
+// even when offline, and to avoid accidentally merging swap info into new projects.
+// =============================================================================
+
+const LOCAL_SWAP_FILE_NAME = "localProjectSwap.json";
+
+/**
+ * Gets the path to the local project swap file
+ */
+function getLocalSwapFilePath(workspaceFolderUri?: vscode.Uri): vscode.Uri | null {
+    const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!workspaceFolder) {
+        debug("No workspace folder found for local swap file");
+        return null;
+    }
+    return vscode.Uri.joinPath(workspaceFolder, ".project", LOCAL_SWAP_FILE_NAME);
+}
+
+/**
+ * Local cache of project swap info from remote metadata.json
+ * This is stored separately from localProjectSettings.json to:
+ * 1. Keep remote swap info isolated from local settings
+ * 2. Ensure it never gets merged into new projects
+ * 3. Allow offline swap operations
+ */
+export interface LocalProjectSwapFile {
+    /** The projectSwap info fetched from remote metadata.json */
+    remoteSwapInfo: import("../../types").ProjectSwapInfo;
+    /** Timestamp when this was last fetched from remote */
+    fetchedAt: number;
+    /** The git origin URL this was fetched from (for validation) */
+    sourceOriginUrl: string;
+}
+
+/**
+ * Reads the local project swap file from disk
+ * This file caches the remote projectSwap info for offline use
+ */
+export async function readLocalProjectSwapFile(workspaceFolderUri?: vscode.Uri): Promise<LocalProjectSwapFile | null> {
+    const filePath = getLocalSwapFilePath(workspaceFolderUri);
+    if (!filePath) {
+        return null;
+    }
+
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(filePath);
+        const parsed = JSON.parse(Buffer.from(fileContent).toString("utf8"));
+        debug("Read local project swap file");
+        return parsed as LocalProjectSwapFile;
+    } catch (error) {
+        // File doesn't exist or is invalid - that's normal
+        debug("No local project swap file found (or invalid)");
+        return null;
+    }
+}
+
+/**
+ * Writes the local project swap file to disk
+ * Used to cache remote projectSwap info for offline use
+ */
+export async function writeLocalProjectSwapFile(
+    data: LocalProjectSwapFile,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const filePath = getLocalSwapFilePath(workspaceFolderUri);
+    if (!filePath) {
+        debug("Cannot write local swap file: no workspace folder");
+        return;
+    }
+
+    try {
+        // Ensure .project directory exists
+        const projectDir = vscode.Uri.joinPath(
+            workspaceFolderUri || vscode.workspace.workspaceFolders![0].uri,
+            ".project"
+        );
+        try {
+            await vscode.workspace.fs.stat(projectDir);
+        } catch {
+            await vscode.workspace.fs.createDirectory(projectDir);
+        }
+
+        const content = JSON.stringify(data, null, 2);
+        await vscode.workspace.fs.writeFile(filePath, Buffer.from(content, "utf8"));
+        debug("Wrote local project swap file");
+    } catch (error) {
+        console.error("Failed to write local project swap file:", error);
+    }
+}
+
+/**
+ * Deletes the local project swap file
+ * Called after a successful swap to clean up
+ */
+export async function deleteLocalProjectSwapFile(workspaceFolderUri?: vscode.Uri): Promise<void> {
+    const filePath = getLocalSwapFilePath(workspaceFolderUri);
+    if (!filePath) {
+        return;
+    }
+
+    try {
+        await vscode.workspace.fs.delete(filePath);
+        debug("Deleted local project swap file");
+    } catch {
+        // File doesn't exist - that's fine
+    }
+}
+
 

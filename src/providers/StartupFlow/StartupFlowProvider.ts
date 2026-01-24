@@ -1200,10 +1200,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 // If this project has been deprecated (old side of a swap), prompt twice before proceeding
                 try {
-                    const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(vscode.Uri.file(projectPath));
-                    const swapInfo = metaResult.success
+                    const projectUri = vscode.Uri.file(projectPath);
+                    const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
+                    
+                    // Check BOTH metadata.json AND localProjectSwap.json for swap info
+                    let swapInfo = metaResult.success
                         ? (metaResult.metadata?.meta?.projectSwap as ProjectSwapInfo | undefined)
                         : undefined;
+                    
+                    if (!swapInfo) {
+                        try {
+                            const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                            const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                            if (localSwapFile?.remoteSwapInfo) {
+                                swapInfo = localSwapFile.remoteSwapInfo;
+                            }
+                        } catch {
+                            // Non-fatal
+                        }
+                    }
 
                     const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
                     const activeEntry = swapInfo ? getActiveSwapEntry(swapInfo) : undefined;
@@ -3189,14 +3204,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
+                    
+                    // Check BOTH metadata.json AND localProjectSwap.json for swap info
+                    let effectiveSwapInfo = metadataResult.metadata?.meta?.projectSwap;
+                    
+                    if (!effectiveSwapInfo) {
+                        // Try localProjectSwap.json
+                        try {
+                            const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                            const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                            if (localSwapFile?.remoteSwapInfo) {
+                                effectiveSwapInfo = localSwapFile.remoteSwapInfo;
+                                debugLog("Using swap info from localProjectSwap.json for performSwap");
+                            }
+                        } catch {
+                            // Non-fatal
+                        }
+                    }
 
-                    if (!metadataResult.success || !metadataResult.metadata?.meta?.projectSwap) {
+                    if (!effectiveSwapInfo) {
                         vscode.window.showErrorMessage("Cannot perform swap: Project swap metadata missing.");
                         return;
                     }
 
-                    const swapInfo = metadataResult.metadata.meta.projectSwap;
-                    const projectName = metadataResult.metadata.projectName || path.basename(projectPath);
+                    const swapInfo = effectiveSwapInfo;
+                    const projectName = metadataResult.metadata?.projectName || path.basename(projectPath);
 
                     // Normalize swap info to get active entry
                     const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByTimestamp } = await import("../../utils/projectSwapManager");

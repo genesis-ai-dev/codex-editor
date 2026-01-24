@@ -138,6 +138,16 @@ export async function performProjectSwap(
             // Step 10: Cleanup temp directory
             await cleanupTempDirectory(tempDir);
 
+            // Step 11: Clean up localProjectSwap.json from old project (if it exists)
+            // This file was used to cache remote swap info and is no longer needed
+            try {
+                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                await deleteLocalProjectSwapFile(projectUri);
+                debugLog("Cleaned up localProjectSwap.json from old project");
+            } catch {
+                // Non-fatal - file may not exist or already deleted
+            }
+
             progress.report({ increment: 15, message: "Swap complete!" });
             debugLog("Project swap completed successfully");
 

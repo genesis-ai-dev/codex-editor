@@ -69,6 +69,42 @@ async function cancelSwapEntry(
     );
 
     if (updateResult.success) {
+        // Also update or delete localProjectSwap.json to keep it in sync
+        try {
+            const { readLocalProjectSwapFile, writeLocalProjectSwapFile, deleteLocalProjectSwapFile } = await import("../utils/localProjectSettings");
+            const localSwapFile = await readLocalProjectSwapFile(projectUri);
+            if (localSwapFile?.remoteSwapInfo) {
+                const normalized = normalizeProjectSwapInfo(localSwapFile.remoteSwapInfo);
+                const entries = normalized.swapEntries || [];
+                const entryIndex = entries.findIndex(e => e.swapInitiatedAt === swapInitiatedAt);
+                if (entryIndex >= 0) {
+                    entries[entryIndex] = {
+                        ...entries[entryIndex],
+                        swapStatus: "cancelled",
+                        swapModifiedAt: now,
+                        cancelledBy,
+                        cancelledAt: now,
+                    };
+                }
+                
+                // Check if there are any remaining active entries
+                const hasActiveEntries = entries.some(e => e.swapStatus === "active");
+                if (hasActiveEntries) {
+                    // Update the file with the cancelled entry
+                    await writeLocalProjectSwapFile({
+                        remoteSwapInfo: { swapEntries: entries },
+                        fetchedAt: now,
+                        sourceOriginUrl: localSwapFile.sourceOriginUrl,
+                    }, projectUri);
+                } else {
+                    // No more active swaps, delete the file
+                    await deleteLocalProjectSwapFile(projectUri);
+                }
+            }
+        } catch {
+            // Non-fatal - localProjectSwap.json might not exist
+        }
+        
         // Commit and push the changes
         await vscode.commands.executeCommand(
             "codex-editor-extension.triggerSync",
@@ -314,6 +350,23 @@ export async function initiateProjectSwap(): Promise<void> {
             throw new Error(updateResult.error || "Failed to update metadata.json");
         }
 
+        // Also write to localProjectSwap.json as a local backup
+        // This ensures the swap info is available even if remote fetch fails
+        try {
+            const { writeLocalProjectSwapFile } = await import("../utils/localProjectSettings");
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [newEntry],
+            };
+            await writeLocalProjectSwapFile({
+                remoteSwapInfo: swapInfo,
+                fetchedAt: Date.now(),
+                sourceOriginUrl: currentGitUrl,
+            }, projectUri);
+            debug("Also wrote swap info to localProjectSwap.json");
+        } catch (localWriteError) {
+            debug("Failed to write localProjectSwap.json (non-fatal):", localWriteError);
+        }
+
         debug("Metadata updated successfully, committing and pushing changes...");
 
         // Commit and push the changes
@@ -354,11 +407,34 @@ export async function viewProjectSwapStatus(): Promise<void> {
             return;
         }
 
-        const metadataPath = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, "metadata.json"));
-        const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
-        const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+        const projectUri = workspaceFolder.uri;
+        
+        // Check BOTH metadata.json AND localProjectSwap.json for swap info
+        let effectiveSwapInfo: ProjectSwapInfo | undefined;
+        
+        try {
+            const metadataPath = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, "metadata.json"));
+            const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+            const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+            effectiveSwapInfo = metadata?.meta?.projectSwap;
+        } catch {
+            // metadata.json might not exist or have issues
+        }
+        
+        if (!effectiveSwapInfo) {
+            try {
+                const { readLocalProjectSwapFile } = await import("../utils/localProjectSettings");
+                const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                if (localSwapFile?.remoteSwapInfo) {
+                    effectiveSwapInfo = localSwapFile.remoteSwapInfo;
+                    debug("Using swap info from localProjectSwap.json for status view");
+                }
+            } catch {
+                // Non-fatal
+            }
+        }
 
-        if (!metadata?.meta?.projectSwap) {
+        if (!effectiveSwapInfo) {
             vscode.window.showInformationMessage(
                 "No project swap is configured for this project."
             );
@@ -366,7 +442,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
         }
 
         // Normalize to new format
-        const swap = normalizeProjectSwapInfo(metadata.meta.projectSwap);
+        const swap = normalizeProjectSwapInfo(effectiveSwapInfo);
         const allEntries = getAllSwapEntries(swap);
         const activeEntry = getActiveSwapEntry(swap);
 
@@ -447,11 +523,36 @@ export async function cancelProjectSwap(): Promise<void> {
         }
 
         const projectUri = vscode.Uri.file(workspaceFolder.uri.fsPath);
-        const metadataPath = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, "metadata.json"));
-        const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
-        const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+        
+        // Check BOTH metadata.json AND localProjectSwap.json for swap info
+        let metadata: ProjectMetadata | undefined;
+        let effectiveSwapInfo: ProjectSwapInfo | undefined;
+        let swapSourceIsLocal = false;
+        
+        try {
+            const metadataPath = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, "metadata.json"));
+            const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+            metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+            effectiveSwapInfo = metadata?.meta?.projectSwap;
+        } catch {
+            // metadata.json might not exist or have issues
+        }
+        
+        if (!effectiveSwapInfo) {
+            try {
+                const { readLocalProjectSwapFile } = await import("../utils/localProjectSettings");
+                const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                if (localSwapFile?.remoteSwapInfo) {
+                    effectiveSwapInfo = localSwapFile.remoteSwapInfo;
+                    swapSourceIsLocal = true;
+                    debug("Using swap info from localProjectSwap.json for cancel");
+                }
+            } catch {
+                // Non-fatal
+            }
+        }
 
-        if (!metadata?.meta?.projectSwap) {
+        if (!effectiveSwapInfo) {
             vscode.window.showInformationMessage(
                 "No project swap is configured for this project."
             );
@@ -459,7 +560,7 @@ export async function cancelProjectSwap(): Promise<void> {
         }
 
         // Normalize to new format and find active swap entry
-        const normalizedSwap = normalizeProjectSwapInfo(metadata.meta.projectSwap);
+        const normalizedSwap = normalizeProjectSwapInfo(effectiveSwapInfo);
         const activeEntry = getActiveSwapEntry(normalizedSwap);
 
         if (!activeEntry) {
