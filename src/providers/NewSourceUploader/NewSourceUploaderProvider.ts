@@ -14,6 +14,7 @@ import {
     handleFinalizeAudioImport,
 } from "./importers/audioSplitter";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
+import type { SpreadsheetNotebookMetadata } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/processedNotebookMetadata";
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
@@ -783,18 +784,27 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 importerType: processedNotebook.metadata.importerType
             }),
             // Spreadsheet-specific metadata for round-trip export
-            ...(processedNotebook.metadata?.originalFileContent && {
-                originalFileContent: processedNotebook.metadata.originalFileContent
-            }),
-            ...(processedNotebook.metadata?.columnHeaders && {
-                columnHeaders: processedNotebook.metadata.columnHeaders
-            }),
-            ...(processedNotebook.metadata?.sourceColumnIndex !== undefined && {
-                sourceColumnIndex: processedNotebook.metadata.sourceColumnIndex
-            }),
-            ...(processedNotebook.metadata?.delimiter && {
-                delimiter: processedNotebook.metadata.delimiter
-            }),
+            ...(processedNotebook.metadata.importerType === "spreadsheet" ||
+                processedNotebook.metadata.importerType === "spreadsheet-csv" ||
+                processedNotebook.metadata.importerType === "spreadsheet-tsv"
+                ? (() => {
+                      const spreadsheetMetadata = processedNotebook.metadata as SpreadsheetNotebookMetadata;
+                      return {
+                          ...(spreadsheetMetadata.originalFileContent && {
+                              originalFileContent: spreadsheetMetadata.originalFileContent
+                          }),
+                          ...(spreadsheetMetadata.columnHeaders && {
+                              columnHeaders: spreadsheetMetadata.columnHeaders
+                          }),
+                          ...(spreadsheetMetadata.sourceColumnIndex !== undefined && {
+                              sourceColumnIndex: spreadsheetMetadata.sourceColumnIndex
+                          }),
+                          ...(spreadsheetMetadata.delimiter && {
+                              delimiter: spreadsheetMetadata.delimiter
+                          }),
+                      };
+                  })()
+                : {}),
         };
 
         return {
