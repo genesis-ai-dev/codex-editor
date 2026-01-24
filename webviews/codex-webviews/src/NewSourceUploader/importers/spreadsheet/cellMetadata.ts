@@ -14,7 +14,10 @@ import { v4 as uuidv4 } from 'uuid';
 export interface SpreadsheetCellMetadataParams {
     originalContent: string;
     rowIndex: number;
-    originalRow: string[];
+    /** The full original row values (all columns) */
+    originalRowValues: string[];
+    /** The index of the source content column */
+    sourceColumnIndex: number;
     fileName: string;
     globalReferences?: string[];
 }
@@ -22,9 +25,10 @@ export interface SpreadsheetCellMetadataParams {
 /**
  * Creates metadata for a Spreadsheet cell
  * Always generates a UUID for the cell ID.
+ * Stores the full original row to enable round-trip export.
  */
 export function createSpreadsheetCellMetadata(params: SpreadsheetCellMetadataParams): { metadata: any; cellId: string; } {
-    const { originalContent, rowIndex, originalRow, fileName, globalReferences } = params;
+    const { originalContent, rowIndex, originalRowValues, sourceColumnIndex, fileName, globalReferences } = params;
 
     const finalCellId = uuidv4();
 
@@ -36,7 +40,10 @@ export function createSpreadsheetCellMetadata(params: SpreadsheetCellMetadataPar
             edits: [],
             data: {
                 rowIndex,
-                originalRow,
+                /** Full original row values for round-trip export */
+                originalRowValues,
+                /** Index of the source column that contains the translatable content */
+                sourceColumnIndex,
                 originalContent,
                 globalReferences: (globalReferences || []).map((r) => String(r).trim()).filter(Boolean),
             },

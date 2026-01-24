@@ -1000,6 +1000,8 @@ type FileImporterType =
     | "markdown"
     | "subtitles"
     | "spreadsheet"
+    | "spreadsheet-csv"
+    | "spreadsheet-tsv"
     | "tms"
     | "pdf"
     | "indesign"

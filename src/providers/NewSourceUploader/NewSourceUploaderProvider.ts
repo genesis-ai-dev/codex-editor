@@ -262,6 +262,333 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             error: err instanceof Error ? err.message : 'Unknown error'
                         });
                     }
+                } else if (message.command === "convertPdfToDocx") {
+                    const { requestId, pdfBase64, outputPath } = message as { requestId: string; pdfBase64: string; outputPath?: string; };
+                    try {
+                        const scriptPath = path.join(this.context.extensionPath, 'webviews', 'codex-webviews', 'src', 'NewSourceUploader', 'importers', 'pdf', 'scripts', 'pdf_to_docx.py');
+                        
+                        // Verify script exists
+                        if (!fs.existsSync(scriptPath)) {
+                            throw new Error(`Python script not found at: ${scriptPath}`);
+                        }
+                        
+                        // Create temp directory
+                        const tempDir = path.join(this.context.extensionPath, '.temp');
+                        if (!fs.existsSync(tempDir)) {
+                            fs.mkdirSync(tempDir, { recursive: true });
+                        }
+                        
+                        // Write base64 PDF to temporary file to avoid command line length limits
+                        const tempPdfPath = path.join(tempDir, `input_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+                        const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+                        fs.writeFileSync(tempPdfPath, pdfBuffer);
+                        
+                        // Use temp file if outputPath not provided
+                        const docxPath = outputPath || path.join(tempDir, `converted_${Date.now()}.docx`);
+                        
+                        // Verify PDF file was written
+                        if (!fs.existsSync(tempPdfPath)) {
+                            throw new Error(`Failed to write PDF file to: ${tempPdfPath}`);
+                        }
+                        
+                        // Run Python script with file paths
+                        // On Windows, use proper quoting; on Unix, paths should work as-is
+                        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+                        
+                        // Quote paths properly for Windows (use double quotes and escape inner quotes)
+                        const quotePath = (p: string) => {
+                            if (process.platform === 'win32') {
+                                // Windows: use double quotes and escape any existing quotes
+                                return `"${p.replace(/"/g, '\\"')}"`;
+                            } else {
+                                // Unix: use single quotes and escape any existing quotes
+                                return `'${p.replace(/'/g, "\\'")}'`;
+                            }
+                        };
+                        
+                        const command = `${pythonCmd} ${quotePath(scriptPath)} ${quotePath(tempPdfPath)} ${quotePath(docxPath)}`;
+                        
+                        console.log(`[PDF→DOCX] Converting PDF to DOCX...`);
+                        console.log(`[PDF→DOCX] Command: ${command}`);
+                        
+                        let stdout = '';
+                        let stderr = '';
+                        try {
+                            const result = await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
+                            stdout = result.stdout || '';
+                            stderr = result.stderr || '';
+                        } catch (execErr: any) {
+                            // execAsync throws an error when command fails, but stdout/stderr are in the error object
+                            stdout = execErr.stdout || '';
+                            stderr = execErr.stderr || '';
+                            const errorMessage = execErr.message || 'Unknown error';
+                            
+                            // If we have stdout that might be JSON, try to parse it
+                            if (stdout.trim()) {
+                                try {
+                                    const result = JSON.parse(stdout);
+                                    if (result.error) {
+                                        throw new Error(`Python script error: ${result.error}`);
+                                    }
+                                } catch (parseErr) {
+                                    // Not JSON, use the exec error
+                                }
+                            }
+                            
+                            // Include both stdout and stderr in error message
+                            const fullError = [
+                                errorMessage,
+                                stdout ? `\nStdout: ${stdout}` : '',
+                                stderr ? `\nStderr: ${stderr}` : ''
+                            ].filter(Boolean).join('');
+                            
+                            throw new Error(fullError);
+                        }
+                        
+                        // Clean up temp PDF file
+                        try {
+                            if (fs.existsSync(tempPdfPath)) {
+                                fs.unlinkSync(tempPdfPath);
+                            }
+                        } catch (cleanupErr) {
+                            console.warn(`[PDF→DOCX] Could not delete temp PDF: ${cleanupErr}`);
+                        }
+                        
+                        // Log progress messages from stderr (Python script sends progress updates there)
+                        if (stderr) {
+                            try {
+                                // Try to parse JSON progress messages
+                                const stderrLines = stderr.split('\n').filter(line => line.trim());
+                                for (const line of stderrLines) {
+                                    try {
+                                        const progressMsg = JSON.parse(line);
+                                        if (progressMsg.info) {
+                                            console.log(`[PDF→DOCX] ${progressMsg.info}`);
+                                        }
+                                    } catch {
+                                        // Not JSON, log as-is if it's not a success message
+                                        if (line.trim() && !line.includes('"success":true')) {
+                                            console.log(`[PDF→DOCX] ${line}`);
+                                        }
+                                    }
+                                }
+                            } catch {
+                                // If parsing fails, just log the stderr
+                                if (!stdout.includes('"success":true')) {
+                                    console.warn(`[PDF→DOCX] Python stderr: ${stderr}`);
+                                }
+                            }
+                        }
+                        
+                        // Parse JSON result
+                        let result;
+                        try {
+                            result = JSON.parse(stdout);
+                        } catch (parseErr) {
+                            throw new Error(`Failed to parse Python script output as JSON. Stdout: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}. Stderr: ${stderr}`);
+                        }
+                        
+                        if (result.success) {
+                            console.log(`[PDF→DOCX] ✓ Successfully converted PDF to DOCX`);
+                            
+                            // Verify the DOCX file exists and has content
+                            if (!fs.existsSync(docxPath)) {
+                                throw new Error(`DOCX file not found at: ${docxPath}`);
+                            }
+                            
+                            const fileStats = fs.statSync(docxPath);
+                            if (fileStats.size === 0) {
+                                throw new Error(`DOCX file is empty at: ${docxPath}`);
+                            }
+                            
+                            console.log(`[PDF→DOCX] Reading DOCX file (${fileStats.size} bytes)...`);
+                            
+                            // For large files (>50MB), save directly to workspace and send file path instead of base64
+                            // This avoids memory issues and webview message size limits
+                            const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
+                            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                            
+                            if (fileStats.size > LARGE_FILE_THRESHOLD && workspaceFolder) {
+                                console.log(`[PDF→DOCX] Large file detected (${fileStats.size} bytes), saving to workspace instead of sending via message...`);
+                                
+                                // Save DOCX to temporary location in workspace
+                                const tempDir = vscode.Uri.joinPath(workspaceFolder.uri, '.project', 'temp');
+                                await vscode.workspace.fs.createDirectory(tempDir);
+                                
+                                const tempDocxUri = vscode.Uri.joinPath(tempDir, `pdf_conversion_${requestId}.docx`);
+                                const docxBuffer = fs.readFileSync(docxPath);
+                                await vscode.workspace.fs.writeFile(tempDocxUri, new Uint8Array(docxBuffer));
+                                
+                                console.log(`[PDF→DOCX] Saved large DOCX to workspace: ${tempDocxUri.fsPath}`);
+                                
+                                webviewPanel.webview.postMessage({
+                                    command: 'convertPdfToDocxResult',
+                                    requestId,
+                                    success: true,
+                                    docxFilePath: tempDocxUri.fsPath, // Send file path instead of base64
+                                    outputPath: docxPath,
+                                    isLargeFile: true
+                                });
+                            } else {
+                                // For smaller files, send base64 as before
+                                const docxBuffer = fs.readFileSync(docxPath);
+                                const docxBase64 = docxBuffer.toString('base64');
+                                
+                                // Verify base64 encoding is valid
+                                if (!docxBase64 || docxBase64.length === 0) {
+                                    throw new Error('Failed to encode DOCX file to base64');
+                                }
+                                
+                                console.log(`[PDF→DOCX] Sending DOCX data to webview (${docxBase64.length} base64 chars)...`);
+                                
+                                webviewPanel.webview.postMessage({
+                                    command: 'convertPdfToDocxResult',
+                                    requestId,
+                                    success: true,
+                                    docxBase64: docxBase64,
+                                    outputPath: docxPath,
+                                    isLargeFile: false
+                                });
+                            }
+                        } else {
+                            throw new Error(result.error || 'Conversion failed');
+                        }
+                    } catch (err) {
+                        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                        console.error('[NEW SOURCE UPLOADER] PDF→DOCX conversion failed:', err);
+                        webviewPanel.webview.postMessage({
+                            command: 'convertPdfToDocxResult',
+                            requestId,
+                            success: false,
+                            error: errorMessage
+                        });
+                    }
+                } else if (message.command === "convertDocxToPdf") {
+                    const { requestId, docxBase64, outputPath } = message as { requestId: string; docxBase64: string; outputPath?: string; };
+                    try {
+                        const scriptPath = path.join(this.context.extensionPath, 'webviews', 'codex-webviews', 'src', 'NewSourceUploader', 'importers', 'pdf', 'scripts', 'docx_to_pdf.py');
+                        
+                        // Verify script exists
+                        if (!fs.existsSync(scriptPath)) {
+                            throw new Error(`Python script not found at: ${scriptPath}`);
+                        }
+                        
+                        // Create temp directory
+                        const tempDir = path.join(this.context.extensionPath, '.temp');
+                        if (!fs.existsSync(tempDir)) {
+                            fs.mkdirSync(tempDir, { recursive: true });
+                        }
+                        
+                        // Write base64 DOCX to temporary file to avoid command line length limits
+                        const tempDocxPath = path.join(tempDir, `input_${Date.now()}_${Math.random().toString(36).slice(2)}.docx`);
+                        const docxBuffer = Buffer.from(docxBase64, 'base64');
+                        fs.writeFileSync(tempDocxPath, docxBuffer);
+                        
+                        // Use temp file if outputPath not provided
+                        const pdfPath = outputPath || path.join(tempDir, `converted_${Date.now()}.pdf`);
+                        
+                        // Verify DOCX file was written
+                        if (!fs.existsSync(tempDocxPath)) {
+                            throw new Error(`Failed to write DOCX file to: ${tempDocxPath}`);
+                        }
+                        
+                        // Run Python script with file paths
+                        // On Windows, use proper quoting; on Unix, paths should work as-is
+                        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+                        
+                        // Quote paths properly for Windows (use double quotes and escape inner quotes)
+                        const quotePath = (p: string) => {
+                            if (process.platform === 'win32') {
+                                // Windows: use double quotes and escape any existing quotes
+                                return `"${p.replace(/"/g, '\\"')}"`;
+                            } else {
+                                // Unix: use single quotes and escape any existing quotes
+                                return `'${p.replace(/'/g, "\\'")}'`;
+                            }
+                        };
+                        
+                        const command = `${pythonCmd} ${quotePath(scriptPath)} ${quotePath(tempDocxPath)} ${quotePath(pdfPath)}`;
+                        
+                        console.log(`[DOCX→PDF] Converting DOCX to PDF...`);
+                        console.log(`[DOCX→PDF] Command: ${command}`);
+                        
+                        let stdout = '';
+                        let stderr = '';
+                        try {
+                            const result = await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
+                            stdout = result.stdout || '';
+                            stderr = result.stderr || '';
+                        } catch (execErr: any) {
+                            // execAsync throws an error when command fails, but stdout/stderr are in the error object
+                            stdout = execErr.stdout || '';
+                            stderr = execErr.stderr || '';
+                            const errorMessage = execErr.message || 'Unknown error';
+                            
+                            // If we have stdout that might be JSON, try to parse it
+                            if (stdout.trim()) {
+                                try {
+                                    const result = JSON.parse(stdout);
+                                    if (result.error) {
+                                        throw new Error(`Python script error: ${result.error}`);
+                                    }
+                                } catch (parseErr) {
+                                    // Not JSON, use the exec error
+                                }
+                            }
+                            
+                            // Include both stdout and stderr in error message
+                            const fullError = [
+                                errorMessage,
+                                stdout ? `\nStdout: ${stdout}` : '',
+                                stderr ? `\nStderr: ${stderr}` : ''
+                            ].filter(Boolean).join('');
+                            
+                            throw new Error(fullError);
+                        }
+                        
+                        // Clean up temp DOCX file
+                        try {
+                            if (fs.existsSync(tempDocxPath)) {
+                                fs.unlinkSync(tempDocxPath);
+                            }
+                        } catch (cleanupErr) {
+                            console.warn(`[DOCX→PDF] Could not delete temp DOCX: ${cleanupErr}`);
+                        }
+                        
+                        if (stderr && !stdout.includes('"success":true')) {
+                            console.warn(`[DOCX→PDF] Python stderr: ${stderr}`);
+                        }
+                        
+                        // Parse JSON result
+                        let result;
+                        try {
+                            result = JSON.parse(stdout);
+                        } catch (parseErr) {
+                            throw new Error(`Failed to parse Python script output as JSON. Stdout: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}. Stderr: ${stderr}`);
+                        }
+                        
+                        if (result.success) {
+                            console.log(`[DOCX→PDF] ✓ Successfully converted DOCX to PDF`);
+                            webviewPanel.webview.postMessage({
+                                command: 'convertDocxToPdfResult',
+                                requestId,
+                                success: true,
+                                pdfBase64: result.pdfBase64,
+                                outputPath: pdfPath
+                            });
+                        } else {
+                            throw new Error(result.error || 'Conversion failed');
+                        }
+                    } catch (err) {
+                        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                        console.error('[NEW SOURCE UPLOADER] DOCX→PDF conversion failed:', err);
+                        webviewPanel.webview.postMessage({
+                            command: 'convertDocxToPdfResult',
+                            requestId,
+                            success: false,
+                            error: errorMessage
+                        });
+                    }
                 } else if (message.command === "fetchTargetFile") {
                     // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
@@ -455,6 +782,19 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...(processedNotebook.metadata?.importerType && {
                 importerType: processedNotebook.metadata.importerType
             }),
+            // Spreadsheet-specific metadata for round-trip export
+            ...(processedNotebook.metadata?.originalFileContent && {
+                originalFileContent: processedNotebook.metadata.originalFileContent
+            }),
+            ...(processedNotebook.metadata?.columnHeaders && {
+                columnHeaders: processedNotebook.metadata.columnHeaders
+            }),
+            ...(processedNotebook.metadata?.sourceColumnIndex !== undefined && {
+                sourceColumnIndex: processedNotebook.metadata.sourceColumnIndex
+            }),
+            ...(processedNotebook.metadata?.delimiter && {
+                delimiter: processedNotebook.metadata.delimiter
+            }),
         };
 
         return {
@@ -529,6 +869,54 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     // CRITICAL: Do not persist original binary content into JSON notebooks.
                     // The original template is stored in `.project/attachments/originals/<originalFileName>`.
                     delete pair.source.metadata.originalFileData;
+                }
+
+                // For PDF imports: Also save the converted DOCX file for round-trip export
+                const pdfMetadata = (pair.source.metadata as any)?.pdfDocumentMetadata;
+                if (pdfMetadata?.convertedDocxFileName) {
+                    const originalsDir = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        '.project',
+                        'attachments',
+                        'files',
+                        'originals'
+                    );
+                    await vscode.workspace.fs.createDirectory(originalsDir);
+
+                    const convertedDocxUri = vscode.Uri.joinPath(originalsDir, pdfMetadata.convertedDocxFileName);
+                    
+                    // If convertedDocxData is present (small files), save it directly
+                    // If isLargeFile flag is set, the file should already be saved in temp location
+                    if (pdfMetadata.convertedDocxData) {
+                        const docxData = pdfMetadata.convertedDocxData;
+                        // Convert ArrayBuffer to Uint8Array if needed
+                        const docxBuffer = docxData instanceof ArrayBuffer
+                            ? new Uint8Array(docxData)
+                            : Buffer.from(docxData);
+                        await vscode.workspace.fs.writeFile(convertedDocxUri, docxBuffer);
+                        console.log(`[PDF Importer] Saved converted DOCX file: ${pdfMetadata.convertedDocxFileName}`);
+                        // Remove from metadata to avoid persisting in JSON
+                        delete pdfMetadata.convertedDocxData;
+                    } else if (pdfMetadata.isLargeFile) {
+                        // For large files, check if temp file exists and copy it
+                        const tempDir = vscode.Uri.joinPath(workspaceFolder.uri, '.project', 'temp');
+                        const tempDocxUri = vscode.Uri.joinPath(tempDir, `pdf_conversion_*.docx`);
+                        // Note: We'd need the actual requestId to find the temp file
+                        // For now, try to find any matching temp file
+                        try {
+                            const tempFiles = await vscode.workspace.fs.readDirectory(tempDir);
+                            const matchingFile = tempFiles.find(([name]) => name.startsWith('pdf_conversion_') && name.endsWith('.docx'));
+                            if (matchingFile) {
+                                const tempFileUri = vscode.Uri.joinPath(tempDir, matchingFile[0]);
+                                const tempData = await vscode.workspace.fs.readFile(tempFileUri);
+                                await vscode.workspace.fs.writeFile(convertedDocxUri, tempData);
+                                await vscode.workspace.fs.delete(tempFileUri); // Clean up temp file
+                                console.log(`[PDF Importer] Saved large converted DOCX file: ${pdfMetadata.convertedDocxFileName}`);
+                            }
+                        } catch (err) {
+                            console.warn(`[PDF Importer] Could not find/copy temp DOCX file: ${err}`);
+                        }
+                    }
                 }
             }
         }

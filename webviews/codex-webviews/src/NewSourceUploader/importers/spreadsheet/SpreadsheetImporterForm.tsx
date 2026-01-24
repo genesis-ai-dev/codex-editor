@@ -401,11 +401,18 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             ? parseGlobalReferencesField(row[parseInt(globalReferencesColumnIndex)])
                             : [];
 
+                        // Build the full row values array
+                        const originalRowValues: string[] = [];
+                        for (let i = 0; i < parsedData.columns.length; i++) {
+                            originalRowValues.push(row[i] || '');
+                        }
+
                         // Create cell metadata (always generates UUID)
                         const { cellId, metadata: cellMetadata } = createSpreadsheetCellMetadata({
                             originalContent: row[parseInt(sourceColumnIndex!)],
                             rowIndex: index,
-                            originalRow: Object.keys(row),
+                            originalRowValues,
+                            sourceColumnIndex: parseInt(sourceColumnIndex!),
                             fileName: selectedFile!.name,
                             globalReferences,
                         });
@@ -418,6 +425,19 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         };
                     });
 
+                // Extract column headers for round-trip export
+                const columnHeaders = parsedData.columns.map(col => col.name);
+
+                // Read the original file as TEXT for round-trip export (more reliable than ArrayBuffer for text files)
+                // This will be stored directly in metadata for the exporter to use
+                const originalFileContent = await selectedFile!.text();
+
+                // Determine specific importer type based on file extension/delimiter
+                const fileExtension = selectedFile!.name.toLowerCase().split('.').pop();
+                const spreadsheetType = fileExtension === 'tsv' || parsedData.delimiter === '\t' 
+                    ? 'spreadsheet-tsv' 
+                    : 'spreadsheet-csv';
+
                 const notebookPair: NotebookPair = {
                     source: {
                         name: parsedData.filename,
@@ -426,10 +446,11 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             id: parsedData.filename,
                             originalFileName: selectedFile!.name,
                             sourceFile: selectedFile!.name,
-                            importerType: "spreadsheet",
+                            importerType: spreadsheetType,
+                            corpusMarker: spreadsheetType, // For rebuild export detection
                             createdAt: new Date().toISOString(),
                             importContext: {
-                                importerType: "spreadsheet",
+                                importerType: spreadsheetType,
                                 fileName: selectedFile!.name,
                                 originalFileName: selectedFile!.name,
                                 fileSize: selectedFile!.size,
@@ -438,6 +459,12 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             delimiter: parsedData.delimiter,
                             columnCount: parsedData.columns.length,
                             rowCount: parsedData.rows.length,
+                            // Store for round-trip export
+                            columnHeaders,
+                            sourceColumnIndex: parseInt(sourceColumnIndex!),
+                            // Store original file content as text for round-trip export
+                            // This is passed directly to the exporter (no file system intermediary needed for text)
+                            originalFileContent,
                         },
                     },
                     codex: {
@@ -450,15 +477,21 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             id: parsedData.filename,
                             originalFileName: selectedFile!.name,
                             sourceFile: selectedFile!.name,
-                            importerType: "spreadsheet",
+                            importerType: spreadsheetType,
+                            corpusMarker: spreadsheetType, // For rebuild export detection
                             createdAt: new Date().toISOString(),
                             importContext: {
-                                importerType: "spreadsheet",
+                                importerType: spreadsheetType,
                                 fileName: selectedFile!.name,
                                 originalFileName: selectedFile!.name,
                                 fileSize: selectedFile!.size,
                                 importTimestamp: new Date().toISOString(),
                             },
+                            delimiter: parsedData.delimiter,
+                            columnHeaders,
+                            sourceColumnIndex: parseInt(sourceColumnIndex!),
+                            // Store original file content for round-trip export
+                            originalFileContent,
                         },
                     },
                 };
