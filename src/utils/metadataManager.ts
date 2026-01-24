@@ -37,11 +37,108 @@ export class MetadataManager {
     private static readonly MAX_RETRIES = 5;
     private static readonly RETRY_DELAY_MS = 100;
     private static readonly EXTENSION_ID = "project-accelerate.codex-editor-extension";
+    
+    /**
+     * Track pending write operations to ensure they complete before critical operations
+     * Key: workspace path, Value: Set of promises for pending writes
+     */
+    private static pendingWrites = new Map<string, Set<Promise<any>>>();
+
+    /**
+     * Register a pending write operation
+     * This can be called by other modules to track their write operations
+     */
+    static registerPendingWrite(workspacePath: string, writePromise: Promise<any>): void {
+        if (!this.pendingWrites.has(workspacePath)) {
+            this.pendingWrites.set(workspacePath, new Set());
+        }
+        const writes = this.pendingWrites.get(workspacePath)!;
+        writes.add(writePromise);
+        
+        // Auto-cleanup when the write completes
+        writePromise.finally(() => {
+            writes.delete(writePromise);
+            if (writes.size === 0) {
+                this.pendingWrites.delete(workspacePath);
+            }
+        });
+    }
+
+    /**
+     * Wait for all pending write operations to complete for a given workspace
+     * Call this before switching folders or closing a project
+     * @param workspacePath - The workspace path to wait for (optional, waits for all if not provided)
+     * @param timeoutMs - Maximum time to wait (default 10 seconds)
+     */
+    static async waitForPendingWrites(workspacePath?: string, timeoutMs: number = 10000): Promise<void> {
+        const startTime = Date.now();
+        
+        const getRelevantWrites = () => {
+            if (workspacePath) {
+                const writes = this.pendingWrites.get(workspacePath);
+                return writes ? Array.from(writes) : [];
+            }
+            // Wait for all pending writes across all workspaces
+            const allWrites: Promise<any>[] = [];
+            for (const writes of this.pendingWrites.values()) {
+                allWrites.push(...writes);
+            }
+            return allWrites;
+        };
+
+        let writes = getRelevantWrites();
+        while (writes.length > 0) {
+            if (Date.now() - startTime > timeoutMs) {
+                console.warn(`[MetadataManager] Timeout waiting for ${writes.length} pending write(s)`);
+                break;
+            }
+            
+            try {
+                await Promise.race([
+                    Promise.allSettled(writes),
+                    this.sleep(100) // Check periodically for new writes
+                ]);
+            } catch {
+                // Continue waiting even if individual writes fail
+            }
+            
+            writes = getRelevantWrites();
+        }
+    }
+
+    /**
+     * Check if there are any pending writes for a workspace
+     */
+    static hasPendingWrites(workspacePath?: string): boolean {
+        if (workspacePath) {
+            const writes = this.pendingWrites.get(workspacePath);
+            return writes ? writes.size > 0 : false;
+        }
+        return this.pendingWrites.size > 0;
+    }
 
     /**
      * Safely update metadata.json with atomic operations and conflict prevention
      */
     static async safeUpdateMetadata<T = ProjectMetadata>(
+        workspaceUri: vscode.Uri,
+        updateFunction: (metadata: T) => T | Promise<T>,
+        options: MetadataUpdateOptions = {}
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
+        // Create a promise that will be resolved when the update completes
+        // This allows waitForPendingWrites to track this operation
+        const updatePromise = this.safeUpdateMetadataInternal<T>(workspaceUri, updateFunction, options);
+        
+        // Register this write operation
+        this.registerPendingWrite(workspaceUri.fsPath, updatePromise);
+        
+        return updatePromise;
+    }
+
+    /**
+     * Internal implementation of safeUpdateMetadata
+     */
+    private static async safeUpdateMetadataInternal<T = ProjectMetadata>(
         workspaceUri: vscode.Uri,
         updateFunction: (metadata: T) => T | Promise<T>,
         options: MetadataUpdateOptions = {}
@@ -150,6 +247,114 @@ export class MetadataManager {
     }
 
     /**
+     * Ensure metadata.json integrity before critical operations (like folder switches)
+     * This validates that metadata.json exists, is valid, and cleans up any orphaned temp files.
+     * Call this before operations that might interrupt ongoing writes (e.g., vscode.openFolder).
+     */
+    static async ensureMetadataIntegrity(workspaceUri: vscode.Uri): Promise<{ success: boolean; recovered?: boolean; error?: string; }> {
+        const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
+        const backupPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.backup");
+
+        try {
+            // First, cleanup any orphaned temp files
+            await this.cleanupOrphanedTempFiles(workspaceUri);
+
+            // Check if metadata.json exists and is valid
+            try {
+                const content = await vscode.workspace.fs.readFile(metadataPath);
+                const text = new TextDecoder().decode(content);
+                
+                if (!text.trim()) {
+                    throw new Error("File is empty");
+                }
+                
+                JSON.parse(text); // Validate JSON
+                return { success: true, recovered: false };
+            } catch {
+                // metadata.json is missing or invalid - try recovery
+                const recovered = await this.recoverMetadataFromTempFiles(workspaceUri, metadataPath, backupPath);
+                if (recovered) {
+                    console.log("[MetadataManager] Recovered metadata.json during integrity check");
+                    return { success: true, recovered: true };
+                }
+                return { 
+                    success: false, 
+                    error: "metadata.json is missing or corrupted and could not be recovered" 
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                error: `Integrity check failed: ${(error as Error).message}`
+            };
+        }
+    }
+
+    /**
+     * Safely open a folder, ensuring metadata integrity in the current workspace first.
+     * This is a wrapper around vscode.openFolder that ensures any pending metadata writes
+     * are completed before switching folders.
+     * 
+     * @param targetUri - The folder to open
+     * @param currentWorkspaceUri - Optional current workspace Uri to check integrity on
+     * @param newWindow - Whether to open in new window (default: false for same window)
+     */
+    static async safeOpenFolder(
+        targetUri: vscode.Uri,
+        currentWorkspaceUri?: vscode.Uri,
+        newWindow: boolean = false
+    ): Promise<void> {
+        // CRITICAL: Wait for all pending write operations to complete before switching folders
+        // This prevents interrupted atomic writes from leaving orphaned temp files
+        if (currentWorkspaceUri) {
+            if (this.hasPendingWrites(currentWorkspaceUri.fsPath)) {
+                console.log("[MetadataManager] Waiting for pending writes before folder switch...");
+                await this.waitForPendingWrites(currentWorkspaceUri.fsPath, 10000);
+            }
+        } else {
+            // Wait for ALL pending writes if no specific workspace provided
+            if (this.hasPendingWrites()) {
+                console.log("[MetadataManager] Waiting for all pending writes before folder switch...");
+                await this.waitForPendingWrites(undefined, 10000);
+            }
+        }
+
+        // If we have a current workspace, ensure its metadata integrity before switching
+        if (currentWorkspaceUri) {
+            try {
+                const result = await this.ensureMetadataIntegrity(currentWorkspaceUri);
+                if (!result.success) {
+                    console.warn("[MetadataManager] Metadata integrity check failed before folder switch:", result.error);
+                }
+                if (result.recovered) {
+                    console.log("[MetadataManager] Recovered metadata.json before folder switch");
+                }
+            } catch (error) {
+                console.warn("[MetadataManager] Error during pre-switch integrity check:", error);
+            }
+        }
+
+        // Also check the target folder if it's a Codex project
+        try {
+            const targetMetadataPath = vscode.Uri.joinPath(targetUri, "metadata.json");
+            await vscode.workspace.fs.stat(targetMetadataPath);
+            // Target has metadata.json, ensure its integrity
+            const result = await this.ensureMetadataIntegrity(targetUri);
+            if (!result.success) {
+                console.warn("[MetadataManager] Target metadata integrity check failed:", result.error);
+            }
+            if (result.recovered) {
+                console.log("[MetadataManager] Recovered metadata.json in target folder before opening");
+            }
+        } catch {
+            // Target doesn't have metadata.json or we can't check - that's fine
+        }
+
+        // Now safely open the folder
+        await vscode.commands.executeCommand("vscode.openFolder", targetUri, newWindow);
+    }
+
+    /**
      * Atomic write operation with backup and rollback
      */
     private static async atomicWriteMetadata<T>(
@@ -186,8 +391,26 @@ export class MetadataManager {
             const encoded = new TextEncoder().encode(jsonContent);
             await vscode.workspace.fs.writeFile(metadataPath, encoded);
 
-            // Step 4: Cleanup backup after successful write
+            // Step 4: Verify write was successful - VS Code may use internal atomic writes
+            // that can leave orphaned temp files if interrupted
+            const writeVerified = await this.verifyWriteSuccess(metadataPath, workspaceUri);
+            if (!writeVerified) {
+                // Attempt recovery from temp files
+                const recovered = await this.recoverMetadataFromTempFiles(workspaceUri, metadataPath, backupPath);
+                if (!recovered) {
+                    return {
+                        success: false,
+                        error: "Write verification failed - metadata.json may not have been written correctly"
+                    };
+                }
+                console.log("[MetadataManager] Recovered metadata.json after write verification failure");
+            }
+
+            // Step 5: Cleanup backup after successful write
             await this.cleanupFile(backupPath);
+
+            // Step 6: Cleanup any orphaned temp files from VS Code's internal atomic writes
+            await this.cleanupOrphanedTempFiles(workspaceUri);
 
             return { success: true };
 
@@ -515,14 +738,31 @@ export class MetadataManager {
     /**
      * Safely read metadata without locking (read-only operation)
      * Checks for locks and retries if file is being written
+     * Also recovers from orphaned temp files if metadata.json is missing
      */
     static async safeReadMetadata<T = ProjectMetadata>(
         workspaceUri: vscode.Uri
     ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
         const lockPath = vscode.Uri.joinPath(workspaceUri, ".metadata.lock");
+        const backupPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.backup");
         const maxRetries = 5;
         const retryDelayMs = 100;
+
+        // First, check if metadata.json exists - if not, try to recover from temp files or backup
+        try {
+            await vscode.workspace.fs.stat(metadataPath);
+        } catch {
+            // metadata.json doesn't exist - try to recover
+            const recovered = await this.recoverMetadataFromTempFiles(workspaceUri, metadataPath, backupPath);
+            if (!recovered) {
+                return {
+                    success: false,
+                    error: "metadata.json not found and no recovery possible"
+                };
+            }
+            console.log("[MetadataManager] Successfully recovered metadata.json from temp/backup files");
+        }
 
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
@@ -614,5 +854,169 @@ export class MetadataManager {
             success: false,
             error: `Failed to read metadata.json after ${maxRetries} attempts (file may be locked)`
         };
+    }
+
+    /**
+     * Verify that metadata.json was written successfully
+     * VS Code's workspace.fs.writeFile may use internal atomic writes that can fail silently
+     */
+    private static async verifyWriteSuccess(
+        metadataPath: vscode.Uri,
+        workspaceUri: vscode.Uri
+    ): Promise<boolean> {
+        try {
+            // Small delay to allow any async file system operations to complete
+            await this.sleep(50);
+            
+            // Check if metadata.json exists and is readable
+            const content = await vscode.workspace.fs.readFile(metadataPath);
+            const text = new TextDecoder().decode(content);
+            
+            // Verify it's valid JSON
+            JSON.parse(text);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Cleanup any orphaned temp files from VS Code's internal atomic writes
+     * Pattern: .metadata.json.<timestamp>-<random>.tmp
+     */
+    private static async cleanupOrphanedTempFiles(workspaceUri: vscode.Uri): Promise<void> {
+        try {
+            const entries = await vscode.workspace.fs.readDirectory(workspaceUri);
+            const tempFiles = entries.filter(([name, type]) => 
+                type === vscode.FileType.File && 
+                name.startsWith(".metadata.json.") && 
+                name.endsWith(".tmp")
+            );
+
+            for (const [name] of tempFiles) {
+                try {
+                    const tempPath = vscode.Uri.joinPath(workspaceUri, name);
+                    await this.cleanupFile(tempPath);
+                    console.log(`[MetadataManager] Cleaned up orphaned temp file: ${name}`);
+                } catch {
+                    // Best effort cleanup
+                }
+            }
+
+            // Also cleanup stale lock files (older than 30 seconds)
+            const lockPath = vscode.Uri.joinPath(workspaceUri, ".metadata.lock");
+            try {
+                const lockContent = await vscode.workspace.fs.readFile(lockPath);
+                const lockData = JSON.parse(new TextDecoder().decode(lockContent));
+                if (lockData.timestamp && Date.now() - lockData.timestamp > 30000) {
+                    await this.cleanupFile(lockPath);
+                    console.log("[MetadataManager] Cleaned up stale lock file");
+                }
+            } catch {
+                // Lock doesn't exist or can't be read - that's fine
+            }
+
+            // Cleanup orphaned backup file if metadata.json exists and is valid
+            // This handles cases where backup cleanup failed after a successful write
+            const backupPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.backup");
+            try {
+                // Only cleanup backup if metadata.json exists and is valid
+                const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
+                const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+                const metadataText = new TextDecoder().decode(metadataContent);
+                JSON.parse(metadataText); // Validate JSON
+                
+                // metadata.json is valid, safe to delete backup
+                await this.cleanupFile(backupPath);
+                console.log("[MetadataManager] Cleaned up orphaned backup file");
+            } catch {
+                // Either metadata.json doesn't exist/invalid, or backup doesn't exist - that's fine
+                // We don't want to delete the backup if metadata.json is missing (it might be needed for recovery)
+            }
+        } catch {
+            // Best effort cleanup
+        }
+    }
+
+    /**
+     * Attempt to recover metadata.json from orphaned temp files or backup
+     * This handles cases where atomic write was interrupted (e.g., VS Code folder switch)
+     */
+    private static async recoverMetadataFromTempFiles(
+        workspaceUri: vscode.Uri,
+        metadataPath: vscode.Uri,
+        backupPath: vscode.Uri
+    ): Promise<boolean> {
+        try {
+            // List files in the workspace directory to find orphaned temp files
+            const entries = await vscode.workspace.fs.readDirectory(workspaceUri);
+            
+            // Look for temp files matching pattern: .metadata.json.<timestamp>-<random>.tmp
+            const tempFiles = entries
+                .filter(([name, type]) => 
+                    type === vscode.FileType.File && 
+                    name.startsWith(".metadata.json.") && 
+                    name.endsWith(".tmp")
+                )
+                .map(([name]) => ({
+                    name,
+                    path: vscode.Uri.joinPath(workspaceUri, name),
+                    // Extract timestamp from filename for sorting
+                    timestamp: parseInt(name.split(".")[2]?.split("-")[0] || "0", 10)
+                }))
+                .sort((a, b) => b.timestamp - a.timestamp); // Most recent first
+
+            // Try to recover from the most recent temp file
+            for (const tempFile of tempFiles) {
+                try {
+                    const content = await vscode.workspace.fs.readFile(tempFile.path);
+                    const text = new TextDecoder().decode(content);
+                    
+                    // Validate it's valid JSON
+                    JSON.parse(text);
+                    
+                    // Valid JSON - copy to metadata.json
+                    await vscode.workspace.fs.writeFile(metadataPath, content);
+                    
+                    // Cleanup temp file
+                    await this.cleanupFile(tempFile.path);
+                    
+                    console.log(`[MetadataManager] Recovered metadata.json from ${tempFile.name}`);
+                    return true;
+                } catch {
+                    // This temp file is invalid, try next one
+                    console.warn(`[MetadataManager] Temp file ${tempFile.name} is invalid, trying next...`);
+                }
+            }
+
+            // No valid temp files found, try backup
+            try {
+                const backupContent = await vscode.workspace.fs.readFile(backupPath);
+                const text = new TextDecoder().decode(backupContent);
+                
+                // Validate it's valid JSON
+                JSON.parse(text);
+                
+                // Valid backup - copy to metadata.json
+                await vscode.workspace.fs.writeFile(metadataPath, backupContent);
+                
+                console.log("[MetadataManager] Recovered metadata.json from backup");
+                return true;
+            } catch {
+                // Backup doesn't exist or is invalid
+            }
+
+            // Cleanup any orphaned temp files and lock file
+            for (const tempFile of tempFiles) {
+                await this.cleanupFile(tempFile.path);
+            }
+            const lockPath = vscode.Uri.joinPath(workspaceUri, ".metadata.lock");
+            await this.cleanupFile(lockPath);
+
+            return false;
+        } catch (error) {
+            console.error("[MetadataManager] Error during temp file recovery:", error);
+            return false;
+        }
     }
 }

@@ -851,7 +851,13 @@ export async function initiateSwapCopy(): Promise<void> {
             }
 
             progress.report({ message: "Opening new project..." });
-            await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(newProjectPath));
+            
+            // Use safe folder switch that ensures metadata integrity
+            const { MetadataManager } = await import("../utils/metadataManager");
+            await MetadataManager.safeOpenFolder(
+                vscode.Uri.file(newProjectPath),
+                workspaceFolder.uri
+            );
         });
 
     } catch (error) {

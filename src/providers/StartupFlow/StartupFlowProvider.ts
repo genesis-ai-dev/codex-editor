@@ -3289,7 +3289,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     const swapDecision = await this.promptForProjectSwapAction(activeEntry);
                     if (swapDecision === "openDeprecated") {
-                        await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                        // Use safe folder opening to ensure metadata integrity
+                        const { MetadataManager } = await import("../../utils/metadataManager");
+                        await MetadataManager.safeOpenFolder(projectUri);
                         return;
                     }
                     if (swapDecision !== "swap") {
@@ -3314,7 +3316,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         );
 
                         progress.report({ message: "Opening swapped project..." });
-                        await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(newPath));
+                        // Use safe folder opening to ensure writes complete and metadata integrity
+                        const { MetadataManager } = await import("../../utils/metadataManager");
+                        await MetadataManager.safeOpenFolder(
+                            vscode.Uri.file(newPath),
+                            projectUri // current workspace for write wait
+                        );
                     });
 
                 } catch (error) {

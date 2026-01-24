@@ -1173,6 +1173,12 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
         watchedFolders = validFolders;
     }
 
+    // Clean up any folders marked for deletion from previous failed swap cleanups
+    // This runs in the background and doesn't block project listing
+    cleanupFoldersMarkedForDeletion(validFolders).catch(err => {
+        debug("Error during swap folder cleanup:", err);
+    });
+
     const folderScanStart = Date.now();
 
 
@@ -1369,6 +1375,20 @@ async function processProjectDirectory(
         // Read metadata first
         try {
             const metadataUri = vscode.Uri.file(path.join(projectPath, "metadata.json"));
+            const projectUri = vscode.Uri.file(projectPath);
+            
+            // First, try to ensure metadata integrity - this will recover from orphaned temp files
+            // This is critical for projects that were left in a corrupted state due to interrupted writes
+            try {
+                const integrityResult = await MetadataManager.ensureMetadataIntegrity(projectUri);
+                if (integrityResult.recovered) {
+                    debug(`Recovered metadata.json for project: ${name}`);
+                }
+            } catch (integrityError) {
+                // If integrity check fails completely, we'll handle it below
+                debug(`Metadata integrity check failed for ${name}:`, integrityError);
+            }
+            
             // Quick check if metadata exists
             await vscode.workspace.fs.stat(metadataUri);
 
@@ -1985,5 +2005,55 @@ export async function validateAndFixProjectMetadata(projectUri: vscode.Uri): Pro
         }
     } catch (error) {
         console.error("Error validating/fixing project metadata:", error);
+    }
+}
+
+/**
+ * Scan watched folders for project folders marked for deletion and delete them.
+ * This cleans up old _tmp folders from failed swap cleanups.
+ * 
+ * @param watchedFolders - List of parent directories to scan
+ */
+export async function cleanupFoldersMarkedForDeletion(watchedFolders: string[]): Promise<void> {
+    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+    
+    for (const watchedFolder of watchedFolders) {
+        try {
+            const watchedFolderUri = vscode.Uri.file(watchedFolder);
+            const entries = await vscode.workspace.fs.readDirectory(watchedFolderUri);
+            
+            for (const [name, type] of entries) {
+                if (type !== vscode.FileType.Directory) continue;
+                
+                // Only check folders that look like swap temp folders (contain _tmp)
+                if (!name.includes("_tmp")) continue;
+                
+                const folderPath = path.join(watchedFolder, name);
+                const folderUri = vscode.Uri.file(folderPath);
+                
+                try {
+                    const swapFile = await readLocalProjectSwapFile(folderUri);
+                    
+                    if (swapFile?.markedForDeletion) {
+                        debug(`Found folder marked for deletion: ${folderPath}`);
+                        debug(`Swap completed at: ${swapFile.swapCompletedAt ? new Date(swapFile.swapCompletedAt).toISOString() : "unknown"}`);
+                        
+                        // Attempt to delete the folder
+                        try {
+                            const fs = await import("fs");
+                            fs.rmSync(folderPath, { recursive: true, force: true });
+                            debug(`Successfully deleted folder: ${folderPath}`);
+                        } catch (deleteErr) {
+                            debug(`Could not delete folder ${folderPath}:`, deleteErr);
+                            // Non-fatal - will try again on next scan
+                        }
+                    }
+                } catch {
+                    // localProjectSwap.json doesn't exist or can't be read - skip
+                }
+            }
+        } catch (err) {
+            debug(`Error scanning watched folder ${watchedFolder} for cleanup:`, err);
+        }
     }
 }

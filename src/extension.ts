@@ -424,7 +424,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const { registerRemoteUpdatingCommands } = await import("./commands/remoteUpdatingCommands");
         registerRemoteUpdatingCommands(context);
 
-        // Register project swap commands (for instance admins to migrate repositories)
+        // Register project swap commands (for instance admins to swap repositories)
         const { registerProjectSwapCommands } = await import("./commands/projectSwapCommands");
         registerProjectSwapCommands(context);
 

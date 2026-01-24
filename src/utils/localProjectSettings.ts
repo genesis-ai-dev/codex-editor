@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import { MetadataManager } from "./metadataManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[LocalProjectSettings]", ...args) : () => { };
@@ -141,17 +142,37 @@ export async function readLocalProjectSettings(workspaceFolderUri?: vscode.Uri):
 
 /**
  * Writes the local project settings to disk
+ * Registers as a pending write operation to ensure completion before folder switches
  */
 export async function writeLocalProjectSettings(
     settings: LocalProjectSettings,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
+    const workspaceUri = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
     const settingsPath = getSettingsFilePath(workspaceFolderUri);
-    if (!settingsPath) {
+    if (!settingsPath || !workspaceUri) {
         console.error("Cannot write local project settings: No workspace folder found");
         return;
     }
 
+    // Create a promise for the write operation and register it
+    const writePromise = writeLocalProjectSettingsInternal(settings, workspaceFolderUri, settingsPath);
+    
+    // Register this write operation with MetadataManager's tracking system
+    // This ensures waitForPendingWrites will wait for this operation
+    MetadataManager.registerPendingWrite(workspaceUri.fsPath, writePromise);
+    
+    return writePromise;
+}
+
+/**
+ * Internal implementation of writeLocalProjectSettings
+ */
+async function writeLocalProjectSettingsInternal(
+    settings: LocalProjectSettings,
+    workspaceFolderUri: vscode.Uri | undefined,
+    settingsPath: vscode.Uri
+): Promise<void> {
     try {
         // Ensure .project directory exists
         const projectDir = vscode.Uri.joinPath(
@@ -424,6 +445,16 @@ export interface LocalProjectSwapFile {
     fetchedAt: number;
     /** The git origin URL this was fetched from (for validation) */
     sourceOriginUrl: string;
+    /** 
+     * If true, this project folder should be deleted on next cleanup scan.
+     * This is set when the swap completes successfully but cleanup failed.
+     */
+    markedForDeletion?: boolean;
+    /** 
+     * Timestamp when the swap was completed and folder was marked for deletion.
+     * Used for logging/debugging purposes.
+     */
+    swapCompletedAt?: number;
 }
 
 /**
@@ -451,17 +482,36 @@ export async function readLocalProjectSwapFile(workspaceFolderUri?: vscode.Uri):
 /**
  * Writes the local project swap file to disk
  * Used to cache remote projectSwap info for offline use
+ * Registers as a pending write operation to ensure completion before folder switches
  */
 export async function writeLocalProjectSwapFile(
     data: LocalProjectSwapFile,
     workspaceFolderUri?: vscode.Uri
 ): Promise<void> {
+    const workspaceUri = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
     const filePath = getLocalSwapFilePath(workspaceFolderUri);
-    if (!filePath) {
+    if (!filePath || !workspaceUri) {
         debug("Cannot write local swap file: no workspace folder");
         return;
     }
 
+    // Create a promise for the write operation and register it
+    const writePromise = writeLocalProjectSwapFileInternal(data, workspaceFolderUri, filePath);
+    
+    // Register this write operation with MetadataManager's tracking system
+    MetadataManager.registerPendingWrite(workspaceUri.fsPath, writePromise);
+    
+    return writePromise;
+}
+
+/**
+ * Internal implementation of writeLocalProjectSwapFile
+ */
+async function writeLocalProjectSwapFileInternal(
+    data: LocalProjectSwapFile,
+    workspaceFolderUri: vscode.Uri | undefined,
+    filePath: vscode.Uri
+): Promise<void> {
     try {
         // Ensure .project directory exists
         const projectDir = vscode.Uri.joinPath(

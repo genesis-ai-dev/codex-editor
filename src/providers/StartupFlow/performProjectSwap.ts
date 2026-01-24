@@ -120,7 +120,26 @@ export async function performProjectSwap(
                 // best-effort
             }
 
-            // Step 8: Promote cloned project to canonical location (new name)
+            // Step 8: Mark old project (_tmp folder) for deletion before attempting cleanup
+            // Write a marker file first so if deletion fails, it can be cleaned up later by projects list
+            const tmpUri = vscode.Uri.file(tmpPath);
+            try {
+                const { writeLocalProjectSwapFile, readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                const existingSwapFile = await readLocalProjectSwapFile(tmpUri);
+                await writeLocalProjectSwapFile({
+                    remoteSwapInfo: existingSwapFile?.remoteSwapInfo || { swapEntries: [] },
+                    fetchedAt: existingSwapFile?.fetchedAt || Date.now(),
+                    sourceOriginUrl: existingSwapFile?.sourceOriginUrl || "",
+                    markedForDeletion: true,
+                    swapCompletedAt: Date.now(),
+                }, tmpUri);
+                debugLog("Marked old project folder for deletion:", tmpPath);
+            } catch (markerErr) {
+                debugLog("Could not write deletion marker (non-fatal):", markerErr);
+            }
+
+            // Step 8b: Promote cloned project to canonical location (new name)
+            // This will also attempt to delete the old _tmp folder
             progress.report({ increment: 15, message: "Swapping project directories..." });
             await swapDirectories(tmpPath, newProjectPath, targetProjectPath);
 
@@ -135,18 +154,16 @@ export async function performProjectSwap(
                 },
             }, finalProjectUri);
 
-            // Step 10: Cleanup temp directory
-            await cleanupTempDirectory(tempDir);
-
-            // Step 11: Clean up localProjectSwap.json from old project (if it exists)
-            // This file was used to cache remote swap info and is no longer needed
+            // Step 9b: Update projectName in metadata to match the new folder name
+            // This is critical after a swap - the old projectName may have been merged from the old project
             try {
-                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
-                await deleteLocalProjectSwapFile(projectUri);
-                debugLog("Cleaned up localProjectSwap.json from old project");
-            } catch {
-                // Non-fatal - file may not exist or already deleted
+                await updateProjectNameToMatchFolder(finalProjectUri, targetFolderName);
+            } catch (err) {
+                debugLog("Warning: Could not update projectName (non-fatal):", err);
             }
+
+            // Step 10: Cleanup temp directory (the system temp used for cloning)
+            await cleanupTempDirectory(tempDir);
 
             progress.report({ increment: 15, message: "Swap complete!" });
             debugLog("Project swap completed successfully");
@@ -479,14 +496,43 @@ async function swapDirectories(oldTmpPath: string, newPath: string, targetPath: 
         fs.rmSync(targetPath, { recursive: true, force: true });
     }
     fs.renameSync(newPath, targetPath);
-    try {
-        if (fs.existsSync(oldTmpPath)) {
-            fs.rmSync(oldTmpPath, { recursive: true, force: true });
-        }
-    } catch {
-        // ignore cleanup failures
-    }
+    
+    // Clean up the old _tmp folder with retries
+    await cleanupOldTmpFolder(oldTmpPath);
+    
     debugLog("Directory swap completed");
+}
+
+/**
+ * Clean up the old _tmp folder with retries
+ * This folder contains the old project after it was renamed during swap
+ */
+async function cleanupOldTmpFolder(oldTmpPath: string): Promise<void> {
+    if (!fs.existsSync(oldTmpPath)) {
+        return;
+    }
+    
+    // Try up to 3 times with increasing delays (handles file lock issues)
+    const maxRetries = 3;
+    const delays = [100, 500, 1000]; // ms
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            fs.rmSync(oldTmpPath, { recursive: true, force: true });
+            debugLog(`Successfully cleaned up old tmp folder: ${oldTmpPath}`);
+            return;
+        } catch (error) {
+            debugLog(`Attempt ${attempt + 1}/${maxRetries} to delete tmp folder failed:`, error);
+            if (attempt < maxRetries - 1) {
+                await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+            }
+        }
+    }
+    
+    // If all retries failed, log a warning but don't throw
+    // The folder can be manually cleaned up later
+    console.warn(`[ProjectSwap] Could not delete old tmp folder after ${maxRetries} attempts: ${oldTmpPath}`);
+    console.warn("[ProjectSwap] This folder can be safely deleted manually.");
 }
 
 /**
@@ -587,5 +633,46 @@ async function copyDirectory(
             }
             fs.copyFileSync(srcPath, destPath);
         }
+    }
+}
+
+/**
+ * Update the projectName in metadata.json to match the new folder name
+ * This is critical after a project swap - the old projectName may have been
+ * merged from the old project and needs to be updated to match the new identity.
+ * 
+ * @param projectUri - URI of the project folder
+ * @param folderName - The folder name to derive the project name from
+ */
+async function updateProjectNameToMatchFolder(projectUri: vscode.Uri, folderName: string): Promise<void> {
+    const metadataPath = vscode.Uri.joinPath(projectUri, "metadata.json");
+    
+    try {
+        const content = await vscode.workspace.fs.readFile(metadataPath);
+        const metadata = JSON.parse(Buffer.from(content).toString("utf-8"));
+        
+        // Extract UUID from folder name and strip it to get the base name
+        const { extractProjectIdFromFolderName, sanitizeProjectName } = await import("../../projectManager/utils/projectUtils");
+        const projectId = extractProjectIdFromFolderName(folderName);
+        
+        let baseName = folderName;
+        if (projectId && baseName.includes(projectId)) {
+            baseName = baseName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
+        }
+        
+        const newProjectName = sanitizeProjectName(baseName) || "Untitled Project";
+        
+        // Only update if different
+        if (metadata.projectName !== newProjectName) {
+            debugLog(`Updating projectName: "${metadata.projectName}" -> "${newProjectName}"`);
+            metadata.projectName = newProjectName;
+            await vscode.workspace.fs.writeFile(
+                metadataPath,
+                Buffer.from(JSON.stringify(metadata, null, 4))
+            );
+        }
+    } catch (error) {
+        debugLog("Error updating projectName:", error);
+        throw error;
     }
 }
