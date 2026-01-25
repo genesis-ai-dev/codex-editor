@@ -16,6 +16,7 @@ import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo"
 import NameProjectModal from "./components/NameProjectModal";
 import { WebviewApi } from "vscode-webview";
 import ConfirmModal from "../components/ConfirmModal";
+import { useNetworkState } from "@uidotdev/usehooks";
 
 enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -39,6 +40,27 @@ export const StartupFlowView: React.FC = () => {
     useEffect(() => {
         valueRef.current = value;
     }, [value]);
+
+    // Connectivity detection - notify extension when coming back online
+    const network = useNetworkState();
+    const isOnline = network?.online;
+    const wasOnlineRef = useRef<boolean | undefined>(undefined);
+
+    useEffect(() => {
+        // Skip the first render (initialization)
+        if (wasOnlineRef.current === undefined) {
+            wasOnlineRef.current = isOnline;
+            return;
+        }
+
+        // Detect transition from offline to online
+        if (isOnline && wasOnlineRef.current === false) {
+            console.log("Connectivity restored - notifying extension to revalidate session");
+            vscode.postMessage({ command: "network.connectivityRestored" });
+        }
+
+        wasOnlineRef.current = isOnline;
+    }, [isOnline]);
 
     useEffect(() => {
         // Request metadata check to determine initial state

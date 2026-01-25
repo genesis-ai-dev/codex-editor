@@ -2263,6 +2263,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("Skipping authentication");
                 this.stateMachine.send({ type: StartupFlowEvents.SKIP_AUTH });
                 break;
+            case "network.connectivityRestored":
+                // Notify the auth extension to revalidate the session now that we're back online
+                debugLog("Connectivity restored - triggering session revalidation");
+                try {
+                    await vscode.commands.executeCommand("frontier.onConnectivityRestored");
+                } catch (error) {
+                    // Auth extension might not be installed, ignore silently
+                    debugLog("Could not notify auth extension of connectivity restored:", error);
+                }
+                break;
             case "extension.installFrontier":
                 debugLog("Opening extensions view");
                 await vscode.commands.executeCommand("workbench.view.extensions");

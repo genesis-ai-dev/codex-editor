@@ -282,6 +282,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
     | { command: "skipAuth"; }
+    | { command: "network.connectivityRestored"; }
     | { command: "webview.ready"; }
     | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }
