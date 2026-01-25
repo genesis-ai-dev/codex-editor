@@ -42,7 +42,7 @@ import {
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
-import { MetadataManager } from "./utils/metadataManager";
+import { MetadataManager, registerMetadataCommands } from "./utils/metadataManager";
 import {
     registerSplashScreenProvider,
     showSplashScreen,
@@ -568,6 +568,10 @@ export async function activate(context: vscode.ExtensionContext) {
             initializeWebviews(context),
             (async () => registerTestingCommands(context))(),
         ]);
+
+        // Register metadata commands for frontier-authentication to call
+        // This implements the "single writer" principle - only codex-editor writes to metadata.json
+        registerMetadataCommands(context);
 
         // Initialize A/B testing registry (always-on)
         initializeABTesting();

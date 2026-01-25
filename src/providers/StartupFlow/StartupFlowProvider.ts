@@ -1202,12 +1202,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
-                    
+
                     // Check BOTH metadata.json AND localProjectSwap.json for swap info
                     let swapInfo = metaResult.success
                         ? (metaResult.metadata?.meta?.projectSwap as ProjectSwapInfo | undefined)
                         : undefined;
-                    
+
                     if (!swapInfo) {
                         try {
                             const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
@@ -1423,10 +1423,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Use Awaited to get the return type of checkProjectSwapRequired
                         type SwapCheckResult = Awaited<ReturnType<typeof checkProjectSwapRequired>>;
                         const swapCheck: SwapCheckResult = remoteProjectRequirements.swapRequired
-                                ? (localSwapCheck.userAlreadySwapped
-                                    ? localSwapCheck
-                                    : { required: true, reason: "Remote swap required", swapInfo: remoteProjectRequirements.swapInfo, activeEntry: localSwapCheck.activeEntry })
-                                : localSwapCheck;
+                            ? (localSwapCheck.userAlreadySwapped
+                                ? localSwapCheck
+                                : { required: true, reason: "Remote swap required", swapInfo: remoteProjectRequirements.swapInfo, activeEntry: localSwapCheck.activeEntry })
+                            : localSwapCheck;
 
                         if (swapCheck.userAlreadySwapped && swapCheck.activeEntry) {
                             const activeEntry = swapCheck.activeEntry;
@@ -1485,19 +1485,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 `You have already swapped to ${swapTargetLabel}.\n\n` +
                                                 "You can open this deprecated project, delete the local copy, or cancel.",
                                                 { modal: true },
-                                            "Open Project",
-                                            "Delete Local Project"
-                                        );
+                                                "Open Project",
+                                                "Delete Local Project"
+                                            );
 
-                                        if (alreadySwappedChoice === "Delete Local Project") {
-                                            const projectName = projectPath.split(/[\\/]/).pop() || "project";
-                                            await this.performProjectDeletion(projectPath, projectName);
-                                            return;
-                                        }
+                                            if (alreadySwappedChoice === "Delete Local Project") {
+                                                const projectName = projectPath.split(/[\\/]/).pop() || "project";
+                                                await this.performProjectDeletion(projectPath, projectName);
+                                                return;
+                                            }
 
-                                        if (alreadySwappedChoice !== "Open Project") {
-                                            return;
-                                        }
+                                            if (alreadySwappedChoice !== "Open Project") {
+                                                return;
+                                            }
                                         }
                                     }
                                 }
@@ -3214,10 +3214,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
-                    
+
                     // Check BOTH metadata.json AND localProjectSwap.json for swap info
                     let effectiveSwapInfo = metadataResult.metadata?.meta?.projectSwap;
-                    
+
                     if (!effectiveSwapInfo) {
                         // Try localProjectSwap.json
                         try {
@@ -4836,7 +4836,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                     const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
                     const activeEntry = swapInfo ? getActiveSwapEntry(swapInfo) : undefined;
-                    
+
                     // isOldProject is now in each entry, not at the top level
                     if (activeEntry?.isOldProject) {
                         const deprecatedMessage = "This project has been deprecated.";
