@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
+import { MetadataManager } from "./metadataManager";
 
 /**
  * Migrates metadata.json terminology from "healing" to "updating"
@@ -55,6 +56,7 @@ export async function migration_healingToUpdating(projectPath: string): Promise<
     }
 
     try {
+        // Read current metadata to check if migration is needed
         const content = fs.readFileSync(metadataPath, "utf8");
         const metadata = JSON.parse(content);
 
@@ -81,72 +83,99 @@ export async function migration_healingToUpdating(projectPath: string): Promise<
             return;
         }
 
-        // Perform migration
-        let needsSave = false;
-
-        if (hasOldKey) {
-            console.log(`[Migration] Migrating ${metadata.meta.initiateRemoteHealingFor.length} entries from initiateRemoteHealingFor to initiateRemoteUpdatingFor`);
-            
-            // Migrate the array
-            const migratedEntries = metadata.meta.initiateRemoteHealingFor.map((entry: any) => {
-                // Rename userToHeal → userToUpdate while preserving key order (userToUpdate at top)
-                if ('userToHeal' in entry) {
-                    const { userToHeal, deleted, deletedBy, obliterate, ...rest } = entry;
-                    // Reconstruct with userToUpdate first (where userToHeal was)
-                    // Also rename: deleted → cancelled, deletedBy → cancelledBy, obliterate → clearEntry
-                    return {
-                        userToUpdate: userToHeal,
-                        ...rest,
-                        cancelled: deleted !== undefined ? deleted : false,
-                        cancelledBy: deletedBy !== undefined ? deletedBy : "",
-                        ...(obliterate !== undefined && { clearEntry: obliterate })
-                    };
-                }
-
-                // Note: Do NOT update updatedAt - only migrate keys
-                return entry;
-            });
-
-            // Replace old key with new key
-            metadata.meta.initiateRemoteUpdatingFor = migratedEntries;
-            delete metadata.meta.initiateRemoteHealingFor;
-            needsSave = true;
-        }
-        
-        // Also migrate existing initiateRemoteUpdatingFor entries (deleted → cancelled, obliterate → clearEntry)
+        // Check if we need to migrate existing entries (deleted → cancelled, etc.)
+        let needsEntryMigration = false;
         if (metadata.meta?.initiateRemoteUpdatingFor && !hasOldKey) {
-            const updatingList = metadata.meta.initiateRemoteUpdatingFor;
-            let updatedAny = false;
-            
-            for (const entry of updatingList) {
+            for (const entry of metadata.meta.initiateRemoteUpdatingFor) {
                 if (typeof entry === 'object' && entry !== null) {
-                    // Migrate deleted → cancelled, deletedBy → cancelledBy, obliterate → clearEntry
-                    if ('deleted' in entry && !('cancelled' in entry)) {
-                        entry.cancelled = entry.deleted;
-                        delete entry.deleted;
-                        updatedAny = true;
-                    }
-                    if ('deletedBy' in entry && !('cancelledBy' in entry)) {
-                        entry.cancelledBy = entry.deletedBy;
-                        delete entry.deletedBy;
-                        updatedAny = true;
-                    }
-                    if ('obliterate' in entry && !('clearEntry' in entry)) {
-                        entry.clearEntry = entry.obliterate;
-                        delete entry.obliterate;
-                        updatedAny = true;
+                    if ('deleted' in entry || 'deletedBy' in entry || 'obliterate' in entry) {
+                        needsEntryMigration = true;
+                        break;
                     }
                 }
             }
-            
-            if (updatedAny) {
-                console.log(`[Migration] Migrated ${updatingList.length} entries: deleted → cancelled, deletedBy → cancelledBy, obliterate → clearEntry`);
-                needsSave = true;
-            }
         }
 
-        if (needsSave) {
-            fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+        // If nothing to migrate, skip
+        if (!hasOldKey && !needsEntryMigration) {
+            console.log("[Migration] No changes needed - metadata already up to date");
+            return;
+        }
+
+        // Use MetadataManager for the write (single writer principle)
+        const projectUri = vscode.Uri.file(projectPath);
+        const result = await MetadataManager.safeUpdateMetadata(
+            projectUri,
+            (currentMetadata: any) => {
+                let needsSave = false;
+
+                // Migrate initiateRemoteHealingFor → initiateRemoteUpdatingFor
+                if (currentMetadata.meta?.initiateRemoteHealingFor) {
+                    console.log(`[Migration] Migrating ${currentMetadata.meta.initiateRemoteHealingFor.length} entries from initiateRemoteHealingFor to initiateRemoteUpdatingFor`);
+                    
+                    // Migrate the array
+                    const migratedEntries = currentMetadata.meta.initiateRemoteHealingFor.map((entry: any) => {
+                        // Rename userToHeal → userToUpdate while preserving key order (userToUpdate at top)
+                        if ('userToHeal' in entry) {
+                            const { userToHeal, deleted, deletedBy, obliterate, ...rest } = entry;
+                            // Reconstruct with userToUpdate first (where userToHeal was)
+                            // Also rename: deleted → cancelled, deletedBy → cancelledBy, obliterate → clearEntry
+                            return {
+                                userToUpdate: userToHeal,
+                                ...rest,
+                                cancelled: deleted !== undefined ? deleted : false,
+                                cancelledBy: deletedBy !== undefined ? deletedBy : "",
+                                ...(obliterate !== undefined && { clearEntry: obliterate })
+                            };
+                        }
+                        return entry;
+                    });
+
+                    // Replace old key with new key
+                    currentMetadata.meta.initiateRemoteUpdatingFor = migratedEntries;
+                    delete currentMetadata.meta.initiateRemoteHealingFor;
+                    needsSave = true;
+                }
+                
+                // Also migrate existing initiateRemoteUpdatingFor entries (deleted → cancelled, obliterate → clearEntry)
+                if (currentMetadata.meta?.initiateRemoteUpdatingFor && !currentMetadata.meta?.initiateRemoteHealingFor) {
+                    const updatingList = currentMetadata.meta.initiateRemoteUpdatingFor;
+                    
+                    for (const entry of updatingList) {
+                        if (typeof entry === 'object' && entry !== null) {
+                            // Migrate deleted → cancelled, deletedBy → cancelledBy, obliterate → clearEntry
+                            if ('deleted' in entry && !('cancelled' in entry)) {
+                                entry.cancelled = entry.deleted;
+                                delete entry.deleted;
+                                needsSave = true;
+                            }
+                            if ('deletedBy' in entry && !('cancelledBy' in entry)) {
+                                entry.cancelledBy = entry.deletedBy;
+                                delete entry.deletedBy;
+                                needsSave = true;
+                            }
+                            if ('obliterate' in entry && !('clearEntry' in entry)) {
+                                entry.clearEntry = entry.obliterate;
+                                delete entry.obliterate;
+                                needsSave = true;
+                            }
+                        }
+                    }
+                    
+                    if (needsSave) {
+                        console.log(`[Migration] Migrated entries: deleted → cancelled, deletedBy → cancelledBy, obliterate → clearEntry`);
+                    }
+                }
+
+                if (!needsSave) {
+                    console.log(`[Migration] No changes needed after analysis`);
+                }
+
+                return currentMetadata;
+            }
+        );
+
+        if (result.success) {
             console.log(`[Migration] ✅ Successfully updated metadata.json terminology: healing → updating (${projectPath})`);
             
             // Show user notification
@@ -154,7 +183,7 @@ export async function migration_healingToUpdating(projectPath: string): Promise<
                 "✅ Project metadata updated: terminology migrated from 'healing' to 'updating'"
             );
         } else {
-            console.log(`[Migration] No changes needed - metadata already up to date`);
+            console.error(`[Migration] ❌ Failed to update metadata.json: ${result.error}`);
         }
     } catch (error) {
         console.error(`[Migration] ❌ Failed to migrate metadata.json at ${projectPath}:`, error);
@@ -165,4 +194,3 @@ export async function migration_healingToUpdating(projectPath: string): Promise<
     console.log("🏁 MIGRATION COMPLETED");
     console.log("=".repeat(80));
 }
-
