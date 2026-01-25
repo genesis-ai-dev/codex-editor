@@ -105,10 +105,12 @@ async function cancelSwapEntry(
             // Non-fatal - localProjectSwap.json might not exist
         }
         
-        // Commit and push the changes
+        // Commit and push the changes - bypass swap check since we just cancelled it locally
+        // This ensures the cancellation can be pushed to remote without being blocked
         await vscode.commands.executeCommand(
             "codex-editor-extension.triggerSync",
-            "Cancelled project swap"
+            "Cancelled project swap",
+            { bypassUpdatingCheck: true }
         );
     }
 
@@ -570,12 +572,11 @@ export async function cancelProjectSwap(): Promise<void> {
             return;
         }
 
-        // Confirm cancellation
+        // Confirm cancellation - only "Yes, Cancel Swap" button, modal Cancel is the default way to decline
         const confirmed = await vscode.window.showWarningMessage(
             `Cancel Project Swap?\n\nThis will cancel the swap to "${activeEntry.newProjectName}". Users will no longer be prompted to swap.\n\nContinue?`,
             { modal: true },
-            "Yes, Cancel Swap",
-            "No"
+            "Yes, Cancel Swap"
         );
 
         if (confirmed !== "Yes, Cancel Swap") {

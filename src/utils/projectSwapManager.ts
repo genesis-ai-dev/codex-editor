@@ -127,37 +127,8 @@ export async function checkProjectSwapRequired(
         const localMetadataSwapInfo: ProjectSwapInfo | undefined = metadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
 
         // Try to fetch remote metadata for the latest swap status
-        if (gitOriginUrl) {
-            try {
-                const { fetchRemoteMetadata, extractProjectIdFromUrl } = await import("./remoteUpdatingManager");
-                const projectId = extractProjectIdFromUrl(gitOriginUrl);
-                if (projectId) {
-                    const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
-                    if (remoteMetadata?.meta?.projectSwap) {
-                        remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
-                        debug("Fetched remote metadata for swap check");
-
-                        // Cache the remote swap info locally for offline use
-                        // This creates .project/localProjectSwap.json which is gitignored
-                        try {
-                            await writeLocalProjectSwapFile({
-                                remoteSwapInfo,
-                                fetchedAt: Date.now(),
-                                sourceOriginUrl: gitOriginUrl,
-                            }, projectUri);
-                            debug("Cached remote swap info to localProjectSwap.json");
-                        } catch (cacheError) {
-                            debug("Failed to cache remote swap info (non-fatal):", cacheError);
-                        }
-                    }
-                }
-            } catch (e) {
-                debug("Could not fetch remote metadata (non-fatal):", e);
-            }
-        }
-
-        // Always check localProjectSwap.json - it may have been written by admin (Step 2)
-        // or cached from a previous remote fetch. Check it even if remote succeeded.
+        // Always check localProjectSwap.json FIRST - it may have local modifications (like cancellations)
+        // that should take precedence over remote if they have a more recent timestamp
         try {
             const cachedSwapFile = await readLocalProjectSwapFile(projectUri);
             if (cachedSwapFile?.remoteSwapInfo) {
@@ -171,46 +142,122 @@ export async function checkProjectSwapRequired(
             debug("Could not read cached swap file (non-fatal):", e);
         }
 
-        // Determine which swap info to use - prioritize by source:
-        // 1. Remote metadata (most authoritative, freshly fetched)
-        // 2. localProjectSwap.json (may have been written by admin or cached from remote)
-        // 3. Local metadata.json (synced copy)
-        // We use the first one that has an ACTIVE swap entry
-        let effectiveSwapInfo: ProjectSwapInfo | undefined;
-        
-        // Check remote first
-        if (remoteSwapInfo) {
-            const normalized = normalizeProjectSwapInfo(remoteSwapInfo);
-            const active = getActiveSwapEntry(normalized);
-            if (active) {
-                effectiveSwapInfo = remoteSwapInfo;
-                debug("Using remote metadata swap info (has active entry)");
+        if (gitOriginUrl) {
+            try {
+                const { fetchRemoteMetadata, extractProjectIdFromUrl } = await import("./remoteUpdatingManager");
+                const projectId = extractProjectIdFromUrl(gitOriginUrl);
+                if (projectId) {
+                    const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
+                    if (remoteMetadata?.meta?.projectSwap) {
+                        remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
+                        debug("Fetched remote metadata for swap check");
+
+                        // Cache the remote swap info locally for offline use, but MERGE with existing local data
+                        // to preserve local modifications (like cancellations with more recent timestamps)
+                        // This creates .project/localProjectSwap.json which is gitignored
+                        try {
+                            // Merge remote entries with existing local entries, keeping more recent swapModifiedAt
+                            const remoteEntries = normalizeProjectSwapInfo(remoteSwapInfo).swapEntries || [];
+                            const existingLocalEntries = localSwapFileInfo 
+                                ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || [])
+                                : [];
+                            
+                            // Build merged entries map - local entries first, then remote
+                            // For matching swapInitiatedAt, keep the one with more recent swapModifiedAt
+                            const mergedMap = new Map<number, ProjectSwapEntry>();
+                            for (const entry of existingLocalEntries) {
+                                mergedMap.set(entry.swapInitiatedAt, entry);
+                            }
+                            for (const entry of remoteEntries) {
+                                const existing = mergedMap.get(entry.swapInitiatedAt);
+                                if (!existing) {
+                                    mergedMap.set(entry.swapInitiatedAt, entry);
+                                } else {
+                                    // Compare timestamps - keep the more recent one
+                                    const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                                    const remoteModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                                    if (remoteModified > existingModified) {
+                                        mergedMap.set(entry.swapInitiatedAt, entry);
+                                        debug(`Cache merge: using remote entry (modified ${remoteModified}) over local (modified ${existingModified})`);
+                                    } else {
+                                        debug(`Cache merge: keeping local entry (modified ${existingModified}) over remote (modified ${remoteModified})`);
+                                    }
+                                }
+                            }
+                            
+                            const mergedSwapInfo: ProjectSwapInfo = {
+                                swapEntries: Array.from(mergedMap.values()),
+                            };
+                            
+                            await writeLocalProjectSwapFile({
+                                remoteSwapInfo: mergedSwapInfo,
+                                fetchedAt: Date.now(),
+                                sourceOriginUrl: gitOriginUrl,
+                            }, projectUri);
+                            debug("Cached merged swap info to localProjectSwap.json");
+                            
+                            // Update localSwapFileInfo with the merged data for later comparison
+                            localSwapFileInfo = mergedSwapInfo;
+                        } catch (cacheError) {
+                            debug("Failed to cache remote swap info (non-fatal):", cacheError);
+                        }
+                    }
+                }
+            } catch (e) {
+                debug("Could not fetch remote metadata (non-fatal):", e);
             }
         }
+
+        // Determine which swap info to use by MERGING entries and comparing swapModifiedAt timestamps
+        // This ensures that if local has a more recent cancellation, it takes precedence over remote's active status
+        // Key insight: For the SAME swap entry (matched by swapInitiatedAt), use the version with
+        // the most recent swapModifiedAt timestamp
         
-        // If remote doesn't have active swap, check localProjectSwap.json
-        if (!effectiveSwapInfo && localSwapFileInfo) {
-            const normalized = normalizeProjectSwapInfo(localSwapFileInfo);
-            const active = getActiveSwapEntry(normalized);
-            if (active) {
-                effectiveSwapInfo = localSwapFileInfo;
-                debug("Using localProjectSwap.json swap info (has active entry)");
+        // Collect all entries from all sources (ensure arrays are never undefined)
+        const remoteEntries = remoteSwapInfo ? (normalizeProjectSwapInfo(remoteSwapInfo).swapEntries || []) : [];
+        const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+        const localMetadataEntries = localMetadataSwapInfo ? (normalizeProjectSwapInfo(localMetadataSwapInfo).swapEntries || []) : [];
+        
+        // Merge entries by swapInitiatedAt, keeping the one with the most recent swapModifiedAt
+        const mergedEntriesMap = new Map<number, ProjectSwapEntry>();
+        
+        const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+            const key = entry.swapInitiatedAt;
+            const existing = mergedEntriesMap.get(key);
+            if (!existing) {
+                mergedEntriesMap.set(key, entry);
+            } else {
+                // Compare swapModifiedAt timestamps - use the more recent one
+                const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                if (newModified > existingModified) {
+                    mergedEntriesMap.set(key, entry);
+                    debug(`Entry ${key}: using version with swapModifiedAt ${newModified} (status: ${entry.swapStatus}) over ${existingModified} (status: ${existing.swapStatus})`);
+                }
             }
+        };
+        
+        // Add entries from all sources - local metadata first, then localSwapFile, then remote
+        // This order means that if timestamps are equal, remote would be last processed,
+        // but since we're comparing timestamps, the order doesn't matter for different timestamps
+        for (const entry of localMetadataEntries) {
+            addOrUpdateEntry(entry);
+        }
+        for (const entry of localSwapEntries) {
+            addOrUpdateEntry(entry);
+        }
+        for (const entry of remoteEntries) {
+            addOrUpdateEntry(entry);
         }
         
-        // Fall back to local metadata.json
-        if (!effectiveSwapInfo && localMetadataSwapInfo) {
-            const normalized = normalizeProjectSwapInfo(localMetadataSwapInfo);
-            const active = getActiveSwapEntry(normalized);
-            if (active) {
-                effectiveSwapInfo = localMetadataSwapInfo;
-                debug("Using local metadata.json swap info (has active entry)");
-            }
-        }
+        // Build the effective swap info from merged entries
+        const mergedEntries = Array.from(mergedEntriesMap.values());
+        const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
+            ? { swapEntries: mergedEntries }
+            : (remoteSwapInfo || localSwapFileInfo || localMetadataSwapInfo);
         
-        // If none have active entries, use any available for the "no active swap" response
-        if (!effectiveSwapInfo) {
-            effectiveSwapInfo = remoteSwapInfo || localSwapFileInfo || localMetadataSwapInfo;
+        if (mergedEntries.length > 0) {
+            debug(`Merged ${mergedEntries.length} swap entries from all sources`);
         }
 
         if (!effectiveSwapInfo) {
