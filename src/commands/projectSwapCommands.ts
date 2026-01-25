@@ -149,14 +149,22 @@ export async function initiateProjectSwap(): Promise<void> {
         // Check if user has permission (Project Maintainer or Owner)
         const permission = await checkProjectAdminPermissions();
         if (!permission.hasPermission) {
-            const errorMsg = permission.error || "Insufficient permissions";
-            // Don't show reason if it's just the expected permission error (redundant with main message)
-            const reasonPart = errorMsg === "Insufficient permissions" ? "" : `\n\nReason: ${errorMsg}`;
+            // Provide a clear, user-friendly message based on the actual reason
+            let message: string;
+            
+            if (permission.error === "No git remote origin found") {
+                message = "This project has not been published yet.\n\nPublish your project first, then you can initiate a swap.";
+            } else if (permission.error === "Insufficient permissions") {
+                message = "You don't have permission to initiate project swaps.\n\nOnly Project Maintainers or Owners can initiate swaps.";
+            } else if (permission.error === "Authentication not available") {
+                message = "Please log in to initiate project swaps.";
+            } else if (permission.error === "Could not determine current user") {
+                message = "Could not determine your user account.\n\nPlease log in and try again.";
+            } else {
+                message = permission.error || "Unable to verify permissions.";
+            }
 
-            await vscode.window.showWarningMessage(
-                `⛔ Permission Denied\n\nOnly Project Maintainers or Owners can initiate project swaps.${reasonPart}`,
-                { modal: true }
-            );
+            await vscode.window.showWarningMessage(message, { modal: true });
             return;
         }
 
@@ -510,22 +518,9 @@ export async function cancelProjectSwap(): Promise<void> {
             return;
         }
 
-        // Check if user has permission (Project Maintainer or Owner)
-        const permission = await checkProjectAdminPermissions();
-        if (!permission.hasPermission) {
-            const errorMsg = permission.error || "Insufficient permissions";
-            // Don't show reason if it's just the expected permission error (redundant with main message)
-            const reasonPart = errorMsg === "Insufficient permissions" ? "" : `\n\nReason: ${errorMsg}`;
-
-            await vscode.window.showWarningMessage(
-                `⛔ Permission Denied\n\nOnly Project Maintainers or Owners can cancel project swaps.${reasonPart}`,
-                { modal: true }
-            );
-            return;
-        }
-
         const projectUri = vscode.Uri.file(workspaceFolder.uri.fsPath);
         
+        // FIRST: Check if there's actually a swap to cancel (before checking permissions)
         // Check BOTH metadata.json AND localProjectSwap.json for swap info
         let metadata: ProjectMetadata | undefined;
         let effectiveSwapInfo: ProjectSwapInfo | undefined;
@@ -554,6 +549,7 @@ export async function cancelProjectSwap(): Promise<void> {
             }
         }
 
+        // If no swap info exists at all, tell the user
         if (!effectiveSwapInfo) {
             vscode.window.showInformationMessage(
                 "No project swap is configured for this project."
@@ -565,10 +561,33 @@ export async function cancelProjectSwap(): Promise<void> {
         const normalizedSwap = normalizeProjectSwapInfo(effectiveSwapInfo);
         const activeEntry = getActiveSwapEntry(normalizedSwap);
 
+        // If no active entry to cancel, tell the user
         if (!activeEntry) {
             vscode.window.showInformationMessage(
                 "No pending swap to cancel. All previous swaps have been cancelled or completed."
             );
+            return;
+        }
+
+        // NOW check permissions (only if there's actually something to cancel)
+        const permission = await checkProjectAdminPermissions();
+        if (!permission.hasPermission) {
+            // Provide a clear, user-friendly message based on the actual reason
+            let message: string;
+            
+            if (permission.error === "No git remote origin found") {
+                message = "This project has not been published yet.\n\nYou can only cancel swaps for published projects.";
+            } else if (permission.error === "Insufficient permissions") {
+                message = "You don't have permission to cancel project swaps.\n\nOnly Project Maintainers or Owners can cancel swaps.";
+            } else if (permission.error === "Authentication not available") {
+                message = "Please log in to cancel project swaps.";
+            } else if (permission.error === "Could not determine current user") {
+                message = "Could not determine your user account.\n\nPlease log in and try again.";
+            } else {
+                message = permission.error || "Unable to verify permissions.";
+            }
+
+            await vscode.window.showWarningMessage(message, { modal: true });
             return;
         }
 
@@ -648,12 +667,22 @@ export async function initiateSwapCopy(): Promise<void> {
         // Check if user has permission (Project Maintainer or Owner)
         const permission = await checkProjectAdminPermissions();
         if (!permission.hasPermission) {
-            const errorMsg = permission.error || "Insufficient permissions";
-            const reasonPart = errorMsg === "Insufficient permissions" ? "" : `\n\nReason: ${errorMsg}`;
-            await vscode.window.showWarningMessage(
-                `⛔ Permission Denied\n\nOnly Project Maintainers or Owners can copy projects to a new swap target.${reasonPart}`,
-                { modal: true }
-            );
+            // Provide a clear, user-friendly message based on the actual reason
+            let message: string;
+            
+            if (permission.error === "No git remote origin found") {
+                message = "This project has not been published yet.\n\nPublish your project first, then you can copy it to a new swap target.";
+            } else if (permission.error === "Insufficient permissions") {
+                message = "You don't have permission to copy projects.\n\nOnly Project Maintainers or Owners can create swap copies.";
+            } else if (permission.error === "Authentication not available") {
+                message = "Please log in to copy projects.";
+            } else if (permission.error === "Could not determine current user") {
+                message = "Could not determine your user account.\n\nPlease log in and try again.";
+            } else {
+                message = permission.error || "Unable to verify permissions.";
+            }
+
+            await vscode.window.showWarningMessage(message, { modal: true });
             return;
         }
 
