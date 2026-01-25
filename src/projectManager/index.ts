@@ -23,7 +23,6 @@ import {
 import { openSystemMessageEditor, debugValidationSetting } from "../copilotSettings/copilotSettings";
 import { openProjectExportView } from "./projectExportView";
 import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
-import { openBookNameEditor } from '../bookNameSettings/bookNameSettings';
 import { MetadataManager } from "../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../utils/editMapUtils";
 import { getAuthApi } from "../extension";
@@ -626,13 +625,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         }
     );
 
-    const openBookNameEditorCommand = vscode.commands.registerCommand(
-        "codex-project-manager.openBookNameEditor",
-        async () => {
-            return openBookNameEditor();
-        }
-    );
-
     const importLocalUsfmSourceBibleCommand = vscode.commands.registerCommand(
         "codex-project-manager.importLocalUsfmSourceBible",
         importLocalUsfmSourceBible
@@ -749,7 +741,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         debugValidationSettingCommand,
         openExportViewCommand,
         openLicenseSettingsCommand,
-        openBookNameEditorCommand,
         importLocalUsfmSourceBibleCommand,
         updateGitignoreCommand,
         updateMetadataFileCommand,
