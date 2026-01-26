@@ -128,7 +128,7 @@ export async function initiateProjectSwap(): Promise<void> {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder open. Please open a project first.");
+            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -140,8 +140,9 @@ export async function initiateProjectSwap(): Promise<void> {
         try {
             await vscode.workspace.fs.stat(metadataUri);
         } catch {
-            vscode.window.showErrorMessage(
-                "This is not a Codex project. No metadata.json found."
+            await vscode.window.showErrorMessage(
+                "This is not a Codex project. No metadata.json found.",
+                { modal: true }
             );
             return;
         }
@@ -173,8 +174,9 @@ export async function initiateProjectSwap(): Promise<void> {
         // Get current git origin URL
         const currentGitUrl = await getGitOriginUrl(workspacePath);
         if (!currentGitUrl) {
-            vscode.window.showErrorMessage(
-                "Could not determine current git origin URL. Make sure this is a valid git repository."
+            await vscode.window.showErrorMessage(
+                "Could not determine current git origin URL. Make sure this is a valid git repository.",
+                { modal: true }
             );
             return;
         }
@@ -215,7 +217,7 @@ export async function initiateProjectSwap(): Promise<void> {
                 if (action === "Cancel Pending Swap") {
                     // Cancel the pending swap first
                     await cancelSwapEntry(projectUri, activeEntry.swapInitiatedAt, permission.currentUser || "unknown");
-                    vscode.window.showInformationMessage("Previous swap cancelled. You can now initiate a new swap.");
+                    await vscode.window.showInformationMessage("Previous swap cancelled. You can now initiate a new swap.", { modal: true });
                 }
                 return;
             }
@@ -266,8 +268,9 @@ export async function initiateProjectSwap(): Promise<void> {
         // Validate the new URL (format check only, clone will verify access)
         const validation = await validateGitUrl(newProjectUrl);
         if (!validation.valid) {
-            vscode.window.showErrorMessage(
-                `Invalid repository URL: ${validation.error}`
+            await vscode.window.showErrorMessage(
+                `Invalid repository URL: ${validation.error}`,
+                { modal: true }
             );
             return;
         }
@@ -281,13 +284,13 @@ export async function initiateProjectSwap(): Promise<void> {
         // Get current user info
         const authApi = (await import("../extension")).getAuthApi();
         if (!authApi) {
-            vscode.window.showErrorMessage("Authentication not available");
+            await vscode.window.showErrorMessage("Authentication not available", { modal: true });
             return;
         }
 
         const currentUserInfo = await authApi.getUserInfo();
         if (!currentUserInfo || !currentUserInfo.username) {
-            vscode.window.showErrorMessage("Could not determine current user");
+            await vscode.window.showErrorMessage("Could not determine current user", { modal: true });
             return;
         }
 
@@ -388,9 +391,10 @@ export async function initiateProjectSwap(): Promise<void> {
         );
 
         // Show success message
-        vscode.window.showInformationMessage(
+        await vscode.window.showInformationMessage(
             `✅ Project Swap Initiated\n\n` +
-            `All users will be prompted to swap to "${newProjectName}" when they next open or sync this project.`
+            `All users will be prompted to swap to "${newProjectName}" when they next open or sync this project.`,
+            { modal: true }
         );
 
     } catch (error) {
@@ -399,8 +403,9 @@ export async function initiateProjectSwap(): Promise<void> {
             return;
         }
         console.error("Error in initiateProjectSwap:", error);
-        vscode.window.showErrorMessage(
-            `Failed to initiate project swap: ${error instanceof Error ? error.message : String(error)}`
+        await vscode.window.showErrorMessage(
+            `Failed to initiate project swap: ${error instanceof Error ? error.message : String(error)}`,
+            { modal: true }
         );
     }
 }
@@ -413,7 +418,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder open. Please open a project first.");
+            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -445,8 +450,9 @@ export async function viewProjectSwapStatus(): Promise<void> {
         }
 
         if (!effectiveSwapInfo) {
-            vscode.window.showInformationMessage(
-                "No project swap is configured for this project."
+            await vscode.window.showInformationMessage(
+                "No project swap is configured for this project.",
+                { modal: true }
             );
             return;
         }
@@ -495,12 +501,13 @@ export async function viewProjectSwapStatus(): Promise<void> {
             statusMessage += `No swap entries found.\n`;
         }
 
-        vscode.window.showInformationMessage(statusMessage, { modal: true });
+        await vscode.window.showInformationMessage(statusMessage, { modal: true });
 
     } catch (error) {
         console.error("Error in viewProjectSwapStatus:", error);
-        vscode.window.showErrorMessage(
-            `Failed to view swap status: ${error instanceof Error ? error.message : String(error)}`
+        await vscode.window.showErrorMessage(
+            `Failed to view swap status: ${error instanceof Error ? error.message : String(error)}`,
+            { modal: true }
         );
     }
 }
@@ -514,7 +521,7 @@ export async function cancelProjectSwap(): Promise<void> {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder open. Please open a project first.");
+            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -551,8 +558,9 @@ export async function cancelProjectSwap(): Promise<void> {
 
         // If no swap info exists at all, tell the user
         if (!effectiveSwapInfo) {
-            vscode.window.showInformationMessage(
-                "No project swap is configured for this project."
+            await vscode.window.showInformationMessage(
+                "No project swap is configured for this project.",
+                { modal: true }
             );
             return;
         }
@@ -563,8 +571,9 @@ export async function cancelProjectSwap(): Promise<void> {
 
         // If no active entry to cancel, tell the user
         if (!activeEntry) {
-            vscode.window.showInformationMessage(
-                "No pending swap to cancel. All previous swaps have been cancelled or completed."
+            await vscode.window.showInformationMessage(
+                "No pending swap to cancel. All previous swaps have been cancelled or completed.",
+                { modal: true }
             );
             return;
         }
@@ -613,14 +622,16 @@ export async function cancelProjectSwap(): Promise<void> {
             throw new Error("Failed to update metadata.json");
         }
 
-        vscode.window.showInformationMessage(
-            "Project swap cancelled successfully."
+        await vscode.window.showInformationMessage(
+            "Project swap cancelled successfully.",
+            { modal: true }
         );
 
     } catch (error) {
         console.error("Error in cancelProjectSwap:", error);
-        vscode.window.showErrorMessage(
-            `Failed to cancel project swap: ${error instanceof Error ? error.message : String(error)}`
+        await vscode.window.showErrorMessage(
+            `Failed to cancel project swap: ${error instanceof Error ? error.message : String(error)}`,
+            { modal: true }
         );
     }
 }
@@ -660,7 +671,7 @@ export async function initiateSwapCopy(): Promise<void> {
     try {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder open. Please open a project first.");
+            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -733,7 +744,7 @@ export async function initiateSwapCopy(): Promise<void> {
 
         // Check if exists
         if (fs.existsSync(newProjectPath)) {
-            vscode.window.showErrorMessage(`Target directory already exists: ${newProjectPath}`);
+            await vscode.window.showErrorMessage(`Target directory already exists: ${newProjectPath}`, { modal: true });
             return;
         }
 
@@ -753,8 +764,9 @@ export async function initiateSwapCopy(): Promise<void> {
             );
         } catch (err) {
             console.error("Pre-swap sync failed:", err);
-            vscode.window.showErrorMessage(
-                "Copy aborted because sync could not complete. Please resolve sync issues and try again."
+            await vscode.window.showErrorMessage(
+                "Copy aborted because sync could not complete. Please resolve sync issues and try again.",
+                { modal: true }
             );
             return;
         }
@@ -877,7 +889,7 @@ export async function initiateSwapCopy(): Promise<void> {
                 });
             } catch (error) {
                 console.error("Git initialization failed during swap copy:", error);
-                vscode.window.showErrorMessage(`Git initialization failed: ${error}`);
+                await vscode.window.showErrorMessage(`Git initialization failed: ${error}`, { modal: true });
             }
 
             progress.report({ message: "Opening new project..." });
@@ -891,7 +903,7 @@ export async function initiateSwapCopy(): Promise<void> {
         });
 
     } catch (error) {
-        vscode.window.showErrorMessage(`Swap copy failed: ${error instanceof Error ? error.message : String(error)}`);
+        await vscode.window.showErrorMessage(`Swap copy failed: ${error instanceof Error ? error.message : String(error)}`, { modal: true });
     }
 }
 
