@@ -388,6 +388,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPlayAudioLoading, setIsPlayAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
     const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
+    const [audioWarning, setAudioWarning] = useState<string | null>(null);
 
     // Transcription state
     const [isTranscribing, setIsTranscribing] = useState(false);
@@ -845,7 +846,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
             window.vscodeApi.postMessage(messageContent);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, audioBlob, audioDuration, effectiveAudioTimestamps, effectiveTimestamps, prevCellId, nextCellId, requestCellAudioTimestamps]);
+    }, [
+        activeTab,
+        audioBlob,
+        audioDuration,
+        effectiveAudioTimestamps,
+        effectiveTimestamps,
+        prevCellId,
+        nextCellId,
+        requestCellAudioTimestamps,
+    ]);
 
     // Extended bounds for overlapping ranges
     const extendedMinBound =
@@ -1326,12 +1336,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         combinedBlob = await combineAudioSegments(segments, totalDuration);
                         combinedAudioBlobRef.current = combinedBlob;
                         combinedAudioBlobKeyRef.current = currentKey;
+                        setAudioWarning(null);
                     } catch (error) {
                         console.error("Error combining audio segments:", error);
                         combinedBlob = null;
                     }
                 } else {
-                    console.warn("No audio available in the current video timestamp range");
+                    setAudioWarning("No audio available in the current video timestamp range");
                     return;
                 }
             }
@@ -1535,7 +1546,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             // This prevents the handler from firing and pausing before play() resolves
                             try {
                                 await videoElement.play();
-                                
+
                                 // Only set up the handler after play() succeeds
                                 // This prevents race conditions where pause() interrupts play()
                                 videoTimeUpdateHandlerRef.current = timeUpdateHandler;
@@ -4232,7 +4243,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     nextAudioTimestamps.endTime && (
                                                     <div className="flex flex-col justify-end items-start -mt-[0.25rem] w-full overflow-hidden">
                                                         <div
-                                                            className="flex flex-col items-start space-y-1 relative"
+                                                            className="flex flex-col items-end space-y-1 relative"
                                                             style={{
                                                                 width: `${nextAudioTimestampWidth()}%`,
                                                                 marginLeft: `${nextAudioTimestampOffset()}%`,
@@ -4330,6 +4341,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </div>
                                             )}
                                         </div>
+                                        {audioWarning && (
+                                            <div className="text-sm text-red-500">
+                                                {audioWarning}
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="text-center p-8 text-muted-foreground">
