@@ -462,6 +462,9 @@ export function useMultiCellAudioPlayback({
         restoreVideoMuteState,
     ]);
 
+    // Debounce timer ref to prevent excessive calls during timeline dragging
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
     // Function to check and start/stop audio based on current video time
     const checkAndStartAudio = useCallback(() => {
         if (!isVideoPlaying) {
@@ -541,6 +544,14 @@ export function useMultiCellAudioPlayback({
                             updateVideoMuteState();
                         })
                         .catch((error) => {
+                            // Suppress AbortError warnings - these are expected when pause() interrupts play()
+                            // This commonly happens during rapid seeking or when cleanup occurs
+                            if (error instanceof Error && error.name === "AbortError") {
+                                // Mark as not playing but don't log the error
+                                data.isPlaying = false;
+                                updateVideoMuteState();
+                                return;
+                            }
                             const audioError = data.audioElement.error;
                             console.error(
                                 `Error starting audio for cell ${data.cellId}:`,
@@ -573,6 +584,10 @@ export function useMultiCellAudioPlayback({
                                     updateVideoMuteState();
                                 })
                                 .catch((error) => {
+                                    // Suppress AbortError warnings - these are expected when pause() interrupts play()
+                                    if (error instanceof Error && error.name === "AbortError") {
+                                        return;
+                                    }
                                     const audioError = data.audioElement.error;
                                     console.error(
                                         `Error starting audio for cell ${data.cellId} after ready:`,
@@ -604,8 +619,24 @@ export function useMultiCellAudioPlayback({
     }, [currentVideoTime, isVideoPlaying, updateVideoMuteState]);
 
     // Handle video time updates - start audio at correct timestamps
+    // Debounce to prevent excessive calls during timeline dragging
     useEffect(() => {
-        checkAndStartAudio();
+        // Clear any existing timer
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        // Debounce the check - only run after 50ms of no time updates
+        // This prevents hundreds of calls when dragging the timeline slider
+        debounceTimerRef.current = setTimeout(() => {
+            checkAndStartAudio();
+        }, 50);
+
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
     }, [checkAndStartAudio]);
 
     // Also trigger playback check when translation units change (timestamps updated)
