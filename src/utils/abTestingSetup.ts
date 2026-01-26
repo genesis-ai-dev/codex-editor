@@ -57,9 +57,8 @@ export function initializeABTesting() {
   // - SBS Efficiency: SBS 15 tied FTS5-BM25 30 (50.6% vs 49.4%, 79 tests)
   //
   // Current defaults: SBS algorithm, 15 examples, source-and-target format
-  //
-  // Remaining test: Validate that 15 examples is sufficient with more data
 
+  // Example Count Test - validates optimal example count
   abTestingRegistry.register<ABTestContext, string>(
     "Example Count Test",
     1.0,
@@ -88,6 +87,63 @@ export function initializeABTesting() {
       return {
         variants: [compA, compB],
         names: ["15 examples", "30 examples"]
+      };
+    }
+  );
+
+  // Attention Check Test - measures translator attention by presenting a similar
+  // but incorrect translation as a decoy. Tests whether translators are actually
+  // reading and understanding the source text vs blindly accepting suggestions.
+  abTestingRegistry.register<ABTestContext, string>(
+    "Attention Check",
+    1.0,
+    async (ctx) => {
+      // Get similar cells - these are sorted by similarity
+      const similarPairs = await fetchTranslationPairs(
+        ctx.executeCommand,
+        ctx.currentCellSourceContent,
+        20, // Get more candidates to find a good decoy
+        false // Include non-validated for more decoy options
+      );
+
+      // Find a decoy: most similar cell that has a completed translation
+      // and is NOT the current cell
+      const decoyPair = similarPairs.find(pair =>
+        pair.cellId !== ctx.currentCellId &&
+        pair.targetCell?.content?.trim()
+      );
+
+      if (!decoyPair || !decoyPair.targetCell?.content) {
+        // No suitable decoy found - fall back to null (will use normal completion)
+        console.debug("[Attention Check] No suitable decoy found, skipping");
+        return null;
+      }
+
+      // Generate correct translation for current cell
+      const pairs = await fetchTranslationPairs(
+        ctx.executeCommand,
+        ctx.currentCellSourceContent,
+        ctx.numberOfFewShotExamples,
+        ctx.useOnlyValidatedExamples
+      );
+
+      const correctTranslation = await generateCompletionFromPairs(
+        pairs,
+        ctx.numberOfFewShotExamples,
+        ctx
+      );
+
+      // Use the existing translation from the decoy cell
+      const decoyTranslation = decoyPair.targetCell.content;
+
+      console.debug(`[Attention Check] Generated test: correct for ${ctx.currentCellId}, decoy from ${decoyPair.cellId}`);
+
+      return {
+        variants: [correctTranslation, decoyTranslation],
+        names: ["correct", "decoy"],
+        isAttentionCheck: true,
+        correctIndex: 0,
+        decoyCellId: decoyPair.cellId,
       };
     }
   );

@@ -3367,7 +3367,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, testName, names } = completionResult as any;
+                        const { variants, testId, testName, names, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
 
                         // If variants are identical (ignoring whitespace), treat as single completion
                         try {
@@ -3404,6 +3404,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     testName,
                                     names,
                                     abProbability: Math.max(0, Math.min(1, abProb)),
+                                    // Attention check metadata
+                                    isAttentionCheck,
+                                    correctIndex,
+                                    decoyCellId,
                                 },
                             } as any);
                         }

@@ -54,7 +54,14 @@ function postProcessABTestResult(
 
 // Helper function to handle A/B test result
 function handleABTestResult(
-    result: { variants: string[]; names?: string[]; testName?: string } | null,
+    result: {
+        variants: string[];
+        names?: string[];
+        testName?: string;
+        isAttentionCheck?: boolean;
+        correctIndex?: number;
+        decoyCellId?: string;
+    } | null,
     currentCellId: string,
     testIdPrefix: string,
     completionConfig: CompletionConfig,
@@ -69,6 +76,10 @@ function handleABTestResult(
             testId: `${currentCellId}-${testIdPrefix}-${Date.now()}`,
             testName: result.testName,
             names: result.names,
+            // Pass through attention check metadata
+            isAttentionCheck: result.isAttentionCheck,
+            correctIndex: result.correctIndex,
+            decoyCellId: result.decoyCellId,
         };
     }
     return null;
@@ -80,6 +91,10 @@ export interface LLMCompletionResult {
     testId?: string;
     testName?: string;
     names?: string[];
+    // Attention check metadata
+    isAttentionCheck?: boolean;
+    correctIndex?: number;
+    decoyCellId?: string;
 }
 
 export async function llmCompletion(
@@ -260,8 +275,9 @@ export async function llmCompletion(
             }
 
             if (triggerAB) {
-                // Only "Example Count Test" is currently active
-                const testName = "Example Count Test";
+                // Randomly select between available tests
+                const availableTests = ["Example Count Test", "Attention Check"];
+                const testName = availableTests[Math.floor(Math.random() * availableTests.length)];
                 const test = abTestingRegistry.get(testName);
 
                 if (!test && completionConfig.debugMode) {
@@ -293,10 +309,11 @@ export async function llmCompletion(
                             console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null (test probability check failed)"}`);
                         }
 
+                        const testIdPrefix = testName === "Attention Check" ? "attention" : "countAB";
                         const testResult = handleABTestResult(
                             result,
                             currentCellId,
-                            "countAB",
+                            testIdPrefix,
                             completionConfig,
                             returnHTML
                         );
