@@ -611,6 +611,55 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
     }, [prevCellId, nextCellId, requestCellAudioTimestamps]);
 
+    // Refresh adjacent cell audio timestamps when their audio attachment state changes
+    useEffect(() => {
+        let cancelled = false;
+
+        const refreshAdjacentTimestamps = async () => {
+            const promises: Promise<void>[] = [];
+
+            // Refresh previous cell timestamps if it has audio available
+            if (
+                prevCellId &&
+                (audioAttachments?.[prevCellId] === "available" ||
+                    audioAttachments?.[prevCellId] === "available-local" ||
+                    audioAttachments?.[prevCellId] === "available-pointer")
+            ) {
+                promises.push(
+                    requestCellAudioTimestamps(prevCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setPrevAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            }
+
+            // Refresh next cell timestamps if it has audio available
+            if (
+                nextCellId &&
+                (audioAttachments?.[nextCellId] === "available" ||
+                    audioAttachments?.[nextCellId] === "available-local" ||
+                    audioAttachments?.[nextCellId] === "available-pointer")
+            ) {
+                promises.push(
+                    requestCellAudioTimestamps(nextCellId).then((timestamps) => {
+                        if (!cancelled) {
+                            setNextAudioTimestamps(timestamps);
+                        }
+                    })
+                );
+            }
+
+            await Promise.all(promises);
+        };
+
+        refreshAdjacentTimestamps();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [prevCellId, nextCellId, audioAttachments, requestCellAudioTimestamps]);
+
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
             debug("Scrolling to content in showFlashingBorder", {
@@ -754,6 +803,49 @@ const CellEditor: React.FC<CellEditorProps> = ({
             previousAudioTimestampValuesRef.current = null;
         }
     }, [effectiveAudioTimestamps]);
+
+    // Initialize audio timestamps when Timestamps tab is opened with newly recorded audio
+    useEffect(() => {
+        // Only run when Timestamps tab is active
+        if (activeTab !== "timestamps") {
+            return;
+        }
+
+        // Only initialize if we have audioBlob and audioDuration but no effectiveAudioTimestamps
+        if (
+            audioBlob &&
+            audioDuration &&
+            audioDuration > 0 &&
+            !effectiveAudioTimestamps &&
+            !contentBeingUpdated.cellAudioTimestamps
+        ) {
+            // Initialize audio timestamps based on the audio duration
+            // Use effectiveTimestamps startTime if available, otherwise use 0
+            const startTime = effectiveTimestamps?.startTime ?? 0;
+            const endTime = startTime + audioDuration;
+
+            const initialAudioTimestamps: Timestamps = {
+                startTime: Number(startTime.toFixed(3)),
+                endTime: Number(endTime.toFixed(3)),
+            };
+
+            setContentBeingUpdated({
+                ...contentBeingUpdated,
+                cellAudioTimestamps: initialAudioTimestamps,
+            });
+
+            // Immediately save audio timestamps to provider so adjacent cells can see them
+            const messageContent: EditorPostMessages = {
+                command: "updateCellAudioTimestamps",
+                content: {
+                    cellId: cellMarkers[0],
+                    timestamps: initialAudioTimestamps,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, audioBlob, audioDuration, effectiveAudioTimestamps, effectiveTimestamps, prevCellId, nextCellId, requestCellAudioTimestamps]);
 
     // Extended bounds for overlapping ranges
     const extendedMinBound =
