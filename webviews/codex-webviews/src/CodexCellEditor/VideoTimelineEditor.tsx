@@ -66,8 +66,8 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
             document.removeEventListener("mouseup", handleMouseUp);
         };
     }, [isDragging, mouse.y, startY, startHeight]);
-    // const playerRef = useRef<ReactPlayer>(null);
-    const [autoPlay, setAutoPlay] = useState(true);
+
+    const [autoPlay, setAutoPlay] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 

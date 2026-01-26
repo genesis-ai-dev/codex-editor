@@ -29,7 +29,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     const [error, setError] = useState<string | null>(null);
-    const [playing, setPlaying] = useState(autoPlay);
+    const [playing, setPlaying] = useState(false);
 
     // Check if the URL is a YouTube URL
     const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
@@ -72,12 +72,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // Player is ready, clear any previous errors
         setError(null);
         console.log("VideoPlayer: Player is ready");
+        // Trigger autoPlay when player is ready
+        if (autoPlay) {
+            setPlaying(true);
+        }
     };
 
-    // Update playing state when autoPlay prop changes
+    // Trigger autoPlay when video URL changes (new video loaded)
     useEffect(() => {
-        setPlaying(autoPlay);
-    }, [autoPlay]);
+        if (autoPlay && videoUrl) {
+            setPlaying(true);
+        } else {
+            setPlaying(false);
+        }
+    }, [videoUrl, autoPlay]);
 
     // Build config based on video type
     const playerConfig: Record<string, any> = {};
