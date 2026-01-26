@@ -3069,14 +3069,47 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const previousAudioTimestampWidth = () => {
-        const prevAudioDuration =
-            (prevAudioTimestamps?.endTime ?? 0) - (prevAudioTimestamps?.startTime ?? 0);
-
-        if (prevAudioDuration > effectiveDuration) {
-            return 100;
+        if (!prevAudioTimestamps?.startTime || !prevAudioTimestamps?.endTime) {
+            return 0;
         }
 
-        return (prevAudioDuration / effectiveDuration) * 100;
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0) {
+            return 0;
+        }
+
+        // Calculate the actual start and end positions within the video range
+        const audioStart = Math.max(videoRangeStart, prevAudioTimestamps.startTime);
+        const audioEnd = Math.min(videoRangeEnd, prevAudioTimestamps.endTime);
+        
+        // If audio starts after video range or ends before it starts, return 0
+        if (audioStart >= videoRangeEnd || audioEnd <= videoRangeStart) {
+            return 0;
+        }
+
+        const visibleDuration = audioEnd - audioStart;
+        const width = (visibleDuration / videoRange) * 100;
+
+        // Cap at 100% to prevent overflow
+        return Math.min(100, Math.max(0, width));
+    };
+
+    const previousAudioTimestampOffset = () => {
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0 || !prevAudioTimestamps?.startTime) {
+            return 0;
+        }
+
+        // Calculate the actual start position (clipped to video range)
+        const audioStart = Math.max(videoRangeStart, prevAudioTimestamps.startTime);
+        const audioStartPosition = audioStart - videoRangeStart;
+        return (audioStartPosition / videoRange) * 100;
     };
 
     const nextTimestampWidth = () => {
@@ -3090,14 +3123,47 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const nextAudioTimestampWidth = () => {
-        const nextAudioDuration =
-            (nextAudioTimestamps?.endTime ?? 0) - (nextAudioTimestamps?.startTime ?? 0);
-
-        if (nextAudioDuration > effectiveDuration) {
-            return 100;
+        if (!nextAudioTimestamps?.startTime || !nextAudioTimestamps?.endTime) {
+            return 0;
         }
 
-        return (nextAudioDuration / effectiveDuration) * 100;
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0) {
+            return 0;
+        }
+
+        // Calculate the actual start and end positions within the video range
+        const audioStart = Math.max(videoRangeStart, nextAudioTimestamps.startTime);
+        const audioEnd = Math.min(videoRangeEnd, nextAudioTimestamps.endTime);
+        
+        // If audio starts after video range or ends before it starts, return 0
+        if (audioStart >= videoRangeEnd || audioEnd <= videoRangeStart) {
+            return 0;
+        }
+
+        const visibleDuration = audioEnd - audioStart;
+        const width = (visibleDuration / videoRange) * 100;
+
+        // Cap at 100% to prevent overflow
+        return Math.min(100, Math.max(0, width));
+    };
+
+    const nextAudioTimestampOffset = () => {
+        const videoRangeStart = prevStartTime ?? 0;
+        const videoRangeEnd = nextEndTime ?? 0;
+        const videoRange = videoRangeEnd - videoRangeStart;
+
+        if (videoRange <= 0 || !nextAudioTimestamps?.startTime) {
+            return 0;
+        }
+
+        // Calculate the actual start position (clipped to video range)
+        const audioStart = Math.max(videoRangeStart, nextAudioTimestamps.startTime);
+        const audioStartPosition = audioStart - videoRangeStart;
+        return (audioStartPosition / videoRange) * 100;
     };
 
     return (
@@ -3830,11 +3896,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 typeof prevAudioTimestamps.endTime === "number" &&
                                                 prevAudioTimestamps.startTime <
                                                     prevAudioTimestamps.endTime && (
-                                                    <div className="flex flex-col -mt-[0.25rem] w-full">
+                                                    <div className="flex flex-col -mt-[0.25rem] w-full overflow-hidden">
                                                         <div
                                                             className="flex flex-col space-y-1 relative"
                                                             style={{
                                                                 width: `${previousAudioTimestampWidth()}%`,
+                                                                marginLeft: `${previousAudioTimestampOffset()}%`,
+                                                                maxWidth: `calc(100% - ${previousAudioTimestampOffset()}%)`,
                                                             }}
                                                         >
                                                             <Slider
@@ -4011,11 +4079,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 typeof nextAudioTimestamps.endTime === "number" &&
                                                 nextAudioTimestamps.startTime <
                                                     nextAudioTimestamps.endTime && (
-                                                    <div className="flex flex-col justify-end items-end -mt-[0.25rem] w-full">
+                                                    <div className="flex flex-col justify-end items-start -mt-[0.25rem] w-full overflow-hidden">
                                                         <div
-                                                            className="flex flex-col items-end space-y-1 relative"
+                                                            className="flex flex-col items-start space-y-1 relative"
                                                             style={{
                                                                 width: `${nextAudioTimestampWidth()}%`,
+                                                                marginLeft: `${nextAudioTimestampOffset()}%`,
+                                                                maxWidth: `calc(100% - ${nextAudioTimestampOffset()}%)`,
                                                             }}
                                                         >
                                                             <Slider
@@ -4038,6 +4108,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             />
                                                             <div className="flex min-w-max text-xs text-muted-foreground">
                                                                 <span>
+                                                                    Start:{" "}
                                                                     {formatTime(
                                                                         nextAudioTimestamps.startTime
                                                                     )}
