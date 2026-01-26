@@ -28,8 +28,27 @@ export default function PublishProject() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
     const [projectId, setProjectId] = useState<string | undefined>(undefined);
+    const [groupFilter, setGroupFilter] = useState("");
+    const [loadingGroups, setLoadingGroups] = useState(true);
 
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
+    
+    // Filter groups based on search input
+    const filteredGroups = useMemo(() => {
+        if (!groupFilter.trim()) return groups;
+        const lowerFilter = groupFilter.toLowerCase();
+        return groups.filter(
+            (g) =>
+                g.name.toLowerCase().includes(lowerFilter) ||
+                g.path.toLowerCase().includes(lowerFilter)
+        );
+    }, [groups, groupFilter]);
+
+    // Get the selected group for display
+    const selectedGroup = useMemo(
+        () => groups.find((g) => g.id === selectedGroupId),
+        [groups, selectedGroupId]
+    );
     const canCreate = isValidName && !busy;
 
     useEffect(() => {
@@ -48,11 +67,13 @@ export default function PublishProject() {
                 setBusy(!!m.value);
             } else if (m?.type === "error") {
                 setError(m.message || "An error occurred");
+                setLoadingGroups(false);
             } else if (m?.type === "groups") {
                 const list: GroupList[] = Array.isArray(m.groups) ? m.groups : [];
                 setGroups(list);
+                setLoadingGroups(false);
                 // Auto-select first group when available
-                if (list.length > 0) {
+                if (list.length > 0 && selectedGroupId === undefined) {
                     setSelectedGroupId(list[0].id);
                 }
             }
@@ -60,12 +81,14 @@ export default function PublishProject() {
 
         window.addEventListener("message", handleMessage);
         vscode.postMessage({ command: "init" });
+        // Immediately fetch groups when webview opens
         vscode.postMessage({ command: "fetchGroups" });
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
     const onFetchGroups = () => {
         setError(undefined);
+        setLoadingGroups(true);
         vscode.postMessage({ command: "fetchGroups" });
     };
 
@@ -87,22 +110,6 @@ export default function PublishProject() {
 
     const onCancel = () => {
         vscode.postMessage({ command: "cancel" });
-    };
-
-    const displayGroups = () => {
-        if (groups.length === 0) {
-            return (
-                <SelectItem value="none" disabled className="text-base">
-                    No groups found
-                </SelectItem>
-            );
-        }
-
-        return groups.map((g) => (
-            <SelectItem key={g.id} value={g.id.toString()} className="text-base">
-                {g.name} ({g.path})
-            </SelectItem>
-        ));
     };
 
     const hasGroup = selectedGroupId !== undefined;
@@ -191,33 +198,62 @@ export default function PublishProject() {
                         </div>
                     </div>
 
-                    <div className="flex items-end gap-3">
-                        <div className="flex-1 space-y-1">
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between">
                             <label
                                 className="text-sm text-[var(--vscode-descriptionForeground)]"
-                                htmlFor="group"
+                                htmlFor="groupFilter"
                             >
                                 Group
                             </label>
-                            <Select
-                                value={selectedGroupId?.toString() ?? ""}
-                                onValueChange={(value) => setSelectedGroupId(Number(value))}
+                            <Button
+                                onClick={onFetchGroups}
+                                disabled={busy || loadingGroups}
+                                className="whitespace-nowrap rounded-md border text-xs px-2 py-0.5 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
                             >
-                                <SelectTrigger className="w-full rounded-md px-2 py-1 text-base focus-visible:ring-0 focus-visible:ring-offset-0 outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    <SelectValue placeholder="Select a group" />
-                                </SelectTrigger>
-                                <SelectContent className="w-full rounded-md text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    {displayGroups()}
-                                </SelectContent>
-                            </Select>
+                                {loadingGroups ? "Loading..." : "Refresh"}
+                            </Button>
                         </div>
-                        <Button
-                            onClick={onFetchGroups}
-                            disabled={busy}
-                            className="whitespace-nowrap rounded-md border text-sm px-2 py-1 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
-                        >
-                            Load Groups
-                        </Button>
+                        <input
+                            id="groupFilter"
+                            type="text"
+                            value={groupFilter}
+                            onChange={(e) => setGroupFilter(e.target.value)}
+                            placeholder="Search groups..."
+                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+                        />
+                        {selectedGroup && (
+                            <div className="text-xs text-[var(--vscode-descriptionForeground)]">
+                                Selected: <span className="font-medium">{selectedGroup.name}</span>
+                            </div>
+                        )}
+                        <div className="border border-[var(--vscode-input-border)] rounded-md max-h-40 overflow-y-auto bg-[var(--vscode-input-background)]">
+                            {loadingGroups ? (
+                                <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
+                                    Loading groups...
+                                </div>
+                            ) : filteredGroups.length === 0 ? (
+                                <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
+                                    {groups.length === 0
+                                        ? "No groups available"
+                                        : "No groups match your search"}
+                                </div>
+                            ) : (
+                                filteredGroups.map((g) => (
+                                    <div
+                                        key={g.id}
+                                        onClick={() => setSelectedGroupId(g.id)}
+                                        className={`px-3 py-1.5 text-sm cursor-pointer transition-colors ${
+                                            selectedGroupId === g.id
+                                                ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
+                                                : "hover:bg-[var(--vscode-list-hoverBackground)]"
+                                        }`}
+                                    >
+                                        {g.name}
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
