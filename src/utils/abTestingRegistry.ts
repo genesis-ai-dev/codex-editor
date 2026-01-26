@@ -1,5 +1,12 @@
-type ABTestResultPayload<TVariant> = TVariant[] | { variants: TVariant[]; names?: string[] };
-type ABTestHandler<TContext, TVariant> = (context: TContext) => Promise<ABTestResultPayload<TVariant>>;
+type ABTestResultPayload<TVariant> = TVariant[] | {
+  variants: TVariant[];
+  names?: string[];
+  // Attention check metadata
+  isAttentionCheck?: boolean;
+  correctIndex?: number;
+  decoyCellId?: string;
+};
+type ABTestHandler<TContext, TVariant> = (context: TContext) => Promise<ABTestResultPayload<TVariant> | null>;
 
 interface ABTestEntry<TContext, TVariant> {
   name: string;
@@ -33,12 +40,20 @@ class ABTestingRegistry {
   async maybeRun<TContext, TVariant>(
     name: string,
     context: TContext
-  ): Promise<{ variants: TVariant[]; names?: string[]; testName?: string } | null> {
+  ): Promise<{
+    variants: TVariant[];
+    names?: string[];
+    testName?: string;
+    isAttentionCheck?: boolean;
+    correctIndex?: number;
+    decoyCellId?: string;
+  } | null> {
     const entry = this.tests.get(name) as ABTestEntry<TContext, TVariant> | undefined;
     if (!entry) return null;
     if (!this.shouldRun(name)) return null;
     try {
       const result = await entry.handler(context);
+      if (!result) return null;
       if (Array.isArray(result)) {
         return { variants: result, testName: entry.name };
       }

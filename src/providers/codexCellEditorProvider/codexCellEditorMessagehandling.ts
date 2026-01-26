@@ -1421,11 +1421,36 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};
+        const {
+            cellId,
+            selectedIndex,
+            testId,
+            testName,
+            selectionTimeMs,
+            names,
+            // Attention check specific fields
+            isAttentionCheck,
+            attentionCheckPassed,
+            correctIndex,
+            decoyCellId
+        } = (typedEvent as any).content || {};
 
         // Import and call the A/B testing feedback function
-        const { recordVariantSelection } = await import("../../utils/abTestingUtils");
+        const { recordVariantSelection, recordAttentionCheckResult } = await import("../../utils/abTestingUtils");
         await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
+
+        // If this was an attention check, record the result separately
+        if (isAttentionCheck) {
+            await recordAttentionCheckResult({
+                testId,
+                cellId,
+                passed: attentionCheckPassed ?? false,
+                selectionTimeMs,
+                correctIndex,
+                decoyCellId
+            });
+            debug(`Attention check recorded: Cell ${cellId}, passed=${attentionCheckPassed}, decoy=${decoyCellId}`);
+        }
 
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },

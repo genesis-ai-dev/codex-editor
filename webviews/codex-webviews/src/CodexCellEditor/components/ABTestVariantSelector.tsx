@@ -8,6 +8,7 @@ interface ABTestVariantSelectorProps {
     testId: string;
     names?: string[];
     abProbability?: number;
+    headerOverride?: string; // Custom header text (e.g., for recovery after attention check)
     onVariantSelected: (index: number, selectionTimeMs: number) => void;
     onDismiss: () => void;
 }
@@ -18,6 +19,7 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
     testId,
     names,
     abProbability,
+    headerOverride,
     onVariantSelected,
     onDismiss
 }) => {
@@ -74,14 +76,14 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
         <div className="ab-test-overlay" onClick={onDismiss}>
             <div className="ab-test-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="ab-test-header">
-                    <h3>{selectedIndex === null ? 'Choose Translation' : 'Result'}</h3>
-                    {selectedIndex === null ? (
+                    <h3>{headerOverride || (selectedIndex === null ? 'Choose Translation' : 'Result')}</h3>
+                    {selectedIndex === null && !headerOverride ? (
                         <p>Pick the translation that reads best for this context.</p>
-                    ) : (
+                    ) : selectedIndex !== null ? (
                         names && names.length === variants.length ? (
                             <p>Tested: {names.join(' vs ')}</p>
                         ) : null
-                    )}
+                    ) : null}
                 </div>
                 
                 <div className="ab-test-variants">
