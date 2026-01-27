@@ -60,6 +60,15 @@ export async function atomicWriteUriTextWithFs(
         // Atomically rename temp file over target
         await fs.rename(tmpUri, uri, { overwrite: true });
     } catch (error) {
+        if (shouldRetryRenameWithoutOverwrite(error)) {
+            try {
+                await fs.rename(tmpUri, uri, { overwrite: false });
+                return;
+            } catch (retryError) {
+                throw new Error(`Failed to rename temp file over target: ${retryError}`);
+            }
+        }
+
         // If rename failed but temp file was created, clean it up
 
         // Check if temp file exists before attempting to delete
@@ -80,6 +89,19 @@ export async function atomicWriteUriTextWithFs(
         // If rename failed, the original file is still intact (data preserved)
         throw error;
     }
+}
+
+function shouldRetryRenameWithoutOverwrite(error: unknown): boolean {
+    if (error instanceof vscode.FileSystemError) {
+        return error.code === "FileNotFound" || error.code === "EntryNotFound";
+    }
+
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const message = String((error as { message?: unknown }).message ?? "");
+        return message.includes("Unable to delete nonexistent file");
+    }
+
+    return false;
 }
 
 export type ReadExistingFileResult =
