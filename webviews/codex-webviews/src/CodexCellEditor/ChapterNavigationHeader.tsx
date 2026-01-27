@@ -93,6 +93,7 @@ interface ChapterNavigationHeaderProps {
     subsectionProgress?: Record<number, ProgressPercentages>;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    showHealthIndicators?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -154,6 +155,7 @@ export function ChapterNavigationHeader({
     subsectionProgress,
     allSubsectionProgress,
     requestSubsectionProgress,
+    showHealthIndicators = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -1297,6 +1299,7 @@ ChapterNavigationHeaderProps) {
                 calculateSubsectionProgress={calculateSubsectionProgress}
                 requestSubsectionProgress={requestSubsectionProgress}
                 handleEditMilestoneModalOpen={handleEditMilestoneModalOpen}
+                showHealthIndicators={showHealthIndicators}
             />
 
             <RenameModal

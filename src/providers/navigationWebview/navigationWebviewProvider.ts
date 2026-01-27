@@ -830,10 +830,16 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 this.serializeItem(item)
             );
 
+            // Get feature flag for health indicators
+            const showHealthIndicators = vscode.workspace
+                .getConfiguration("codex-project-manager")
+                .get<boolean>("showHealthIndicators", false);
+
             safePostMessageToView(this._view, {
                 command: "updateItems",
                 codexItems: serializedCodexItems,
                 dictionaryItems: serializedDictItems,
+                showHealthIndicators,
             });
 
             if (this.bibleBookMap) {

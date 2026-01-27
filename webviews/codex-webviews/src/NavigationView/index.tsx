@@ -33,6 +33,7 @@ interface State {
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     hasReceivedInitialData: boolean;
+    showHealthIndicators: boolean;
     renameModal: {
         isOpen: boolean;
         item: CodexItem | null;
@@ -176,8 +177,8 @@ function NavigationView() {
         previousExpandedGroups: null,
         searchQuery: "",
         bibleBookMap: undefined,
-
         hasReceivedInitialData: false,
+        showHealthIndicators: false,
         renameModal: {
             isOpen: false,
             item: null,
@@ -274,6 +275,7 @@ function NavigationView() {
                             codexItems: processedCodexItems,
                             dictionaryItems: message.dictionaryItems || [],
                             hasReceivedInitialData: true,
+                            showHealthIndicators: message.showHealthIndicators ?? false,
                         };
                     });
                     break;
@@ -646,53 +648,41 @@ function NavigationView() {
         const requiredText = progress.requiredTextValidations;
         const requiredAudio = progress.requiredAudioValidations;
 
-        // Health indicator - compute color and percentage
-        // Only show health indicator when there's actual health data (not for empty files)
+        // Health indicator - compute percentage
+        // Only show health indicator when there's actual health data and feature flag is enabled
         const health = progress.averageHealth;
-        const hasHealthData = typeof health === 'number';
+        const hasHealthData = typeof health === 'number' && state.showHealthIndicators;
         const healthPercent = hasHealthData ? Math.round(health * 100) : 0;
-        const getHealthColor = (h: number) => {
-            if (h < 0.3) return "#ef4444"; // red
-            if (h < 0.7) return "#eab308"; // yellow
-            return "#22c55e"; // green
-        };
-        const healthColor = hasHealthData ? getHealthColor(health) : "#888";
 
         return (
             <div className="flex flex-col gap-y-4 pl-7">
-                {/* Health indicator - compact pill at the top, only shown when health data exists */}
+                {/* Health indicator - styled to match other progress bars */}
                 {hasHealthData && (
-                    <div className="flex items-center gap-2 -mb-2">
-                        <Heart className="h-3 w-3 opacity-60" style={{ color: healthColor }} />
-                        <div
-                            className="flex items-center gap-1.5"
-                            title={`Average cell health: ${healthPercent}%`}
-                        >
-                            <div
-                                style={{
-                                    width: "40px",
-                                    height: "4px",
-                                    borderRadius: "2px",
-                                    backgroundColor: `${healthColor}33`,
-                                    overflow: "hidden",
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        width: `${healthPercent}%`,
-                                        height: "100%",
-                                        backgroundColor: healthColor,
-                                        borderRadius: "2px",
-                                        transition: "width 0.3s ease",
-                                    }}
-                                />
+                    <div className="flex gap-x-1">
+                        <span className="opacity-70 font-light">
+                            <Heart className="h-[14px] w-[14px]" />
+                        </span>
+                        <div className="mt-[2px] w-full">
+                            <div className="w-full">
+                                <div className="bg-primary/20 relative w-full overflow-hidden rounded-full h-[8px]">
+                                    <div
+                                        className="h-full transition-all"
+                                        style={{
+                                            width: `${healthPercent}%`,
+                                            backgroundColor: healthPercent >= 70
+                                                ? "var(--vscode-charts-green, #22c55e)"
+                                                : healthPercent >= 30
+                                                    ? "var(--vscode-charts-yellow, #eab308)"
+                                                    : "var(--vscode-charts-red, #ef4444)",
+                                        }}
+                                    />
+                                </div>
+                                <div className="flex items-center mt-0.5 gap-2">
+                                    <span className="text-[10px] font-medium text-primary">
+                                        {healthPercent}%
+                                    </span>
+                                </div>
                             </div>
-                            <span
-                                className="text-[10px] opacity-60"
-                                style={{ color: healthColor, minWidth: "28px" }}
-                            >
-                                {healthPercent}%
-                            </span>
                         </div>
                     </div>
                 )}

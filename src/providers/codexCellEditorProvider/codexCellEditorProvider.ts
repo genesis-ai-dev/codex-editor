@@ -813,6 +813,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     debug("Could not fetch user role:", error);
                 }
 
+                // Get health indicator setting
+                const showHealthIndicators = vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<boolean>("showHealthIndicators", false);
+
                 this.postMessageToWebview(webviewPanel, {
                     type: "providerSendsInitialContentPaginated",
                     rev,
@@ -827,6 +832,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
+                    showHealthIndicators: showHealthIndicators,
                 });
             }
 
