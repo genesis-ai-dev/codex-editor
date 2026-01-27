@@ -159,6 +159,17 @@ const CellList: React.FC<CellListProps> = ({
     // Previous queue reference for comparison
     const prevQueueRef = useRef<string[]>([]);
 
+    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
+    const getCellIdentifier = useCallback((cell: QuillCellContent): string => {
+        // Prefer globalReferences (new format after migration)
+        const globalRefs = cell.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            return globalRefs[0];
+        }
+        // Fallback to cellMarkers for backward compatibility
+        return cell.cellMarkers[0] || "";
+    }, []);
+
     // Calculate footnote offset for each cell based on previous cells' footnote counts within the same chapter
     // This uses fullDocumentTranslationUnits to count across all subsections within a chapter
     const calculateFootnoteOffset = useCallback(
@@ -166,15 +177,21 @@ const CellList: React.FC<CellListProps> = ({
             if (cellIndex >= workingTranslationUnits.length) return 0;
 
             const currentCell = workingTranslationUnits[cellIndex];
-            const currentCellId = currentCell.cellMarkers[0];
+            const currentCellIdentifier = getCellIdentifier(currentCell);
 
-            // Extract chapter ID properly: "JUD 1:1" -> "JUD 1"
-            const currentChapterId = currentCellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
+            // Extract chapter ID from globalReference format: "JUD 1:1" -> "JUD 1"
+            // If the identifier doesn't contain ":", it might be a UUID, so we can't extract chapter
+            const currentChapterId = currentCellIdentifier.includes(":")
+                ? currentCellIdentifier.split(":")[0]
+                : null;
+
+            // If we can't extract a chapter ID, we can't group by chapter, so return 0
+            if (!currentChapterId) return 0;
 
             // Use fullDocumentTranslationUnits to count footnotes across the entire chapter
-            // Find the current cell's index in the full document
+            // Find the current cell's index in the full document using the identifier
             const fullDocumentCellIndex = fullDocumentTranslationUnits.findIndex(
-                (cell) => cell.cellMarkers[0] === currentCellId
+                (cell) => getCellIdentifier(cell) === currentCellIdentifier
             );
 
             if (fullDocumentCellIndex === -1) return 0;
@@ -183,11 +200,16 @@ const CellList: React.FC<CellListProps> = ({
             let footnoteCount = 0;
             for (let i = 0; i < fullDocumentCellIndex; i++) {
                 const cell = fullDocumentTranslationUnits[i];
-                const cellId = cell.cellMarkers[0];
-                const cellChapterId = cellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
+                const cellIdentifier = getCellIdentifier(cell);
+                
+                // Extract chapter ID from this cell's identifier
+                const cellChapterId = cellIdentifier.includes(":")
+                    ? cellIdentifier.split(":")[0]
+                    : null;
 
                 // Only count footnotes if the cell is in the same chapter
                 if (
+                    cellChapterId &&
                     cellChapterId === currentChapterId &&
                     cell.cellType !== CodexCellTypes.PARATEXT &&
                     cell.cellType !== CodexCellTypes.MILESTONE
@@ -202,7 +224,7 @@ const CellList: React.FC<CellListProps> = ({
 
             return footnoteCount;
         },
-        [workingTranslationUnits, fullDocumentTranslationUnits]
+        [workingTranslationUnits, fullDocumentTranslationUnits, getCellIdentifier]
     );
 
     // Add debug logging for translation state tracking
@@ -422,17 +444,6 @@ const CellList: React.FC<CellListProps> = ({
             console.error("Error in autocomplete queue monitoring:", error);
         }
     }, [cellsInAutocompleteQueue, currentProcessingCellId]);
-
-    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
-    const getCellIdentifier = useCallback((cell: QuillCellContent): string => {
-        // Prefer globalReferences (new format after migration)
-        const globalRefs = cell.data?.globalReferences;
-        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
-            return globalRefs[0];
-        }
-        // Fallback to cellMarkers for backward compatibility
-        return cell.cellMarkers[0] || "";
-    }, []);
 
     // Helper function to check if a cell is a child cell
     const isChildCell = useCallback(
