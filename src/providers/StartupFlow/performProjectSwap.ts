@@ -148,16 +148,15 @@ export async function performProjectSwap(
             progress.report({ increment: 15, message: "Swapping project directories..." });
             await swapDirectories(tmpPath, newProjectPath, targetProjectPath);
 
-            // Step 9: Update local settings
+            // Step 9: Finalize local settings on the NEW project
+            // Clear projectSwap entirely - it tracked the swap execution which is now complete.
+            // The NEW project doesn't need the old project's swap execution state (swapUUID, backupPath, etc.)
             progress.report({ increment: 5, message: "Finalizing swap..." });
             const finalProjectUri = vscode.Uri.file(targetProjectPath);
             await writeLocalProjectSettings({
-                projectSwap: {
-                    ...localSwap,
-                    swapInProgress: false,
-                    pendingSwap: false,
-                },
+                projectSwap: undefined,
             }, finalProjectUri);
+            debugLog("Cleared projectSwap from localProjectSettings.json (swap complete)");
 
             // Step 9b: Update projectName in metadata to match the new folder name
             // This is critical after a swap - the old projectName may have been merged from the old project
@@ -165,6 +164,17 @@ export async function performProjectSwap(
                 await updateProjectNameToMatchFolder(finalProjectUri, targetFolderName);
             } catch (err) {
                 debugLog("Warning: Could not update projectName (non-fatal):", err);
+            }
+
+            // Step 9c: Delete localProjectSwap.json from the new project
+            // This cached swap info was for the OLD project's origin and has wrong isOldProject value.
+            // The new project will fetch fresh swap info from its own remote when needed.
+            try {
+                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                await deleteLocalProjectSwapFile(finalProjectUri);
+                debugLog("Deleted stale localProjectSwap.json from new project");
+            } catch {
+                // Non-fatal - file might not exist
             }
 
             // Step 10: Cleanup temp directory (the system temp used for cloning)
@@ -371,11 +381,21 @@ async function mergeProjectFiles(
         oursRoot: oldProjectUri,
         theirsRoot: newProjectUri,
         exclude: (relativePath) => {
-            return (
+            // Exclude database files
+            if (
                 relativePath.endsWith(".sqlite") ||
                 relativePath.endsWith(".sqlite3") ||
                 relativePath.endsWith(".db")
-            );
+            ) {
+                return true;
+            }
+            // Exclude localProjectSwap.json - this is a local cache of remote swap info
+            // specific to each project's origin URL. Carrying it over from the old project
+            // would cause isOldProject to be wrong (old project has true, new has false)
+            if (relativePath === ".project/localProjectSwap.json") {
+                return true;
+            }
+            return false;
         },
         isBinary: (relativePath) => isBinaryFile(relativePath),
     });

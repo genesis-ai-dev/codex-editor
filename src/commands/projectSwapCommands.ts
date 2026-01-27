@@ -86,7 +86,7 @@ async function cancelSwapEntry(
                         cancelledAt: now,
                     };
                 }
-                
+
                 // Check if there are any remaining active entries
                 const hasActiveEntries = entries.some(e => e.swapStatus === "active");
                 if (hasActiveEntries) {
@@ -104,7 +104,7 @@ async function cancelSwapEntry(
         } catch {
             // Non-fatal - localProjectSwap.json might not exist
         }
-        
+
         // Commit and push the changes - bypass swap check since we just cancelled it locally
         // This ensures the cancellation can be pushed to remote without being blocked
         await vscode.commands.executeCommand(
@@ -152,7 +152,7 @@ export async function initiateProjectSwap(): Promise<void> {
         if (!permission.hasPermission) {
             // Provide a clear, user-friendly message based on the actual reason
             let message: string;
-            
+
             if (permission.error === "No git remote origin found") {
                 message = "This project has not been published yet.\n\nPublish your project first, then you can initiate a swap.";
             } else if (permission.error === "Insufficient permissions") {
@@ -233,8 +233,7 @@ export async function initiateProjectSwap(): Promise<void> {
                 const action = await vscode.window.showInformationMessage(
                     `${statusMsg}\n\nWould you like to initiate a new swap?`,
                     { modal: true },
-                    "Yes, Initiate New Swap",
-                    "Cancel"
+                    "Yes, Initiate New Swap"
                 );
 
                 if (action !== "Yes, Initiate New Swap") {
@@ -423,10 +422,10 @@ export async function viewProjectSwapStatus(): Promise<void> {
         }
 
         const projectUri = workspaceFolder.uri;
-        
+
         // Check BOTH metadata.json AND localProjectSwap.json for swap info
         let effectiveSwapInfo: ProjectSwapInfo | undefined;
-        
+
         try {
             const metadataPath = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, "metadata.json"));
             const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
@@ -435,7 +434,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
         } catch {
             // metadata.json might not exist or have issues
         }
-        
+
         if (!effectiveSwapInfo) {
             try {
                 const { readLocalProjectSwapFile } = await import("../utils/localProjectSettings");
@@ -526,13 +525,13 @@ export async function cancelProjectSwap(): Promise<void> {
         }
 
         const projectUri = vscode.Uri.file(workspaceFolder.uri.fsPath);
-        
+
         // FIRST: Check if there's actually a swap to cancel (before checking permissions)
         // Check BOTH metadata.json AND localProjectSwap.json for swap info
         let metadata: ProjectMetadata | undefined;
         let effectiveSwapInfo: ProjectSwapInfo | undefined;
         let swapSourceIsLocal = false;
-        
+
         try {
             const metadataPath = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, "metadata.json"));
             const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
@@ -541,7 +540,7 @@ export async function cancelProjectSwap(): Promise<void> {
         } catch {
             // metadata.json might not exist or have issues
         }
-        
+
         if (!effectiveSwapInfo) {
             try {
                 const { readLocalProjectSwapFile } = await import("../utils/localProjectSettings");
@@ -583,7 +582,7 @@ export async function cancelProjectSwap(): Promise<void> {
         if (!permission.hasPermission) {
             // Provide a clear, user-friendly message based on the actual reason
             let message: string;
-            
+
             if (permission.error === "No git remote origin found") {
                 message = "This project has not been published yet.\n\nYou can only cancel swaps for published projects.";
             } else if (permission.error === "Insufficient permissions") {
@@ -680,7 +679,7 @@ export async function initiateSwapCopy(): Promise<void> {
         if (!permission.hasPermission) {
             // Provide a clear, user-friendly message based on the actual reason
             let message: string;
-            
+
             if (permission.error === "No git remote origin found") {
                 message = "This project has not been published yet.\n\nPublish your project first, then you can copy it to a new swap target.";
             } else if (permission.error === "Insufficient permissions") {
@@ -713,7 +712,7 @@ export async function initiateSwapCopy(): Promise<void> {
 
         // Get base name without UUID (for swap copy, we always want a fresh UUID)
         const sourceUuid = extractProjectIdFromFolderName(sourceName);
-        const baseName = sourceUuid 
+        const baseName = sourceUuid
             ? sourceName.substring(0, sourceName.length - sourceUuid.length - 1)
             : sourceName;
 
@@ -893,7 +892,7 @@ export async function initiateSwapCopy(): Promise<void> {
             }
 
             progress.report({ message: "Opening new project..." });
-            
+
             // Use safe folder switch that ensures metadata integrity
             const { MetadataManager } = await import("../utils/metadataManager");
             await MetadataManager.safeOpenFolder(
