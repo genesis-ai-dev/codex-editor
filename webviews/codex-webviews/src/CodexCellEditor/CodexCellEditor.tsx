@@ -3069,8 +3069,6 @@ const CodexCellEditor: React.FC = () => {
                     variants={abTestState.variants}
                     cellId={abTestState.cellId}
                     testId={abTestState.testId}
-                    names={(abTestState as any).names}
-                    abProbability={(abTestState as any).abProbability}
                     onVariantSelected={(idx, ms) => handleVariantSelected(idx, ms)}
                     onDismiss={handleDismissABTest}
                 />

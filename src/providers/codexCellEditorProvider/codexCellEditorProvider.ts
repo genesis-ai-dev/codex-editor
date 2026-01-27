@@ -3432,10 +3432,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
                         }
 
-                        // Win rates are tracked in cloud analytics, not shown in UI
-
                         if (webviewPanel) {
-                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
@@ -3444,13 +3441,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     testId: testId || `${currentCellId}-${Date.now()}`,
                                     testName,
                                     names,
-                                    abProbability: Math.max(0, Math.min(1, abProb)),
-                                    // Attention check metadata
                                     isAttentionCheck,
                                     correctIndex,
                                     decoyCellId,
                                 },
-                            } as any);
+                            });
                         }
 
                         // Mark single cell translation as complete so UI progress/spinners stop

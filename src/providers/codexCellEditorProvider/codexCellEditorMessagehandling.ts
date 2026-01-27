@@ -1511,50 +1511,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    adjustABTestingProbability: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "adjustABTestingProbability"; }>;
-        const delta = Number(typedEvent.content?.delta) || 0;
-        const buttonChoice = typedEvent.content?.buttonChoice as "more" | "less" | undefined;
-        const testId = typedEvent.content?.testId;
-        const cellId = typedEvent.content?.cellId;
-
-        // TEMPORARY: Disabled probability adjustment to prevent feedback loop during A/B testing.
-        // If "See more" actually increases probability, users who prefer more tests will see more tests,
-        // creating a biased feedback loop. For now, buttons only record preference without changing settings.
-        // TODO: Re-enable probability adjustment after A/B test analysis is complete.
-
-        // Record A/B test result if a button was clicked
-        if (buttonChoice && testId && cellId) {
-            try {
-                const { recordAbResult } = await import("../../utils/abTestingAnalytics");
-                await recordAbResult({
-                    category: "Frequency Preference",
-                    options: ["See more", "See less"],
-                    winner: buttonChoice === "more" ? 0 : 1,
-                });
-                debug(`Recorded frequency preference A/B test: ${buttonChoice} won`);
-            } catch (analyticsError) {
-                console.warn("[A/B] Failed to post frequency preference analytics", analyticsError);
-            }
-        }
-
-        // TEMPORARY: Probability adjustment disabled - see comment above
-        // try {
-        //     const config = vscode.workspace.getConfiguration("codex-editor-extension");
-        //     const current = Number(config.get("abTestingProbability")) || 0;
-        //     const next = Math.max(0, Math.min(1, current + delta));
-        //     await config.update("abTestingProbability", next, vscode.ConfigurationTarget.Workspace);
-        //     // Inform webview of new value
-        //     provider.postMessageToWebview(webviewPanel, {
-        //         type: "abTestingProbabilityUpdated",
-        //         content: { value: next }
-        //     });
-        //     vscode.window.setStatusBarMessage(`A/B test frequency set to ${(next * 100).toFixed(0)}%`, 2000);
-        // } catch (err) {
-        //     console.error("Failed to update A/B testing probability", err);
-        // }
-    },
-
     getCurrentUsername: async ({ webviewPanel, provider }) => {
         // Username is now bundled with initial content; only send on explicit request
         const authApi = await provider.getAuthApi();

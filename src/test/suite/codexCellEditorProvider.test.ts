@@ -4635,40 +4635,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(true, "Message handled successfully");
         });
 
-        test("should handle adjustABTestingProbability message", async function () {
-            this.timeout(10000);
-
-            const document = await provider.openCustomDocument(
-                tempUri,
-                { backupId: undefined },
-                new vscode.CancellationTokenSource().token
-            );
-
-            const mockPanel = {
-                webview: {
-                    postMessage: sinon.stub().resolves(true)
-                }
-            } as any;
-
-            const event = {
-                command: "adjustABTestingProbability",
-                content: {
-                    delta: -0.1,
-                    buttonChoice: "less"
-                }
-            };
-
-            await handleMessages(
-                event,
-                mockPanel,
-                document,
-                () => { },
-                provider
-            );
-
-            assert.ok(true, "Should handle probability adjustment without error");
-        });
-
         test("should send A/B test variants to webview when completion returns multiple variants", async function () {
             this.timeout(10000);
 
