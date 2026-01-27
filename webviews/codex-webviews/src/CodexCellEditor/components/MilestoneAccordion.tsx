@@ -551,7 +551,7 @@ export function MilestoneAccordion({
                 content: {
                     milestoneIndex: displayedIndex,
                     newValue: trimmedValue,
-                    deferRefresh: true, // Defer refresh until accordion closes
+                    deferRefresh: true,
                 },
             });
 
@@ -660,44 +660,42 @@ export function MilestoneAccordion({
                     </h2>
                 )}
                 <div className="flex gap-y-2">
-                    {!isSourceText && (
-                        <div className="flex items-center justify-center gap-x-1">
-                            {isEditingMilestone ? (
-                                <>
-                                    <VSCodeButton
-                                        aria-label="Save Milestone"
-                                        appearance="icon"
-                                        title="Save Milestone"
-                                        onClick={handleSaveMilestone}
-                                        disabled={
-                                            !editedMilestoneValue.trim() ||
-                                            editedMilestoneValue.trim() === originalMilestoneValue
-                                        }
-                                    >
-                                        <Check className="h-4 w-4" />
-                                    </VSCodeButton>
-                                    <VSCodeButton
-                                        aria-label="Revert Changes"
-                                        appearance="icon"
-                                        title="Revert Changes"
-                                        onClick={handleRevertMilestone}
-                                    >
-                                        <RotateCcw className="h-4 w-4" />
-                                    </VSCodeButton>
-                                </>
-                            ) : (
+                    <div className="flex items-center justify-center gap-x-1">
+                        {isEditingMilestone ? (
+                            <>
                                 <VSCodeButton
-                                    aria-label="Edit Milestone"
+                                    aria-label="Save Milestone"
                                     appearance="icon"
-                                    title="Edit Milestone"
-                                    onClick={handleEditMilestoneClick}
-                                    disabled={false}
+                                    title="Save Milestone"
+                                    onClick={handleSaveMilestone}
+                                    disabled={
+                                        !editedMilestoneValue.trim() ||
+                                        editedMilestoneValue.trim() === originalMilestoneValue
+                                    }
                                 >
-                                    <i className="codicon codicon-edit"></i>
+                                    <Check className="h-4 w-4" />
                                 </VSCodeButton>
-                            )}
-                        </div>
-                    )}
+                                <VSCodeButton
+                                    aria-label="Revert Changes"
+                                    appearance="icon"
+                                    title="Revert Changes"
+                                    onClick={handleRevertMilestone}
+                                >
+                                    <RotateCcw className="h-4 w-4" />
+                                </VSCodeButton>
+                            </>
+                        ) : (
+                            <VSCodeButton
+                                aria-label="Edit Milestone"
+                                appearance="icon"
+                                title="Edit Milestone"
+                                onClick={handleEditMilestoneClick}
+                                disabled={false}
+                            >
+                                <i className="codicon codicon-edit"></i>
+                            </VSCodeButton>
+                        )}
+                    </div>
                     <VSCodeButton
                         aria-label="Close Milestone"
                         appearance="icon"
