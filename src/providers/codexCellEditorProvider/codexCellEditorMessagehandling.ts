@@ -1231,9 +1231,31 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 // Save the source document
                 try {
+                    const sourcePanelBeforeSave = provider.getWebviewPanels().get(sourceUri.toString());
+                    const sourceViewColumn = sourcePanelBeforeSave?.viewColumn ?? vscode.ViewColumn.Active;
+                    const sourceWasActive = sourcePanelBeforeSave?.active ?? false;
+
                     await provider.saveCustomDocument(sourceDocument, cancellationToken);
                     sourceUpdateSucceeded = true;
                     debug(`[updateMilestoneValue] Successfully updated and saved milestone in source file: ${sourceUri.fsPath}`);
+
+                    const sourcePanelAfterSave = provider.getWebviewPanels().get(sourceUri.toString());
+                    if (sourcePanelBeforeSave && !sourcePanelAfterSave) {
+                        try {
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourceDocument.uri,
+                                "codex.cellEditor",
+                                { viewColumn: sourceViewColumn, preserveFocus: !sourceWasActive }
+                            );
+                            await new Promise((resolve) => setTimeout(resolve, 100));
+                        } catch (restoreError) {
+                            console.warn(
+                                `[updateMilestoneValue] Failed to restore source webview after save:`,
+                                restoreError
+                            );
+                        }
+                    }
 
                     // Refresh the source webview panel if it's open
                     const sourcePanel = provider.getWebviewPanels().get(sourceUri.toString());
