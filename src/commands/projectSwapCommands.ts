@@ -13,6 +13,7 @@ import {
     getActiveSwapEntry,
     hasPendingSwap,
     getAllSwapEntries,
+    sanitizeGitUrl,
 } from "../utils/projectSwapManager";
 import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
 import {
@@ -103,6 +104,19 @@ async function cancelSwapEntry(
             }
         } catch {
             // Non-fatal - localProjectSwap.json might not exist
+        }
+
+        // Also clear projectSwap from localProjectSettings.json
+        // This clears the local execution state (pendingSwap, swapUUID, backupPath, etc.)
+        try {
+            const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../utils/localProjectSettings");
+            const settings = await readLocalProjectSettings(projectUri);
+            if (settings.projectSwap) {
+                settings.projectSwap = undefined;
+                await writeLocalProjectSettings(settings, projectUri);
+            }
+        } catch {
+            // Non-fatal
         }
 
         // Commit and push the changes - bypass swap check since we just cancelled it locally
@@ -320,15 +334,16 @@ export async function initiateProjectSwap(): Promise<void> {
         const oldProjectName = extractProjectNameFromUrl(currentGitUrl);
 
         // Create new swap entry with all info self-contained
+        // Sanitize URLs to remove any embedded credentials (tokens/passwords)
         const newEntry: ProjectSwapEntry = {
             swapUUID,
             swapInitiatedAt: now,
             swapModifiedAt: now,
             swapStatus: "active",
             isOldProject: true,
-            oldProjectUrl: currentGitUrl,
+            oldProjectUrl: sanitizeGitUrl(currentGitUrl),
             oldProjectName,
-            newProjectUrl,
+            newProjectUrl: sanitizeGitUrl(newProjectUrl),
             newProjectName,
             swapInitiatedBy: currentUserInfo.username,
             swapReason,
@@ -372,7 +387,7 @@ export async function initiateProjectSwap(): Promise<void> {
             await writeLocalProjectSwapFile({
                 remoteSwapInfo: swapInfo,
                 fetchedAt: Date.now(),
-                sourceOriginUrl: currentGitUrl,
+                sourceOriginUrl: sanitizeGitUrl(currentGitUrl),
             }, projectUri);
             debug("Also wrote swap info to localProjectSwap.json");
         } catch (localWriteError) {
@@ -725,7 +740,9 @@ export async function initiateSwapCopy(): Promise<void> {
 
         if (!newName) return;
 
-        const sourceRemoteUrl = await getGitOriginUrl(currentPath);
+        // Get and sanitize source remote URL (remove any embedded credentials)
+        const rawSourceRemoteUrl = await getGitOriginUrl(currentPath);
+        const sourceRemoteUrl = rawSourceRemoteUrl ? sanitizeGitUrl(rawSourceRemoteUrl) : null;
 
         // Generate NEW UUID for the swapped project
         const newUUID = generateProjectId();

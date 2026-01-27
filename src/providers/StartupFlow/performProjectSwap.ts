@@ -6,7 +6,7 @@ import * as os from "os";
 import archiver from "archiver";
 import { ProjectMetadata, LocalProjectSwap, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { MetadataManager } from "../../utils/metadataManager";
-import { extractProjectNameFromUrl, getGitOriginUrl, normalizeProjectSwapInfo, findSwapEntryByTimestamp } from "../../utils/projectSwapManager";
+import { extractProjectNameFromUrl, getGitOriginUrl, normalizeProjectSwapInfo, findSwapEntryByTimestamp, sanitizeGitUrl } from "../../utils/projectSwapManager";
 import { validateAndFixProjectMetadata } from "../../projectManager/utils/projectUtils";
 import { readLocalProjectSettings, writeLocalProjectSettings } from "../../utils/localProjectSettings";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
@@ -98,10 +98,11 @@ export async function performProjectSwap(
             // Step 7: Update metadata with swap completion
             progress.report({ increment: 5, message: "Updating project metadata..." });
             const oldOriginUrl = await getGitOriginUrl(tmpPath);
+            // Sanitize URLs to remove any embedded credentials (tokens/passwords)
             await updateSwapMetadata(newProjectPath, swapUUID, false, {
-                newProjectUrl,
+                newProjectUrl: sanitizeGitUrl(newProjectUrl),
                 newProjectName: targetFolderName,
-                oldProjectUrl: oldOriginUrl ?? undefined,
+                oldProjectUrl: oldOriginUrl ? sanitizeGitUrl(oldOriginUrl) : undefined,
                 oldProjectName: projectName,
                 swapInitiatedAt, // Pass the timestamp from OLD project for entry matching
             });
@@ -114,11 +115,13 @@ export async function performProjectSwap(
                 const oldSettings = await readLocalProjectSettings(vscode.Uri.file(tmpPath));
                 let lfsSourceRemoteUrl = oldSettings.lfsSourceRemoteUrl;
                 if (!lfsSourceRemoteUrl) {
-                    lfsSourceRemoteUrl = await getGitOriginUrl(tmpPath) ?? undefined;
+                    const rawUrl = await getGitOriginUrl(tmpPath);
+                    lfsSourceRemoteUrl = rawUrl ? sanitizeGitUrl(rawUrl) : undefined;
                 }
                 if (lfsSourceRemoteUrl) {
                     const newSettings = await readLocalProjectSettings(vscode.Uri.file(newProjectPath));
-                    newSettings.lfsSourceRemoteUrl = lfsSourceRemoteUrl;
+                    // Ensure lfsSourceRemoteUrl is also sanitized (in case old settings had credentials)
+                    newSettings.lfsSourceRemoteUrl = sanitizeGitUrl(lfsSourceRemoteUrl);
                     await writeLocalProjectSettings(newSettings, vscode.Uri.file(newProjectPath));
                 }
             } catch {

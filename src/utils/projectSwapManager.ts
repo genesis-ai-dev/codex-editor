@@ -152,54 +152,66 @@ export async function checkProjectSwapRequired(
                         remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
                         debug("Fetched remote metadata for swap check");
 
-                        // Cache the remote swap info locally for offline use, but MERGE with existing local data
-                        // to preserve local modifications (like cancellations with more recent timestamps)
-                        // This creates .project/localProjectSwap.json which is gitignored
-                        try {
-                            // Merge remote entries with existing local entries, keeping more recent swapModifiedAt
-                            const remoteEntries = normalizeProjectSwapInfo(remoteSwapInfo).swapEntries || [];
-                            const existingLocalEntries = localSwapFileInfo 
-                                ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || [])
-                                : [];
-                            
-                            // Build merged entries map - local entries first, then remote
-                            // For matching swapInitiatedAt, keep the one with more recent swapModifiedAt
-                            const mergedMap = new Map<number, ProjectSwapEntry>();
-                            for (const entry of existingLocalEntries) {
-                                mergedMap.set(entry.swapInitiatedAt, entry);
-                            }
-                            for (const entry of remoteEntries) {
-                                const existing = mergedMap.get(entry.swapInitiatedAt);
-                                if (!existing) {
+                        // Only cache to localProjectSwap.json if this is an OLD project with active swaps
+                        // On NEW projects (where user has already swapped), we don't need this cache
+                        // because metadata.json has all the history and there's no pending swap
+                        const remoteEntries = normalizeProjectSwapInfo(remoteSwapInfo).swapEntries || [];
+                        const hasActiveOldProjectSwap = remoteEntries.some(
+                            e => e.swapStatus === "active" && e.isOldProject === true
+                        );
+                        
+                        if (hasActiveOldProjectSwap) {
+                            // Cache the remote swap info locally for offline use, but MERGE with existing local data
+                            // to preserve local modifications (like cancellations with more recent timestamps)
+                            // This creates .project/localProjectSwap.json which is gitignored
+                            try {
+                                const existingLocalEntries = localSwapFileInfo 
+                                    ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || [])
+                                    : [];
+                                
+                                // Build merged entries map - local entries first, then remote
+                                // For matching swapInitiatedAt, keep the one with more recent swapModifiedAt
+                                const mergedMap = new Map<number, ProjectSwapEntry>();
+                                for (const entry of existingLocalEntries) {
                                     mergedMap.set(entry.swapInitiatedAt, entry);
-                                } else {
-                                    // Compare timestamps - keep the more recent one
-                                    const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
-                                    const remoteModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
-                                    if (remoteModified > existingModified) {
+                                }
+                                for (const entry of remoteEntries) {
+                                    const existing = mergedMap.get(entry.swapInitiatedAt);
+                                    if (!existing) {
                                         mergedMap.set(entry.swapInitiatedAt, entry);
-                                        debug(`Cache merge: using remote entry (modified ${remoteModified}) over local (modified ${existingModified})`);
                                     } else {
-                                        debug(`Cache merge: keeping local entry (modified ${existingModified}) over remote (modified ${remoteModified})`);
+                                        // Compare timestamps - keep the more recent one
+                                        const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                                        const remoteModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                                        if (remoteModified > existingModified) {
+                                            mergedMap.set(entry.swapInitiatedAt, entry);
+                                            debug(`Cache merge: using remote entry (modified ${remoteModified}) over local (modified ${existingModified})`);
+                                        } else {
+                                            debug(`Cache merge: keeping local entry (modified ${existingModified}) over remote (modified ${remoteModified})`);
+                                        }
                                     }
                                 }
+                                
+                                const mergedSwapInfo: ProjectSwapInfo = {
+                                    swapEntries: Array.from(mergedMap.values()),
+                                };
+                                
+                                await writeLocalProjectSwapFile({
+                                    remoteSwapInfo: mergedSwapInfo,
+                                    fetchedAt: Date.now(),
+                                    sourceOriginUrl: sanitizeGitUrl(gitOriginUrl),
+                                }, projectUri);
+                                debug("Cached merged swap info to localProjectSwap.json (OLD project with active swap)");
+                                
+                                // Update localSwapFileInfo with the merged data for later comparison
+                                localSwapFileInfo = mergedSwapInfo;
+                            } catch (cacheError) {
+                                debug("Failed to cache remote swap info (non-fatal):", cacheError);
                             }
-                            
-                            const mergedSwapInfo: ProjectSwapInfo = {
-                                swapEntries: Array.from(mergedMap.values()),
-                            };
-                            
-                            await writeLocalProjectSwapFile({
-                                remoteSwapInfo: mergedSwapInfo,
-                                fetchedAt: Date.now(),
-                                sourceOriginUrl: gitOriginUrl,
-                            }, projectUri);
-                            debug("Cached merged swap info to localProjectSwap.json");
-                            
-                            // Update localSwapFileInfo with the merged data for later comparison
-                            localSwapFileInfo = mergedSwapInfo;
-                        } catch (cacheError) {
-                            debug("Failed to cache remote swap info (non-fatal):", cacheError);
+                        } else {
+                            debug("Skipping localProjectSwap.json cache - no active swap for OLD project");
+                            // Update localSwapFileInfo for later comparison even without caching
+                            localSwapFileInfo = { swapEntries: remoteEntries };
                         }
                     }
                 }
@@ -416,6 +428,26 @@ export async function getGitOriginUrl(projectPath: string): Promise<string | nul
     } catch (error) {
         debug("Error getting git origin URL:", error);
         return null;
+    }
+}
+
+/**
+ * Sanitize a Git URL by removing embedded credentials (username/password/token)
+ * This is important for storing URLs in metadata files that may be synced or shared.
+ * @param url - Git URL that may contain embedded credentials
+ * @returns Sanitized URL without credentials, or original URL if parsing fails
+ */
+export function sanitizeGitUrl(url: string): string {
+    if (!url) return url;
+    try {
+        const urlObj = new URL(url);
+        urlObj.username = "";
+        urlObj.password = "";
+        // Remove trailing slash for consistency
+        return urlObj.toString().replace(/\/$/, "");
+    } catch {
+        // If URL parsing fails, return original (might be a git@ style URL)
+        return url;
     }
 }
 
