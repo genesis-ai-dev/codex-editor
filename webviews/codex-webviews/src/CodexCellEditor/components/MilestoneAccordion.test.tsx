@@ -687,16 +687,74 @@ describe("MilestoneAccordion - Milestone Editing", () => {
     });
 
     describe("Edit Mode - Source Text Mode", () => {
-        it("should not show edit button when isSourceText is true", () => {
+        it("should show edit button when isSourceText is true", () => {
             renderMilestoneAccordion({ isSourceText: true });
 
-            expect(screen.queryByLabelText("Edit Milestone")).not.toBeInTheDocument();
+            expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
         });
 
         it("should show edit button when isSourceText is false", () => {
             renderMilestoneAccordion({ isSourceText: false });
 
             expect(screen.getByLabelText("Edit Milestone")).toBeInTheDocument();
+        });
+
+        it("should allow editing milestones in source files", async () => {
+            renderMilestoneAccordion({ isSourceText: true });
+
+            const editButton = screen.getByLabelText("Edit Milestone");
+            await act(async () => {
+                fireEvent.click(editButton);
+            });
+
+            const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "Source Chapter 1" } });
+            });
+
+            const saveButton = screen.getByLabelText("Save Milestone");
+            await act(async () => {
+                fireEvent.click(saveButton);
+            });
+
+            // Should send postMessage with updateMilestoneValue command
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "updateMilestoneValue",
+                content: {
+                    milestoneIndex: 0,
+                    newValue: "Source Chapter 1",
+                    deferRefresh: true,
+                },
+            });
+        });
+
+        it("should allow editing milestones in target files", async () => {
+            renderMilestoneAccordion({ isSourceText: false });
+
+            const editButton = screen.getByLabelText("Edit Milestone");
+            await act(async () => {
+                fireEvent.click(editButton);
+            });
+
+            const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
+            await act(async () => {
+                fireEvent.change(input, { target: { value: "Target Chapter 1" } });
+            });
+
+            const saveButton = screen.getByLabelText("Save Milestone");
+            await act(async () => {
+                fireEvent.click(saveButton);
+            });
+
+            // Should send postMessage with updateMilestoneValue command
+            expect(mockVscode.postMessage).toHaveBeenCalledWith({
+                command: "updateMilestoneValue",
+                content: {
+                    milestoneIndex: 0,
+                    newValue: "Target Chapter 1",
+                    deferRefresh: true,
+                },
+            });
         });
     });
 
