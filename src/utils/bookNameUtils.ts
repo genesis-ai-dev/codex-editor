@@ -127,8 +127,11 @@ export function isBiblicalImporterType(importerType: string | undefined): boolea
         'macula',
         'biblica',
         'obs',
-        'pdf', // PDF can contain Bible content
-        'indesign', // InDesign can contain Bible content
+        // Note: 'pdf', 'docx', and 'indesign' are NOT included here
+        // because they are generic document formats that should preserve
+        // their original filenames rather than being converted to Bible book codes.
+        // If specific biblical content detection is needed, it should be done
+        // at the importer level with explicit flags.
     ];
     return bibleTypeImporters.includes(normalizedType);
 }

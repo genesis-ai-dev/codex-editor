@@ -276,7 +276,10 @@ export const parseFile = async (
                 segmentToIdMap.set(segment, cellId);
 
                 // Create cell with enhanced metadata including structure data
+                // Include paragraphIndex and paragraphId for DOCX exporter compatibility
                 const cell = createProcessedCell(cellId, segment, {
+                    paragraphIndex: index,
+                    paragraphId: `p-${index}`,
                     data: {
                         originalOffset: {
                             start: segmentStart,
