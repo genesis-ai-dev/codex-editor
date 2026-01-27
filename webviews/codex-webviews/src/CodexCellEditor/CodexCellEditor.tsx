@@ -193,6 +193,9 @@ const CodexCellEditor: React.FC = () => {
     );
     const [backtranslationsMap, setBacktranslationsMap] = useState<Map<string, any>>(new Map());
 
+    // Health indicator display state
+    const [showHealthIndicators, setShowHealthIndicators] = useState<boolean>(false);
+
     // Simplified state - now we just mirror the provider's state
     const [autocompletionState, setAutocompletionState] = useState<{
         isProcessing: boolean;
@@ -1192,6 +1195,22 @@ const CodexCellEditor: React.FC = () => {
 
             // Listen for individual validation state updates to refresh progress
             if (message.type === "providerUpdatesValidationState") {
+                // Update cell health in translationUnits when validation includes health
+                if (message.content?.cellId && message.content?.health !== undefined) {
+                    setTranslationUnits((prevUnits) =>
+                        prevUnits.map((unit) =>
+                            unit.cellMarkers[0] === message.content.cellId
+                                ? {
+                                      ...unit,
+                                      metadata: {
+                                          ...unit.metadata,
+                                          health: message.content.health,
+                                      },
+                                  }
+                                : unit
+                        )
+                    );
+                }
                 // Refresh progress for current milestone after text validation completes
                 const milestoneIdx = currentMilestoneIndexRef.current;
                 if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
@@ -1201,6 +1220,22 @@ const CodexCellEditor: React.FC = () => {
 
             // Listen for audio validation state updates to refresh progress
             if (message.type === "providerUpdatesAudioValidationState") {
+                // Update cell health in translationUnits when audio validation includes health
+                if (message.content?.cellId && message.content?.health !== undefined) {
+                    setTranslationUnits((prevUnits) =>
+                        prevUnits.map((unit) =>
+                            unit.cellMarkers[0] === message.content.cellId
+                                ? {
+                                      ...unit,
+                                      metadata: {
+                                          ...unit.metadata,
+                                          health: message.content.health,
+                                      },
+                                  }
+                                : unit
+                        )
+                    );
+                }
                 // Refresh progress for current milestone after audio validation completes
                 const milestoneIdx = currentMilestoneIndexRef.current;
                 if (milestoneIndex && milestoneIdx < milestoneIndex.milestones.length) {
@@ -1394,6 +1429,7 @@ const CodexCellEditor: React.FC = () => {
             setChapterNumber(chapter);
         },
         setAudioAttachments: setAudioAttachments,
+        setShowHealthIndicators: setShowHealthIndicators,
         showABTestVariants: (data) => {
             const { variants, cellId, testId, testName, names, abProbability } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;
@@ -2906,6 +2942,7 @@ const CodexCellEditor: React.FC = () => {
                             subsectionProgress={subsectionProgress[currentMilestoneIndex]}
                             allSubsectionProgress={subsectionProgress}
                             requestSubsectionProgress={requestSubsectionProgressForMilestone}
+                            showHealthIndicators={showHealthIndicators}
                         />
                     </div>
                 </div>
@@ -2984,6 +3021,7 @@ const CodexCellEditor: React.FC = () => {
                             currentMilestoneIndex={currentMilestoneIndex}
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
+                            showHealthIndicators={showHealthIndicators}
                         />
                     </div>
                 </div>

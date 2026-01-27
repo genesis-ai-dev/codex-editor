@@ -73,6 +73,7 @@ export interface CellListProps {
     currentMilestoneIndex?: number;
     currentSubsectionIndex?: number;
     cellsPerPage?: number;
+    showHealthIndicators?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -125,6 +126,7 @@ const CellList: React.FC<CellListProps> = ({
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
+    showHealthIndicators = false,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -774,6 +776,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                showHealthIndicators={showHealthIndicators}
                             />
                         </span>
                     );
@@ -959,6 +962,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                showHealthIndicators={showHealthIndicators}
                             />
                         </span>
                     );
