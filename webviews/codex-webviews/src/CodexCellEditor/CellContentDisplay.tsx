@@ -76,6 +76,7 @@ interface CellContentDisplayProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
+    showHealthIndicators?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -472,6 +473,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        showHealthIndicators = false,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -1288,9 +1290,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 </div>
                                 {getAlertDot()}
                                 {/* Health Indicator - positioned below the inline action buttons */}
-                                {/* Only show health indicator for non-empty cells */}
+                                {/* Only show health indicator for non-empty cells when feature is enabled */}
                                 {!isSourceText && cell.cellContent && cell.cellContent.trim() !== "" && (
-                                    <HealthIndicator health={cell.metadata?.health} />
+                                    <HealthIndicator health={cell.metadata?.health} show={showHealthIndicators} />
                                 )}
                             </div>
                         )}

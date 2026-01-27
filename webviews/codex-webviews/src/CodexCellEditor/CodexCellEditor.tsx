@@ -196,6 +196,9 @@ const CodexCellEditor: React.FC = () => {
     );
     const [backtranslationsMap, setBacktranslationsMap] = useState<Map<string, any>>(new Map());
 
+    // Health indicator display state
+    const [showHealthIndicators, setShowHealthIndicators] = useState<boolean>(false);
+
     // Simplified state - now we just mirror the provider's state
     const [autocompletionState, setAutocompletionState] = useState<{
         isProcessing: boolean;
@@ -1437,6 +1440,7 @@ const CodexCellEditor: React.FC = () => {
             setChapterNumber(chapter);
         },
         setAudioAttachments: setAudioAttachments,
+        setShowHealthIndicators: setShowHealthIndicators,
         showABTestVariants: (data) => {
             const { variants, cellId, testId, testName, names, abProbability } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;
@@ -2978,6 +2982,7 @@ const CodexCellEditor: React.FC = () => {
                             subsectionProgress={subsectionProgress[currentMilestoneIndex]}
                             allSubsectionProgress={subsectionProgress}
                             requestSubsectionProgress={requestSubsectionProgressForMilestone}
+                            showHealthIndicators={showHealthIndicators}
                         />
                     </div>
                 </div>
@@ -3060,6 +3065,7 @@ const CodexCellEditor: React.FC = () => {
                             currentMilestoneIndex={currentMilestoneIndex}
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
+                            showHealthIndicators={showHealthIndicators}
                         />
                     </div>
                 </div>
