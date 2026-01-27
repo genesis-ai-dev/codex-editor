@@ -187,12 +187,13 @@ async function writeLocalProjectSettingsInternal(
         }
 
         // Build settings with canonical keys, but preserve any existing custom fields
+        // Always apply defaults for core media strategy keys to ensure they're always written
         const toWrite: LocalProjectSettings = {
-            currentMediaFilesStrategy: settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy,
-            lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun,
-            mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState,
-            mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted,
-            autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen,
+            currentMediaFilesStrategy: settings.currentMediaFilesStrategy ?? settings.mediaFilesStrategy ?? "auto-download",
+            lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun ?? "auto-download",
+            mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState ?? "applied",
+            mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted ?? false,
+            autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen ?? false,
             detailedAIMetrics: settings.detailedAIMetrics,
             lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
             updateState: settings.updateState,
@@ -338,6 +339,7 @@ export async function ensureLocalProjectSettingsExists(
         changesApplied: true,
         mediaFileStrategyApplyState: "applied",
         autoDownloadAudioOnOpen: false,
+        mediaFileStrategySwitchStarted: false,
         ...(defaults || {}),
     };
     await writeLocalProjectSettings(def, workspaceFolderUri);
