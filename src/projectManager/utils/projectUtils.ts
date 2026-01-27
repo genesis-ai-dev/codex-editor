@@ -407,13 +407,22 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             WORKSPACE_FOLDER.uri,
             () => {
                 // Add extension version requirements to the new project
+                const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+                const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
+                
+                const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string } = {};
+                if (codexEditorVersion) {
+                    requiredExtensions.codexEditor = codexEditorVersion;
+                }
+                if (frontierAuthVersion) {
+                    requiredExtensions.frontierAuthentication = frontierAuthVersion;
+                }
+                
                 const projectWithVersions = {
                     ...newProject,
                     meta: {
                         ...newProject.meta,
-                        requiredExtensions: {
-                            codexEditor: MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension")
-                        }
+                        requiredExtensions
                     }
                 };
                 return projectWithVersions;

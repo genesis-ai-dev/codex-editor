@@ -24,6 +24,25 @@ interface ProjectMetadata {
     [key: string]: unknown;
 }
 
+/**
+ * Compare two semantic version strings
+ * Returns: 1 if a > b, -1 if a < b, 0 if equal
+ */
+function compareVersions(a: string, b: string): number {
+    const normalize = (v: string) => v.trim().replace(/^v/i, "");
+    const parse = (v: string) => normalize(v).split(".").map((x) => parseInt(x, 10) || 0);
+    const pa = parse(a);
+    const pb = parse(b);
+    const len = Math.max(pa.length, pb.length);
+    for (let i = 0; i < len; i++) {
+        const ai = pa[i] ?? 0;
+        const bi = pb[i] ?? 0;
+        if (ai > bi) return 1;
+        if (ai < bi) return -1;
+    }
+    return 0;
+}
+
 interface MetadataUpdateOptions {
     author?: string;
 }
@@ -240,6 +259,9 @@ export class MetadataManager {
      * Update extension versions in metadata.json
      * This is the main entry point for both codex-editor internal use
      * and for frontier-authentication (via command)
+     * 
+     * IMPORTANT: Only updates if the new version is greater than or equal to the existing version.
+     * This prevents downgrading versions (e.g., if someone with an older extension opens the project).
      */
     static async updateExtensionVersions(
         workspaceUri: vscode.Uri,
@@ -258,11 +280,20 @@ export class MetadataManager {
                     metadata.meta.requiredExtensions = {};
                 }
 
+                // Only update codexEditor if new version is greater or missing
                 if (versions.codexEditor !== undefined) {
-                    metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                    const existingVersion = metadata.meta.requiredExtensions.codexEditor;
+                    if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
+                        metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                    }
                 }
+                
+                // Only update frontierAuthentication if new version is greater or missing
                 if (versions.frontierAuthentication !== undefined) {
-                    metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                    const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
+                    if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
+                        metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                    }
                 }
 
                 return metadata;
@@ -301,9 +332,60 @@ export class MetadataManager {
     /**
      * Get the current extension version from VS Code
      */
-    static getCurrentExtensionVersion(extensionId: string): string {
+    static getCurrentExtensionVersion(extensionId: string): string | null {
         const extension = vscode.extensions.getExtension(extensionId);
-        return extension?.packageJSON.version || "unknown";
+        return extension?.packageJSON.version || null;
+    }
+
+    /**
+     * Ensure all installed extension versions are recorded in metadata.json.
+     * This should be called when opening a project to ensure that:
+     * 1. frontierAuthentication version is added if the extension wasn't installed at project creation
+     * 2. Version numbers are updated if the installed version is newer
+     * 
+     * Only writes if there are actual updates needed.
+     */
+    static async ensureExtensionVersionsRecorded(workspaceUri: vscode.Uri): Promise<void> {
+        try {
+            const codexEditorVersion = this.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+            const frontierAuthVersion = this.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
+
+            // Read current metadata versions
+            const currentVersions = await this.getExtensionVersions(workspaceUri);
+            if (!currentVersions.success) {
+                return; // No metadata file yet, or can't read it
+            }
+
+            const existingVersions = currentVersions.versions || {};
+            const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
+
+            // Check codexEditor - update if missing or if installed version is newer
+            if (codexEditorVersion) {
+                if (!existingVersions.codexEditor) {
+                    versionsToUpdate.codexEditor = codexEditorVersion;
+                } else if (compareVersions(codexEditorVersion, existingVersions.codexEditor) > 0) {
+                    versionsToUpdate.codexEditor = codexEditorVersion;
+                }
+            }
+
+            // Check frontierAuthentication - update if missing or if installed version is newer
+            if (frontierAuthVersion) {
+                if (!existingVersions.frontierAuthentication) {
+                    versionsToUpdate.frontierAuthentication = frontierAuthVersion;
+                } else if (compareVersions(frontierAuthVersion, existingVersions.frontierAuthentication) > 0) {
+                    versionsToUpdate.frontierAuthentication = frontierAuthVersion;
+                }
+            }
+
+            // Only write if there are updates
+            if (Object.keys(versionsToUpdate).length > 0) {
+                console.log("[MetadataManager] Updating extension versions:", versionsToUpdate);
+                await this.updateExtensionVersions(workspaceUri, versionsToUpdate);
+            }
+        } catch (error) {
+            console.warn("[MetadataManager] Failed to ensure extension versions:", error);
+            // Non-fatal - don't block project opening
+        }
     }
 
     /**

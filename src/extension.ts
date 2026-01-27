@@ -508,17 +508,13 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Note: validateAndFixProjectId is now called AFTER migrations complete
                 // to ensure projectName updates aren't overwritten by migrations
 
-                // Update extension version requirements for conflict-free metadata management
+                // Ensure all installed extension versions are recorded in metadata
+                // This handles: 1) Adding missing versions (e.g., frontierAuthentication added after project creation)
+                //               2) Updating to newer versions (never downgrades)
                 try {
-                    const currentVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
-                    const updateResult = await MetadataManager.updateExtensionVersions(workspaceFolders[0].uri, {
-                        codexEditor: currentVersion
-                    });
-                    if (!updateResult.success) {
-                        console.warn("[Extension] Failed to update extension version in metadata:", updateResult.error);
-                    }
+                    await MetadataManager.ensureExtensionVersionsRecorded(workspaceFolders[0].uri);
                 } catch (error) {
-                    console.warn("[Extension] Error updating extension version requirements:", error);
+                    console.warn("[Extension] Error ensuring extension version requirements:", error);
                 }
             } catch {
                 metadataExists = false;
