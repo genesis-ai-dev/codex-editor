@@ -2034,6 +2034,7 @@ type EditorReceiveMessages =
         validationCountAudio?: number;
         isAuthenticated?: boolean;
         userAccessLevel?: number;
+        showHealthIndicators?: boolean;
     }
     | {
         type: "providerSendsCellPage";

@@ -3,6 +3,7 @@ import React, { useState } from "react";
 interface HealthIndicatorProps {
     health: number | undefined;
     className?: string;
+    show?: boolean;
 }
 
 /**
@@ -11,11 +12,11 @@ interface HealthIndicatorProps {
  * - Yellow (30-70%): Medium confidence
  * - Green (70-100%): High confidence / verified
  */
-const HealthIndicator: React.FC<HealthIndicatorProps> = ({ health, className = "" }) => {
+const HealthIndicator: React.FC<HealthIndicatorProps> = ({ health, className = "", show = true }) => {
     const [isHovered, setIsHovered] = useState(false);
 
-    // Don't render if health is undefined
-    if (health === undefined) {
+    // Don't render if health is undefined or show is false
+    if (health === undefined || !show) {
         return null;
     }
 

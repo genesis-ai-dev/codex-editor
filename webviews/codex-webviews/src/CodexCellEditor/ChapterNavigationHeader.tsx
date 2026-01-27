@@ -92,6 +92,7 @@ interface ChapterNavigationHeaderProps {
     subsectionProgress?: Record<number, ProgressPercentages>;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    showHealthIndicators?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -153,6 +154,7 @@ export function ChapterNavigationHeader({
     subsectionProgress,
     allSubsectionProgress,
     requestSubsectionProgress,
+    showHealthIndicators = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -1262,7 +1264,26 @@ ChapterNavigationHeaderProps) {
                 anchorRef={chapterTitleRef}
                 calculateSubsectionProgress={calculateSubsectionProgress}
                 requestSubsectionProgress={requestSubsectionProgress}
-                vscode={vscode}
+                handleEditMilestoneModalOpen={handleEditMilestoneModalOpen}
+                showHealthIndicators={showHealthIndicators}
+            />
+
+            <RenameModal
+                open={showEditMilestoneModal}
+                title="Rename Milestone"
+                description="Enter new name for"
+                originalLabel={milestoneIndex?.milestones[currentMilestoneIndex]?.value || ""}
+                value={milestoneNewName}
+                placeholder="Enter milestone name"
+                confirmButtonLabel="Save"
+                disabled={
+                    !milestoneNewName.trim() ||
+                    milestoneNewName.trim() ===
+                        milestoneIndex?.milestones[currentMilestoneIndex]?.value
+                }
+                onClose={handleEditMilestoneModalClose}
+                onConfirm={handleEditMilestoneModalConfirm}
+                onValueChange={setMilestoneNewName}
             />
         </div>
     );

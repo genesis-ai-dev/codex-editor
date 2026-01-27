@@ -438,6 +438,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                                 isDeleted: false,
                             },
                         ];
+                        // Set health to 100% when validation is retained
+                        cellToUpdate.metadata.health = 1.0;
                     }
                 }
             } else {
@@ -453,6 +455,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                             isDeleted: false,
                         },
                     ];
+                    // Set health to 100% when user edit creates a validation
+                    cellToUpdate.metadata.health = 1.0;
                 }
             }
         }
@@ -1664,6 +1668,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        averageHealth?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1675,6 +1680,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            averageHealth?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1763,6 +1769,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     audioValidationLevels: [],
                     requiredTextValidations: minimumValidationsRequired,
                     requiredAudioValidations: minimumAudioValidationsRequired,
+                    averageHealth: undefined,
                 };
                 continue;
             }
@@ -1821,12 +1828,26 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 fullyValidatedCells
             );
 
+            // Calculate average health for cells with content
+            const healthValues = subsectionCells
+                .filter((cell) =>
+                    cell.cellContent &&
+                    cell.cellContent.trim().length > 0 &&
+                    cell.cellContent !== "<span></span>"
+                )
+                .map((cell) => cell.metadata?.health)
+                .filter((h): h is number => typeof h === 'number');
+            const averageHealth = healthValues.length > 0
+                ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
+                : undefined;
+
             progress[subsectionIdx] = {
                 ...progressPercentages,
                 textValidationLevels,
                 audioValidationLevels,
                 requiredTextValidations: minimumValidationsRequired,
                 requiredAudioValidations: minimumAudioValidationsRequired,
+                averageHealth,
             };
         }
 
