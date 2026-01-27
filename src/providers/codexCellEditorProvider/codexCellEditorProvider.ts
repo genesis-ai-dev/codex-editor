@@ -737,6 +737,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Build milestone index for paginated loading
             const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
+            // Update database with milestone indices (fire-and-forget, don't block webview update)
+            document.updateCellMilestoneIndices().catch((error) => {
+                console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
+            });
+
             // Calculate progress for all milestones
             const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
             milestoneIndex.milestoneProgress = milestoneProgress;
@@ -2337,6 +2342,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Build milestone index for paginated loading
         const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+
+        // Update database with milestone indices (fire-and-forget, don't block webview update)
+        document.updateCellMilestoneIndices().catch((error) => {
+            console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
+        });
 
         // Calculate progress for all milestones
         const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);

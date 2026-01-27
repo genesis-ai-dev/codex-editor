@@ -893,6 +893,7 @@ type CodexData = Timestamps & {
     deleted?: boolean;
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
+    milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
 };
 
 type BaseCustomCellMetaData = {

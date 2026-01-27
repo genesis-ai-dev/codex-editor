@@ -170,8 +170,8 @@ const CellList: React.FC<CellListProps> = ({
         return cell.cellMarkers[0] || "";
     }, []);
 
-    // Calculate footnote offset for each cell based on previous cells' footnote counts within the same chapter
-    // This uses fullDocumentTranslationUnits to count across all subsections within a chapter
+    // Calculate footnote offset for each cell based on previous cells' footnote counts within the same milestone
+    // This uses fullDocumentTranslationUnits to count across all subsections within a milestone
     const calculateFootnoteOffset = useCallback(
         (cellIndex: number): number => {
             if (cellIndex >= workingTranslationUnits.length) return 0;
@@ -179,16 +179,6 @@ const CellList: React.FC<CellListProps> = ({
             const currentCell = workingTranslationUnits[cellIndex];
             const currentCellIdentifier = getCellIdentifier(currentCell);
 
-            // Extract chapter ID from globalReference format: "JUD 1:1" -> "JUD 1"
-            // If the identifier doesn't contain ":", it might be a UUID, so we can't extract chapter
-            const currentChapterId = currentCellIdentifier.includes(":")
-                ? currentCellIdentifier.split(":")[0]
-                : null;
-
-            // If we can't extract a chapter ID, we can't group by chapter, so return 0
-            if (!currentChapterId) return 0;
-
-            // Use fullDocumentTranslationUnits to count footnotes across the entire chapter
             // Find the current cell's index in the full document using the identifier
             const fullDocumentCellIndex = fullDocumentTranslationUnits.findIndex(
                 (cell) => getCellIdentifier(cell) === currentCellIdentifier
@@ -196,22 +186,23 @@ const CellList: React.FC<CellListProps> = ({
 
             if (fullDocumentCellIndex === -1) return 0;
 
-            // Count footnotes only in previous cells within the same chapter (across entire document)
+            // Get the milestone index that the current cell belongs to (O(1) lookup)
+            const currentMilestoneIndex = currentCell.data?.milestoneIndex ?? null;
+
+            // If no milestone found, return 0 (can't group footnotes)
+            if (currentMilestoneIndex === null) return 0;
+
+            // Count footnotes in previous cells within the same milestone (across entire document)
             let footnoteCount = 0;
             for (let i = 0; i < fullDocumentCellIndex; i++) {
                 const cell = fullDocumentTranslationUnits[i];
-                const cellIdentifier = getCellIdentifier(cell);
-                
-                // Extract chapter ID from this cell's identifier
-                const cellChapterId = cellIdentifier.includes(":")
-                    ? cellIdentifier.split(":")[0]
-                    : null;
 
-                // Only count footnotes if the cell is in the same chapter
+                // Get the milestone index for this cell (O(1) lookup)
+                const cellMilestoneIndex = cell.data?.milestoneIndex ?? null;
+
+                // Only count footnotes if the cell is in the same milestone and is not a milestone cell
                 if (
-                    cellChapterId &&
-                    cellChapterId === currentChapterId &&
-                    cell.cellType !== CodexCellTypes.PARATEXT &&
+                    cellMilestoneIndex === currentMilestoneIndex &&
                     cell.cellType !== CodexCellTypes.MILESTONE
                 ) {
                     // Extract footnotes from this cell's content

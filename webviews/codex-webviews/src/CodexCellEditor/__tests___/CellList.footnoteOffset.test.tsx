@@ -121,10 +121,11 @@ const createCellWithFootnotes = (
     footnoteCount: number
 ): QuillCellContent => {
     // Create HTML content with footnote markers
-    const footnoteMarkers = Array.from({ length: footnoteCount }, (_, i) => 
-        `<sup class="footnote-marker">${i + 1}</sup>`
+    const footnoteMarkers = Array.from(
+        { length: footnoteCount },
+        (_, i) => `<sup class="footnote-marker">${i + 1}</sup>`
     ).join(" ");
-    
+
     return createCellWithGlobalRef(
         uuid,
         globalReference,
@@ -133,6 +134,32 @@ const createCellWithFootnotes = (
     );
 };
 
+// Helper function to create a milestone cell
+const createMilestoneCell = (
+    uuid: string,
+    value: string // e.g., "GEN 1" or "1"
+): QuillCellContent => ({
+    cellMarkers: [uuid],
+    cellContent: value,
+    cellType: CodexCellTypes.MILESTONE,
+    data: {},
+    editHistory: [
+        {
+            editMap: ["value"],
+            value: value,
+            author: "test-user",
+            validatedBy: [],
+            timestamp: Date.now(),
+            type: "user-edit" as any,
+        },
+    ],
+    cellLabel: value,
+    timestamps: {
+        startTime: 0,
+        endTime: 0,
+    },
+});
+
 describe("CellList - Footnote Offset Calculation", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -140,17 +167,28 @@ describe("CellList - Footnote Offset Calculation", () => {
         Element.prototype.scrollIntoView = vi.fn();
     });
 
-    describe("Sequential footnote numbering across cells in same chapter", () => {
+    describe("Sequential footnote numbering across cells in same milestone", () => {
         it("should calculate correct offset when first cell has footnotes and second cell is empty", () => {
+            const milestoneUuid = "milestone-uuid-1";
             const translationUnits: QuillCellContent[] = [
                 createCellWithFootnotes("uuid-1", "GEN 1:1", 2), // 2 footnotes
-                createCellWithGlobalRef("uuid-2", "GEN 1:2", CodexCellTypes.TEXT, "<p>No footnotes</p>"),
+                createCellWithGlobalRef(
+                    "uuid-2",
+                    "GEN 1:2",
+                    CodexCellTypes.TEXT,
+                    "<p>No footnotes</p>"
+                ),
+            ];
+            // fullDocumentTranslationUnits includes milestone cell before the cells
+            const fullDocumentTranslationUnits: QuillCellContent[] = [
+                createMilestoneCell(milestoneUuid, "GEN 1"),
+                ...translationUnits,
             ];
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits,
-                fullDocumentTranslationUnits: translationUnits,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -178,23 +216,33 @@ describe("CellList - Footnote Offset Calculation", () => {
             // The second cell should have footnoteOffset of 2 (from the 2 footnotes in the first cell)
             // Verify the component renders without errors
             expect(container).toBeTruthy();
-            
+
             // Verify that cells are rendered
             const verseGroups = container.querySelectorAll(".verse-group");
             expect(verseGroups.length).toBeGreaterThan(0);
         });
 
-        it("should increment footnotes sequentially across multiple cells in same chapter", () => {
+        it("should increment footnotes sequentially across multiple cells in same milestone", () => {
+            const milestoneUuid = "milestone-uuid-1";
             const translationUnits: QuillCellContent[] = [
                 createCellWithFootnotes("uuid-1", "GEN 1:1", 1), // 1 footnote
                 createCellWithFootnotes("uuid-2", "GEN 1:2", 2), // 2 footnotes
-                createCellWithGlobalRef("uuid-3", "GEN 1:3", CodexCellTypes.TEXT, "<p>No footnotes yet</p>"),
+                createCellWithGlobalRef(
+                    "uuid-3",
+                    "GEN 1:3",
+                    CodexCellTypes.TEXT,
+                    "<p>No footnotes yet</p>"
+                ),
+            ];
+            const fullDocumentTranslationUnits: QuillCellContent[] = [
+                createMilestoneCell(milestoneUuid, "GEN 1"),
+                ...translationUnits,
             ];
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits,
-                fullDocumentTranslationUnits: translationUnits,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -222,23 +270,42 @@ describe("CellList - Footnote Offset Calculation", () => {
             // Third cell should have footnoteOffset of 3 (1 from first cell + 2 from second cell)
             // Verify the component renders correctly
             expect(container).toBeTruthy();
-            
+
             // Verify that all three cells are rendered
             const verseGroups = container.querySelectorAll(".verse-group");
             expect(verseGroups.length).toBeGreaterThanOrEqual(1);
         });
 
-        it("should reset footnote count when moving to a new chapter", () => {
+        it("should reset footnote count when moving to a new milestone", () => {
+            const milestone1Uuid = "milestone-uuid-1";
+            const milestone2Uuid = "milestone-uuid-2";
             const translationUnits: QuillCellContent[] = [
-                createCellWithFootnotes("uuid-1", "GEN 1:1", 2), // 2 footnotes in chapter 1
-                createCellWithFootnotes("uuid-2", "GEN 1:2", 1), // 1 footnote in chapter 1
-                createCellWithGlobalRef("uuid-3", "GEN 2:1", CodexCellTypes.TEXT, "<p>New chapter</p>"), // New chapter
+                createCellWithFootnotes("uuid-1", "GEN 1:1", 2), // 2 footnotes in milestone 1
+                createCellWithFootnotes("uuid-2", "GEN 1:2", 1), // 1 footnote in milestone 1
+                createCellWithGlobalRef(
+                    "uuid-3",
+                    "GEN 2:1",
+                    CodexCellTypes.TEXT,
+                    "<p>New milestone</p>"
+                ), // New milestone
+            ];
+            const fullDocumentTranslationUnits: QuillCellContent[] = [
+                createMilestoneCell(milestone1Uuid, "GEN 1"),
+                createCellWithFootnotes("uuid-1", "GEN 1:1", 2),
+                createCellWithFootnotes("uuid-2", "GEN 1:2", 1),
+                createMilestoneCell(milestone2Uuid, "GEN 2"),
+                createCellWithGlobalRef(
+                    "uuid-3",
+                    "GEN 2:1",
+                    CodexCellTypes.TEXT,
+                    "<p>New milestone</p>"
+                ),
             ];
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits,
-                fullDocumentTranslationUnits: translationUnits,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -263,14 +330,15 @@ describe("CellList - Footnote Offset Calculation", () => {
 
             const { container } = render(<CellList {...props} />);
 
-            // Third cell (GEN 2:1) should have footnoteOffset of 0 (new chapter, no previous footnotes)
+            // Third cell (GEN 2:1) should have footnoteOffset of 0 (new milestone, no previous footnotes in this milestone)
             expect(container).toBeTruthy();
         });
     });
 
-    describe("Using globalReferences instead of cellMarkers", () => {
-        it("should extract chapter ID from globalReferences when cellMarkers is UUID", () => {
+    describe("Using milestone UUIDs for grouping", () => {
+        it("should group footnotes by milestone UUID when cells have UUID cellMarkers", () => {
             // Create cells with UUID cellMarkers but globalReferences in "GEN 1:1" format
+            const milestoneUuid = "milestone-550e8400-e29b-41d4-a716-446655440000";
             const translationUnits: QuillCellContent[] = [
                 createCellWithFootnotes("550e8400-e29b-41d4-a716-446655440000", "GEN 1:1", 1),
                 createCellWithFootnotes("550e8400-e29b-41d4-a716-446655440001", "GEN 1:2", 1),
@@ -281,11 +349,15 @@ describe("CellList - Footnote Offset Calculation", () => {
                     "<p>Third cell</p>"
                 ),
             ];
+            const fullDocumentTranslationUnits: QuillCellContent[] = [
+                createMilestoneCell(milestoneUuid, "GEN 1"),
+                ...translationUnits,
+            ];
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits,
-                fullDocumentTranslationUnits: translationUnits,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -310,12 +382,13 @@ describe("CellList - Footnote Offset Calculation", () => {
 
             const { container } = render(<CellList {...props} />);
 
-            // Should work correctly with UUID cellMarkers by using globalReferences for chapter identification
+            // Should work correctly with UUID cellMarkers by using milestone UUIDs for grouping
             expect(container).toBeTruthy();
         });
 
-        it("should fallback to cellMarkers when globalReferences is not available (backward compatibility)", () => {
+        it("should work with legacy format cells when milestone is present", () => {
             // Create cells without globalReferences (legacy format)
+            const milestoneUuid = "milestone-legacy-1";
             const legacyCells: QuillCellContent[] = [
                 {
                     cellMarkers: ["GEN 1:1"], // Old format: cellMarkers contains the reference
@@ -358,11 +431,15 @@ describe("CellList - Footnote Offset Calculation", () => {
                     },
                 },
             ];
+            const fullDocumentTranslationUnits: QuillCellContent[] = [
+                createMilestoneCell(milestoneUuid, "GEN 1"),
+                ...legacyCells,
+            ];
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits: legacyCells,
-                fullDocumentTranslationUnits: legacyCells,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -387,14 +464,14 @@ describe("CellList - Footnote Offset Calculation", () => {
 
             const { container } = render(<CellList {...props} />);
 
-            // Should still work with legacy format (fallback to cellMarkers)
+            // Should still work with legacy format when milestone is present
             expect(container).toBeTruthy();
         });
     });
 
     describe("Edge cases", () => {
-        it("should return 0 when cell identifier cannot extract chapter ID", () => {
-            // Create a cell with UUID that doesn't have globalReferences and cellMarkers is also UUID
+        it("should return 0 when no milestone is found before the cell", () => {
+            // Create a cell with UUID that doesn't have a milestone before it
             const cellsWithOnlyUuid: QuillCellContent[] = [
                 {
                     cellMarkers: ["550e8400-e29b-41d4-a716-446655440000"], // UUID only
@@ -418,11 +495,13 @@ describe("CellList - Footnote Offset Calculation", () => {
                     },
                 },
             ];
+            // No milestone cell in fullDocumentTranslationUnits
+            const fullDocumentTranslationUnits: QuillCellContent[] = cellsWithOnlyUuid;
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits: cellsWithOnlyUuid,
-                fullDocumentTranslationUnits: cellsWithOnlyUuid,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -447,24 +526,54 @@ describe("CellList - Footnote Offset Calculation", () => {
 
             const { container } = render(<CellList {...props} />);
 
-            // Should handle gracefully when chapter cannot be extracted
+            // Should handle gracefully when no milestone is found (returns 0)
             expect(container).toBeTruthy();
         });
 
-        it("should exclude PARATEXT and MILESTONE cells from footnote counting", () => {
+        it("should include PARATEXT cells in footnote counting for sequential numbering", () => {
+            const milestoneUuid = "milestone-uuid-1";
             const translationUnits: QuillCellContent[] = [
                 createCellWithFootnotes("uuid-1", "GEN 1:1", 1),
                 {
-                    ...createCellWithGlobalRef("uuid-2", "GEN 1:2", CodexCellTypes.PARATEXT, "<p>Paratext</p>"),
-                    cellContent: '<p>Paratext with <sup class="footnote-marker">1</sup></p>', // Has footnote but should be excluded
+                    ...createCellWithGlobalRef(
+                        "uuid-2",
+                        "GEN 1:2",
+                        CodexCellTypes.PARATEXT,
+                        "<p>Paratext</p>"
+                    ),
+                    cellContent: '<p>Paratext with <sup class="footnote-marker">1</sup></p>', // Has footnote and should be included
                 },
-                createCellWithGlobalRef("uuid-3", "GEN 1:3", CodexCellTypes.TEXT, "<p>Regular cell</p>"),
+                createCellWithGlobalRef(
+                    "uuid-3",
+                    "GEN 1:3",
+                    CodexCellTypes.TEXT,
+                    "<p>Regular cell</p>"
+                ),
+            ];
+            const fullDocumentTranslationUnits: QuillCellContent[] = [
+                createMilestoneCell(milestoneUuid, "GEN 1"),
+                createCellWithFootnotes("uuid-1", "GEN 1:1", 1),
+                {
+                    ...createCellWithGlobalRef(
+                        "uuid-2",
+                        "GEN 1:2",
+                        CodexCellTypes.PARATEXT,
+                        "<p>Paratext</p>"
+                    ),
+                    cellContent: '<p>Paratext with <sup class="footnote-marker">1</sup></p>',
+                },
+                createCellWithGlobalRef(
+                    "uuid-3",
+                    "GEN 1:3",
+                    CodexCellTypes.TEXT,
+                    "<p>Regular cell</p>"
+                ),
             ];
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits,
-                fullDocumentTranslationUnits: translationUnits,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -489,21 +598,41 @@ describe("CellList - Footnote Offset Calculation", () => {
 
             const { container } = render(<CellList {...props} />);
 
-            // Third cell should have footnoteOffset of 1 (only counting from first cell, not PARATEXT)
+            // Third cell should have footnoteOffset of 2 (1 from first cell + 1 from PARATEXT cell)
+            // Paratext cells are now included to maintain sequential footnote numbering
             expect(container).toBeTruthy();
         });
 
-        it("should handle cells from different books correctly", () => {
+        it("should handle cells from different milestones correctly", () => {
+            const milestone1Uuid = "milestone-uuid-gen-1";
+            const milestone2Uuid = "milestone-uuid-exo-1";
             const translationUnits: QuillCellContent[] = [
-                createCellWithFootnotes("uuid-1", "GEN 1:1", 2), // Genesis
-                createCellWithFootnotes("uuid-2", "EXO 1:1", 1), // Exodus (different book, same chapter number)
-                createCellWithGlobalRef("uuid-3", "EXO 1:2", CodexCellTypes.TEXT, "<p>Exodus cell</p>"),
+                createCellWithFootnotes("uuid-1", "GEN 1:1", 2), // Genesis milestone
+                createCellWithFootnotes("uuid-2", "EXO 1:1", 1), // Exodus milestone (different milestone)
+                createCellWithGlobalRef(
+                    "uuid-3",
+                    "EXO 1:2",
+                    CodexCellTypes.TEXT,
+                    "<p>Exodus cell</p>"
+                ),
+            ];
+            const fullDocumentTranslationUnits: QuillCellContent[] = [
+                createMilestoneCell(milestone1Uuid, "GEN 1"),
+                createCellWithFootnotes("uuid-1", "GEN 1:1", 2),
+                createMilestoneCell(milestone2Uuid, "EXO 1"),
+                createCellWithFootnotes("uuid-2", "EXO 1:1", 1),
+                createCellWithGlobalRef(
+                    "uuid-3",
+                    "EXO 1:2",
+                    CodexCellTypes.TEXT,
+                    "<p>Exodus cell</p>"
+                ),
             ];
 
             const props = {
                 spellCheckResponse: null,
                 translationUnits,
-                fullDocumentTranslationUnits: translationUnits,
+                fullDocumentTranslationUnits,
                 contentBeingUpdated: {
                     cellMarkers: [],
                     cellContent: "",
@@ -528,8 +657,8 @@ describe("CellList - Footnote Offset Calculation", () => {
 
             const { container } = render(<CellList {...props} />);
 
-            // Third cell (EXO 1:2) should have footnoteOffset of 1 (only counting from EXO 1:1, not GEN 1:1)
-            // This tests that chapter ID includes book name: "EXO 1" vs "GEN 1"
+            // Third cell (EXO 1:2) should have footnoteOffset of 1 (only counting from EXO 1:1 in the same milestone, not GEN 1:1)
+            // This tests that footnotes are grouped by milestone UUID, not by chapter/book name
             expect(container).toBeTruthy();
         });
     });

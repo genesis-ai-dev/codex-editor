@@ -1136,12 +1136,18 @@ suite("CodexCellEditorProvider Test Suite", () => {
         await sleep(50);
 
         // Verify that the timestamps were updated
-        const updatedTimestamps = JSON.parse(document.getText()).cells[0].metadata.data;
-        assert.deepStrictEqual(
-            updatedTimestamps,
-            newTimestamps,
-            "Cell timestamps should be updated after updateCellTimestamps message"
+        const updatedData = JSON.parse(document.getText()).cells[0].metadata.data;
+        assert.strictEqual(
+            updatedData.startTime,
+            newTimestamps.startTime,
+            "Start time should be updated after updateCellTimestamps message"
         );
+        assert.strictEqual(
+            updatedData.endTime,
+            newTimestamps.endTime,
+            "End time should be updated after updateCellTimestamps message"
+        );
+        // Note: metadata.data may contain other properties (e.g., milestoneIndex) that should be preserved
 
         // test requestAutocompleteChapter message
         const quillCellContent: QuillCellContent[] = [
