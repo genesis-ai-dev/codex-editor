@@ -359,10 +359,10 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             {/* A/B Testing Overlay */}
             {abTestState.isActive && (
                 <ABTestVariantSelector
+                    key={`${abTestState.testId}-${abTestState.isRecovery ? 'recovery' : 'initial'}`}
                     variants={abTestState.variants}
                     cellId={abTestState.cellId}
                     testId={abTestState.testId}
-                    names={abTestState.names}
                     headerOverride={abTestState.recoveryMessage}
                     onVariantSelected={handleVariantSelected}
                     onDismiss={handleDismissABTest}

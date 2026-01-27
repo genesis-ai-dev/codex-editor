@@ -275,55 +275,46 @@ export async function llmCompletion(
             }
 
             if (triggerAB) {
-                // Randomly select between available tests
-                const availableTests = ["Example Count Test", "Attention Check"];
-                const testName = availableTests[Math.floor(Math.random() * availableTests.length)];
-                const test = abTestingRegistry.get(testName);
+                const testName = "Attention Check";
 
-                if (!test && completionConfig.debugMode) {
-                    console.debug(`[llmCompletion] No A/B test registered as "${testName}"`);
+                if (completionConfig.debugMode) {
+                    console.debug(`[llmCompletion] Running A/B test: ${testName}`);
                 }
 
-                if (test) {
+                try {
+                    const ctx = buildABTestContext(
+                        extConfig,
+                        currentCellId,
+                        currentCellSourceContent,
+                        numberOfFewShotExamples,
+                        completionConfig,
+                        fewShotExampleFormat || "source-and-target",
+                        targetLanguage,
+                        systemMessage,
+                        userMessageInstructions,
+                        precedingTranslationPairs,
+                        token
+                    );
+
+                    const result = await abTestingRegistry.run<typeof ctx, string>(testName, ctx);
+
                     if (completionConfig.debugMode) {
-                        console.debug(`[llmCompletion] Running A/B test: ${testName}`);
+                        console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null"}`);
                     }
-                    try {
-                        const ctx = buildABTestContext(
-                            extConfig,
-                            currentCellId,
-                            currentCellSourceContent,
-                            numberOfFewShotExamples,
-                            completionConfig,
-                            fewShotExampleFormat || "source-and-target",
-                            targetLanguage,
-                            systemMessage,
-                            userMessageInstructions,
-                            precedingTranslationPairs,
-                            token
-                        );
 
-                        const result = await abTestingRegistry.maybeRun<typeof ctx, string>(testName, ctx);
+                    const testResult = handleABTestResult(
+                        result,
+                        currentCellId,
+                        "attention",
+                        completionConfig,
+                        returnHTML
+                    );
 
-                        if (completionConfig.debugMode) {
-                            console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null (test probability check failed)"}`);
-                        }
-
-                        const testIdPrefix = testName === "Attention Check" ? "attention" : "countAB";
-                        const testResult = handleABTestResult(
-                            result,
-                            currentCellId,
-                            testIdPrefix,
-                            completionConfig,
-                            returnHTML
-                        );
-
-                        if (testResult) {
-                            return testResult;
-                        }
-                    } catch (e) {
-                        console.warn(`[llmCompletion] Registry A/B (${testName}) failed; falling back`, e);
+                    if (testResult) {
+                        return testResult;
                     }
+                } catch (e) {
+                    console.warn(`[llmCompletion] Attention Check failed; falling back`, e);
                 }
             }
 
