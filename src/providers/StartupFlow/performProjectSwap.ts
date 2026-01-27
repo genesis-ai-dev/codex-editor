@@ -77,10 +77,15 @@ export async function performProjectSwap(
         debugLog("Temp workspace created:", tempDir);
 
         try {
-            // Step 4: Clone new project
-            progress.report({ increment: 15, message: "Cloning new project repository..." });
-            const newProjectPath = await cloneNewProject(newProjectUrl, tempDir, progress);
-            debugLog("New project cloned to:", newProjectPath);
+            // Step 4: Get the new project - either from existing local copy or by cloning
+            progress.report({ increment: 15, message: "Preparing new project..." });
+            const newProjectPath = await getOrCloneNewProject(
+                newProjectUrl,
+                tempDir,
+                path.dirname(oldProjectPath),
+                progress
+            );
+            debugLog("New project ready at:", newProjectPath);
 
             // Step 5: Verify structure compatibility
             progress.report({ increment: 5, message: "Verifying project structure..." });
@@ -246,6 +251,38 @@ async function backupOldProject(projectPath: string, projectName: string): Promi
 async function createTempWorkspace(): Promise<string> {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-swap-"));
     return tempDir;
+}
+
+/**
+ * Get the new project - either use existing local copy or clone from remote
+ * This preserves local uncommitted changes if the project already exists locally
+ */
+async function getOrCloneNewProject(
+    gitUrl: string,
+    tempDir: string,
+    projectsParentDir: string,
+    progress: vscode.Progress<{ increment?: number; message?: string; }>
+): Promise<string> {
+    const projectName = extractProjectNameFromUrl(gitUrl);
+    const existingLocalPath = path.join(projectsParentDir, projectName);
+    const targetPath = path.join(tempDir, projectName);
+
+    // Check if the NEW project already exists locally
+    if (fs.existsSync(existingLocalPath) && fs.existsSync(path.join(existingLocalPath, "metadata.json"))) {
+        debugLog("Found existing local copy of new project at:", existingLocalPath);
+        progress.report({ message: "Using existing local project (preserving local changes)..." });
+
+        // Copy the existing local project to temp (preserving all local changes)
+        await copyDirectory(existingLocalPath, targetPath);
+        debugLog("Copied existing project to temp:", targetPath);
+
+        return targetPath;
+    }
+
+    // No local copy found - clone from remote
+    debugLog("No existing local copy found, cloning from remote");
+    progress.report({ message: "Cloning new project repository..." });
+    return await cloneNewProject(gitUrl, tempDir, progress);
 }
 
 /**
@@ -496,10 +533,10 @@ async function swapDirectories(oldTmpPath: string, newPath: string, targetPath: 
         fs.rmSync(targetPath, { recursive: true, force: true });
     }
     fs.renameSync(newPath, targetPath);
-    
+
     // Clean up the old _tmp folder with retries
     await cleanupOldTmpFolder(oldTmpPath);
-    
+
     debugLog("Directory swap completed");
 }
 
@@ -511,11 +548,11 @@ async function cleanupOldTmpFolder(oldTmpPath: string): Promise<void> {
     if (!fs.existsSync(oldTmpPath)) {
         return;
     }
-    
+
     // Try up to 3 times with increasing delays (handles file lock issues)
     const maxRetries = 3;
     const delays = [100, 500, 1000]; // ms
-    
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             fs.rmSync(oldTmpPath, { recursive: true, force: true });
@@ -528,7 +565,7 @@ async function cleanupOldTmpFolder(oldTmpPath: string): Promise<void> {
             }
         }
     }
-    
+
     // If all retries failed, log a warning but don't throw
     // The folder can be manually cleaned up later
     console.warn(`[ProjectSwap] Could not delete old tmp folder after ${maxRetries} attempts: ${oldTmpPath}`);
@@ -646,22 +683,22 @@ async function copyDirectory(
  */
 async function updateProjectNameToMatchFolder(projectUri: vscode.Uri, folderName: string): Promise<void> {
     const metadataPath = vscode.Uri.joinPath(projectUri, "metadata.json");
-    
+
     try {
         const content = await vscode.workspace.fs.readFile(metadataPath);
         const metadata = JSON.parse(Buffer.from(content).toString("utf-8"));
-        
+
         // Extract UUID from folder name and strip it to get the base name
         const { extractProjectIdFromFolderName, sanitizeProjectName } = await import("../../projectManager/utils/projectUtils");
         const projectId = extractProjectIdFromFolderName(folderName);
-        
+
         let baseName = folderName;
         if (projectId && baseName.includes(projectId)) {
             baseName = baseName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
         }
-        
+
         const newProjectName = sanitizeProjectName(baseName) || "Untitled Project";
-        
+
         // Only update if different
         if (metadata.projectName !== newProjectName) {
             debugLog(`Updating projectName: "${metadata.projectName}" -> "${newProjectName}"`);

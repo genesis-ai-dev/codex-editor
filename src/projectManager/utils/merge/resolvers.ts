@@ -238,7 +238,7 @@ function mergeSwappedUsers(
     const theirList = theirUsers || [];
 
     // Map by userToSwap
-    const userMap = new Map<string, { base?: ProjectSwapUserEntry; ours?: ProjectSwapUserEntry; theirs?: ProjectSwapUserEntry }>();
+    const userMap = new Map<string, { base?: ProjectSwapUserEntry; ours?: ProjectSwapUserEntry; theirs?: ProjectSwapUserEntry; }>();
 
     baseList.forEach(e => {
         if (!userMap.has(e.userToSwap)) userMap.set(e.userToSwap, {});
