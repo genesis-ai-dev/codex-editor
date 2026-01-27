@@ -4,7 +4,7 @@ import path from "path";
 
 export type NotebookFs = Pick<
     typeof vscode.workspace.fs,
-    "stat" | "readFile" | "writeFile" | "rename"
+    "stat" | "readFile" | "writeFile" | "rename" | "delete"
 >;
 
 /**
@@ -52,8 +52,34 @@ export async function atomicWriteUriTextWithFs(
     const tmpName = `${baseName}.tmp-${Date.now()}-${randomUUID()}`;
     const tmpUri = vscode.Uri.joinPath(dirUri, tmpName);
 
-    await fs.writeFile(tmpUri, encoder.encode(text));
-    await fs.rename(tmpUri, uri, { overwrite: true });
+
+    try {
+        // Write to temp file first
+        await fs.writeFile(tmpUri, encoder.encode(text));
+
+        // Atomically rename temp file over target
+        await fs.rename(tmpUri, uri, { overwrite: true });
+    } catch (error) {
+        // If rename failed but temp file was created, clean it up
+
+        // Check if temp file exists before attempting to delete
+        try {
+            await fs.stat(tmpUri);
+            await fs.delete(tmpUri);
+        } catch (statErr) {
+            console.log(
+                `Temp file ${tmpUri.fsPath} did not exist after write failure:`,
+                statErr
+            );
+            // temp file did not exist, nothing to clean up
+        }
+
+
+        // Re-throw the original error so callers know the write failed
+        // Note: If writeFile failed, tempFileCreated is false, so no cleanup needed
+        // If rename failed, the original file is still intact (data preserved)
+        throw error;
+    }
 }
 
 export type ReadExistingFileResult =
