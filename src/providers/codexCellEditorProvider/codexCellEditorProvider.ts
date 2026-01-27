@@ -728,7 +728,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Check authentication status
             let isAuthenticated = false;
             try {
-                if (authApi) {
+                // For localhost development, skip auth check
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const endpoint = (config.get("llmEndpoint") as string) || "";
+                const isLocalhost = endpoint.includes("localhost") || endpoint.includes("127.0.0.1");
+
+                if (isLocalhost) {
+                    isAuthenticated = true;
+                } else if (authApi) {
                     const authStatus = authApi.getAuthStatus();
                     isAuthenticated = authStatus?.isAuthenticated ?? false;
                 }
@@ -3371,12 +3378,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         this.singleCellQueueCancellation?.token ||
                         new vscode.CancellationTokenSource().token;
 
+                    // Determine if this is a batch operation (chapter autocomplete or multiple cells queued)
+                    // A/B testing is disabled during batch operations to avoid interrupting the workflow
+                    const isBatchOperation = this.autocompletionState.isProcessing ||
+                        (this.singleCellQueueState.isProcessing && this.singleCellQueueState.totalCells > 1);
+
                     // Perform LLM completion (always returns AB-style result)
                     const completionResult = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
-                        cancellationToken
+                        cancellationToken,
+                        true, // returnHTML
+                        isBatchOperation
                     );
 
                     // Check for cancellation before updating document - this is crucial to prevent cell population
@@ -3387,7 +3401,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, testName, names } = completionResult as any;
+                        const { variants, testId, testName, names, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
 
                         // If variants are identical (ignoring whitespace), treat as single completion
                         try {
@@ -3411,10 +3425,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
                         }
 
-                        // Win rates are tracked in cloud analytics, not shown in UI
-
                         if (webviewPanel) {
-                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
@@ -3423,9 +3434,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     testId: testId || `${currentCellId}-${Date.now()}`,
                                     testName,
                                     names,
-                                    abProbability: Math.max(0, Math.min(1, abProb)),
+                                    isAttentionCheck,
+                                    correctIndex,
+                                    decoyCellId,
                                 },
-                            } as any);
+                            });
                         }
 
                         // Mark single cell translation as complete so UI progress/spinners stop
