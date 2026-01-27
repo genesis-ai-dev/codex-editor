@@ -287,7 +287,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
     | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
-    | { command: "project.cleanupMediaFiles"; projectPath: string; };
+    | { command: "project.cleanupMediaFiles"; projectPath: string; }
+    | { command: "systemMessage.generate"; }
+    | { command: "systemMessage.save"; message: string; };
 
 export type GitLabProject = {
     id: number;
@@ -362,8 +364,10 @@ export type MessagesFromStartupFlowProvider =
     | {
         command: "metadata.checkResponse";
         data: {
-            exists: boolean;
-            hasCriticalData: boolean;
+            sourceLanguage?: any;
+            targetLanguage?: any;
+            sourceTexts?: string[];
+            chatSystemMessage?: string | null;
         };
     }
     | { command: "setupIncompleteCriticalDataMissing"; }
@@ -377,7 +381,11 @@ export type MessagesFromStartupFlowProvider =
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
-    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; };
+    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
+    | { command: "systemMessage.generated"; message: string; }
+    | { command: "systemMessage.generateError"; error: string; }
+    | { command: "systemMessage.saved"; }
+    | { command: "systemMessage.saveError"; error: string; };
 
 type DictionaryPostMessages =
     | {

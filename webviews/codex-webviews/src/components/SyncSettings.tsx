@@ -106,16 +106,37 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             !isFrontierExtensionEnabled
                         }
                         size="default"
-                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[160px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        className="button-primary font-semibold py-2 text-sm xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[160px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none relative pl-10 pr-3 xl:pl-12 xl:pr-4"
                     >
-                        <i
-                            className={`codicon ${
-                                isSyncInProgress
-                                    ? "codicon-loading codicon-modifier-spin"
-                                    : "codicon-sync"
-                            } mr-2 h-4 w-4`}
-                            style={{ height: "fit-content" }}
-                        />
+                        {/* Icon container - positioned absolutely on the left */}
+                        <div 
+                            className="absolute left-0 top-0 bottom-0 w-10 xl:w-12 flex items-center justify-center"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            <i
+                                className={`codicon ${
+                                    isSyncInProgress
+                                        ? "codicon-loading codicon-modifier-spin"
+                                        : "codicon-sync"
+                                }`}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '16px',
+                                    height: '16px',
+                                    fontSize: '16px',
+                                    transformOrigin: 'center center',
+                                    lineHeight: 1
+                                }}
+                            />
+                        </div>
+                        
+                        {/* Text - now has left padding to avoid the icon area */}
                         <span className="hidden sm:inline">
                             {!isOnline
                                 ? "Offline"
