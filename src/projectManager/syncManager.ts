@@ -249,6 +249,62 @@ export class SyncManager {
         return false;
     }
 
+    /**
+     * Post-sync swap check: after sync completes, check if a swap is required and show notification.
+     * This handles:
+     * 1. Admin initiates swap → syncs with bypass → should see swap notification after sync
+     * 2. User syncs → pulls new swap info from remote → should see swap notification
+     * 
+     * This is async and non-blocking - we don't want to hold up the sync completion flow.
+     */
+    private async checkProjectSwapAfterSync(): Promise<void> {
+        try {
+            const projectPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!projectPath) {
+                return;
+            }
+
+            const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
+            // Force bypass cache to get the latest state (just synced, so remote might have new info)
+            const result = await checkProjectSwapRequired(projectPath, undefined, true);
+
+            if (result.required && result.activeEntry) {
+                const activeEntry = result.activeEntry;
+                const swapTimestamp = activeEntry.swapInitiatedAt;
+
+                // Only show if we haven't shown for this swap entry yet (prevent double-notification)
+                if (this.swapNotificationShownFor !== swapTimestamp) {
+                    this.swapNotificationShownFor = swapTimestamp;
+
+                    debug("[SyncManager] Post-sync: Project swap required, showing notification");
+
+                    const newProjectName = activeEntry.newProjectName;
+
+                    // Show modal dialog
+                    const selection = await vscode.window.showWarningMessage(
+                        `📦 Project Swap Required\n\n` +
+                        `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
+                        `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
+                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
+                        `Your local changes will be preserved and backed up.`,
+                        { modal: true },
+                        "Swap Now"
+                    );
+
+                    if (selection === "Swap Now") {
+                        // Close folder - StartupFlowProvider will handle the swap on next open
+                        await vscode.commands.executeCommand("workbench.action.closeFolder");
+                    }
+                } else {
+                    debug("[SyncManager] Post-sync: Swap notification already shown for this entry");
+                }
+            }
+        } catch (error) {
+            // Non-fatal - don't disrupt the user if this check fails
+            debug("[SyncManager] Post-sync swap check error (non-fatal):", error);
+        }
+    }
+
     public static getInstance(): SyncManager {
         if (!SyncManager.instance) {
             SyncManager.instance = new SyncManager();
@@ -363,6 +419,10 @@ export class SyncManager {
                         if (this.codexInitiatedSyncCount > 0) {
                             this.codexInitiatedSyncCount--;
                         }
+                        // Post-sync swap check: after sync completes, check if a swap is required
+                        // This handles the case where the admin just initiated a swap and synced with bypass,
+                        // or when another user pushes swap info that gets pulled during sync
+                        this.checkProjectSwapAfterSync();
                         break;
                     case 'error':
                         console.error(`[Sync] ❌ Sync failed: ${status.message || 'Unknown error'}`);
