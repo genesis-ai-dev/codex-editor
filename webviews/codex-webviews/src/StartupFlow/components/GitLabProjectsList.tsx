@@ -479,45 +479,43 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 addUrlVariants(localProjectUrls, p.gitOriginUrl);
             }
 
-            // If we already have the NEW project locally, hide its old counterpart even if the
-            // old entry comes only from the remote list (cloud-only)
-            // NEW projects have isOldProject: false and reference oldProjectUrl
+            // If we already have the NEW project locally AND swap is still active,
+            // hide its old counterpart from remote list (don't show clone option for old project)
+            // When swap is completed/cancelled, show both projects
             if (
                 p.syncStatus !== "cloudOnlyNotSynced" &&
                 p.projectSwap &&
                 !p.projectSwap.isOldProject &&
-                p.projectSwap.oldProjectUrl
+                p.projectSwap.oldProjectUrl &&
+                p.projectSwap.swapStatus === "active"
             ) {
                 addUrlVariants(hiddenOldProjectUrls, p.projectSwap.oldProjectUrl);
             }
         });
 
         const filtered = projects.filter((project) => {
-            // Hide the "new" project for a pending swap when the old one is still local
-            if (project.gitOriginUrl) {
+            // Hide the "new" project REMOTE CLONE OPTION for a pending swap when the old one is still local
+            // Only hide remote (cloud-only) projects, not local ones that have already been downloaded
+            if (project.gitOriginUrl && project.syncStatus === "cloudOnlyNotSynced") {
                 if (urlMatchesAny(project.gitOriginUrl, hiddenNewProjectUrls)) {
                     return false;
                 }
             }
 
             // Hide cloud-only old project entries when their replacement is already local
-            if (project.gitOriginUrl) {
+            // AND the swap is still active (user needs to complete the swap on the new project)
+            if (project.gitOriginUrl && project.syncStatus === "cloudOnlyNotSynced") {
                 if (urlMatchesAny(project.gitOriginUrl, hiddenOldProjectUrls)) {
-                    return false;
+                    // Only hide if there's an active swap - if completed/cancelled, show both
+                    // Check if this old project has an active swap entry
+                    if (project.projectSwap?.swapStatus === "active") {
+                        return false;
+                    }
                 }
             }
 
-            // Hide the old project once the new one is locally available (swap cancelled or completed)
-            // Only hide if swap is no longer active (user already swapped or swap was cancelled)
-            if (
-                project.projectSwap?.isOldProject &&
-                project.projectSwap.swapStatus !== "active" &&
-                project.projectSwap.newProjectUrl
-            ) {
-                if (urlMatchesAny(project.projectSwap.newProjectUrl, localProjectUrls)) {
-                    return false;
-                }
-            }
+            // NOTE: When swap is completed/cancelled, show BOTH old and new projects
+            // User may want to access both versions
 
             // Safe type comparison for filters
             const currentFilter = filter as string;
