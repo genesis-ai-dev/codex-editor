@@ -3,6 +3,7 @@ import { NotebookCommentThread, NotebookComment } from "../../types";
 import { writeSerializedData } from "./fileUtils";
 
 const DEBUG_COMMENTS_MIGRATION = false;
+const COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE = new Date("2026-02-27");
 function debug(message: string, ...args: any[]): void {
     if (DEBUG_COMMENTS_MIGRATION) {
         console.log(`[CommentsMigrator] ${message}`, ...args);
@@ -16,7 +17,7 @@ function debug(message: string, ...args: any[]): void {
 export class CommentsMigrator {
     // Cache `needsMigration()` results keyed by workspace path + comments.json stat signature.
     // This avoids repeatedly reading/parsing potentially-large `.project/comments.json` during sync.
-    private static needsMigrationCache = new Map<string, { commentsStatKey: string; result: boolean }>();
+    private static needsMigrationCache = new Map<string, { commentsStatKey: string; result: boolean; }>();
 
     private static clearNeedsMigrationCache(workspaceUri: vscode.Uri): void {
         CommentsMigrator.needsMigrationCache.delete(workspaceUri.fsPath);
@@ -571,6 +572,17 @@ export class CommentsMigrator {
                 return true;
             }
 
+            // ===== ADD THIS CHECK FOR OLD CELL IDs =====
+            // Check if cellId is in old format (not UUID)
+            if (thread.cellId?.cellId && typeof thread.cellId.cellId === 'string') {
+                // Quick check: UUIDs have dashes, old format like "LUK 1:1" has spaces
+                if (thread.cellId.cellId.includes(' ')) {// || !thread.cellId.cellId.includes('-')) {
+                    return true;
+                }
+            }
+            // ===== END NEW CHECK =====
+
+
             // Check for old comment structure
             if (thread.comments && Array.isArray(thread.comments)) {
                 return thread.comments.some((comment: any) =>
@@ -590,6 +602,7 @@ export class CommentsMigrator {
      * Migrates the structure of all comments to the new format
      */
     static async migrateCommentsStructure(comments: any[]): Promise<NotebookCommentThread[]> {
+        console.warn("Arried at the migrateCommentsStructure function! XXXXXXXXXXXXXXXXXXXXXXX");
         if (!Array.isArray(comments)) {
             return [];
         }
@@ -651,6 +664,12 @@ export class CommentsMigrator {
             }
             // ============= END MIGRATION CLEANUP =============
 
+
+            // ============= COMMENTS CELL ID POINTER MIGRATION =============
+            result = await CommentsMigrator.migrateCellIdToUuid(result);
+            // ============= END COMMENTS CELL ID POINTER MIGRATION =============
+
+
             // ============= DATA INTEGRITY REPAIR =============
             // Repair corrupted comment event data automatically
             result = CommentsMigrator.repairCommentThreadData(result);
@@ -661,6 +680,38 @@ export class CommentsMigrator {
 
             return result;
         }));
+    }
+
+    private static async migrateCellIdToUuid(thread: any): Promise<any> {
+        console.warn("Arried at the migrateCellIdToUuid function! OOOOOOOOOOOOOOOOOOOO");
+
+        const { generateCellIdFromHash, isUuidFormat } = await import("./uuidUtils");
+        //return Promise.all(Comment.map(async thread => {
+        //}));
+
+        const result = { ...thread };
+        if (Date.now() < COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.getTime()) {
+            //Migrate cell id to uuid
+            if (result.cellId?.cellId && !isUuidFormat(result.cellId.cellId)) {
+                const oldId = result.cellId.cellId;
+                const newUuid = await generateCellIdFromHash(result.cellId.cellId);
+                result.cellId = {
+                    ...result.cellId,
+                    cellId: newUuid,
+                    globalReferences: result.cellId.globalReferences || [oldId]
+                    //not sure about this last one... the AI told me to do it.  ¯\_(ツ)_/¯
+                };
+            }
+        } else {
+            // Migration period has passed - show warning
+            console.warn(
+                "[CommentsMigrator] Cell ID migration cutoff date has passed!" + " (" +
+                COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.toISOString() + ") " +
+                "This migration code should be removed if all users have updated."
+            );
+        }
+
+        return result;
     }
 
     /**
