@@ -1255,9 +1255,135 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (firstPrompt !== "Open Deprecated Project") {
                             return;
                         }
+                    } else if (!activeEntry && swapInfo?.swapEntries?.length) {
+                        // No active swap, but has cancelled swap entries - check if new projects have had swap activity
+                        // This indicates work may have continued in the new projects
+                        const cancelledOldProjectEntries = swapInfo.swapEntries.filter(
+                            (e: ProjectSwapEntry) => e.isOldProject && e.swapStatus === "cancelled"
+                        );
+
+                        if (cancelledOldProjectEntries.length > 0) {
+                            // Show verifying state in the UI while we check new projects
+                            this.safeSendMessage({
+                                command: "project.openingInProgress",
+                                projectPath,
+                                opening: true,
+                                verifying: true,
+                            } as any);
+
+                            // Get unique new project URLs from cancelled entries
+                            const newProjectUrls = [...new Set(
+                                cancelledOldProjectEntries
+                                    .map((e: ProjectSwapEntry) => e.newProjectUrl)
+                                    .filter(Boolean)
+                            )] as string[];
+
+                            // Helper to normalize URLs for comparison
+                            const normalizeUrlForComparison = (url: string): string => {
+                                let normalized = url.toLowerCase().trim();
+                                if (normalized.endsWith(".git")) {
+                                    normalized = normalized.slice(0, -4);
+                                }
+                                normalized = normalized.replace(/^https?:\/\//, "").replace(/\/$/, "");
+                                return normalized;
+                            };
+
+                            // Get all local projects to check if new projects exist locally
+                            const localProjects = await findAllCodexProjects();
+                            const localProjectsByUrl = new Map<string, typeof localProjects[number]>();
+                            for (const lp of localProjects) {
+                                if (lp.gitOriginUrl) {
+                                    localProjectsByUrl.set(normalizeUrlForComparison(lp.gitOriginUrl), lp);
+                                }
+                            }
+
+                            // Check if any of the new projects have swap entries (indicating work continued)
+                            // Check locally first, then remote if not available locally
+                            let workContinuedInNewProjects = false;
+                            const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
+
+                            for (const newUrl of newProjectUrls) {
+                                try {
+                                    const normalizedNewUrl = normalizeUrlForComparison(newUrl);
+                                    const localNewProject = localProjectsByUrl.get(normalizedNewUrl);
+
+                                    if (localNewProject) {
+                                        // New project exists locally - check its local metadata
+                                        debugLog("Checking local new project for swap activity:", localNewProject.path);
+                                        try {
+                                            const metadataPath = vscode.Uri.file(path.join(localNewProject.path, "metadata.json"));
+                                            const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+                                            const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8"));
+                                            const newSwapInfo = metadata?.meta?.projectSwap;
+                                            if (newSwapInfo?.swapEntries?.length) {
+                                                workContinuedInNewProjects = true;
+                                                debugLog("Local new project has swap entries - work continued");
+                                                break;
+                                            }
+                                        } catch {
+                                            debugLog("Failed to read local metadata, checking remote");
+                                        }
+                                    }
+
+                                    // If not available locally or local read failed, check remote
+                                    if (!workContinuedInNewProjects) {
+                                        const newProjectId = extractProjectIdFromUrl(newUrl);
+                                        if (newProjectId) {
+                                            debugLog("Checking remote new project for swap activity:", newUrl);
+                                            const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false);
+                                            const newSwapInfo = newProjectMetadata?.meta?.projectSwap;
+                                            if (newSwapInfo?.swapEntries?.length) {
+                                                workContinuedInNewProjects = true;
+                                                debugLog("Remote new project has swap entries - work continued");
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch {
+                                    // Failed to fetch new project metadata - continue checking others
+                                }
+                            }
+
+                            // Clear verifying state before showing modal
+                            this.safeSendMessage({
+                                command: "project.openingInProgress",
+                                projectPath,
+                                opening: false,
+                                verifying: false,
+                            } as any);
+
+                            if (workContinuedInNewProjects) {
+                                // Show informational warning
+                                const displayName = path.basename(projectPath);
+                                const warningAction = await vscode.window.showWarningMessage(
+                                    [
+                                        "This project was previously deprecated.",
+                                        "",
+                                        "Work may have continued in the newer project(s).",
+                                        "Opening this project may result in working with outdated content.",
+                                        "",
+                                        `Do you still want to open "${displayName}"?`,
+                                    ].join("\n"),
+                                    { modal: true },
+                                    "Open Anyway"
+                                );
+
+                                if (warningAction !== "Open Anyway") {
+                                    debugLog("User cancelled open of previously deprecated project");
+                                    return;
+                                }
+                            }
+                        }
                     }
                 } catch (deprecatedCheckError) {
                     debugLog("Deprecated project open confirmation failed", deprecatedCheckError);
+                    // Clear verifying state on error
+                    this.safeSendMessage({
+                        command: "project.openingInProgress",
+                        projectPath,
+                        opening: false,
+                        verifying: false,
+                    } as any);
                 }
 
                 try {
@@ -5191,8 +5317,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     "This project was previously deprecated. Work may have continued in the newer project(s). " +
                                     "Cloning this project may result in working with outdated content.",
                                     { modal: true },
-                                    "Clone Anyway",
-                                    "Cancel"
+                                    "Clone Anyway"
                                 );
 
                                 if (warningAction !== "Clone Anyway") {

@@ -63,6 +63,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [isUpdating, setIsUpdating] = useState<boolean>(false);
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [isOpening, setIsOpening] = useState<boolean>(false);
+    const [isVerifying, setIsVerifying] = useState<boolean>(false);
     const [isRenaming, setIsRenaming] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
@@ -81,6 +82,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         isUpdating ||
         isCloning ||
         isOpening ||
+        isVerifying ||
         isRenaming ||
         isZipping ||
         isZippingMini ||
@@ -204,6 +206,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             if (msg?.command === "project.openingInProgress") {
                 if (msg.projectPath === project.path) {
                     setIsOpening(msg.opening);
+                    setIsVerifying(!!msg.verifying);
                     // Clear strategy applying state when opening completes
                     if (!msg.opening) {
                         setIsApplyingStrategyDuringOtherOp(false);
@@ -357,6 +360,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
                                 Updating...
+                            </>
+                        ) : isVerifying ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Verifying...
                             </>
                         ) : isOpening ? (
                             <>
