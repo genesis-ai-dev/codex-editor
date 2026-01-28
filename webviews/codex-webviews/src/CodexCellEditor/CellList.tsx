@@ -161,63 +161,86 @@ const CellList: React.FC<CellListProps> = ({
     // Previous queue reference for comparison
     const prevQueueRef = useRef<string[]>([]);
 
-    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
-    const getCellIdentifier = useCallback((cell: QuillCellContent): string => {
-        // Prefer globalReferences (new format after migration)
-        const globalRefs = cell.data?.globalReferences;
-        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
-            return globalRefs[0];
-        }
-        // Fallback to cellMarkers for backward compatibility
-        return cell.cellMarkers[0] || "";
-    }, []);
-
     // Calculate footnote offset for each cell based on previous cells' footnote counts within the same milestone
-    // This uses fullDocumentTranslationUnits to count across all subsections within a milestone
+    // This counts footnotes from previous subsections (pages) in the same milestone
     const calculateFootnoteOffset = useCallback(
         (cellIndex: number): number => {
             if (cellIndex >= workingTranslationUnits.length) return 0;
 
             const currentCell = workingTranslationUnits[cellIndex];
-            const currentCellIdentifier = getCellIdentifier(currentCell);
+            const currentCellId = currentCell.cellMarkers[0];
 
-            // Find the current cell's index in the full document using the identifier
-            const fullDocumentCellIndex = fullDocumentTranslationUnits.findIndex(
-                (cell) => getCellIdentifier(cell) === currentCellIdentifier
-            );
+            // Get the milestone index for the current cell from its metadata
+            // Cells have milestoneIndex stored in metadata.data.milestoneIndex
+            const currentMilestoneIdx =
+                (currentCell.data as any)?.milestoneIndex ??
+                (currentCell.metadata as any)?.data?.milestoneIndex;
 
-            if (fullDocumentCellIndex === -1) return 0;
+            // If we have milestone index and milestone info, use milestone-based counting
+            if (
+                currentMilestoneIdx !== undefined &&
+                currentMilestoneIdx !== null &&
+                milestoneIndex &&
+                currentMilestoneIdx < milestoneIndex.milestones.length
+            ) {
+                // Use fullDocumentTranslationUnits which should now contain all cells in the milestone
+                // Find the current cell's index in the full milestone
+                const fullMilestoneCellIndex = fullDocumentTranslationUnits.findIndex(
+                    (cell) => cell.cellMarkers[0] === currentCellId
+                );
 
-            // Get the milestone index that the current cell belongs to (O(1) lookup)
-            const currentMilestoneIndex = currentCell.data?.milestoneIndex ?? null;
-
-            // If no milestone found, return 0 (can't group footnotes)
-            if (currentMilestoneIndex === null) return 0;
-
-            // Count footnotes in previous cells within the same milestone (across entire document)
-            let footnoteCount = 0;
-            for (let i = 0; i < fullDocumentCellIndex; i++) {
-                const cell = fullDocumentTranslationUnits[i];
-
-                // Get the milestone index for this cell (O(1) lookup)
-                const cellMilestoneIndex = cell.data?.milestoneIndex ?? null;
-
-                // Only count footnotes if the cell is in the same milestone and is not a milestone cell
-                if (
-                    cellMilestoneIndex === currentMilestoneIndex &&
-                    cell.cellType !== CodexCellTypes.MILESTONE
-                ) {
-                    // Extract footnotes from this cell's content
-                    const tempDiv = document.createElement("div");
-                    tempDiv.innerHTML = cell.cellContent || "";
-                    const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
-                    footnoteCount += footnoteMarkers.length;
+                if (fullMilestoneCellIndex === -1) {
+                    // Cell not found in full milestone, fall back to counting from current page
+                    let footnoteCount = 0;
+                    for (let i = 0; i < cellIndex; i++) {
+                        const cell = workingTranslationUnits[i];
+                        if (cell.cellType !== CodexCellTypes.MILESTONE) {
+                            const tempDiv = document.createElement("div");
+                            tempDiv.innerHTML = cell.cellContent || "";
+                            const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
+                            footnoteCount += footnoteMarkers.length;
+                        }
+                    }
+                    return footnoteCount;
                 }
+
+                // Count footnotes from all previous cells in the same milestone (including previous pages)
+                let footnoteCount = 0;
+                for (let i = 0; i < fullMilestoneCellIndex; i++) {
+                    const cell = fullDocumentTranslationUnits[i];
+
+                    // Get the milestone index for this cell
+                    const cellMilestoneIdx =
+                        (cell.data as any)?.milestoneIndex ??
+                        (cell.metadata as any)?.data?.milestoneIndex;
+
+                    // Only count footnotes if the cell is in the same milestone
+                    // Include paratext cells in the same milestone for footnote numbering continuity
+                    if (
+                        cellMilestoneIdx === currentMilestoneIdx &&
+                        cell.cellType !== CodexCellTypes.MILESTONE
+                    ) {
+                        // Extract footnotes from this cell's content
+                        const tempDiv = document.createElement("div");
+                        tempDiv.innerHTML = cell.cellContent || "";
+                        const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
+                        footnoteCount += footnoteMarkers.length;
+                    }
+                }
+
+                return footnoteCount;
             }
 
-            return footnoteCount;
+            return 0;
         },
-        [workingTranslationUnits, fullDocumentTranslationUnits, getCellIdentifier]
+        [
+            workingTranslationUnits,
+            fullDocumentTranslationUnits,
+            milestoneIndex,
+            currentMilestoneIndex,
+            currentSubsectionIndex,
+            cellsPerPage,
+        ]
     );
 
     // Add debug logging for translation state tracking
@@ -437,6 +460,17 @@ const CellList: React.FC<CellListProps> = ({
             console.error("Error in autocomplete queue monitoring:", error);
         }
     }, [cellsInAutocompleteQueue, currentProcessingCellId]);
+
+    // Helper function to get cell identifier (prefer globalReferences, fallback to cellMarkers)
+    const getCellIdentifier = useCallback((cell: QuillCellContent): string => {
+        // Prefer globalReferences (new format after migration)
+        const globalRefs = cell.data?.globalReferences;
+        if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
+            return globalRefs[0];
+        }
+        // Fallback to cellMarkers for backward compatibility
+        return cell.cellMarkers[0] || "";
+    }, []);
 
     // Helper function to check if a cell is a child cell
     const isChildCell = useCallback(
