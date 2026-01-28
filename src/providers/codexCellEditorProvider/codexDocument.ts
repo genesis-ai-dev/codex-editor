@@ -70,6 +70,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _cachedMilestoneIndex: MilestoneIndex | null = null;
     private _cachedMilestoneIndexCellsPerPage: number | null = null;
     private _cachedMilestoneIndexCellCount: number = 0;
+    private _lastUpdatedMilestoneIndexCellCount: number = 0;
 
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
@@ -295,10 +296,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
-        // Invalidate milestone index cache if updating a milestone cell
-        // (milestone cell value changes could affect milestone structure)
+        // Update milestone value in cache if updating a milestone cell value
+        // Only invalidate cache if structure actually changed (e.g., milestone deleted/added)
         if (cellToUpdate.metadata?.type === CodexCellTypes.MILESTONE && shouldUpdateValue) {
-            this.invalidateMilestoneIndexCache();
+            // Try to update the cached milestone value directly (more efficient)
+            const updated = this.updateMilestoneValueInCache(indexOfCellToUpdate, newContent);
+            if (!updated) {
+                // Cache doesn't exist or milestone not found - invalidate to force rebuild
+                this.invalidateMilestoneIndexCache();
+            }
+            // If updated successfully, cache remains valid with updated value
         }
 
         // Block updates to locked cells (except for system operations like unlocking)
@@ -1141,6 +1148,33 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._cachedMilestoneIndex = null;
         this._cachedMilestoneIndexCellsPerPage = null;
         this._cachedMilestoneIndexCellCount = 0;
+        this._lastUpdatedMilestoneIndexCellCount = 0;
+    }
+
+    /**
+     * Updates a milestone value in the cached milestone index without rebuilding.
+     * This is more efficient than invalidating and rebuilding when only the value changes.
+     * 
+     * @param cellIndex The index of the milestone cell in the cells array
+     * @param newValue The new milestone value
+     * @returns true if the milestone was found and updated, false otherwise
+     */
+    private updateMilestoneValueInCache(cellIndex: number, newValue: string): boolean {
+        if (!this._cachedMilestoneIndex || !this._cachedMilestoneIndex.milestones) {
+            return false;
+        }
+
+        // Find the milestone that matches this cellIndex
+        const milestone = this._cachedMilestoneIndex.milestones.find(
+            (m) => m.cellIndex === cellIndex
+        );
+
+        if (milestone) {
+            milestone.value = newValue;
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -1300,6 +1334,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cells = this._documentData.cells || [];
+        const currentCellCount = cells.length;
+
+        // Optimization: Skip update if milestone indices haven't changed
+        // If cache is valid and cell count matches last update, indices haven't changed
+        if (
+            this._cachedMilestoneIndex !== null &&
+            this._cachedMilestoneIndexCellCount === currentCellCount &&
+            this._lastUpdatedMilestoneIndexCellCount === currentCellCount
+        ) {
+            // Milestone indices haven't changed, skip database update
+            return;
+        }
+
         const contentType = this.getContentType();
 
         // Get file ID
@@ -1313,26 +1360,43 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this._cachedFileId = fileId;
         }
 
-        // Update milestone_index for all cells in batch
-        for (const cell of cells) {
-            const cellId = cell.metadata?.id;
-            if (!cellId) continue;
-
-            const milestoneIndex = cell.metadata?.data?.milestoneIndex;
-
-            // Update the database with milestone_index
-            // Use sync version since we're already in an async context and want to batch updates
-            this._indexManager.upsertCellSync(
-                cellId,
-                fileId,
-                contentType === "source" ? "source" : "target",
-                cell.value || "",
-                undefined, // lineNumber - not needed for milestone update
-                cell.metadata,
-                cell.value, // rawContent
-                milestoneIndex !== undefined ? milestoneIndex : null
-            );
+        // Use targeted UPDATE statement instead of full upserts
+        const db = this._indexManager.database;
+        if (!db) {
+            console.warn(`[CodexDocument] Database not available for milestone index update`);
+            return;
         }
+
+        await this._indexManager.runInTransaction(() => {
+            // Prepare UPDATE statement once, reuse for all cells
+            const updateStatement = db.prepare(`
+                UPDATE cells 
+                SET milestone_index = ?
+                WHERE cell_id = ?
+            `);
+
+            try {
+                for (const cell of cells) {
+                    const cellId = cell.metadata?.id;
+                    if (!cellId) continue;
+
+                    const milestoneIndex = cell.metadata?.data?.milestoneIndex;
+
+                    // Execute UPDATE statement
+                    updateStatement.bind([
+                        milestoneIndex !== undefined ? milestoneIndex : null,
+                        cellId
+                    ]);
+                    updateStatement.step();
+                    updateStatement.reset();
+                }
+            } finally {
+                updateStatement.free();
+            }
+        });
+
+        // Track that we've updated for this cell count
+        this._lastUpdatedMilestoneIndexCellCount = currentCellCount;
     }
 
     /**
