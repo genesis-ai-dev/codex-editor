@@ -409,15 +409,15 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 // Add extension version requirements to the new project
                 const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
                 const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
-                
-                const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string } = {};
+
+                const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
                 if (codexEditorVersion) {
                     requiredExtensions.codexEditor = codexEditorVersion;
                 }
                 if (frontierAuthVersion) {
                     requiredExtensions.frontierAuthentication = frontierAuthVersion;
                 }
-                
+
                 const projectWithVersions = {
                     ...newProject,
                     meta: {
@@ -1265,8 +1265,11 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
 }
 
 /**
- * Filter out old projects that have completed swap migration
- * Hide old projects from the list once swap is complete
+ * Filter out old projects and handle swap status
+ * 
+ * Rules:
+ * - Cancelled swap: Project appears normal (not deprecated) - clear projectSwap field
+ * - Active swap: Show project with swap info intact (swap banner will show)
  */
 async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalProject[]> {
     const filtered: LocalProject[] = [];
@@ -1278,7 +1281,7 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
             const projectUri = vscode.Uri.file(project.path);
             const metadataPath = vscode.Uri.file(path.join(project.path, "metadata.json"));
             let metadata: ProjectMetadata | null = null;
-            
+
             try {
                 const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
                 metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
@@ -1288,7 +1291,7 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
 
             // Check BOTH metadata.json AND localProjectSwap.json for swap info
             let effectiveSwapInfo = metadata?.meta?.projectSwap;
-            
+
             if (!effectiveSwapInfo) {
                 try {
                     const localSwapFile = await readLocalProjectSwapFile(projectUri);
@@ -1310,25 +1313,27 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
             const swapInfo = normalizeProjectSwapInfo(effectiveSwapInfo);
             const activeEntry = getActiveSwapEntry(swapInfo);
 
-            // Hide old projects that have no pending swap (all swaps cancelled or completed)
-            // isOldProject is now in each entry, not at the top level
-            if (activeEntry?.isOldProject) {
-                // This is the old project - check if there's still an active swap
-                // (If there is, we continue to show the project so user can act on it)
+            // Case 1: Active swap - show project (swap banner will show in UI)
+            if (activeEntry) {
                 filtered.push(project);
                 continue;
-            } else if (!activeEntry) {
-                // No active swap entry - check if this was an old project by looking at all entries
-                const allEntries = swapInfo.swapEntries || [];
-                const wasOldProject = allEntries.some(e => e.isOldProject);
-                if (wasOldProject) {
-                    // Old project with no pending swap - can be hidden
-                    debug(`Hiding old project with no pending swap: ${project.name}`);
-                    continue;
-                }
             }
 
-            // Show new projects and old projects with pending swaps
+            // Case 2: No active swap entry (all swaps cancelled)
+            // Check if this was an old project by looking at all entries
+            const allEntries = swapInfo.swapEntries || [];
+            const wasOldProject = allEntries.some(e => e.isOldProject);
+
+            // All swaps cancelled - show project as normal (no deprecated status)
+            // Clear the projectSwap field so UI doesn't show swap banner
+            if (wasOldProject) {
+                // This project had swaps but they were all cancelled
+                // Show it as a normal project
+                debug(`Showing old project as normal (all swaps cancelled): ${project.name}`);
+                project.projectSwap = undefined;
+            }
+
+            // Show project
             filtered.push(project);
 
         } catch (error) {
@@ -1385,7 +1390,7 @@ async function processProjectDirectory(
         try {
             const metadataUri = vscode.Uri.file(path.join(projectPath, "metadata.json"));
             const projectUri = vscode.Uri.file(projectPath);
-            
+
             // First, try to ensure metadata integrity - this will recover from orphaned temp files
             // This is critical for projects that were left in a corrupted state due to interrupted writes
             try {
@@ -1397,7 +1402,7 @@ async function processProjectDirectory(
                 // If integrity check fails completely, we'll handle it below
                 debug(`Metadata integrity check failed for ${name}:`, integrityError);
             }
-            
+
             // Quick check if metadata exists
             await vscode.workspace.fs.stat(metadataUri);
 
@@ -1412,24 +1417,24 @@ async function processProjectDirectory(
                 if (!gitOrigin) {
                     const metadataProjectId = projectMetadata.projectId;
                     const uuidsInFolder = findAllUuidSegments(currentName);
-                    
+
                     // CRITICAL: Check for multiple UUIDs first (e.g., "project-uuid1-uuid2")
                     // If found, use metadata.projectId as source of truth and fix the folder name
                     // NOTE: This only runs for LOCAL-ONLY projects (no git remote)
                     if (uuidsInFolder.length > 1) {
                         debug(`MULTIPLE UUIDs detected in folder name: ${uuidsInFolder.join(', ')}`);
-                        
+
                         // Use metadata.projectId as the single source of truth
                         // Fallback to FIRST UUID (the original) if metadata has none
                         const correctId = metadataProjectId || uuidsInFolder[0] || generateProjectId();
                         if (!metadataProjectId) {
                             projectMetadata.projectId = correctId;
                         }
-                        
+
                         // Strip ALL UUIDs and append only the correct one
                         const baseName = sanitizeProjectName(stripAllUuids(currentName));
                         const newName = `${baseName}-${correctId}`;
-                        
+
                         if (newName !== currentName) {
                             const newPath = path.join(folder, newName);
                             try {
@@ -1469,7 +1474,7 @@ async function processProjectDirectory(
                         if (!metadataProjectId) {
                             projectMetadata.projectId = idToUse;
                         }
-                        
+
                         // Get base name from folder (it has no UUID since we checked above)
                         const baseName = sanitizeProjectName(currentName);
                         const newName = `${baseName}-${idToUse}`;
@@ -1533,9 +1538,9 @@ async function processProjectDirectory(
         // Check BOTH metadata.json AND localProjectSwap.json (same as checkProjectSwapRequired)
         const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
         const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
-        
+
         let effectiveSwapInfo = projectMetadata?.meta?.projectSwap;
-        
+
         // Also check localProjectSwap.json - it may have swap info from remote that wasn't synced yet
         if (!effectiveSwapInfo) {
             try {
@@ -1548,7 +1553,7 @@ async function processProjectDirectory(
                 // Non-fatal - localProjectSwap.json might not exist
             }
         }
-        
+
         let projectSwapWithConvenience = effectiveSwapInfo;
         if (projectSwapWithConvenience) {
             const normalized = normalizeProjectSwapInfo(projectSwapWithConvenience);
@@ -1969,9 +1974,9 @@ export async function validateAndFixProjectMetadata(projectUri: vscode.Uri): Pro
         if (!metadata?.type?.flavorType?.currentScope) {
             if (!metadata.type) metadata.type = {};
             if (!metadata.type.flavorType) metadata.type.flavorType = {};
-            
+
             metadata.type.flavorType.currentScope = generateProjectScope();
-            
+
             if (!metadata.type.flavorType.flavor) {
                 metadata.type.flavorType.flavor = {
                     name: "default",
@@ -1982,7 +1987,7 @@ export async function validateAndFixProjectMetadata(projectUri: vscode.Uri): Pro
                 };
             }
             if (!metadata.type.flavorType.name) metadata.type.flavorType.name = "default";
-            
+
             needsSave = true;
             console.log("Auto-fixed missing project scope in metadata.json");
         }
@@ -2025,28 +2030,28 @@ export async function validateAndFixProjectMetadata(projectUri: vscode.Uri): Pro
  */
 export async function cleanupFoldersMarkedForDeletion(watchedFolders: string[]): Promise<void> {
     const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
-    
+
     for (const watchedFolder of watchedFolders) {
         try {
             const watchedFolderUri = vscode.Uri.file(watchedFolder);
             const entries = await vscode.workspace.fs.readDirectory(watchedFolderUri);
-            
+
             for (const [name, type] of entries) {
                 if (type !== vscode.FileType.Directory) continue;
-                
+
                 // Only check folders that look like swap temp folders (contain _tmp)
                 if (!name.includes("_tmp")) continue;
-                
+
                 const folderPath = path.join(watchedFolder, name);
                 const folderUri = vscode.Uri.file(folderPath);
-                
+
                 try {
                     const swapFile = await readLocalProjectSwapFile(folderUri);
-                    
+
                     if (swapFile?.markedForDeletion) {
                         debug(`Found folder marked for deletion: ${folderPath}`);
                         debug(`Swap completed at: ${swapFile.swapCompletedAt ? new Date(swapFile.swapCompletedAt).toISOString() : "unknown"}`);
-                        
+
                         // Attempt to delete the folder
                         try {
                             const fs = await import("fs");

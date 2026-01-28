@@ -432,6 +432,13 @@ export async function activate(context: vscode.ExtensionContext) {
         // Initialize SqlJs with real-time progress since it loads WASM files
         // Only initialize database if we have a workspace (database is for project content)
         const workspaceFolders = vscode.workspace.workspaceFolders;
+
+        // Check for pending swap downloads (after workspace is ready)
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            checkPendingSwapDownloads(workspaceFolders[0].uri).catch(err => {
+                console.error("[Extension] Error checking pending swap downloads:", err);
+            });
+        }
         if (workspaceFolders && workspaceFolders.length > 0) {
             startRealtimeStep("AI preparing search capabilities");
             try {
@@ -1038,6 +1045,158 @@ async function executeCommandsAfter(
     checkForUpdatesOnStartup(context).catch(error => {
         console.error('[Extension] Error during startup update check:', error);
     });
+}
+
+/**
+ * Check if there are pending swap downloads and automatically download files
+ * This runs when a project opens that was previously paused for downloads
+ */
+async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> {
+    try {
+        const { getSwapPendingState, checkPendingDownloadsComplete, clearSwapPendingState, downloadPendingSwapFiles, saveSwapPendingState, performProjectSwap } = 
+            await import("./providers/StartupFlow/performProjectSwap");
+        
+        const pendingState = await getSwapPendingState(projectUri.fsPath);
+        
+        if (!pendingState || pendingState.swapState !== "pending_downloads") {
+            return; // No pending swap downloads
+        }
+
+        console.log("[Extension] Found pending swap downloads, starting automatic download...");
+
+        // Check if downloads are already complete
+        const { complete: alreadyComplete, remaining } = await checkPendingDownloadsComplete(projectUri.fsPath);
+
+        if (alreadyComplete) {
+            // Already done - show continue modal
+            await promptContinueSwap(projectUri, pendingState);
+            return;
+        }
+
+        // Show progress and automatically download the files
+        const totalFiles = pendingState.filesNeedingDownload.length;
+        
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Downloading media for swap...",
+            cancellable: true
+        }, async (progress, token) => {
+            // Show initial count in message
+            progress.report({ message: `0/${totalFiles} files` });
+            // Set up cancellation handler
+            let cancelled = false;
+            token.onCancellationRequested(() => {
+                cancelled = true;
+            });
+
+            const result = await downloadPendingSwapFiles(projectUri.fsPath, progress);
+            
+            if (cancelled) {
+                vscode.window.showInformationMessage(
+                    `Download paused. ${result.downloaded}/${result.total} files downloaded. Reopen project to resume.`
+                );
+                return;
+            }
+
+            console.log(`[Extension] Download complete: ${result.downloaded}/${result.total}, failed: ${result.failed.length}`);
+            
+            if (result.failed.length > 0) {
+                // Some downloads failed - show warning and let user decide
+                const action = await vscode.window.showWarningMessage(
+                    `Downloaded ${result.downloaded}/${result.total} files. ${result.failed.length} file(s) failed to download. Continue with swap anyway?`,
+                    { modal: true },
+                    "Continue Swap",
+                    "Retry",
+                    "Cancel Swap"
+                );
+
+                if (action === "Retry") {
+                    // Reopen to retry
+                    vscode.commands.executeCommand("workbench.action.reloadWindow");
+                } else if (action === "Continue Swap") {
+                    await promptContinueSwap(projectUri, pendingState);
+                } else {
+                    await cancelSwap(projectUri, pendingState);
+                }
+            } else {
+                // All downloads successful
+                await promptContinueSwap(projectUri, pendingState);
+            }
+        });
+
+    } catch (error) {
+        console.error("[Extension] Error checking pending swap downloads:", error);
+    }
+}
+
+/**
+ * Show modal to continue or cancel swap after downloads complete
+ */
+async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
+    const { saveSwapPendingState, performProjectSwap, clearSwapPendingState } = 
+        await import("./providers/StartupFlow/performProjectSwap");
+    
+    const newProjectName = pendingState.newProjectUrl.split('/').pop()?.replace('.git', '') || 'new project';
+    
+    const action = await vscode.window.showInformationMessage(
+        `All required media files have been downloaded. Ready to continue the project swap to "${newProjectName}".`,
+        { modal: true },
+        "Continue Swap"
+    );
+
+    if (action === "Continue Swap") {
+        // Mark as ready and trigger swap
+        await saveSwapPendingState(projectUri.fsPath, {
+            ...pendingState,
+            swapState: "ready_to_swap"
+        });
+
+        // Perform the swap
+        const projectName = projectUri.fsPath.split(/[\\/]/).pop() || "project";
+        
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Completing project swap...",
+            cancellable: false
+        }, async (progress) => {
+            const newPath = await performProjectSwap(
+                progress,
+                projectName,
+                projectUri.fsPath,
+                pendingState.newProjectUrl,
+                pendingState.swapUUID,
+                pendingState.swapInitiatedAt
+            );
+
+            progress.report({ message: "Opening swapped project..." });
+            const { MetadataManager } = await import("./utils/metadataManager");
+            await MetadataManager.safeOpenFolder(
+                vscode.Uri.file(newPath),
+                projectUri
+            );
+        });
+    } else {
+        // User clicked Cancel or closed the modal
+        await cancelSwap(projectUri, pendingState);
+    }
+}
+
+/**
+ * Cancel a pending swap and restore original media strategy
+ */
+async function cancelSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
+    const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
+    
+    // Restore original media strategy
+    if (pendingState.originalMediaStrategy) {
+        const { setMediaFilesStrategy } = await import("./utils/localProjectSettings");
+        await setMediaFilesStrategy(
+            pendingState.originalMediaStrategy as any, 
+            projectUri
+        );
+    }
+    await clearSwapPendingState(projectUri.fsPath);
+    vscode.window.showInformationMessage("Project swap cancelled.");
 }
 
 export function deactivate() {

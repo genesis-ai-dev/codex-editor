@@ -208,6 +208,18 @@ export class SyncManager {
             if (result.required && result.activeEntry) {
                 debug("Project swap required for user, blocking sync");
 
+                // Check if there are pending downloads for the swap
+                // If so, DON'T show the swap modal - let downloads complete first
+                const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
+                const pendingState = await getSwapPendingState(projectPath);
+                
+                if (pendingState && pendingState.swapState === "pending_downloads") {
+                    debug("Swap has pending downloads - suppressing swap modal, allowing media downloads");
+                    // Return false to allow media operations to proceed
+                    // The swap modal will show after downloads complete via checkPendingSwapDownloads
+                    return false;
+                }
+
                 const activeEntry = result.activeEntry;
                 const swapTimestamp = activeEntry.swapInitiatedAt;
 
@@ -269,6 +281,16 @@ export class SyncManager {
             const result = await checkProjectSwapRequired(projectPath, undefined, true);
 
             if (result.required && result.activeEntry) {
+                // Check if there are pending downloads for the swap
+                // If so, DON'T show the swap modal - let downloads complete first
+                const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
+                const pendingState = await getSwapPendingState(projectPath);
+                
+                if (pendingState && pendingState.swapState === "pending_downloads") {
+                    debug("[SyncManager] Post-sync: Swap has pending downloads - suppressing modal");
+                    return;
+                }
+
                 const activeEntry = result.activeEntry;
                 const swapTimestamp = activeEntry.swapInitiatedAt;
 

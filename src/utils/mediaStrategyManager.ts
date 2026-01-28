@@ -206,17 +206,27 @@ export async function downloadAllLFSFiles(projectPath: string): Promise<number> 
     let downloadedCount = 0;
 
     try {
+        // First, process any pending downloads from a project swap
+        // These need to be downloaded from the OLD project's LFS before we download from the current project
+        try {
+            const projectUri = vscode.Uri.file(projectPath);
+            const pendingDownloaded = await processPendingSwapDownloads(projectUri);
+            downloadedCount += pendingDownloaded;
+        } catch (pendingErr) {
+            debug("Error processing pending swap downloads (non-fatal):", pendingErr);
+        }
+
         // Before any downloads, enforce version gates (Frontier installed + project metadata requirements)
         try {
             const { ensureAllVersionGatesForMedia } = await import("./versionGate");
             const allowed = await ensureAllVersionGatesForMedia(true);
             if (!allowed) {
                 // Block entire bulk download
-                return 0;
+                return downloadedCount; // Return any pending downloads we processed
             }
         } catch (gateErr) {
             console.warn("Blocking media download due to version requirements:", gateErr);
-            return 0;
+            return downloadedCount;
         }
 
         // Get frontier API
@@ -635,6 +645,17 @@ export async function applyMediaStrategy(
                         "Your media will be automatically downloaded and saved on your device."
                     );
                 }
+
+                // Process any pending LFS downloads from a previous project swap
+                // These files couldn't be downloaded during swap and need to be retrieved from old project's LFS
+                try {
+                    const pendingDownloaded = await processPendingSwapDownloads(projectUri);
+                    if (pendingDownloaded > 0) {
+                        debug(`Downloaded ${pendingDownloaded} pending swap files from old project LFS`);
+                    }
+                } catch (pendingError) {
+                    debug("Error processing pending swap downloads (non-fatal):", pendingError);
+                }
                 break;
             }
             case "stream-only":
@@ -725,5 +746,168 @@ export async function postSyncCleanup(projectUri: vscode.Uri, uploadedFiles?: st
         console.error("Error in post-sync cleanup:", error);
         // Don't throw - this is best-effort cleanup
     }
+}
+
+/**
+ * Process pending LFS downloads from a project swap
+ * These are files that couldn't be downloaded during the swap and were stored for later retrieval
+ * 
+ * @param projectUri - URI of the project
+ * @returns Number of files downloaded
+ */
+export async function processPendingSwapDownloads(projectUri: vscode.Uri): Promise<number> {
+    const fs = await import("fs");
+    const projectPath = projectUri.fsPath;
+    const localSwapPath = path.join(projectPath, ".project", "localProjectSwap.json");
+    
+    // Check if there are pending downloads
+    if (!fs.existsSync(localSwapPath)) {
+        debug("No localProjectSwap.json found - no pending downloads");
+        return 0;
+    }
+
+    let localSwap: any;
+    try {
+        localSwap = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+    } catch (error) {
+        debug("Error reading localProjectSwap.json:", error);
+        return 0;
+    }
+
+    const pendingDownloads = localSwap.pendingLfsDownloads;
+    if (!pendingDownloads || !pendingDownloads.files || pendingDownloads.files.length === 0) {
+        debug("No pending LFS downloads to process");
+        return 0;
+    }
+
+    const { sourceRemoteUrl, files } = pendingDownloads;
+    if (!sourceRemoteUrl) {
+        debug("No source remote URL in pending downloads - cannot retrieve files");
+        return 0;
+    }
+
+    debug(`Processing ${files.length} pending LFS downloads from swap`);
+
+    // Get frontier API
+    const { getAuthApi } = await import("../extension");
+    const frontierApi = getAuthApi();
+    if (!frontierApi?.downloadLFSFile) {
+        debug("Frontier API not available - will retry pending downloads later");
+        return 0;
+    }
+
+    const filesDir = path.join(projectPath, ".project", "attachments", "files");
+    const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
+    
+    fs.mkdirSync(filesDir, { recursive: true });
+    fs.mkdirSync(pointersDir, { recursive: true });
+
+    let downloadedCount = 0;
+    const failedFiles: Array<{ relPath: string; oid: string; size: number }> = [];
+    const { createHash } = await import("crypto");
+
+    // Show progress
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Downloading Media from Previous Project",
+            cancellable: false,
+        },
+        async (progress) => {
+            const total = files.length;
+            let processed = 0;
+
+            // Process in batches
+            const BATCH_SIZE = 5;
+            for (let i = 0; i < files.length; i += BATCH_SIZE) {
+                const batch = files.slice(i, i + BATCH_SIZE);
+
+                await Promise.all(batch.map(async (file: { relPath: string; oid: string; size: number }) => {
+                    try {
+                        const { relPath, oid, size } = file;
+                        
+                        // Check if file already exists (maybe downloaded through normal sync)
+                        const filesPath = path.join(filesDir, relPath);
+                        if (fs.existsSync(filesPath)) {
+                            const existingIsPointer = await isPointerFile(filesPath);
+                            if (!existingIsPointer) {
+                                debug(`File already exists (not pointer): ${relPath}`);
+                                downloadedCount++; // Count as success since file exists
+                                return;
+                            }
+                        }
+
+                        // Try to download from the old project's LFS
+                        debug(`Downloading from old project LFS: ${relPath}`);
+                        const content = await frontierApi.downloadLFSFile(sourceRemoteUrl, oid, size);
+                        
+                        if (!content) {
+                            debug(`Download failed (empty response): ${relPath}`);
+                            failedFiles.push(file);
+                            return;
+                        }
+
+                        // Verify checksum
+                        const hash = createHash("sha256").update(content).digest("hex");
+                        if (hash !== oid) {
+                            debug(`Checksum mismatch for ${relPath}: expected ${oid}, got ${hash}`);
+                            failedFiles.push(file);
+                            return;
+                        }
+
+                        // Write to files/ and pointers/
+                        const pointersPath = path.join(pointersDir, relPath);
+                        fs.mkdirSync(path.dirname(filesPath), { recursive: true });
+                        fs.mkdirSync(path.dirname(pointersPath), { recursive: true });
+                        
+                        fs.writeFileSync(filesPath, content);
+                        fs.writeFileSync(pointersPath, content);
+
+                        // Cache for future use
+                        setCachedLfsBytes(oid, content);
+
+                        downloadedCount++;
+                        debug(`Downloaded: ${relPath}`);
+                    } catch (error) {
+                        debug(`Error downloading ${file.relPath}:`, error);
+                        failedFiles.push(file);
+                    }
+
+                    processed++;
+                    progress.report({
+                        increment: (1 / total) * 100,
+                        message: `${processed}/${total} files`
+                    });
+                }));
+            }
+        }
+    );
+
+    // Update localProjectSwap.json
+    if (failedFiles.length === 0) {
+        // All downloads succeeded - remove pending downloads
+        delete localSwap.pendingLfsDownloads;
+        debug("All pending downloads completed - clearing from localProjectSwap.json");
+    } else {
+        // Some downloads failed - keep them for retry
+        localSwap.pendingLfsDownloads.files = failedFiles;
+        localSwap.pendingLfsDownloads.lastAttempt = Date.now();
+        debug(`${failedFiles.length} downloads failed - keeping for retry`);
+    }
+
+    try {
+        fs.writeFileSync(localSwapPath, JSON.stringify(localSwap, null, 2));
+    } catch (error) {
+        debug("Error updating localProjectSwap.json:", error);
+    }
+
+    if (downloadedCount > 0) {
+        vscode.window.showInformationMessage(
+            `Downloaded ${downloadedCount} media file(s) from previous project.` +
+            (failedFiles.length > 0 ? ` ${failedFiles.length} file(s) could not be downloaded.` : "")
+        );
+    }
+
+    return downloadedCount;
 }
 

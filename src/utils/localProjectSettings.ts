@@ -157,11 +157,11 @@ export async function writeLocalProjectSettings(
 
     // Create a promise for the write operation and register it
     const writePromise = writeLocalProjectSettingsInternal(settings, workspaceFolderUri, settingsPath);
-    
+
     // Register this write operation with MetadataManager's tracking system
     // This ensures waitForPendingWrites will wait for this operation
     MetadataManager.registerPendingWrite(workspaceUri.fsPath, writePromise);
-    
+
     return writePromise;
 }
 
@@ -499,10 +499,10 @@ export async function writeLocalProjectSwapFile(
 
     // Create a promise for the write operation and register it
     const writePromise = writeLocalProjectSwapFileInternal(data, workspaceFolderUri, filePath);
-    
+
     // Register this write operation with MetadataManager's tracking system
     MetadataManager.registerPendingWrite(workspaceUri.fsPath, writePromise);
-    
+
     return writePromise;
 }
 
@@ -526,9 +526,26 @@ async function writeLocalProjectSwapFileInternal(
             await vscode.workspace.fs.createDirectory(projectDir);
         }
 
-        const content = JSON.stringify(data, null, 2);
+        // Read existing file to preserve custom data like swapPendingDownloads
+        let existingData: any = {};
+        try {
+            const existingContent = await vscode.workspace.fs.readFile(filePath);
+            existingData = JSON.parse(Buffer.from(existingContent).toString("utf-8"));
+        } catch {
+            // File doesn't exist or invalid - start fresh
+        }
+
+        // Merge: preserve swapPendingDownloads and pendingLfsDownloads if they exist
+        const mergedData = {
+            ...data,
+            // Preserve these fields from existing file if not in new data
+            swapPendingDownloads: existingData.swapPendingDownloads,
+            pendingLfsDownloads: existingData.pendingLfsDownloads,
+        };
+
+        const content = JSON.stringify(mergedData, null, 2);
         await vscode.workspace.fs.writeFile(filePath, Buffer.from(content, "utf8"));
-        debug("Wrote local project swap file");
+        debug("Wrote local project swap file (preserved custom data)");
     } catch (error) {
         console.error("Failed to write local project swap file:", error);
     }

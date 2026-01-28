@@ -66,6 +66,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [isRenaming, setIsRenaming] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
+    const [zipProgress, setZipProgress] = useState<number>(0);
     const [isCleaning, setIsCleaning] = useState<boolean>(false);
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
@@ -223,6 +224,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         setIsZipping(msg.zipping);
                     } else if (msg.zipType === "mini") {
                         setIsZippingMini(msg.zipping);
+                    }
+                    // Update progress percentage
+                    if (msg.zipping && msg.percent !== undefined) {
+                        setZipProgress(msg.percent);
+                    } else if (!msg.zipping) {
+                        setZipProgress(0); // Reset on completion
                     }
                 }
                 return;
@@ -538,7 +545,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (!project) return null;
         const { cleanName,displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isExpanded = expandedProjects[project.name];
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+        // Include orphaned (Remote Missing) projects as local since they exist on disk
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
 
         if (!isExpanded || (!displayUrl && !onDeleteProject)) return null;
 
@@ -637,7 +645,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     {isZipping ? (
                                         <>
                                             <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                            Zipping...
+                                            {zipProgress > 0 ? `${zipProgress}%` : "Zipping..."}
                                         </>
                                     ) : (
                                         <>
@@ -666,7 +674,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     {isZippingMini ? (
                                         <>
                                             <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                            Zipping...
+                                            {zipProgress > 0 ? `${zipProgress}%` : "Zipping..."}
                                         </>
                                     ) : (
                                         <>

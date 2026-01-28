@@ -27,7 +27,7 @@ import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
 import { performProjectSwap } from "./performProjectSwap";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
-import JSZip from "jszip";
+import archiver from "archiver";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
@@ -152,6 +152,17 @@ function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[StartupFlowProvider]", ...args);
     }
+}
+
+/**
+ * Format bytes as human-readable string
+ */
+function formatBytesHelper(bytes: number): string {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
@@ -1202,12 +1213,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
-                    
+
                     // Check BOTH metadata.json AND localProjectSwap.json for swap info
                     let swapInfo = metaResult.success
                         ? (metaResult.metadata?.meta?.projectSwap as ProjectSwapInfo | undefined)
                         : undefined;
-                    
+
                     if (!swapInfo) {
                         try {
                             const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
@@ -1423,10 +1434,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Use Awaited to get the return type of checkProjectSwapRequired
                         type SwapCheckResult = Awaited<ReturnType<typeof checkProjectSwapRequired>>;
                         const swapCheck: SwapCheckResult = remoteProjectRequirements.swapRequired
-                                ? (localSwapCheck.userAlreadySwapped
-                                    ? localSwapCheck
-                                    : { required: true, reason: "Remote swap required", swapInfo: remoteProjectRequirements.swapInfo, activeEntry: localSwapCheck.activeEntry })
-                                : localSwapCheck;
+                            ? (localSwapCheck.userAlreadySwapped
+                                ? localSwapCheck
+                                : { required: true, reason: "Remote swap required", swapInfo: remoteProjectRequirements.swapInfo, activeEntry: localSwapCheck.activeEntry })
+                            : localSwapCheck;
 
                         if (swapCheck.userAlreadySwapped && swapCheck.activeEntry) {
                             const activeEntry = swapCheck.activeEntry;
@@ -1485,19 +1496,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 `You have already swapped to ${swapTargetLabel}.\n\n` +
                                                 "You can open this deprecated project, delete the local copy, or cancel.",
                                                 { modal: true },
-                                            "Open Project",
-                                            "Delete Local Project"
-                                        );
+                                                "Open Project",
+                                                "Delete Local Project"
+                                            );
 
-                                        if (alreadySwappedChoice === "Delete Local Project") {
-                                            const projectName = projectPath.split(/[\\/]/).pop() || "project";
-                                            await this.performProjectDeletion(projectPath, projectName);
-                                            return;
-                                        }
+                                            if (alreadySwappedChoice === "Delete Local Project") {
+                                                const projectName = projectPath.split(/[\\/]/).pop() || "project";
+                                                await this.performProjectDeletion(projectPath, projectName);
+                                                return;
+                                            }
 
-                                        if (alreadySwappedChoice !== "Open Project") {
-                                            return;
-                                        }
+                                            if (alreadySwappedChoice !== "Open Project") {
+                                                return;
+                                            }
                                         }
                                     }
                                 }
@@ -1827,36 +1838,120 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     /**
-     * Recursively add files to a JSZip instance
-     * @param currentUri - The directory to add files from
-     * @param zipFolder - The JSZip folder to add files to
-     * @param options - Options for filtering files
+     * Count files recursively in a directory (for progress reporting)
      */
-    private async addFilesToZip(
-        currentUri: vscode.Uri,
-        zipFolder: JSZip,
+    private async countFilesRecursively(
+        dirPath: string,
         options: { excludeGit?: boolean; } = { excludeGit: true }
-    ): Promise<void> {
-        const entries = await vscode.workspace.fs.readDirectory(currentUri);
+    ): Promise<number> {
+        let count = 0;
 
-        for (const [name, type] of entries) {
-            // Skip .git folder based on options
-            if (name === ".git" && options.excludeGit) {
+        if (!fs.existsSync(dirPath)) {
+            return 0;
+        }
+
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+            if (options.excludeGit && (entry.name === ".git" || entry.name.startsWith(".git"))) {
                 continue;
             }
 
-            const entryUri = vscode.Uri.joinPath(currentUri, name);
-
-            if (type === vscode.FileType.File) {
-                const fileData = await vscode.workspace.fs.readFile(entryUri);
-                zipFolder.file(name, fileData);
-            } else if (type === vscode.FileType.Directory) {
-                const newFolder = zipFolder.folder(name);
-                if (newFolder) {
-                    await this.addFilesToZip(entryUri, newFolder, options);
-                }
+            const fullPath = `${dirPath}/${entry.name}`;
+            if (entry.isDirectory()) {
+                count += await this.countFilesRecursively(fullPath, options);
+            } else if (entry.isFile()) {
+                count++;
             }
         }
+        return count;
+    }
+
+    /**
+     * Create a zip file using archiver (streaming - memory efficient for large projects)
+     * @param sourcePath - Source directory to zip
+     * @param destPath - Destination path for the zip file
+     * @param options - Options for the zip operation
+     */
+    private async createZipWithArchiver(
+        sourcePath: string,
+        destPath: string,
+        options: {
+            excludeGit?: boolean;
+            rootFolderName?: string;
+            onProgress?: (processed: number, total: number, currentFile: string) => void;
+            cancellationToken?: vscode.CancellationToken;
+        } = { excludeGit: true }
+    ): Promise<void> {
+        const totalFiles = await this.countFilesRecursively(sourcePath, { excludeGit: options.excludeGit });
+        let processedFiles = 0;
+        let cancelled = false;
+
+        return new Promise<void>((resolve, reject) => {
+            const output = fs.createWriteStream(destPath);
+            const archive = archiver("zip", { zlib: { level: 9 } });
+
+            // Handle cancellation
+            if (options.cancellationToken) {
+                options.cancellationToken.onCancellationRequested(() => {
+                    cancelled = true;
+                    archive.abort();
+                    output.close();
+                    // Clean up partial zip file
+                    try {
+                        if (fs.existsSync(destPath)) {
+                            fs.unlinkSync(destPath);
+                        }
+                    } catch (e) {
+                        debugLog("Failed to clean up cancelled zip file:", e);
+                    }
+                    reject(new Error("Zip operation cancelled"));
+                });
+            }
+
+            output.on("close", () => {
+                if (!cancelled) {
+                    debugLog(`Zip created: ${archive.pointer()} bytes, ${processedFiles} files`);
+                    resolve();
+                }
+            });
+
+            output.on("error", (err: Error) => {
+                reject(err);
+            });
+
+            archive.on("error", (err: Error) => {
+                if (!cancelled) {
+                    reject(err);
+                }
+            });
+
+            archive.on("entry", (entry: { name: string; }) => {
+                processedFiles++;
+                if (options.onProgress && totalFiles > 0) {
+                    options.onProgress(processedFiles, totalFiles, entry.name);
+                }
+            });
+
+            archive.pipe(output);
+
+            if (options.rootFolderName) {
+                archive.directory(sourcePath, options.rootFolderName, (entry: { name: string; }) => {
+                    if (options.excludeGit && (entry.name.startsWith(".git/") || entry.name === ".git")) {
+                        return false;
+                    }
+                    return entry;
+                });
+            } else {
+                archive.directory(sourcePath, false, (entry: { name: string; }) => {
+                    if (options.excludeGit && (entry.name.startsWith(".git/") || entry.name === ".git")) {
+                        return false;
+                    }
+                    return entry;
+                });
+            }
+
+            archive.finalize().catch(reject);
+        });
     }
 
     /**
@@ -1940,22 +2035,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         const backupFileName = `${projectName}_backup_${timestamp}.zip`;
         const backupUri = vscode.Uri.joinPath(archivedProjectsDir, backupFileName);
 
-        // Create JSZip instance
-        const zip = new JSZip();
-
-        // Add project files to zip
-        const projectUri = vscode.Uri.file(projectPath);
-        await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
-
-        // Generate and save zip with compression
-        const zipContent = await zip.generateAsync({
-            type: "nodebuffer",
-            compression: "DEFLATE",
-            compressionOptions: {
-                level: 9 // Maximum compression (1-9)
-            }
-        });
-        await vscode.workspace.fs.writeFile(backupUri, zipContent);
+        // Use streaming archiver for memory efficiency
+        await this.createZipWithArchiver(
+            projectPath,
+            backupUri.fsPath,
+            { excludeGit: !includeGit }
+        );
 
         return backupUri;
     }
@@ -2590,36 +2675,52 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     try {
-                        // Show progress indicator
+                        let lastReportedPercent = 0;
+
+                        // Show progress indicator with cancel support
                         await vscode.window.withProgress(
                             {
                                 location: vscode.ProgressLocation.Notification,
-                                title: "Zipping project...",
-                                cancellable: false,
+                                title: `Zipping ${projectName}...`,
+                                cancellable: true,
                             },
-                            async (progress) => {
-                                progress.report({ increment: 0 });
+                            async (progress, token) => {
+                                progress.report({ increment: 0, message: "Starting..." });
 
-                                // Create JSZip instance
-                                const zip = new JSZip();
+                                // Use streaming archiver for memory efficiency
+                                await this.createZipWithArchiver(
+                                    projectPath,
+                                    saveUri.fsPath,
+                                    {
+                                        excludeGit: !includeGit,
+                                        onProgress: (processed, total, _currentFile) => {
+                                            const percent = Math.round((processed / total) * 100);
+                                            // Only report every 2% to avoid too many updates
+                                            if (percent >= lastReportedPercent + 2 || percent === 100) {
+                                                const increment = percent - lastReportedPercent;
+                                                progress.report({
+                                                    increment,
+                                                    message: `${percent}% complete (${processed}/${total} files)`
+                                                });
+                                                lastReportedPercent = percent;
 
-                                // Use shared method to add files to zip
-                                const projectUri = vscode.Uri.file(projectPath);
-                                await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
-
-                                progress.report({ increment: 50 });
-
-                                // Generate zip content with compression and write directly to target location
-                                const zipContent = await zip.generateAsync({
-                                    type: "nodebuffer",
-                                    compression: "DEFLATE",
-                                    compressionOptions: {
-                                        level: 9 // Maximum compression (1-9)
+                                                // Send progress to webview (synced with notification)
+                                                try {
+                                                    this.safeSendMessage({
+                                                        command: "project.zippingInProgress",
+                                                        projectPath,
+                                                        zipType: includeGit ? "full" : "mini",
+                                                        zipping: true,
+                                                        percent,
+                                                    } as any);
+                                                } catch (e) {
+                                                    // non-fatal
+                                                }
+                                            }
+                                        },
+                                        cancellationToken: token,
                                     }
-                                });
-                                await vscode.workspace.fs.writeFile(saveUri, zipContent);
-
-                                progress.report({ increment: 100 });
+                                );
                             }
                         );
 
@@ -2627,6 +2728,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         vscode.window.showInformationMessage(
                             `Project "${projectName}" has been zipped successfully${gitMessage}!`
                         );
+                    } catch (error) {
+                        // Handle cancellation separately
+                        if (error instanceof Error && error.message === "Zip operation cancelled") {
+                            vscode.window.showInformationMessage("Zip operation was cancelled.");
+                            return;
+                        }
+                        throw error; // Re-throw other errors to be handled by outer catch
                     } finally {
                         // Inform webview that zipping is complete
                         try {
@@ -3039,20 +3147,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }, async (progress) => {
                         progress.report({ message: "Backing up entire project to archive..." });
 
-                        // Use JSZip to zip the entire project folder (including .git)
-                        const zip = new JSZip();
+                        // Use streaming archiver for memory efficiency
                         // Create a root folder in the zip with the folder name to preserve structure
-                        const rootFolder = zip.folder(folderName);
-                        if (rootFolder) {
-                            await this.addFilesToZip(projectUri, rootFolder, { excludeGit: false });
-                        }
-
-                        const content = await zip.generateAsync({
-                            type: "nodebuffer",
-                            compression: "DEFLATE",
-                            compressionOptions: { level: 9 }
-                        });
-                        await vscode.workspace.fs.writeFile(backupZipPath, content);
+                        await this.createZipWithArchiver(
+                            projectPath,
+                            backupZipPath.fsPath,
+                            { excludeGit: false, rootFolderName: folderName }
+                        );
 
                         progress.report({ message: "Removing old git configuration..." });
                         // 3. Delete .git folder
@@ -3214,10 +3315,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
-                    
+
                     // Check BOTH metadata.json AND localProjectSwap.json for swap info
                     let effectiveSwapInfo = metadataResult.metadata?.meta?.projectSwap;
-                    
+
                     if (!effectiveSwapInfo) {
                         // Try localProjectSwap.json
                         try {
@@ -3311,6 +3412,84 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const newProjectName = activeEntry.newProjectName || "new project";
                     const swapUUID = activeEntry.swapUUID || "unknown";
 
+                    // Check if there are files that need to be downloaded before swap
+                    const { checkSwapPrerequisites, downloadPendingSwapFiles, saveSwapPendingState, clearSwapPendingState } = await import("./performProjectSwap");
+                    const prereqResult = await checkSwapPrerequisites(projectPath, newProjectUrl);
+
+                    if (!prereqResult.canProceed && prereqResult.filesNeedingDownload.length > 0) {
+                        // Files need to be downloaded first - download them directly without opening project
+                        const fileCount = prereqResult.filesNeedingDownload.length;
+                        const sizeStr = formatBytesHelper(prereqResult.downloadSizeBytes);
+
+                        // Show modal asking if user wants to proceed with download
+                        const action = await vscode.window.showInformationMessage(
+                            `Before completing the project swap, ${fileCount} media file(s) (${sizeStr}) need to be downloaded from the old project.`,
+                            { modal: true },
+                            "Download & Swap"
+                        );
+
+                        if (action !== "Download & Swap") {
+                            return; // User cancelled
+                        }
+
+                        // Save pending state for tracking (in case of interruption)
+                        await saveSwapPendingState(projectPath, {
+                            swapState: "pending_downloads",
+                            filesNeedingDownload: prereqResult.filesNeedingDownload,
+                            originalMediaStrategy: undefined, // Not changing strategy since we download directly
+                            newProjectUrl,
+                            swapUUID,
+                            swapInitiatedAt: activeEntry.swapInitiatedAt,
+                            createdAt: Date.now()
+                        });
+
+                        // Download files directly with progress
+                        let downloadResult: { downloaded: number; failed: string[]; total: number; } | undefined;
+
+                        await vscode.window.withProgress({
+                            location: vscode.ProgressLocation.Notification,
+                            title: "Downloading media for swap...",
+                            cancellable: true
+                        }, async (progress, token) => {
+                            let cancelled = false;
+                            token.onCancellationRequested(() => {
+                                cancelled = true;
+                            });
+
+                            progress.report({ message: `0/${fileCount} files` });
+                            downloadResult = await downloadPendingSwapFiles(projectPath, progress);
+
+                            if (cancelled) {
+                                throw new Error("Download cancelled by user");
+                            }
+                        });
+
+                        if (!downloadResult) {
+                            await clearSwapPendingState(projectPath);
+                            return;
+                        }
+
+                        // Check if downloads succeeded
+                        if (downloadResult.failed.length > 0) {
+                            const continueAnyway = await vscode.window.showWarningMessage(
+                                `Downloaded ${downloadResult.downloaded}/${downloadResult.total} files. ${downloadResult.failed.length} file(s) failed to download. Continue with swap anyway?`,
+                                { modal: true },
+                                "Continue Swap"
+                            );
+
+                            if (continueAnyway !== "Continue Swap") {
+                                await clearSwapPendingState(projectPath);
+                                return;
+                            }
+                        }
+
+                        // Clear pending state since we're proceeding
+                        await clearSwapPendingState(projectPath);
+
+                        // Fall through to continue with swap below
+                    }
+
+                    // No downloads needed or prerequisites met - proceed with swap
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
                         title: `Swapping project to "${newProjectName}"...`,
@@ -4641,6 +4820,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 console.error("Error fetching remote projects:", remoteProjectsResult.reason);
             }
 
+
             const projectList: ProjectWithSyncStatus[] = [];
 
             // Process remote projects
@@ -4727,17 +4907,82 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
+            // Build set of all known project URLs for swap validation
+            const knownProjectUrls = new Set(
+                projectList.map(p => normalizeUrl(p.gitOriginUrl)).filter(Boolean)
+            );
+
+            // Build set of local project URLs (projects that are downloaded)
+            const localDownloadedUrls = new Set(
+                projectList
+                    .filter(p => p.syncStatus === "downloadedAndSynced" || p.syncStatus === "localOnlyNotSynced" || p.syncStatus === "orphaned")
+                    .map(p => normalizeUrl(p.gitOriginUrl))
+                    .filter(Boolean)
+            );
+
+            // Build set of "old project URLs" where the new project is available locally
+            // These remote-only old projects should be hidden (only show the new project)
+            const oldProjectUrlsToHide = new Set<string>();
+            for (const project of projectList) {
+                if (
+                    project.projectSwap?.isOldProject &&
+                    project.projectSwap?.swapStatus === "active" &&
+                    project.projectSwap?.newProjectUrl
+                ) {
+                    const newProjectNormalized = normalizeUrl(project.projectSwap.newProjectUrl);
+                    // If new project is available locally, mark the old project URL for hiding
+                    if (localDownloadedUrls.has(newProjectNormalized)) {
+                        const oldProjectNormalized = normalizeUrl(project.projectSwap.oldProjectUrl);
+                        if (oldProjectNormalized) {
+                            oldProjectUrlsToHide.add(oldProjectNormalized);
+                        }
+                    }
+                }
+            }
+
+            // Filter out remote-only old projects where the new project exists locally
+            // (Only hide remote-only projects, not local projects - local projects need swap banner)
+            const filteredProjectList = projectList.filter(project => {
+                // Only filter remote-only projects (cloudOnlyNotSynced)
+                if (project.syncStatus !== "cloudOnlyNotSynced") {
+                    return true; // Keep all local projects
+                }
+
+                const projectUrlNormalized = normalizeUrl(project.gitOriginUrl);
+                if (oldProjectUrlsToHide.has(projectUrlNormalized)) {
+                    return false; // Hide this remote-only old project
+                }
+
+                return true;
+            });
+
+            // Validate swap targets: if the new project doesn't exist (locally or remotely),
+            // clear the swap info so we don't show "Project Swap Required" banner
+            for (const project of filteredProjectList) {
+                if (
+                    project.projectSwap?.isOldProject &&
+                    project.projectSwap?.swapStatus === "active" &&
+                    project.projectSwap?.newProjectUrl
+                ) {
+                    const newProjectNormalized = normalizeUrl(project.projectSwap.newProjectUrl);
+                    if (!knownProjectUrls.has(newProjectNormalized)) {
+                        // New project doesn't exist - invalidate the swap
+                        project.projectSwap = undefined;
+                    }
+                }
+            }
+
             safePostMessageToPanel(
                 webviewPanel,
                 {
                     command: "projectsListFromGitLab",
-                    projects: projectList,
+                    projects: filteredProjectList,
                 } as MessagesFromStartupFlowProvider,
                 "StartupFlow"
             );
 
             const mergeTime = Date.now() - startTime;
-            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${projectList.length} projects`);
+            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${filteredProjectList.length} projects`);
 
             this.fetchProgressDataAsync(webviewPanel);
 
@@ -4830,15 +5075,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Check remote metadata to warn if this is the old/deprecated project
             try {
                 const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
-                const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+                const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
                 const projectId = extractProjectIdFromUrl(repoUrl);
                 if (projectId) {
                     const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                     const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
-                    const activeEntry = swapInfo ? getActiveSwapEntry(swapInfo) : undefined;
-                    
+                    const normalizedSwapInfo = swapInfo ? normalizeProjectSwapInfo(swapInfo) : undefined;
+                    const activeEntry = normalizedSwapInfo ? getActiveSwapEntry(normalizedSwapInfo) : undefined;
+
                     // isOldProject is now in each entry, not at the top level
                     if (activeEntry?.isOldProject) {
+                        // ACTIVE swap - this project is currently deprecated
                         const deprecatedMessage = "This project has been deprecated.";
 
                         this.safeSendMessage({
@@ -4854,6 +5101,114 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             debugLog("Deprecated project clone blocked until user confirms via banner button");
                             return;
                         }
+                    } else if (!activeEntry && normalizedSwapInfo?.swapEntries?.length) {
+                        // No active swap, but has cancelled swap entries - check if new projects have had swap activity
+                        // This indicates work may have continued in the new projects
+                        const cancelledOldProjectEntries = normalizedSwapInfo.swapEntries.filter(
+                            e => e.isOldProject && e.swapStatus === "cancelled"
+                        );
+
+                        if (cancelledOldProjectEntries.length > 0) {
+                            // Get unique new project URLs from cancelled entries
+                            const newProjectUrls = [...new Set(
+                                cancelledOldProjectEntries
+                                    .map(e => e.newProjectUrl)
+                                    .filter(Boolean)
+                            )] as string[];
+
+                            // Helper to normalize URLs for comparison
+                            const normalizeUrlForComparison = (url: string): string => {
+                                let normalized = url.toLowerCase().trim();
+                                if (normalized.endsWith(".git")) {
+                                    normalized = normalized.slice(0, -4);
+                                }
+                                // Remove protocol and trailing slashes
+                                normalized = normalized.replace(/^https?:\/\//, "").replace(/\/$/, "");
+                                return normalized;
+                            };
+
+                            // Get all local projects to check if new projects exist locally
+                            const localProjects = await findAllCodexProjects();
+                            type LocalProjectType = Awaited<ReturnType<typeof findAllCodexProjects>>[number];
+                            const localProjectsByUrl = new Map<string, LocalProjectType>();
+                            for (const lp of localProjects) {
+                                if (lp.gitOriginUrl) {
+                                    localProjectsByUrl.set(normalizeUrlForComparison(lp.gitOriginUrl), lp);
+                                }
+                            }
+
+                            // Check if any of the new projects have swap entries (indicating work continued)
+                            // Check locally first, then remote if not available locally
+                            let workContinuedInNewProjects = false;
+                            for (const newUrl of newProjectUrls) {
+                                try {
+                                    const normalizedNewUrl = normalizeUrlForComparison(newUrl);
+                                    const localNewProject = localProjectsByUrl.get(normalizedNewUrl);
+
+                                    if (localNewProject) {
+                                        // New project exists locally - check its local metadata
+                                        debugLog("Checking local new project for swap activity:", localNewProject.path);
+                                        try {
+                                            const metadataPath = vscode.Uri.file(path.join(localNewProject.path, "metadata.json"));
+                                            const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+                                            const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8"));
+                                            const newSwapInfo = metadata?.meta?.projectSwap;
+                                            if (newSwapInfo?.swapEntries?.length) {
+                                                // New project has swap entries - work/swaps happened there
+                                                workContinuedInNewProjects = true;
+                                                debugLog("Local new project has swap entries - work continued");
+                                                break;
+                                            }
+                                        } catch {
+                                            // Failed to read local metadata, fall through to remote check
+                                            debugLog("Failed to read local metadata, checking remote");
+                                        }
+                                    }
+
+                                    // If not available locally or local read failed, check remote
+                                    if (!workContinuedInNewProjects) {
+                                        const newProjectId = extractProjectIdFromUrl(newUrl);
+                                        if (newProjectId) {
+                                            debugLog("Checking remote new project for swap activity:", newUrl);
+                                            const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false);
+                                            const newSwapInfo = newProjectMetadata?.meta?.projectSwap;
+                                            if (newSwapInfo?.swapEntries?.length) {
+                                                // New project has swap entries - work/swaps happened there
+                                                workContinuedInNewProjects = true;
+                                                debugLog("Remote new project has swap entries - work continued");
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch {
+                                    // Failed to fetch new project metadata - continue checking others
+                                }
+                            }
+
+                            if (workContinuedInNewProjects) {
+                                // Show informational warning but DON'T block clone
+                                const warningAction = await vscode.window.showWarningMessage(
+                                    "This project was previously deprecated. Work may have continued in the newer project(s). " +
+                                    "Cloning this project may result in working with outdated content.",
+                                    { modal: true },
+                                    "Clone Anyway",
+                                    "Cancel"
+                                );
+
+                                if (warningAction !== "Clone Anyway") {
+                                    debugLog("User cancelled clone of previously deprecated project");
+                                    return;
+                                }
+                            }
+                        }
+
+                        // Clear the warning banner since this is not actively deprecated
+                        this.safeSendMessage({
+                            command: "project.swapCloneWarning",
+                            repoUrl,
+                            isOldProject: false,
+                            message: "",
+                        } as any);
                     } else {
                         this.safeSendMessage({
                             command: "project.swapCloneWarning",

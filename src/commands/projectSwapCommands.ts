@@ -132,6 +132,329 @@ async function cancelSwapEntry(
 }
 
 /**
+ * Recursively copy all contents from source directory to destination directory
+ */
+function copyDirectoryContents(srcDir: string, destDir: string): void {
+    if (!fs.existsSync(srcDir)) return;
+
+    const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+    for (const entry of entries) {
+        const srcPath = path.join(srcDir, entry.name);
+        const destPath = path.join(destDir, entry.name);
+
+        if (entry.isDirectory()) {
+            fs.mkdirSync(destPath, { recursive: true });
+            copyDirectoryContents(srcPath, destPath);
+        } else if (entry.isFile()) {
+            // Ensure parent directory exists
+            const parentDir = path.dirname(destPath);
+            if (!fs.existsSync(parentDir)) {
+                fs.mkdirSync(parentDir, { recursive: true });
+            }
+            fs.copyFileSync(srcPath, destPath);
+        }
+    }
+}
+
+/**
+ * Check if all audio files in the project are downloaded (actual bytes, not pointers)
+ * Uses getFileStatus which properly compares pointers/ vs files/ to determine download status
+ * Returns true if all files are downloaded, false if any are missing or still pointers
+ */
+async function checkAllAudioFilesDownloaded(projectPath: string): Promise<boolean> {
+    const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
+
+    // If no pointers directory, there are no audio files to check
+    if (!fs.existsSync(pointersDir)) {
+        debug("No pointers directory - no audio files to check");
+        return true;
+    }
+
+    const { getFileStatus } = await import("../utils/lfsHelpers");
+
+    // System files to ignore
+    const ignoredFiles = new Set([".DS_Store", ".gitkeep", ".gitignore", "Thumbs.db", "desktop.ini"]);
+
+    // Collect all files from pointers directory with their book/filename structure
+    const collectFiles = (dir: string, book: string = ""): Array<{ book: string; filename: string; }> => {
+        const results: Array<{ book: string; filename: string; }> = [];
+        if (!fs.existsSync(dir)) return results;
+
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            // Skip system files
+            if (ignoredFiles.has(entry.name) || entry.name.startsWith(".")) {
+                continue;
+            }
+
+            const fullPath = path.join(dir, entry.name);
+
+            if (entry.isDirectory()) {
+                // This is a book directory (e.g., "MAT", "GEN")
+                results.push(...collectFiles(fullPath, entry.name));
+            } else if (entry.isFile() && book) {
+                // This is an audio file inside a book directory
+                results.push({ book, filename: entry.name });
+            }
+        }
+        return results;
+    };
+
+    const audioFiles = collectFiles(pointersDir);
+
+    if (audioFiles.length === 0) {
+        debug("No audio files found in pointers directory");
+        return true;
+    }
+
+    debug(`Checking ${audioFiles.length} audio files for download status...`);
+
+    // Check each file using getFileStatus for accurate detection
+    const notDownloaded: string[] = [];
+
+    for (const { book, filename } of audioFiles) {
+        try {
+            const status = await getFileStatus(projectPath, book, filename);
+
+            // These statuses indicate the file is NOT fully downloaded
+            if (status === "missing" || status === "uploaded-not-downloaded") {
+                debug(`File not downloaded (${status}): ${book}/${filename}`);
+                notDownloaded.push(`${book}/${filename}`);
+            }
+            // "uploaded-and-downloaded" and "local-unsynced" are both okay (file exists locally)
+        } catch {
+            // If we can't check, assume it's okay
+        }
+    }
+
+    if (notDownloaded.length > 0) {
+        debug(`${notDownloaded.length}/${audioFiles.length} audio files not fully downloaded`);
+        return false;
+    }
+
+    debug(`All ${audioFiles.length} audio files are downloaded`);
+    return true;
+}
+
+/**
+ * Get list of audio files that need to be downloaded
+ * Returns array of { book, filename, relPath } for files that are pointers or missing in files/
+ */
+async function getMissingAudioFiles(projectPath: string): Promise<Array<{ book: string; filename: string; relPath: string; }>> {
+    const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
+    const missing: Array<{ book: string; filename: string; relPath: string; }> = [];
+
+    if (!fs.existsSync(pointersDir)) {
+        return missing;
+    }
+
+    const { getFileStatus } = await import("../utils/lfsHelpers");
+    const ignoredFiles = new Set([".DS_Store", ".gitkeep", ".gitignore", "Thumbs.db", "desktop.ini"]);
+
+    const collectFiles = (dir: string, book: string = ""): Array<{ book: string; filename: string; }> => {
+        const results: Array<{ book: string; filename: string; }> = [];
+        if (!fs.existsSync(dir)) return results;
+
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (ignoredFiles.has(entry.name) || entry.name.startsWith(".")) continue;
+
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                results.push(...collectFiles(fullPath, entry.name));
+            } else if (entry.isFile() && book) {
+                results.push({ book, filename: entry.name });
+            }
+        }
+        return results;
+    };
+
+    const audioFiles = collectFiles(pointersDir);
+
+    for (const { book, filename } of audioFiles) {
+        try {
+            const status = await getFileStatus(projectPath, book, filename);
+            if (status === "missing" || status === "uploaded-not-downloaded") {
+                missing.push({ book, filename, relPath: `${book}/${filename}` });
+            }
+        } catch {
+            // If we can't check, skip
+        }
+    }
+
+    return missing;
+}
+
+/**
+ * Download missing audio files directly via LFS API (bypasses sync)
+ * Used when sync is blocked but we need to download files for copy/swap
+ */
+async function downloadMissingAudioFiles(
+    projectPath: string,
+    missingFiles: Array<{ book: string; filename: string; relPath: string; }>,
+    progress?: vscode.Progress<{ increment?: number; message?: string; }>
+): Promise<{ downloaded: number; failed: string[]; total: number; }> {
+    const { parsePointerFile } = await import("../utils/lfsHelpers");
+    const { getAuthApi } = await import("../extension");
+
+    const frontierApi = getAuthApi();
+    if (!frontierApi?.downloadLFSFile) {
+        debug("LFS download API not available");
+        return { downloaded: 0, failed: missingFiles.map(f => f.relPath), total: missingFiles.length };
+    }
+
+    const total = missingFiles.length;
+    let downloaded = 0;
+    const failed: string[] = [];
+    const filesDir = path.join(projectPath, ".project", "attachments", "files");
+    const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
+
+    debug(`Downloading ${total} missing audio files via LFS API...`);
+
+    for (let i = 0; i < total; i++) {
+        const { book, filename, relPath } = missingFiles[i];
+        const pointerPath = path.join(pointersDir, book, filename);
+        const filesPath = path.join(filesDir, book, filename);
+
+        progress?.report({
+            message: `${downloaded}/${total} - Downloading: ${filename}`
+        });
+
+        try {
+            // Parse pointer to get OID and size
+            const pointer = await parsePointerFile(pointerPath);
+            if (!pointer) {
+                debug(`Invalid pointer file: ${relPath}`);
+                failed.push(relPath);
+                continue;
+            }
+
+            // Download from LFS
+            debug(`Downloading: ${relPath} (OID=${pointer.oid.substring(0, 8)}...)`);
+            const lfsData = await frontierApi.downloadLFSFile(
+                projectPath,
+                pointer.oid,
+                pointer.size
+            );
+
+            // Save to files/ directory
+            const filesParentDir = path.dirname(filesPath);
+            if (!fs.existsSync(filesParentDir)) {
+                fs.mkdirSync(filesParentDir, { recursive: true });
+            }
+            fs.writeFileSync(filesPath, lfsData);
+
+            downloaded++;
+            progress?.report({
+                increment: 100 / total,
+                message: `${downloaded}/${total} files complete`
+            });
+
+        } catch (error) {
+            debug(`Failed to download ${relPath}:`, error);
+            failed.push(relPath);
+        }
+    }
+
+    debug(`Download complete: ${downloaded}/${total} succeeded, ${failed.length} failed`);
+    return { downloaded, failed, total };
+}
+
+/**
+ * Clean up attachment references in .codex files after copying a project
+ * Only called when we're NOT preserving audio files
+ */
+async function cleanupAttachmentReferencesInProject(projectPath: string): Promise<void> {
+    try {
+        const codexDir = path.join(projectPath, ".project", "sourceTexts");
+        if (!fs.existsSync(codexDir)) {
+            return;
+        }
+
+        // Find all .codex files
+        const files = fs.readdirSync(codexDir).filter(f => f.endsWith(".codex"));
+
+        for (const file of files) {
+            const filePath = path.join(codexDir, file);
+            try {
+                const content = fs.readFileSync(filePath, "utf-8");
+                const notebook = JSON.parse(content);
+
+                if (!notebook.cells || !Array.isArray(notebook.cells)) {
+                    continue;
+                }
+
+                let modified = false;
+                for (const cell of notebook.cells) {
+                    if (cell.metadata?.attachments && Object.keys(cell.metadata.attachments).length > 0) {
+                        // Clear attachment references
+                        cell.metadata.attachments = {};
+                        modified = true;
+                    }
+                    if (cell.metadata?.selectedAudioId) {
+                        delete cell.metadata.selectedAudioId;
+                        modified = true;
+                    }
+                    if (cell.metadata?.selectionTimestamp) {
+                        delete cell.metadata.selectionTimestamp;
+                        modified = true;
+                    }
+                }
+
+                if (modified) {
+                    fs.writeFileSync(filePath, JSON.stringify(notebook, null, 2));
+                    debug(`Cleaned attachment references from ${file}`);
+                }
+            } catch (e) {
+                console.warn(`Failed to clean attachments from ${file}:`, e);
+            }
+        }
+
+        // Also clean .codex files in the root .codex folder if it exists
+        const rootCodexDir = path.join(projectPath, ".codex");
+        if (fs.existsSync(rootCodexDir)) {
+            const rootFiles = fs.readdirSync(rootCodexDir).filter(f => f.endsWith(".codex"));
+            for (const file of rootFiles) {
+                const filePath = path.join(rootCodexDir, file);
+                try {
+                    const content = fs.readFileSync(filePath, "utf-8");
+                    const notebook = JSON.parse(content);
+
+                    if (!notebook.cells || !Array.isArray(notebook.cells)) {
+                        continue;
+                    }
+
+                    let modified = false;
+                    for (const cell of notebook.cells) {
+                        if (cell.metadata?.attachments && Object.keys(cell.metadata.attachments).length > 0) {
+                            cell.metadata.attachments = {};
+                            modified = true;
+                        }
+                        if (cell.metadata?.selectedAudioId) {
+                            delete cell.metadata.selectedAudioId;
+                            modified = true;
+                        }
+                        if (cell.metadata?.selectionTimestamp) {
+                            delete cell.metadata.selectionTimestamp;
+                            modified = true;
+                        }
+                    }
+
+                    if (modified) {
+                        fs.writeFileSync(filePath, JSON.stringify(notebook, null, 2));
+                        debug(`Cleaned attachment references from ${file}`);
+                    }
+                } catch (e) {
+                    console.warn(`Failed to clean attachments from ${file}:`, e);
+                }
+            }
+        }
+    } catch (error) {
+        console.warn("Error cleaning attachment references:", error);
+    }
+}
+
+/**
  * Command to initiate a project swap (swap to new Git repository)
  * Instance administrators only
  */
@@ -185,6 +508,36 @@ export async function initiateProjectSwap(): Promise<void> {
 
         debug("Permission check passed - user has sufficient privileges");
 
+        // Check media strategy - we REQUIRE auto-download to preserve audio files during swap
+        const { getMediaFilesStrategy: getStrategy } = await import("../utils/localProjectSettings");
+        const strategy = await getStrategy(vscode.Uri.file(workspacePath));
+
+        if (strategy !== "auto-download") {
+            const closeProject = await vscode.window.showWarningMessage(
+                `To initiate a project swap, the media strategy must be "auto-download" and all audio files must be downloaded.\n\nReopen the project after setting it to "auto-download."`,
+                { modal: true },
+                "Close Project"
+            );
+
+            if (closeProject === "Close Project") {
+                await vscode.commands.executeCommand("workbench.action.closeFolder");
+            }
+            return;
+        }
+
+        // Verify all files are actually downloaded
+        const allDownloaded = await checkAllAudioFilesDownloaded(workspacePath);
+        if (!allDownloaded) {
+            const proceed = await vscode.window.showWarningMessage(
+                "Some audio files may not be fully downloaded. Audio may be incomplete after the swap.\n\nDo you want to continue anyway?",
+                { modal: true },
+                "Continue"
+            );
+            if (proceed !== "Continue") {
+                return;
+            }
+        }
+
         // Get current git origin URL
         const currentGitUrl = await getGitOriginUrl(workspacePath);
         if (!currentGitUrl) {
@@ -231,9 +584,11 @@ export async function initiateProjectSwap(): Promise<void> {
                 if (action === "Cancel Pending Swap") {
                     // Cancel the pending swap first
                     await cancelSwapEntry(projectUri, activeEntry.swapInitiatedAt, permission.currentUser || "unknown");
-                    await vscode.window.showInformationMessage("Previous swap cancelled. You can now initiate a new swap.", { modal: true });
+                    // Continue to prompt for new project URL below (don't return)
+                } else {
+                    // User chose to keep existing swap or cancelled
+                    return;
                 }
-                return;
             }
 
             // Check for completed/cancelled swaps (history exists but no pending)
@@ -712,6 +1067,24 @@ export async function initiateSwapCopy(): Promise<void> {
         }
 
         const currentPath = workspaceFolder.uri.fsPath;
+
+        // Check media strategy FIRST - we REQUIRE auto-download to preserve audio files
+        const { getMediaFilesStrategy } = await import("../utils/localProjectSettings");
+        const currentStrategy = await getMediaFilesStrategy(vscode.Uri.file(currentPath));
+
+        if (currentStrategy !== "auto-download") {
+            const closeProject = await vscode.window.showWarningMessage(
+                `To copy a project, the media strategy must be "auto-download" and all audio files must be downloaded.\n\nReopen the project after setting it to "auto-download."`,
+                { modal: true },
+                "Close Project"
+            );
+
+            if (closeProject === "Close Project") {
+                await vscode.commands.executeCommand("workbench.action.closeFolder");
+            }
+            return;
+        }
+
         const currentName = workspaceFolder.name;
 
         // Get project name from metadata, falling back to folder name
@@ -766,25 +1139,68 @@ export async function initiateSwapCopy(): Promise<void> {
 
         // Confirm
         const confirm = await vscode.window.showWarningMessage(
-            `Copy project to "${newName}"?\n\nThis will create a fresh local copy with a new ID and NO git history.\n\nNew location: ${newProjectPath}`,
+            `Copy project to "${newName}"?\n\nThis will create a fresh local copy with:\n• New project ID\n• NO git history\n• Audio files will be preserved and re-uploaded to new project\n\nNew location: ${newProjectPath}`,
             { modal: true },
             "Yes, Copy"
         );
-        if (confirm !== "Yes, Copy") return;
-
-        // Ensure we sync before swapping (mirrors remote updating flow)
-        try {
-            await vscode.commands.executeCommand(
-                "codex-editor-extension.triggerSync",
-                "Prepare swap (sync before copy)"
-            );
-        } catch (err) {
-            console.error("Pre-swap sync failed:", err);
-            await vscode.window.showErrorMessage(
-                "Copy aborted because sync could not complete. Please resolve sync issues and try again.",
-                { modal: true }
-            );
+        if (confirm !== "Yes, Copy") {
             return;
+        }
+
+        // Check which audio files need to be downloaded
+        // Note: We skip sync here because:
+        // 1. Sync may be blocked if this is a deprecated project with pending swap
+        // 2. We download missing files directly via LFS API below, which bypasses sync
+        const missingFiles = await getMissingAudioFiles(currentPath);
+
+        if (missingFiles.length > 0) {
+            // Try to download missing files directly via LFS API (bypasses sync block)
+            const downloadAction = await vscode.window.showInformationMessage(
+                `${missingFiles.length} audio file(s) need to be downloaded before copying.\n\nDownload now?`,
+                { modal: true },
+                "Download"
+            );
+
+            if (downloadAction === "Download") {
+                let downloadResult: { downloaded: number; failed: string[]; total: number; } | undefined;
+
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Downloading audio files...",
+                    cancellable: true
+                }, async (progress, token) => {
+                    let cancelled = false;
+                    token.onCancellationRequested(() => { cancelled = true; });
+
+                    progress.report({ message: `0/${missingFiles.length} files` });
+                    downloadResult = await downloadMissingAudioFiles(currentPath, missingFiles, progress);
+
+                    if (cancelled) {
+                        throw new Error("Download cancelled");
+                    }
+                });
+
+                if (downloadResult && downloadResult.failed.length > 0) {
+                    const proceed = await vscode.window.showWarningMessage(
+                        `Downloaded ${downloadResult.downloaded}/${downloadResult.total} files. ${downloadResult.failed.length} file(s) could not be downloaded.\n\nContinue with copy anyway?`,
+                        { modal: true },
+                        "Continue"
+                    );
+                    if (proceed !== "Continue") {
+                        return;
+                    }
+                }
+            } else {
+                // User chose not to download
+                const proceed = await vscode.window.showWarningMessage(
+                    "Some audio files may not be fully downloaded. Audio may be incomplete in the copied project.\n\nDo you want to continue anyway?",
+                    { modal: true },
+                    "Continue"
+                );
+                if (proceed !== "Continue") {
+                    return;
+                }
+            }
         }
 
         await vscode.window.withProgress({
@@ -795,14 +1211,42 @@ export async function initiateSwapCopy(): Promise<void> {
             // Copy folder
             progress.report({ message: "Copying files..." });
 
-            // Exclude .git and indexes.sqlite during copy
+            // Copy project files, excluding .git, indexes.sqlite, pointers/, and localProjectSwap.json
+            // We'll handle pointers separately after copying files/
             fs.cpSync(currentPath, newProjectPath, {
                 recursive: true,
                 filter: (src) => {
                     const basename = path.basename(src);
-                    return basename !== ".git" && basename !== "indexes.sqlite";
+                    const relativePath = path.relative(currentPath, src);
+
+                    // Always exclude these
+                    if (basename === ".git" || basename === "indexes.sqlite" || basename === "localProjectSwap.json") {
+                        return false;
+                    }
+
+                    // Exclude pointers/ - we'll populate it from files/ after copy
+                    if (relativePath.includes(path.join(".project", "attachments", "pointers"))) {
+                        return false;
+                    }
+
+                    return true;
                 }
             });
+
+            // After copying, copy files/ content to pointers/ in the NEW project
+            // This allows the sync process to upload them to new LFS and generate proper pointers
+            progress.report({ message: "Preparing audio files for upload..." });
+            const newFilesDir = path.join(newProjectPath, ".project", "attachments", "files");
+            const newPointersDir = path.join(newProjectPath, ".project", "attachments", "pointers");
+
+            if (fs.existsSync(newFilesDir)) {
+                // Create pointers directory if it doesn't exist
+                fs.mkdirSync(newPointersDir, { recursive: true });
+
+                // Copy files/ content to pointers/ (recursive copy of all contents)
+                copyDirectoryContents(newFilesDir, newPointersDir);
+                debug(`Copied audio files to pointers directory for LFS upload`);
+            }
 
             // Update metadata
             progress.report({ message: "Updating project identity..." });
@@ -846,6 +1290,9 @@ export async function initiateSwapCopy(): Promise<void> {
 
             await validateAndFixProjectMetadata(vscode.Uri.file(newProjectPath));
 
+            // Audio files are preserved - attachment URLs remain valid
+            // No cleanup needed since we copied files/ and pointers/ is populated
+
             // Clear local settings sync state
             const localSettingsPath = path.join(newProjectPath, ".project", "localProjectSettings.json");
             if (fs.existsSync(localSettingsPath)) {
@@ -857,6 +1304,17 @@ export async function initiateSwapCopy(): Promise<void> {
                     if (settings.pendingUpdate) delete settings.pendingUpdate;
                     if (sourceRemoteUrl) settings.lfsSourceRemoteUrl = sourceRemoteUrl;
                     fs.writeFileSync(localSettingsPath, JSON.stringify(settings, null, 4));
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            // Delete localProjectSwap.json if it exists (stale swap state from old project)
+            const localSwapPath = path.join(newProjectPath, ".project", "localProjectSwap.json");
+            if (fs.existsSync(localSwapPath)) {
+                try {
+                    fs.unlinkSync(localSwapPath);
+                    debug("Deleted stale localProjectSwap.json from copied project");
                 } catch (e) {
                     // ignore
                 }
@@ -917,6 +1375,9 @@ export async function initiateSwapCopy(): Promise<void> {
                 workspaceFolder.uri
             );
         });
+
+        // Note: We don't restore the original strategy here because we're switching workspaces
+        // The original project keeps its new auto-download setting, which is fine
 
     } catch (error) {
         await vscode.window.showErrorMessage(`Swap copy failed: ${error instanceof Error ? error.message : String(error)}`, { modal: true });

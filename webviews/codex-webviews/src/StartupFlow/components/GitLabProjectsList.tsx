@@ -465,9 +465,14 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         
         // Check all projects (including pending ones) to build the hidden list
         projectsWithProgress.forEach(p => {
-            // If this is an OLD project with an active swap, hide the new project from the list
-            if (p.projectSwap && p.projectSwap.isOldProject && 
-                p.projectSwap?.swapStatus === "active") {
+            // If this is a LOCAL OLD project with an active swap, hide the new project from the list
+            // Only hide new when old is LOCAL - if old is cloud-only, user doesn't need to swap
+            if (
+                p.syncStatus !== "cloudOnlyNotSynced" &&
+                p.projectSwap && 
+                p.projectSwap.isOldProject && 
+                p.projectSwap?.swapStatus === "active"
+            ) {
                 addUrlVariants(hiddenNewProjectUrls, p.projectSwap.newProjectUrl);
             }
             if (p.gitOriginUrl && p.syncStatus !== "cloudOnlyNotSynced") {
@@ -502,11 +507,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 }
             }
 
-            // Hide the old project once the new one is locally available (swap no longer active)
-            // This applies when the old project has no active swap (either cancelled or user already swapped)
+            // Hide the old project once the new one is locally available (swap cancelled or completed)
+            // Only hide if swap is no longer active (user already swapped or swap was cancelled)
             if (
                 project.projectSwap?.isOldProject &&
-                project.projectSwap?.swapStatus !== "active" &&
+                project.projectSwap.swapStatus !== "active" &&
                 project.projectSwap.newProjectUrl
             ) {
                 if (urlMatchesAny(project.projectSwap.newProjectUrl, localProjectUrls)) {

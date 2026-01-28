@@ -43,6 +43,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         repoUrl?: string;
         newProjectName?: string;
     } | null>(null);
+    const [isCloningDeprecated, setIsCloningDeprecated] = useState(false);
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -161,6 +162,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 } else {
                     setSwapCloneWarning(null);
                     setDisableAllActions(false);
+                    setIsCloningDeprecated(false);
                 }
             } else if ((message as any).command === "project.setMediaStrategyResult") {
                 // Update the project's media strategy in the projects list when it changes
@@ -246,9 +248,11 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     <div style={{ display: "flex", gap: "8px" }}>
                         <VSCodeButton
                             appearance="secondary"
+                            disabled={isCloningDeprecated}
                             onClick={() => {
                                 setSwapCloneWarning(null);
                                 setDisableAllActions(false);
+                                setIsCloningDeprecated(false);
                             }}
                         >
                             Cancel
@@ -256,14 +260,16 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         {swapCloneWarning.repoUrl && (
                             <VSCodeButton
                                 appearance="primary"
-                                onClick={() =>
+                                disabled={isCloningDeprecated}
+                                onClick={() => {
+                                    setIsCloningDeprecated(true);
                                     vscode.postMessage({
                                         command: "project.cloneDeprecated",
                                         repoUrl: swapCloneWarning.repoUrl,
-                                    } as MessagesToStartupFlowProvider)
-                                }
+                                    } as MessagesToStartupFlowProvider);
+                                }}
                             >
-                                Clone Deprecated Project
+                                {isCloningDeprecated ? "Cloning..." : "Clone Deprecated Project"}
                             </VSCodeButton>
                         )}
                     </div>
