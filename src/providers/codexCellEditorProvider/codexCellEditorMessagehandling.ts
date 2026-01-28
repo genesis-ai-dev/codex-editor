@@ -3352,10 +3352,20 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Get cells for the requested milestone/subsection
             const cells = document.getCellsForMilestone(milestoneIndex, subsectionIndex, cellsPerPage);
 
+            // Get all cells in the milestone for footnote offset calculation
+            const allCellsInMilestone = document.getAllCellsForMilestone(milestoneIndex);
+
             // Process cells (merge ranges, etc.)
             const isSourceText = document.uri.toString().includes(".source");
             const processedCells = provider.mergeRangesAndProcess(
                 cells,
+                provider.isCorrectionEditorMode,
+                isSourceText
+            );
+
+            // Process all cells in milestone for footnote counting
+            const processedAllCellsInMilestone = provider.mergeRangesAndProcess(
+                allCellsInMilestone,
                 provider.isCorrectionEditorMode,
                 isSourceText
             );
@@ -3375,13 +3385,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 subsectionIndex,
             });
 
-            // Send the cell page to the webview
+            // Send the cell page to the webview, including all cells in milestone for footnote counting
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsCellPage",
                 rev: provider.getDocumentRevision(document.uri.toString()),
                 milestoneIndex,
                 subsectionIndex,
                 cells: processedCells,
+                allCellsInMilestone: processedAllCellsInMilestone,
                 sourceCellMap,
             });
 

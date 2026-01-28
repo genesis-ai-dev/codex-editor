@@ -1817,6 +1817,48 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Gets all cells in a milestone (without pagination).
+     * Used for calculating footnote offsets across pages.
+     * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @returns Array of all cells in the milestone
+     */
+    public getAllCellsForMilestone(milestoneIndex: number): QuillCellContent[] {
+        const cells = this._documentData.cells || [];
+        const milestoneInfo = this.buildMilestoneIndex(50); // Use default cellsPerPage for milestone info
+
+        // Validate milestone index
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            console.warn(`Invalid milestone index: ${milestoneIndex}`);
+            return [];
+        }
+
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+
+        // Get all cells in this milestone section
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+        // Convert all cells in milestone range to QuillCellContent format
+        const allCellsInMilestone: QuillCellContent[] = [];
+
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+
+            // Skip milestone cells - they're not displayed
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+
+            const quillContent = convertCellToQuillContent(cell);
+            allCellsInMilestone.push(quillContent);
+        }
+
+        return allCellsInMilestone;
+    }
+
+    /**
      * Gets the total number of subsections for a milestone.
      * 
      * @param milestoneIndex The index of the milestone (0-based)
