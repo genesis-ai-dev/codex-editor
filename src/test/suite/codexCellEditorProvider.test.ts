@@ -1458,6 +1458,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     test("git commit is triggered on document save operations", async () => {
+        // Ensure the temp file exists before opening
+        try {
+            await vscode.workspace.fs.stat(tempUri);
+        } catch {
+            // File doesn't exist, recreate it with the same content
+            const content = JSON.stringify(codexSubtitleContent, null, 2);
+            await vscode.workspace.fs.writeFile(tempUri, Buffer.from(content, "utf-8"));
+        }
+
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
             tempUri,
@@ -5376,6 +5385,262 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Should not throw when no webviews are open
             await provider.refreshWebviewsForFiles([tempUri.fsPath]);
             assert.ok(true, "Should handle no open webviews without error");
+        });
+    });
+
+    suite("updateMilestoneValue - Independent Source/Target Editing", () => {
+        test("should only update target file when editing milestone in target", async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                return;
+            }
+
+            // Create a target file with a milestone
+            const targetFileName = `test-milestone-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`;
+            const targetUri = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+            const sourceFileName = targetFileName.replace(".codex", ".source");
+            const sourceUri = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", sourceFileName);
+
+            // Create target file with milestone
+            const targetContent = {
+                cells: [
+                    {
+                        kind: 1,
+                        value: "1",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.MILESTONE,
+                            id: "milestone-1",
+                        },
+                    },
+                    {
+                        kind: 1,
+                        value: "Cell content",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            id: "GEN 1:1",
+                        },
+                    },
+                ],
+                metadata: {},
+            };
+
+            // Create source file with milestone (different value)
+            const sourceContent = {
+                cells: [
+                    {
+                        kind: 1,
+                        value: "Chapter 1",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.MILESTONE,
+                            id: "milestone-1-source",
+                        },
+                    },
+                    {
+                        kind: 1,
+                        value: "Source cell content",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            id: "GEN 1:1",
+                        },
+                    },
+                ],
+                metadata: {},
+            };
+
+            const serializer = new CodexContentSerializer();
+            const targetBuffer = await serializer.serializeNotebook(targetContent as any, new vscode.CancellationTokenSource().token);
+            const sourceBuffer = await serializer.serializeNotebook(sourceContent as any, new vscode.CancellationTokenSource().token);
+
+            await vscode.workspace.fs.writeFile(targetUri, targetBuffer);
+            await vscode.workspace.fs.writeFile(sourceUri, sourceBuffer);
+
+            try {
+                // Open target document
+                const targetDocument = await provider.openCustomDocument(
+                    targetUri,
+                    { backupId: undefined },
+                    new vscode.CancellationTokenSource().token
+                );
+
+                const { panel } = createMockWebviewPanel();
+                await provider.resolveCustomEditor(
+                    targetDocument,
+                    panel,
+                    new vscode.CancellationTokenSource().token
+                );
+
+                // Update milestone in target file
+                await handleMessages(
+                    {
+                        command: "updateMilestoneValue",
+                        content: {
+                            milestoneIndex: 0,
+                            newValue: "Updated Target Milestone",
+                            deferRefresh: false,
+                        },
+                    } as any,
+                    panel,
+                    targetDocument,
+                    () => { },
+                    provider
+                );
+
+                // Save the target document
+                await provider.saveCustomDocument(targetDocument, new vscode.CancellationTokenSource().token);
+
+                // Verify target file was updated
+                const targetFileContent = await vscode.workspace.fs.readFile(targetUri);
+                const targetParsed = JSON.parse(new TextDecoder().decode(targetFileContent));
+                const targetMilestone = targetParsed.cells.find((c: any) => c.metadata?.type === CodexCellTypes.MILESTONE);
+                assert.strictEqual(targetMilestone.value, "Updated Target Milestone", "Target milestone should be updated");
+
+                // Verify source file was NOT updated (should still have original value)
+                const sourceFileContent = await vscode.workspace.fs.readFile(sourceUri);
+                const sourceParsed = JSON.parse(new TextDecoder().decode(sourceFileContent));
+                const sourceMilestone = sourceParsed.cells.find((c: any) => c.metadata?.type === CodexCellTypes.MILESTONE);
+                assert.strictEqual(sourceMilestone.value, "Chapter 1", "Source milestone should NOT be updated");
+
+                targetDocument.dispose();
+            } finally {
+                // Cleanup
+                try {
+                    await vscode.workspace.fs.delete(targetUri);
+                } catch { /* ignore */ }
+                try {
+                    await vscode.workspace.fs.delete(sourceUri);
+                } catch { /* ignore */ }
+            }
+        });
+
+        test("should only update source file when editing milestone in source", async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                return;
+            }
+
+            // Create a target file with a milestone
+            const targetFileName = `test-milestone-${Date.now()}-${Math.random().toString(36).slice(2)}.codex`;
+            const targetUri = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+            const sourceFileName = targetFileName.replace(".codex", ".source");
+            const sourceUri = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", sourceFileName);
+
+            // Create target file with milestone
+            const targetContent = {
+                cells: [
+                    {
+                        kind: 1,
+                        value: "Chapter 1",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.MILESTONE,
+                            id: "milestone-1",
+                        },
+                    },
+                    {
+                        kind: 1,
+                        value: "Cell content",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            id: "GEN 1:1",
+                        },
+                    },
+                ],
+                metadata: {},
+            };
+
+            // Create source file with milestone (different value)
+            const sourceContent = {
+                cells: [
+                    {
+                        kind: 1,
+                        value: "1",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.MILESTONE,
+                            id: "milestone-1-source",
+                        },
+                    },
+                    {
+                        kind: 1,
+                        value: "Source cell content",
+                        languageId: "html",
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            id: "GEN 1:1",
+                        },
+                    },
+                ],
+                metadata: {},
+            };
+
+            const serializer = new CodexContentSerializer();
+            const targetBuffer = await serializer.serializeNotebook(targetContent as any, new vscode.CancellationTokenSource().token);
+            const sourceBuffer = await serializer.serializeNotebook(sourceContent as any, new vscode.CancellationTokenSource().token);
+
+            await vscode.workspace.fs.writeFile(targetUri, targetBuffer);
+            await vscode.workspace.fs.writeFile(sourceUri, sourceBuffer);
+
+            try {
+                // Open source document
+                const sourceDocument = await provider.openCustomDocument(
+                    sourceUri,
+                    { backupId: undefined },
+                    new vscode.CancellationTokenSource().token
+                );
+
+                const { panel } = createMockWebviewPanel();
+                await provider.resolveCustomEditor(
+                    sourceDocument,
+                    panel,
+                    new vscode.CancellationTokenSource().token
+                );
+
+                // Update milestone in source file
+                await handleMessages(
+                    {
+                        command: "updateMilestoneValue",
+                        content: {
+                            milestoneIndex: 0,
+                            newValue: "Updated Source Milestone",
+                            deferRefresh: false,
+                        },
+                    } as any,
+                    panel,
+                    sourceDocument,
+                    () => { },
+                    provider
+                );
+
+                // Save the source document
+                await provider.saveCustomDocument(sourceDocument, new vscode.CancellationTokenSource().token);
+
+                // Verify source file was updated
+                const sourceFileContent = await vscode.workspace.fs.readFile(sourceUri);
+                const sourceParsed = JSON.parse(new TextDecoder().decode(sourceFileContent));
+                const sourceMilestone = sourceParsed.cells.find((c: any) => c.metadata?.type === CodexCellTypes.MILESTONE);
+                assert.strictEqual(sourceMilestone.value, "Updated Source Milestone", "Source milestone should be updated");
+
+                // Verify target file was NOT updated (should still have original value)
+                const targetFileContent = await vscode.workspace.fs.readFile(targetUri);
+                const targetParsed = JSON.parse(new TextDecoder().decode(targetFileContent));
+                const targetMilestone = targetParsed.cells.find((c: any) => c.metadata?.type === CodexCellTypes.MILESTONE);
+                assert.strictEqual(targetMilestone.value, "Chapter 1", "Target milestone should NOT be updated");
+
+                sourceDocument.dispose();
+            } finally {
+                // Cleanup
+                try {
+                    await vscode.workspace.fs.delete(targetUri);
+                } catch { /* ignore */ }
+                try {
+                    await vscode.workspace.fs.delete(sourceUri);
+                } catch { /* ignore */ }
+            }
         });
     });
 });
