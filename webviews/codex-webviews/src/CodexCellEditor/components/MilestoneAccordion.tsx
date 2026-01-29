@@ -543,7 +543,6 @@ export function MilestoneAccordion({
                 content: {
                     milestoneIndex: displayedIndex,
                     newValue: trimmedValue,
-                    deferRefresh: true,
                 },
             });
 

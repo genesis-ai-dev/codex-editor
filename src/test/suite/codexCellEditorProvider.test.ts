@@ -5486,7 +5486,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                         content: {
                             milestoneIndex: 0,
                             newValue: "Updated Target Milestone",
-                            deferRefresh: false,
                         },
                     } as any,
                     panel,
@@ -5613,7 +5612,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                         content: {
                             milestoneIndex: 0,
                             newValue: "Updated Source Milestone",
-                            deferRefresh: false,
                         },
                     } as any,
                     panel,
