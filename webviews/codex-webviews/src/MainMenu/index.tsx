@@ -10,6 +10,7 @@ import {
     type TextDisplaySettings,
 } from "../components/TextDisplaySettingsModal";
 import { RenameModal } from "../components/RenameModal";
+import { AdaptiveProjectTitle } from "../components/AdaptiveProjectTitle";
 import "../tailwind.css";
 
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
@@ -484,13 +485,20 @@ function MainMenu() {
                                         className="text-lg font-semibold flex items-center justify-between gap-2"
                                         style={{ color: "var(--foreground)" }}
                                     >
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
                                             <i
-                                                className="codicon codicon-folder-opened text-xl"
+                                                className="codicon codicon-folder-opened text-xl flex-shrink-0"
                                                 style={{ color: "var(--ring)" }}
                                             />
-                                            {projectState.projectOverview.projectName ||
-                                                "Unnamed Project"}
+                                            <AdaptiveProjectTitle
+                                                title={
+                                                    projectState.projectOverview.projectName ||
+                                                    "Unnamed Project"
+                                                }
+                                                className="flex-1 min-w-0"
+                                                minFontSize={9}
+                                                maxFontSize={16}
+                                            />
                                         </div>
                                         <Button
                                             size="sm"
@@ -502,7 +510,7 @@ function MainMenu() {
                                                 setProjectNameValue(currentName);
                                                 setIsRenameProjectModalOpen(true);
                                             }}
-                                            className="w-9"
+                                            className="w-9 flex-shrink-0"
                                         >
                                             <i className="codicon codicon-edit" />
                                         </Button>
