@@ -33,6 +33,7 @@ export const InputCriticalProjectInfo = ({
                     setCurrentStep("target");
                     return;
                 } else if (metadata.sourceLanguage && metadata.targetLanguage) {
+                    // Both languages exist - continue to workspace
                     vscode.postMessage({
                         command: "workspace.continue",
                     } as MessagesToStartupFlowProvider);
@@ -62,6 +63,7 @@ export const InputCriticalProjectInfo = ({
             setCurrentStep("target");
         } else {
             setTargetLanguage(language);
+            // After target language is selected, move to complete step
             setCurrentStep("complete");
         }
     };
