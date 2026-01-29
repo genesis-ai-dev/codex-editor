@@ -246,7 +246,7 @@ const subtitlesCellAligner: CellAligner = async (
         assignedImports.forEach(({ importIndex, overlap }, i) => {
             const item = importedContent[importIndex];
             usedImportedIndices.add(importIndex);
-            const targetId = targetCell.metadata.id;
+            const targetId = targetCell.metadata?.id || targetCell.id || `target-${targetIndex}`;
 
             if (i === 0) {
                 // Highest overlap - primary match
@@ -271,6 +271,24 @@ const subtitlesCellAligner: CellAligner = async (
             }
             totalOverlaps++;
         });
+
+        if (assignedImports.length === 0) {
+            const targetId = targetCell.metadata?.id || targetCell.id || `target-${targetIndex}`;
+            alignedCells.push({
+                notebookCell: targetCell,
+                importedContent: {
+                    id: targetId,
+                    content: targetCell.value || targetCell.content || "",
+                    edits: targetCell.metadata?.edits,
+                    cellLabel: targetCell.metadata?.cellLabel,
+                    metadata: targetCell.metadata || {},
+                    startTime: targetCell.metadata?.data?.startTime,
+                    endTime: targetCell.metadata?.data?.endTime,
+                },
+                alignmentMethod: "preserved",
+                confidence: 1.0,
+            });
+        }
     });
 
     // Now add any unmatched imported items as paratext in their correct temporal positions
@@ -337,7 +355,8 @@ const subtitlesCellAligner: CellAligner = async (
     }
 
     // Only throw if we found no overlaps at all
-    if (totalOverlaps === 0 && importedContent.length > 0) {
+    const hasTargetCells = alignedCells.some((cell) => cell.notebookCell);
+    if (totalOverlaps === 0 && importedContent.length > 0 && !hasTargetCells) {
         throw new Error("No overlapping content found. Please check the selected file.");
     }
 
