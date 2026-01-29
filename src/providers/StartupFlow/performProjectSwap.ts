@@ -89,7 +89,6 @@ export async function checkSwapPrerequisites(
         }
 
         debugLog(`Checking ${oldAttachments.length} attachments for download requirements...`);
-        debugLog(`Old attachments: ${JSON.stringify(oldAttachments.slice(0, 5))}${oldAttachments.length > 5 ? '...' : ''}`);
 
         // Get list of files that already exist in the new project
         // Check BOTH local AND remote to get the complete picture
@@ -99,23 +98,15 @@ export async function checkSwapPrerequisites(
             : null;
 
         const newProjectPointers = new Set<string>();
-        let foundLocalFiles = 0;
-        let foundRemoteFiles = 0;
 
         // Check local new project if it exists
         if (newProjectPath && fs.existsSync(newProjectPath)) {
             const newPointersDir = path.join(newProjectPath, ".project", "attachments", "pointers");
-            debugLog(`Checking local new project pointers at: ${newPointersDir}`);
             if (fs.existsSync(newPointersDir)) {
                 const newAttachments = await scanAttachmentFiles(newPointersDir);
                 newAttachments.forEach(f => newProjectPointers.add(f));
-                foundLocalFiles = newAttachments.length;
-                debugLog(`Found ${foundLocalFiles} existing files in new project (local): ${JSON.stringify(newAttachments.slice(0, 5))}${newAttachments.length > 5 ? '...' : ''}`);
-            } else {
-                debugLog(`Local pointers directory doesn't exist: ${newPointersDir}`);
+                debugLog(`Found ${newAttachments.length} existing files in new project (local)`);
             }
-        } else {
-            debugLog(`New project not found locally at: ${newProjectPath}`);
         }
 
         // ALWAYS check remote to get complete file list (remote may have files local doesn't)
@@ -123,14 +114,11 @@ export async function checkSwapPrerequisites(
             const { getAuthApi } = await import("../../extension");
             const frontierApi = getAuthApi() as any;
             if (frontierApi?.getRepositoryTree) {
-                debugLog(`Fetching remote tree for: ${newProjectUrl}`);
                 const treeFiles = await frontierApi.getRepositoryTree(
                     newProjectUrl,
                     ".project/attachments/pointers"
                 );
-                debugLog(`Remote tree response (${treeFiles?.length || 0} items): ${JSON.stringify(treeFiles?.slice?.(0, 3) || treeFiles)}`);
                 if (treeFiles && Array.isArray(treeFiles)) {
-                    let remoteAdded = 0;
                     treeFiles.forEach((f: { path?: string; type?: string; name?: string; }) => {
                         if (f.type === "blob") {
                             // The path from GitLab includes the full path, extract relative part
@@ -138,38 +126,22 @@ export async function checkSwapPrerequisites(
                                 ? f.path.replace(/^\.project\/attachments\/pointers\/?/, "")
                                 : f.name;
                             if (relPath && !relPath.startsWith(".")) {
-                                if (!newProjectPointers.has(relPath)) {
-                                    remoteAdded++;
-                                }
                                 newProjectPointers.add(relPath);
                             }
                         }
                     });
-                    foundRemoteFiles = treeFiles.filter((f: { type?: string; }) => f.type === "blob").length;
-                    debugLog(`Found ${foundRemoteFiles} files in new project remote, ${remoteAdded} new (not in local)`);
+                    debugLog(`Found ${newProjectPointers.size} total files in new project (local + remote)`);
                 }
-            } else {
-                debugLog("getRepositoryTree not available in frontierApi");
             }
         } catch (err) {
             debugLog("Could not check new project remote files:", err);
             // Continue without the remote check
         }
 
-        debugLog(`Total unique files in new project (local + remote): ${newProjectPointers.size}`);
-        if (newProjectPointers.size > 0) {
-            debugLog(`New project pointers set: ${JSON.stringify([...newProjectPointers].slice(0, 5))}${newProjectPointers.size > 5 ? '...' : ''}`);
-        }
-
         // Check each attachment to see if it's available as a blob
-        let skippedCount = 0;
-        let blobAvailableCount = 0;
-        let needsDownloadCount = 0;
-
         for (const relPath of oldAttachments) {
             // Skip if this file already exists in the new project
             if (newProjectPointers.has(relPath)) {
-                skippedCount++;
                 continue;
             }
 
@@ -195,14 +167,9 @@ export async function checkSwapPrerequisites(
                 }
             }
 
-            if (hasBlob) {
-                blobAvailableCount++;
-                // File is missing from new project but we have the blob locally - will be copied during swap
-            } else {
-                // No blob found anywhere - this file needs to be downloaded before swap
-                needsDownloadCount++;
+            // If no blob found anywhere, this file needs to be downloaded before swap
+            if (!hasBlob) {
                 result.filesNeedingDownload.push(relPath);
-                debugLog(`  File needs download: ${relPath} (not in new project, no local blob)`);
 
                 // Try to get file size from pointer
                 const pointerPath = fs.existsSync(filesPath) ? filesPath : pointersPath;
@@ -214,11 +181,6 @@ export async function checkSwapPrerequisites(
                 }
             }
         }
-
-        debugLog(`Attachment analysis complete:`);
-        debugLog(`  - ${skippedCount}/${oldAttachments.length} already exist in new project`);
-        debugLog(`  - ${blobAvailableCount}/${oldAttachments.length} missing from new but have local blob (will be copied)`);
-        debugLog(`  - ${needsDownloadCount}/${oldAttachments.length} need download before swap`);
 
 
         if (result.filesNeedingDownload.length > 0) {
