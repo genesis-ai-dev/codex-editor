@@ -406,117 +406,14 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         [normalProjects, buildGroupedProjects]
     );
 
-    const normalizeUrl = React.useCallback((url?: string) => {
-        if (!url) return "";
-        try {
-            let clean = url.trim();
-            // Strip credentials
-            if (clean.startsWith("http")) {
-                const u = new URL(clean);
-                u.username = "";
-                u.password = "";
-                let path = u.pathname;
-                if (path.endsWith(".git")) path = path.slice(0, -4);
-                if (path.endsWith("/")) path = path.slice(0, -1);
-                return `${u.host}${path}`.toLowerCase();
-            }
-            // SSH style git@host:path
-            if (clean.includes("@") && clean.includes(":")) {
-                const parts = clean.split("@");
-                let domainAndPath = parts[1];
-                domainAndPath = domainAndPath.replace(":", "/");
-                if (domainAndPath.endsWith(".git")) domainAndPath = domainAndPath.slice(0, -4);
-                if (domainAndPath.endsWith("/")) domainAndPath = domainAndPath.slice(0, -1);
-                return domainAndPath.toLowerCase();
-            }
-            clean = clean.toLowerCase();
-            if (clean.endsWith(".git")) clean = clean.slice(0, -4);
-            if (clean.endsWith("/")) clean = clean.slice(0, -1);
-            return clean;
-        } catch {
-            return url.trim().toLowerCase();
-        }
-    }, []);
-
-    const addUrlVariants = (set: Set<string>, url?: string) => {
-        if (!url) return;
-        const normalized = normalizeUrl(url);
-        if (normalized) set.add(normalized);
-        set.add(url.trim().toLowerCase());
-    };
-
-    const urlMatchesAny = (url: string, candidates: Set<string>) => {
-        const norm = normalizeUrl(url);
-        for (const candidate of candidates) {
-            if (!candidate) continue;
-            if (norm.includes(candidate) || candidate.includes(norm)) return true;
-            if (url.toLowerCase().includes(candidate) || candidate.includes(url.toLowerCase())) return true;
-        }
-        return false;
-    };
-
     const filterProjects = (projects: ProjectWithSyncStatus[]) => {
         if (!projects) return [];
 
-        // Identify new projects that should be hidden because the old one is present locally
-        const hiddenNewProjectUrls = new Set<string>();
-        const localProjectUrls = new Set<string>();
-        const hiddenOldProjectUrls = new Set<string>();
-        
-        // Check all projects (including pending ones) to build the hidden list
-        projectsWithProgress.forEach(p => {
-            // If this is a LOCAL OLD project with an active swap, hide the new project from the list
-            // Only hide new when old is LOCAL - if old is cloud-only, user doesn't need to swap
-            if (
-                p.syncStatus !== "cloudOnlyNotSynced" &&
-                p.projectSwap && 
-                p.projectSwap.isOldProject && 
-                p.projectSwap?.swapStatus === "active"
-            ) {
-                addUrlVariants(hiddenNewProjectUrls, p.projectSwap.newProjectUrl);
-            }
-            if (p.gitOriginUrl && p.syncStatus !== "cloudOnlyNotSynced") {
-                addUrlVariants(localProjectUrls, p.gitOriginUrl);
-            }
-
-            // If we already have the NEW project locally AND swap is still active,
-            // hide its old counterpart from remote list (don't show clone option for old project)
-            // When swap is completed/cancelled, show both projects
-            if (
-                p.syncStatus !== "cloudOnlyNotSynced" &&
-                p.projectSwap &&
-                !p.projectSwap.isOldProject &&
-                p.projectSwap.oldProjectUrl &&
-                p.projectSwap.swapStatus === "active"
-            ) {
-                addUrlVariants(hiddenOldProjectUrls, p.projectSwap.oldProjectUrl);
-            }
-        });
+        // NOTE: All swap-related visibility filtering (hiding old/new projects based on swap status)
+        // is now handled server-side in StartupFlowProvider.ts before sending to webview.
+        // This function only handles UI filters (all/local/remote/synced) and search.
 
         const filtered = projects.filter((project) => {
-            // Hide the "new" project REMOTE CLONE OPTION for a pending swap when the old one is still local
-            // Only hide remote (cloud-only) projects, not local ones that have already been downloaded
-            if (project.gitOriginUrl && project.syncStatus === "cloudOnlyNotSynced") {
-                if (urlMatchesAny(project.gitOriginUrl, hiddenNewProjectUrls)) {
-                    return false;
-                }
-            }
-
-            // Hide cloud-only old project entries when their replacement is already local
-            // AND the swap is still active (user needs to complete the swap on the new project)
-            if (project.gitOriginUrl && project.syncStatus === "cloudOnlyNotSynced") {
-                if (urlMatchesAny(project.gitOriginUrl, hiddenOldProjectUrls)) {
-                    // Only hide if there's an active swap - if completed/cancelled, show both
-                    // Check if this old project has an active swap entry
-                    if (project.projectSwap?.swapStatus === "active") {
-                        return false;
-                    }
-                }
-            }
-
-            // NOTE: When swap is completed/cancelled, show BOTH old and new projects
-            // User may want to access both versions
-
             // Safe type comparison for filters
             const currentFilter = filter as string;
 

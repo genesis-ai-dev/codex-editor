@@ -5033,6 +5033,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
+            // ============================================================
+            // CONSOLIDATED SWAP VISIBILITY FILTERING
+            // All swap-related project hiding/showing logic is here
+            // ============================================================
+
             // Build set of all known project URLs for swap validation
             const knownProjectUrls = new Set(
                 projectList.map(p => normalizeUrl(p.gitOriginUrl)).filter(Boolean)
@@ -5046,57 +5051,120 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     .filter(Boolean)
             );
 
-            // Build set of "old project URLs" where the new project is available locally
-            // These remote-only old projects should be hidden (only show the new project)
+            // Build sets of URLs to hide based on swap rules:
+            // 
+            // RULE 1: Hide OLD remote projects when NEW is local AND swap is ACTIVE
+            //         (User should complete swap on the new project, not clone the old one)
+            //
+            // RULE 2: Hide NEW remote projects when OLD is local AND swap is ACTIVE
+            //         (User needs to complete swap from old→new, not clone new separately)
+            //
+            // RULE 3: When swap is COMPLETED/CANCELLED, show BOTH projects
+            //         (User may want access to both versions)
+
             const oldProjectUrlsToHide = new Set<string>();
+            const newProjectUrlsToHide = new Set<string>();
+
             for (const project of projectList) {
-                if (
-                    project.projectSwap?.isOldProject &&
-                    project.projectSwap?.swapStatus === "active" &&
-                    project.projectSwap?.newProjectUrl
-                ) {
+                // Skip remote-only projects for building hide lists
+                // (we only look at local projects to determine what to hide)
+                if (project.syncStatus === "cloudOnlyNotSynced") {
+                    continue;
+                }
+
+                // Skip if no swap info or swap is not active
+                if (!project.projectSwap || project.projectSwap.swapStatus !== "active") {
+                    continue;
+                }
+
+                // RULE 1: LOCAL OLD project with ACTIVE swap → hide NEW remote
+                // isOldProject must be explicitly true (not undefined or false)
+                if (project.projectSwap.isOldProject === true && project.projectSwap.newProjectUrl) {
                     const newProjectNormalized = normalizeUrl(project.projectSwap.newProjectUrl);
-                    // If new project is available locally, mark the old project URL for hiding
+                    if (newProjectNormalized) {
+                        newProjectUrlsToHide.add(newProjectNormalized);
+                        debugLog(`Swap filter: hiding NEW remote ${newProjectNormalized} (OLD local ${project.name} has active swap)`);
+                    }
+
+                    // Also check: if NEW project is already local, hide OLD remote too
                     if (localDownloadedUrls.has(newProjectNormalized)) {
                         const oldProjectNormalized = normalizeUrl(project.projectSwap.oldProjectUrl);
                         if (oldProjectNormalized) {
                             oldProjectUrlsToHide.add(oldProjectNormalized);
+                            debugLog(`Swap filter: hiding OLD remote ${oldProjectNormalized} (NEW is already local)`);
                         }
+                    }
+                }
+
+                // RULE 2: LOCAL NEW project with ACTIVE swap → hide OLD remote
+                // isOldProject must be explicitly false (not undefined or true)
+                if (project.projectSwap.isOldProject === false && project.projectSwap.oldProjectUrl) {
+                    const oldProjectNormalized = normalizeUrl(project.projectSwap.oldProjectUrl);
+                    if (oldProjectNormalized) {
+                        oldProjectUrlsToHide.add(oldProjectNormalized);
+                        debugLog(`Swap filter: hiding OLD remote ${oldProjectNormalized} (NEW local ${project.name} has active swap)`);
                     }
                 }
             }
 
-            // Filter out remote-only old projects where the new project exists locally
-            // (Only hide remote-only projects, not local projects - local projects need swap banner)
+            // Apply filtering: only hide REMOTE (cloudOnlyNotSynced) projects
+            // Local projects are NEVER hidden by swap rules
             const filteredProjectList = projectList.filter(project => {
-                // Only filter remote-only projects (cloudOnlyNotSynced)
+                // Keep all local projects - they should always be visible
                 if (project.syncStatus !== "cloudOnlyNotSynced") {
-                    return true; // Keep all local projects
+                    return true;
                 }
 
                 const projectUrlNormalized = normalizeUrl(project.gitOriginUrl);
+                if (!projectUrlNormalized) {
+                    return true; // Can't filter without URL, keep it
+                }
+
+                // Hide remote OLD projects per RULE 1 & 2
                 if (oldProjectUrlsToHide.has(projectUrlNormalized)) {
-                    return false; // Hide this remote-only old project
+                    debugLog(`Swap filter: filtering out remote OLD project ${project.name}`);
+                    return false;
+                }
+
+                // Hide remote NEW projects per RULE 2
+                if (newProjectUrlsToHide.has(projectUrlNormalized)) {
+                    debugLog(`Swap filter: filtering out remote NEW project ${project.name}`);
+                    return false;
                 }
 
                 return true;
             });
 
-            // Validate swap targets: if the new project doesn't exist (locally or remotely),
-            // clear the swap info so we don't show "Project Swap Required" banner
+            // Validate swap targets: ensure referenced projects exist
+            // If they don't exist (locally or remotely), clear swap info to avoid confusion
             for (const project of filteredProjectList) {
-                if (
-                    project.projectSwap?.isOldProject &&
-                    project.projectSwap?.swapStatus === "active" &&
-                    project.projectSwap?.newProjectUrl
-                ) {
+                if (!project.projectSwap || project.projectSwap.swapStatus !== "active") {
+                    continue;
+                }
+
+                // For OLD projects: validate NEW project exists
+                if (project.projectSwap.isOldProject === true && project.projectSwap.newProjectUrl) {
                     const newProjectNormalized = normalizeUrl(project.projectSwap.newProjectUrl);
-                    if (!knownProjectUrls.has(newProjectNormalized)) {
-                        // New project doesn't exist - invalidate the swap
+                    if (newProjectNormalized && !knownProjectUrls.has(newProjectNormalized)) {
+                        debugLog(`Swap validation: NEW project ${newProjectNormalized} not found, clearing swap for ${project.name}`);
                         project.projectSwap = undefined;
                     }
                 }
+
+                // For NEW projects: validate OLD project exists (optional but good for consistency)
+                if (project.projectSwap?.isOldProject === false && project.projectSwap.oldProjectUrl) {
+                    const oldProjectNormalized = normalizeUrl(project.projectSwap.oldProjectUrl);
+                    if (oldProjectNormalized && !knownProjectUrls.has(oldProjectNormalized)) {
+                        // OLD project doesn't exist - this is unusual but possible if old was deleted
+                        // Keep the swap info but log it for debugging
+                        debugLog(`Swap validation: OLD project ${oldProjectNormalized} not found for NEW ${project.name} (keeping swap info)`);
+                    }
+                }
             }
+
+            // ============================================================
+            // END CONSOLIDATED SWAP VISIBILITY FILTERING
+            // ============================================================
 
             safePostMessageToPanel(
                 webviewPanel,

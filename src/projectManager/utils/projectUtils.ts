@@ -1320,16 +1320,23 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
             }
 
             // Case 2: No active swap entry (all swaps cancelled)
-            // Check if this was an old project by looking at all entries
+            // Clear projectSwap so UI doesn't show swap banner - show as normal project
             const allEntries = swapInfo.swapEntries || [];
-            const wasOldProject = allEntries.some(e => e.isOldProject);
 
-            // All swaps cancelled - show project as normal (no deprecated status)
-            // Clear the projectSwap field so UI doesn't show swap banner
-            if (wasOldProject) {
-                // This project had swaps but they were all cancelled
-                // Show it as a normal project
-                debug(`Showing old project as normal (all swaps cancelled): ${project.name}`);
+            if (allEntries.length > 0) {
+                // Check what role this project had in cancelled swaps
+                const wasOldProject = allEntries.some(e => e.isOldProject === true);
+                const wasNewProject = allEntries.some(e => e.isOldProject === false);
+
+                if (wasOldProject) {
+                    debug(`Showing OLD project as normal (all swaps cancelled): ${project.name}`);
+                }
+                if (wasNewProject) {
+                    debug(`Showing NEW project as normal (all swaps cancelled): ${project.name}`);
+                }
+
+                // Clear projectSwap for both OLD and NEW projects when all swaps are cancelled
+                // This ensures neither shows swap-related UI
                 project.projectSwap = undefined;
             }
 
