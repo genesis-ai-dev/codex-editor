@@ -4626,10 +4626,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         className={cn(
                                                                             "h-24 w-24 rounded-full text-2xl font-bold transition-all",
                                                                             isRecording
-                                                                                ? "ring-4 ring-red-500 animate-pulse bg-red-600 hover:bg-red-700"
+                                                                                ? "animate-pulse border-red-500 bg-red-600 hover:bg-red-700"
                                                                                 : countdown !== null
-                                                                                ? "ring-4 ring-green-500 bg-green-500 hover:bg-green-600"
-                                                                                : "ring-4 ring-blue-500 bg-blue-600 hover:bg-blue-700",
+                                                                                ? "border-green-500 bg-green-500 hover:bg-green-600"
+                                                                                : "bg-blue-600 hover:bg-blue-700",
                                                                             isCellLocked ||
                                                                                 !targetDuration
                                                                                 ? "opacity-50 cursor-not-allowed"
@@ -4652,7 +4652,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         ) : countdown !== null ? (
                                                                             countdown
                                                                         ) : (
-                                                                            <CircleDotDashed className="h-8 w-8" />
+                                                                            <Mic className="h-8 w-8" />
                                                                         )}
                                                                     </Button>
 
@@ -4671,10 +4671,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                         backgroundColor:
                                                                                             progressPercentage <=
                                                                                             90
-                                                                                                ? "rgb(34, 197, 94)" // green-500
+                                                                                                ? "rgb(234, 179, 8)" // yellow-500
                                                                                                 : progressPercentage <=
                                                                                                   99
-                                                                                                ? "rgb(234, 179, 8)" // yellow-500
+                                                                                                ? "rgb(34, 197, 94)" // green-500
                                                                                                 : "rgb(239, 68, 68)", // red-500
                                                                                     }}
                                                                                 />
@@ -4685,11 +4685,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                     recordingElapsedTime >
                                                                                         0
                                                                                         ? `${recordingElapsedTime.toFixed(
-                                                                                              1
+                                                                                              3
                                                                                           )}s`
                                                                                         : "0s"}
                                                                                 </span>
-                                                                                <span>Timestamp Length</span>
+                                                                                <span>
+                                                                                    Timestamp Length
+                                                                                </span>
                                                                                 <span>
                                                                                     {targetDuration.toFixed(
                                                                                         1
@@ -4818,6 +4820,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             validationStatusProps={audioValidationIconProps}
                                             audioValidationPopoverProps={
                                                 audioValidationPopoverProps
+                                            }
+                                            targetDurationSeconds={
+                                                isSubtitlesType &&
+                                                cellTimestamps?.startTime !== undefined &&
+                                                cellTimestamps?.endTime !== undefined
+                                                    ? cellTimestamps.endTime -
+                                                      cellTimestamps.startTime
+                                                    : undefined
+                                            }
+                                            audioDurationSeconds={
+                                                isSubtitlesType
+                                                    ? audioDuration ?? undefined
+                                                    : undefined
                                             }
                                         />
 
