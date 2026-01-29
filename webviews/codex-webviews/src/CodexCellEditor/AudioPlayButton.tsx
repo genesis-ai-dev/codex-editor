@@ -145,7 +145,7 @@ const AudioPlayButton: React.FC<{
         disabled = false,
         isSourceText = false,
         isCellLocked = false,
-        onLockedClick
+        onLockedClick,
     }) => {
         const [isPlaying, setIsPlaying] = useState(false);
         const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -304,11 +304,18 @@ const AudioPlayButton: React.FC<{
                                                     try {
                                                         await videoElement.play();
                                                     } catch (playError) {
-                                                        // Video play() may fail due to autoplay restrictions, but we'll still wait for readiness
-                                                        console.warn(
-                                                            "Video play() failed, will wait for readiness:",
-                                                            playError
-                                                        );
+                                                        // AbortError: play() was interrupted by pause() - ignore (race with VideoPlayer)
+                                                        if (
+                                                            playError instanceof Error &&
+                                                            playError.name === "AbortError"
+                                                        ) {
+                                                            // Continue to audio setup; do not return
+                                                        } else {
+                                                            console.warn(
+                                                                "Video play() failed, will wait for readiness:",
+                                                                playError
+                                                            );
+                                                        }
                                                     }
 
                                                     // Wait for video to be ready before starting audio
@@ -557,11 +564,18 @@ const AudioPlayButton: React.FC<{
                                 try {
                                     await videoElement.play();
                                 } catch (playError) {
-                                    // Video play() may fail due to autoplay restrictions, but we'll still wait for readiness
-                                    console.warn(
-                                        "Video play() failed, will wait for readiness:",
-                                        playError
-                                    );
+                                    // AbortError: play() was interrupted by pause() - ignore (race with VideoPlayer)
+                                    if (
+                                        playError instanceof Error &&
+                                        playError.name === "AbortError"
+                                    ) {
+                                        // Continue to audio setup; do not return
+                                    } else {
+                                        console.warn(
+                                            "Video play() failed, will wait for readiness:",
+                                            playError
+                                        );
+                                    }
                                 }
 
                                 // Wait for video to be ready before starting audio

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import ReactPlayer from "react-player";
 import { useSubtitleData } from "./utils/vttUtils";
 import { QuillCellContent } from "../../../../types";
@@ -78,12 +78,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
     };
 
-    // Trigger autoPlay when video URL changes (new video loaded)
+    // Sync playing with autoPlay only when we intend to start; do not force pause when
+    // autoPlay is false, so programmatic play (e.g. from AudioPlayButton) is not
+    // interrupted and we avoid "play() request was interrupted by pause()" (AbortError).
+    const prevVideoUrlRef = useRef(videoUrl);
     useEffect(() => {
         if (autoPlay && videoUrl) {
             setPlaying(true);
-        } else {
+        } else if (prevVideoUrlRef.current !== videoUrl) {
             setPlaying(false);
+            prevVideoUrlRef.current = videoUrl;
         }
     }, [videoUrl, autoPlay]);
 
