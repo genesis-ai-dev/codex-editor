@@ -8,7 +8,14 @@ import type { Subsection } from "../../lib/types";
 
 // Mock VSCode UI Toolkit components
 vi.mock("@vscode/webview-ui-toolkit/react", () => ({
-    VSCodeButton: ({ children, onClick, disabled, appearance, title, "aria-label": ariaLabel }: any) => (
+    VSCodeButton: ({
+        children,
+        onClick,
+        disabled,
+        appearance,
+        title,
+        "aria-label": ariaLabel,
+    }: any) => (
         <button
             onClick={onClick}
             disabled={disabled}
@@ -34,11 +41,7 @@ vi.mock("../../components/ui/accordion", () => ({
         </div>
     ),
     AccordionTrigger: ({ children, className, onClick }: any) => (
-        <button
-            data-testid={`accordion-trigger`}
-            className={className}
-            onClick={onClick}
-        >
+        <button data-testid={`accordion-trigger`} className={className} onClick={onClick}>
             {children}
         </button>
     ),
@@ -89,7 +92,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
     let mockRequestSubsectionProgress: ReturnType<typeof vi.fn>;
     let mockAnchorRef: React.RefObject<HTMLDivElement>;
 
-    const createMockMilestoneIndex = (milestones: Array<{ value: string; index: number }>): MilestoneIndex => ({
+    const createMockMilestoneIndex = (
+        milestones: Array<{ value: string; index: number }>
+    ): MilestoneIndex => ({
         milestones: milestones.map((m, idx) => ({
             index: m.index,
             cellIndex: idx * 10,
@@ -147,7 +152,9 @@ describe("MilestoneAccordion - Milestone Editing", () => {
         vi.restoreAllMocks();
     });
 
-    function renderMilestoneAccordion(props: Partial<React.ComponentProps<typeof MilestoneAccordion>> = {}) {
+    function renderMilestoneAccordion(
+        props: Partial<React.ComponentProps<typeof MilestoneAccordion>> = {}
+    ) {
         const defaultProps: React.ComponentProps<typeof MilestoneAccordion> = {
             isOpen: true,
             onClose: mockOnClose,
@@ -251,7 +258,6 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 content: {
                     milestoneIndex: 0,
                     newValue: "Updated Chapter 1",
-                    deferRefresh: true,
                 },
             });
 
@@ -285,7 +291,6 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 content: {
                     milestoneIndex: 0,
                     newValue: "Trimmed Chapter 1",
-                    deferRefresh: true,
                 },
             });
         });
@@ -381,7 +386,6 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 content: {
                     milestoneIndex: 0,
                     newValue: "Valid Save",
-                    deferRefresh: true,
                 },
             });
         });
@@ -459,7 +463,6 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 content: {
                     milestoneIndex: 0,
                     newValue: "Enter Saved Value",
-                    deferRefresh: true,
                 },
             });
         });
@@ -500,7 +503,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
-            
+
             // Change the value first
             await act(async () => {
                 fireEvent.change(input, { target: { value: "Enter Saved Value" } });
@@ -518,7 +521,6 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 content: {
                     milestoneIndex: 0,
                     newValue: "Enter Saved Value",
-                    deferRefresh: true,
                 },
             });
         });
@@ -532,7 +534,7 @@ describe("MilestoneAccordion - Milestone Editing", () => {
             });
 
             const input = screen.getByDisplayValue("Chapter 1") as HTMLInputElement;
-            
+
             // Change the value first so we can verify it reverts
             await act(async () => {
                 fireEvent.change(input, { target: { value: "Changed Value" } });
@@ -723,7 +725,6 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 content: {
                     milestoneIndex: 0,
                     newValue: "Source Chapter 1",
-                    deferRefresh: true,
                 },
             });
         });
@@ -752,14 +753,13 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 content: {
                     milestoneIndex: 0,
                     newValue: "Target Chapter 1",
-                    deferRefresh: true,
                 },
             });
         });
     });
 
-    describe("Edit Mode - Pending Refreshes", () => {
-        it("should mark pending refreshes when saving", async () => {
+    describe("Edit Mode - Accordion Close (no refresh on close)", () => {
+        it("should not send refreshWebviewAfterMilestoneEdits when accordion closes after saving (provider pushes updates immediately on save)", async () => {
             const { rerender } = renderMilestoneAccordion();
 
             const editButton = screen.getByLabelText("Edit Milestone");
@@ -777,22 +777,18 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 fireEvent.click(saveButton);
             });
 
-            // Verify updateMilestoneValue was called
+            // Verify updateMilestoneValue was called (provider pushes updated data to webview immediately)
             expect(mockVscode.postMessage).toHaveBeenCalledWith({
                 command: "updateMilestoneValue",
                 content: {
                     milestoneIndex: 0,
                     newValue: "New Value",
-                    deferRefresh: true,
                 },
             });
 
-            // Clear the mock to only check for refresh message
             mockVscode.postMessage.mockClear();
 
-            // When accordion closes (isOpen becomes false), it should trigger refresh
-            // Simulate closing by rerendering with isOpen: false
-            // The useEffect should detect the change and send the refresh message
+            // Close accordion - should NOT send refreshWebviewAfterMilestoneEdits (provider already pushed update on save)
             const milestoneIndex = createMockMilestoneIndex([
                 { value: "Chapter 1", index: 0 },
                 { value: "Chapter 2", index: 1 },
@@ -820,28 +816,10 @@ describe("MilestoneAccordion - Milestone Editing", () => {
                 );
             });
 
-            // Should send refresh message when accordion closes with pending refreshes
-            expect(mockVscode.postMessage).toHaveBeenCalledWith({
-                command: "refreshWebviewAfterMilestoneEdits",
-                content: {},
-            });
-        });
-
-        it("should not send refresh message if no pending refreshes", async () => {
-            renderMilestoneAccordion();
-
-            // Just close without editing
-            const closeButton = screen.getByLabelText("Close Milestone");
-            await act(async () => {
-                fireEvent.click(closeButton);
-            });
-
-            // Should not send refresh message
             const refreshCalls = mockVscode.postMessage.mock.calls.filter(
                 (call: any[]) => call[0]?.command === "refreshWebviewAfterMilestoneEdits"
             );
             expect(refreshCalls).toHaveLength(0);
         });
     });
-
 });

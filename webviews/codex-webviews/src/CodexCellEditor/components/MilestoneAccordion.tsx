@@ -89,7 +89,6 @@ export function MilestoneAccordion({
     const [editedMilestoneValue, setEditedMilestoneValue] = useState("");
     const [originalMilestoneValue, setOriginalMilestoneValue] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
-    const [hasPendingRefreshes, setHasPendingRefreshes] = useState(false);
     // Local cache of edited milestone values to show changes immediately before webview refresh
     const [localMilestoneValues, setLocalMilestoneValues] = useState<Record<number, string>>({});
 
@@ -211,23 +210,13 @@ export function MilestoneAccordion({
         }
     }, [isOpen, currentMilestoneIndex]);
 
-    // Reset editing state and trigger refresh when accordion closes
+    // Reset editing state when accordion closes
     useEffect(() => {
         if (!isOpen) {
             setIsEditingMilestone(false);
-            // If we have pending refreshes, trigger a single refresh now
-            if (hasPendingRefreshes) {
-                vscode.postMessage({
-                    command: "refreshWebviewAfterMilestoneEdits",
-                    content: {},
-                });
-                setHasPendingRefreshes(false);
-                // Don't clear local cache here - keep it until webview refresh completes
-                // The cache will be cleared by the useEffect that detects milestoneIndex prop updates
-            }
         }
-    }, [isOpen, hasPendingRefreshes, vscode]);
-    
+    }, [isOpen]);
+
     // Clear local cache when milestoneIndex prop changes (after webview refresh)
     useEffect(() => {
         if (milestoneIndex && Object.keys(localMilestoneValues).length > 0) {
@@ -251,8 +240,7 @@ export function MilestoneAccordion({
     useEffect(() => {
         if (isOpen && !isEditingMilestone && milestoneIndex) {
             const displayedIndex =
-                expandedMilestone !== null &&
-                milestoneIndex.milestones[parseInt(expandedMilestone)]
+                expandedMilestone !== null && milestoneIndex.milestones[parseInt(expandedMilestone)]
                     ? parseInt(expandedMilestone)
                     : currentMilestoneIndex;
             // Use cached value if available, otherwise use prop value
@@ -264,7 +252,14 @@ export function MilestoneAccordion({
                 setEditedMilestoneValue(displayValue);
             }
         }
-    }, [expandedMilestone, currentMilestoneIndex, milestoneIndex, isOpen, isEditingMilestone, localMilestoneValues]);
+    }, [
+        expandedMilestone,
+        currentMilestoneIndex,
+        milestoneIndex,
+        isOpen,
+        isEditingMilestone,
+        localMilestoneValues,
+    ]);
 
     // Request progress when milestone is expanded
     useEffect(() => {
@@ -484,7 +479,7 @@ export function MilestoneAccordion({
         const displayedIndex = getDisplayedMilestoneIndex();
         const milestone = milestoneIndex?.milestones[displayedIndex];
         if (!milestone) return null;
-        
+
         // Use local cached value if available (for immediate display before webview refresh)
         if (localMilestoneValues[displayedIndex]) {
             return {
@@ -492,10 +487,10 @@ export function MilestoneAccordion({
                 value: localMilestoneValues[displayedIndex],
             };
         }
-        
+
         return milestone;
     };
-    
+
     // Get the displayed milestone value (with local cache)
     const getDisplayedMilestoneValue = (): string => {
         const displayedIndex = getDisplayedMilestoneIndex();
@@ -533,10 +528,7 @@ export function MilestoneAccordion({
             trimmedValue !== displayedMilestone.value
         ) {
             // Validate that the milestone index is still valid before sending
-            if (
-                displayedIndex < 0 ||
-                displayedIndex >= (milestoneIndex?.milestones.length || 0)
-            ) {
+            if (displayedIndex < 0 || displayedIndex >= (milestoneIndex?.milestones.length || 0)) {
                 console.error(
                     `[handleSaveMilestone] Invalid milestone index: ${displayedIndex}, total milestones: ${
                         milestoneIndex?.milestones.length || 0
@@ -545,22 +537,18 @@ export function MilestoneAccordion({
                 return;
             }
 
-            // Send message to update milestone value with deferRefresh flag
+            // Send message to update milestone value; provider pushes updated data to webview immediately
             vscode.postMessage({
                 command: "updateMilestoneValue",
                 content: {
                     milestoneIndex: displayedIndex,
                     newValue: trimmedValue,
-                    deferRefresh: true,
                 },
             });
 
-            // Mark that we have pending refreshes
-            setHasPendingRefreshes(true);
-
             // Update the original value to the new saved value so the checkmark state is correct
             setOriginalMilestoneValue(trimmedValue);
-            
+
             // Update local cache immediately so the accordion shows the change before webview refresh
             setLocalMilestoneValues((prev) => ({
                 ...prev,
@@ -594,7 +582,7 @@ export function MilestoneAccordion({
     const handleMilestoneExpansion = (value: string | null) => {
         // Update expanded milestone first
         setExpandedMilestone(value);
-        
+
         if (isEditingMilestone && value !== null) {
             // User clicked on another milestone while editing - switch to editing that milestone
             const newMilestoneIndex = parseInt(value);
@@ -655,9 +643,7 @@ export function MilestoneAccordion({
                         }}
                     />
                 ) : (
-                    <h2 className="text-lg font-semibold m-0">
-                        {getDisplayedMilestoneValue()}
-                    </h2>
+                    <h2 className="text-lg font-semibold m-0">{getDisplayedMilestoneValue()}</h2>
                 )}
                 <div className="flex gap-y-2">
                     <div className="flex items-center justify-center gap-x-1">
@@ -722,7 +708,8 @@ export function MilestoneAccordion({
                     {milestoneIndex.milestones.map(
                         (milestone: MilestoneInfo, milestoneIdx: number) => {
                             // Use local cached value if available for immediate display
-                            const displayValue = localMilestoneValues[milestoneIdx] || milestone.value;
+                            const displayValue =
+                                localMilestoneValues[milestoneIdx] || milestone.value;
                             const subsections = getSubsectionsForMilestone(milestoneIdx);
                             const milestoneProgress = getMilestoneProgress(milestoneIdx);
                             const isCurrentMilestone = currentMilestoneIndex === milestoneIdx;

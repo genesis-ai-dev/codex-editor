@@ -782,7 +782,6 @@ export type EditorPostMessages =
         content: {
             milestoneIndex: number;
             newValue: string;
-            deferRefresh?: boolean; // If true, skip webview refresh (for batching multiple edits)
         };
     }
     | {
