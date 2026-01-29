@@ -75,7 +75,8 @@ interface UseVSCodeMessageHandlerProps {
         milestoneIndex: number,
         subsectionIndex: number,
         cells: QuillCellContent[],
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; },
+        allCellsInMilestone?: QuillCellContent[]
     ) => void;
 }
 
@@ -366,7 +367,8 @@ export const useVSCodeMessageHandler = ({
                             message.milestoneIndex,
                             message.subsectionIndex,
                             message.cells,
-                            message.sourceCellMap
+                            message.sourceCellMap,
+                            message.allCellsInMilestone
                         );
                     }
                     // Update audio availability for new cells
