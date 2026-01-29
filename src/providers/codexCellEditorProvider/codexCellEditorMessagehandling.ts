@@ -1153,8 +1153,71 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     refreshWebviewAfterMilestoneEdits: async ({ document, webviewPanel, provider }) => {
-        // Refresh the webview after batching multiple milestone edits
-        provider.refreshWebview(webviewPanel, document);
+        // Refresh the current page to get updated milestone indices for footnote calculation
+        // This ensures fullDocumentTranslationUnits has the latest milestone indices
+        const docUri = document.uri.toString();
+        const currentPosition = provider.currentMilestoneSubsectionMap.get(docUri);
+
+        if (currentPosition) {
+            // Get milestone index - use cached version if available (more efficient)
+            // The cache is updated in-place when milestone values change, so it should be valid
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const cellsPerPage = config.get("cellsPerPage", 50);
+            const milestoneIndex = document.buildMilestoneIndex(cellsPerPage);
+
+            // Calculate progress for all milestones
+            const validationCount = vscode.workspace.getConfiguration("codex-project-manager").get("validationCount", 1);
+            const validationCountAudio = vscode.workspace.getConfiguration("codex-project-manager").get("validationCountAudio", 1);
+            const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
+            milestoneIndex.milestoneProgress = milestoneProgress;
+
+            // Get current cells to send along with updated milestone index
+            const isSourceText = document.uri.toString().includes(".source");
+            const cells = document.getCellsForMilestone(currentPosition.milestoneIndex, currentPosition.subsectionIndex, cellsPerPage);
+            const processedCells = provider.mergeRangesAndProcess(cells, provider.isCorrectionEditorMode, isSourceText);
+
+            // Build source cell map for current cells
+            const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+            for (const cell of cells) {
+                const cellId = cell.cellMarkers?.[0];
+                if (cellId && document._sourceCellMap[cellId]) {
+                    sourceCellMap[cellId] = document._sourceCellMap[cellId];
+                }
+            }
+
+            // Get user info for username
+            const authApi = await provider.getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            const username = userInfo?.username || "anonymous";
+
+            // Send updated milestone index with current cells
+            const rev = provider.getDocumentRevision(docUri);
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsInitialContentPaginated",
+                rev,
+                milestoneIndex: milestoneIndex,
+                cells: processedCells,
+                currentMilestoneIndex: currentPosition.milestoneIndex,
+                currentSubsectionIndex: currentPosition.subsectionIndex,
+                isSourceText: isSourceText,
+                sourceCellMap: sourceCellMap,
+                username: username,
+                validationCount: validationCount,
+                validationCountAudio: validationCountAudio,
+            });
+
+            // Also send refreshCurrentPage to ensure allCellsInMilestone is updated for footnote calculation
+            safePostMessageToPanel(webviewPanel, {
+                type: "refreshCurrentPage",
+                rev,
+                milestoneIndex: currentPosition.milestoneIndex,
+                subsectionIndex: currentPosition.subsectionIndex,
+            });
+            debug(`[refreshWebviewAfterMilestoneEdits] Sent updated milestone index with cells and refreshCurrentPage for milestone ${currentPosition.milestoneIndex}, subsection ${currentPosition.subsectionIndex}`);
+        } else {
+            // Fallback to full refresh if no position is tracked
+            provider.refreshWebview(webviewPanel, document);
+        }
     },
 
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
@@ -3235,10 +3298,20 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Get cells for the requested milestone/subsection
             const cells = document.getCellsForMilestone(milestoneIndex, subsectionIndex, cellsPerPage);
 
+            // Get all cells in the milestone for footnote offset calculation
+            const allCellsInMilestone = document.getAllCellsForMilestone(milestoneIndex);
+
             // Process cells (merge ranges, etc.)
             const isSourceText = document.uri.toString().includes(".source");
             const processedCells = provider.mergeRangesAndProcess(
                 cells,
+                provider.isCorrectionEditorMode,
+                isSourceText
+            );
+
+            // Process all cells in milestone for footnote counting
+            const processedAllCellsInMilestone = provider.mergeRangesAndProcess(
+                allCellsInMilestone,
                 provider.isCorrectionEditorMode,
                 isSourceText
             );
@@ -3258,13 +3331,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 subsectionIndex,
             });
 
-            // Send the cell page to the webview
+            // Send the cell page to the webview, including all cells in milestone for footnote counting
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsCellPage",
                 rev: provider.getDocumentRevision(document.uri.toString()),
                 milestoneIndex,
                 subsectionIndex,
                 cells: processedCells,
+                allCellsInMilestone: processedAllCellsInMilestone,
                 sourceCellMap,
             });
 
