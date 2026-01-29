@@ -69,7 +69,7 @@ export async function checkSwapPrerequisites(
     newProjectUrl: string
 ): Promise<SwapPrerequisitesResult> {
     const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
-    
+
     const oldFilesDir = path.join(oldProjectPath, ".project", "attachments", "files");
     const oldPointersDir = path.join(oldProjectPath, ".project", "attachments", "pointers");
 
@@ -82,77 +82,98 @@ export async function checkSwapPrerequisites(
     try {
         // Scan old project's attachments
         const oldAttachments = await scanAttachmentFiles(oldPointersDir);
-        
+
         if (oldAttachments.length === 0) {
             debugLog("No attachments in old project - swap can proceed");
             return result;
         }
 
         debugLog(`Checking ${oldAttachments.length} attachments for download requirements...`);
+        debugLog(`Old attachments: ${JSON.stringify(oldAttachments.slice(0, 5))}${oldAttachments.length > 5 ? '...' : ''}`);
 
         // Get list of files that already exist in the new project
-        // First, check if new project exists locally (already cloned)
+        // Check BOTH local AND remote to get the complete picture
         const newProjectName = extractProjectNameFromUrl(newProjectUrl);
-        const newProjectPath = newProjectName 
+        const newProjectPath = newProjectName
             ? path.join(path.dirname(oldProjectPath), newProjectName)
             : null;
-        
+
         const newProjectPointers = new Set<string>();
-        
+        let foundLocalFiles = 0;
+        let foundRemoteFiles = 0;
+
         // Check local new project if it exists
         if (newProjectPath && fs.existsSync(newProjectPath)) {
             const newPointersDir = path.join(newProjectPath, ".project", "attachments", "pointers");
+            debugLog(`Checking local new project pointers at: ${newPointersDir}`);
             if (fs.existsSync(newPointersDir)) {
                 const newAttachments = await scanAttachmentFiles(newPointersDir);
                 newAttachments.forEach(f => newProjectPointers.add(f));
-                debugLog(`Found ${newAttachments.length} existing files in new project (local)`);
+                foundLocalFiles = newAttachments.length;
+                debugLog(`Found ${foundLocalFiles} existing files in new project (local): ${JSON.stringify(newAttachments.slice(0, 5))}${newAttachments.length > 5 ? '...' : ''}`);
+            } else {
+                debugLog(`Local pointers directory doesn't exist: ${newPointersDir}`);
             }
+        } else {
+            debugLog(`New project not found locally at: ${newProjectPath}`);
         }
 
-        // If new project isn't local, try to get file list from GitLab repository tree API
-        if (newProjectPointers.size === 0) {
-            try {
-                const { getAuthApi } = await import("../../extension");
-                const frontierApi = getAuthApi() as any;
-                if (frontierApi?.getRepositoryTree) {
-                    debugLog(`Fetching remote tree for: ${newProjectUrl}`);
-                    const treeFiles = await frontierApi.getRepositoryTree(
-                        newProjectUrl,
-                        ".project/attachments/pointers"
-                    );
-                    debugLog(`Remote tree response: ${JSON.stringify(treeFiles?.slice?.(0, 5) || treeFiles)}`);
-                    if (treeFiles && Array.isArray(treeFiles)) {
-                        treeFiles.forEach((f: { path?: string; type?: string; name?: string }) => {
-                            if (f.type === "blob") {
-                                // The path from GitLab includes the full path, extract relative part
-                                const relPath = f.path 
-                                    ? f.path.replace(/^\.project\/attachments\/pointers\/?/, "")
-                                    : f.name;
-                                if (relPath && !relPath.startsWith(".")) {
-                                    newProjectPointers.add(relPath);
-                                    debugLog(`  - Found in new project: ${relPath}`);
+        // ALWAYS check remote to get complete file list (remote may have files local doesn't)
+        try {
+            const { getAuthApi } = await import("../../extension");
+            const frontierApi = getAuthApi() as any;
+            if (frontierApi?.getRepositoryTree) {
+                debugLog(`Fetching remote tree for: ${newProjectUrl}`);
+                const treeFiles = await frontierApi.getRepositoryTree(
+                    newProjectUrl,
+                    ".project/attachments/pointers"
+                );
+                debugLog(`Remote tree response (${treeFiles?.length || 0} items): ${JSON.stringify(treeFiles?.slice?.(0, 3) || treeFiles)}`);
+                if (treeFiles && Array.isArray(treeFiles)) {
+                    let remoteAdded = 0;
+                    treeFiles.forEach((f: { path?: string; type?: string; name?: string; }) => {
+                        if (f.type === "blob") {
+                            // The path from GitLab includes the full path, extract relative part
+                            const relPath = f.path
+                                ? f.path.replace(/^\.project\/attachments\/pointers\/?/, "")
+                                : f.name;
+                            if (relPath && !relPath.startsWith(".")) {
+                                if (!newProjectPointers.has(relPath)) {
+                                    remoteAdded++;
                                 }
+                                newProjectPointers.add(relPath);
                             }
-                        });
-                        debugLog(`Found ${newProjectPointers.size} existing files in new project (remote)`);
-                    }
-                } else {
-                    debugLog("getRepositoryTree not available in frontierApi");
+                        }
+                    });
+                    foundRemoteFiles = treeFiles.filter((f: { type?: string; }) => f.type === "blob").length;
+                    debugLog(`Found ${foundRemoteFiles} files in new project remote, ${remoteAdded} new (not in local)`);
                 }
-            } catch (err) {
-                debugLog("Could not check new project remote files:", err);
-                // Continue without the remote check
+            } else {
+                debugLog("getRepositoryTree not available in frontierApi");
             }
+        } catch (err) {
+            debugLog("Could not check new project remote files:", err);
+            // Continue without the remote check
+        }
+
+        debugLog(`Total unique files in new project (local + remote): ${newProjectPointers.size}`);
+        if (newProjectPointers.size > 0) {
+            debugLog(`New project pointers set: ${JSON.stringify([...newProjectPointers].slice(0, 5))}${newProjectPointers.size > 5 ? '...' : ''}`);
         }
 
         // Check each attachment to see if it's available as a blob
+        let skippedCount = 0;
+        let blobAvailableCount = 0;
+        let needsDownloadCount = 0;
+
         for (const relPath of oldAttachments) {
             // Skip if this file already exists in the new project
             if (newProjectPointers.has(relPath)) {
-                debugLog(`Skipping ${relPath} - already exists in new project`);
+                skippedCount++;
                 continue;
             }
 
+            // File doesn't exist in new project - check if we have a local blob in old project
             const filesPath = path.join(oldFilesDir, relPath);
             const pointersPath = path.join(oldPointersDir, relPath);
 
@@ -174,10 +195,15 @@ export async function checkSwapPrerequisites(
                 }
             }
 
-            // If no blob found anywhere, this file needs to be downloaded
-            if (!hasBlob) {
+            if (hasBlob) {
+                blobAvailableCount++;
+                // File is missing from new project but we have the blob locally - will be copied during swap
+            } else {
+                // No blob found anywhere - this file needs to be downloaded before swap
+                needsDownloadCount++;
                 result.filesNeedingDownload.push(relPath);
-                
+                debugLog(`  File needs download: ${relPath} (not in new project, no local blob)`);
+
                 // Try to get file size from pointer
                 const pointerPath = fs.existsSync(filesPath) ? filesPath : pointersPath;
                 if (fs.existsSync(pointerPath)) {
@@ -188,6 +214,12 @@ export async function checkSwapPrerequisites(
                 }
             }
         }
+
+        debugLog(`Attachment analysis complete:`);
+        debugLog(`  - ${skippedCount}/${oldAttachments.length} already exist in new project`);
+        debugLog(`  - ${blobAvailableCount}/${oldAttachments.length} missing from new but have local blob (will be copied)`);
+        debugLog(`  - ${needsDownloadCount}/${oldAttachments.length} need download before swap`);
+
 
         if (result.filesNeedingDownload.length > 0) {
             result.canProceed = false;
@@ -213,7 +245,7 @@ export async function saveSwapPendingState(
     pendingState: SwapPendingDownloads
 ): Promise<void> {
     const localSwapPath = path.join(oldProjectPath, ".project", "localProjectSwap.json");
-    
+
     let localSwap: any = {};
     if (fs.existsSync(localSwapPath)) {
         try {
@@ -227,7 +259,7 @@ export async function saveSwapPendingState(
 
     fs.mkdirSync(path.dirname(localSwapPath), { recursive: true });
     fs.writeFileSync(localSwapPath, JSON.stringify(localSwap, null, 2));
-    
+
     debugLog("Saved swap pending state:", pendingState.swapState);
 }
 
@@ -238,7 +270,7 @@ export async function getSwapPendingState(
     projectPath: string
 ): Promise<SwapPendingDownloads | null> {
     const localSwapPath = path.join(projectPath, ".project", "localProjectSwap.json");
-    
+
     if (!fs.existsSync(localSwapPath)) {
         return null;
     }
@@ -256,7 +288,7 @@ export async function getSwapPendingState(
  */
 export async function clearSwapPendingState(projectPath: string): Promise<void> {
     const localSwapPath = path.join(projectPath, ".project", "localProjectSwap.json");
-    
+
     if (!fs.existsSync(localSwapPath)) {
         return;
     }
@@ -276,21 +308,21 @@ export async function clearSwapPendingState(projectPath: string): Promise<void> 
  */
 export async function checkPendingDownloadsComplete(
     projectPath: string
-): Promise<{ complete: boolean; remaining: string[] }> {
+): Promise<{ complete: boolean; remaining: string[]; }> {
     const pendingState = await getSwapPendingState(projectPath);
-    
+
     if (!pendingState || pendingState.swapState !== "pending_downloads") {
         return { complete: true, remaining: [] };
     }
 
     const { isPointerFile } = await import("../../utils/lfsHelpers");
     const filesDir = path.join(projectPath, ".project", "attachments", "files");
-    
+
     const remaining: string[] = [];
-    
+
     for (const relPath of pendingState.filesNeedingDownload) {
         const filesPath = path.join(filesDir, relPath);
-        
+
         if (!fs.existsSync(filesPath)) {
             remaining.push(relPath);
             continue;
@@ -318,10 +350,10 @@ export async function checkPendingDownloadsComplete(
  */
 export async function downloadPendingSwapFiles(
     projectPath: string,
-    progress?: vscode.Progress<{ increment?: number; message?: string }>
-): Promise<{ downloaded: number; failed: string[]; total: number }> {
+    progress?: vscode.Progress<{ increment?: number; message?: string; }>
+): Promise<{ downloaded: number; failed: string[]; total: number; }> {
     const pendingState = await getSwapPendingState(projectPath);
-    
+
     if (!pendingState || pendingState.swapState !== "pending_downloads") {
         return { downloaded: 0, failed: [], total: 0 };
     }
@@ -329,33 +361,33 @@ export async function downloadPendingSwapFiles(
     const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
     const filesDir = path.join(projectPath, ".project", "attachments", "files");
     const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
-    
+
     // Get frontier API for LFS downloads
     const { getAuthApi } = await import("../../extension");
     const frontierApi = getAuthApi();
-    
+
     if (!frontierApi) {
         debugLog("Frontier API not available for LFS downloads");
-        return { 
-            downloaded: 0, 
-            failed: pendingState.filesNeedingDownload, 
-            total: pendingState.filesNeedingDownload.length 
+        return {
+            downloaded: 0,
+            failed: pendingState.filesNeedingDownload,
+            total: pendingState.filesNeedingDownload.length
         };
     }
 
     const total = pendingState.filesNeedingDownload.length;
     let downloaded = 0;
     const failed: string[] = [];
-    
+
     debugLog(`Starting bulk download of ${total} LFS files for swap...`);
 
     for (let i = 0; i < total; i++) {
         const relPath = pendingState.filesNeedingDownload[i];
         const filesPath = path.join(filesDir, relPath);
         const pointersPath = path.join(pointersDir, relPath);
-        
-        progress?.report({ 
-            message: `${downloaded}/${total} - Downloading: ${path.basename(relPath)}` 
+
+        progress?.report({
+            message: `${downloaded}/${total} - Downloading: ${path.basename(relPath)}`
         });
 
         try {
@@ -365,7 +397,7 @@ export async function downloadPendingSwapFiles(
                 if (!isPtr) {
                     debugLog(`File already downloaded: ${relPath}`);
                     downloaded++;
-                    progress?.report({ 
+                    progress?.report({
                         increment: 100 / total,
                         message: `${downloaded}/${total} files complete`
                     });
@@ -402,10 +434,10 @@ export async function downloadPendingSwapFiles(
                 fs.mkdirSync(filesParentDir, { recursive: true });
             }
             fs.writeFileSync(filesPath, lfsData);
-            
+
             downloaded++;
             debugLog(`Downloaded: ${relPath}`);
-            progress?.report({ 
+            progress?.report({
                 increment: 100 / total,
                 message: `${downloaded}/${total} files complete`
             });
@@ -864,11 +896,11 @@ async function mergeProjectFiles(
 async function preserveMediaStrategy(
     oldPath: string,
     newPath: string,
-    failedDownloads: Array<{ relPath: string; oid: string; size: number }>
+    failedDownloads: Array<{ relPath: string; oid: string; size: number; }>
 ): Promise<void> {
     try {
         const { getMediaFilesStrategy, setMediaFilesStrategy } = await import("../../utils/localProjectSettings");
-        
+
         // First, check if there's a saved original strategy from the pre-swap download phase
         // This is important because we may have temporarily set stream-and-save for downloads
         const pendingState = await getSwapPendingState(oldPath);
@@ -883,15 +915,15 @@ async function preserveMediaStrategy(
             const oldProjectUri = vscode.Uri.file(oldPath);
             strategyToApply = await getMediaFilesStrategy(oldProjectUri);
         }
-        
+
         // If there are failed downloads, we MUST use auto-download to retrieve them
         // Otherwise, preserve the old strategy (or default to auto-download if none)
         const newProjectUri = vscode.Uri.file(newPath);
-        
+
         if (failedDownloads.length > 0) {
             debugLog(`${failedDownloads.length} files need download - setting auto-download strategy`);
             await setMediaFilesStrategy("auto-download", newProjectUri);
-            
+
             // Get old project's remote URL for pending downloads
             const oldProjectRemoteUrl = await getGitOriginUrl(oldPath);
             if (oldProjectRemoteUrl) {
@@ -910,7 +942,7 @@ async function preserveMediaStrategy(
 
         // Clear the pending swap state from the old project since swap is complete
         await clearSwapPendingState(oldPath);
-        
+
     } catch (error) {
         debugLog("Error preserving media strategy:", error);
         // Non-fatal - continue with swap
@@ -924,11 +956,11 @@ async function preserveMediaStrategy(
 async function storePendingLfsDownloads(
     newProjectPath: string,
     oldProjectRemoteUrl: string,
-    pendingFiles: Array<{ relPath: string; oid: string; size: number }>
+    pendingFiles: Array<{ relPath: string; oid: string; size: number; }>
 ): Promise<void> {
     try {
         const localSwapPath = path.join(newProjectPath, ".project", "localProjectSwap.json");
-        
+
         let localSwap: any = {};
         if (fs.existsSync(localSwapPath)) {
             try {
@@ -947,7 +979,7 @@ async function storePendingLfsDownloads(
 
         fs.mkdirSync(path.dirname(localSwapPath), { recursive: true });
         fs.writeFileSync(localSwapPath, JSON.stringify(localSwap, null, 2));
-        
+
         debugLog(`Stored ${pendingFiles.length} pending LFS downloads in localProjectSwap.json`);
     } catch (error) {
         debugLog("Error storing pending LFS downloads:", error);
@@ -961,7 +993,7 @@ interface ReconcileResult {
     copied: number;
     downloaded: number;
     failed: number;
-    failedDownloads: Array<{ relPath: string; oid: string; size: number }>;
+    failedDownloads: Array<{ relPath: string; oid: string; size: number; }>;
 }
 
 /**
@@ -1020,15 +1052,15 @@ async function reconcileMissingAttachments(
 
     // Categorize files based on what's available locally
     // Priority: actual blob in files/ > actual blob in pointers/ > pointer (needs download)
-    const toCopy: Array<{ relPath: string; sourcePath: string }> = [];
-    const toDownload: Array<{ relPath: string; pointer: { oid: string; size: number } }> = [];
+    const toCopy: Array<{ relPath: string; sourcePath: string; }> = [];
+    const toDownload: Array<{ relPath: string; pointer: { oid: string; size: number; }; }> = [];
 
     for (const relPath of missingInNew) {
         const oldFilePath = path.join(oldFilesDir, relPath);
         const oldPointerPath = path.join(oldPointersDir, relPath);
 
         let foundBlob = false;
-        let pointer: { oid: string; size: number } | null = null;
+        let pointer: { oid: string; size: number; } | null = null;
 
         // Check files/ directory first - this is where blobs should be if downloaded
         if (fs.existsSync(oldFilePath)) {
@@ -1070,7 +1102,7 @@ async function reconcileMissingAttachments(
 
     const totalFiles = toCopy.length + toDownload.length;
     const totalDownloadSize = toDownload.reduce((sum, item) => sum + item.pointer.size, 0);
-    
+
     debugLog(`Reconciliation plan: ${toCopy.length} to copy locally, ${toDownload.length} to download (${formatBytes(totalDownloadSize)})`);
     progress.report({ message: `Reconciling ${totalFiles} missing attachments...` });
 
@@ -1093,7 +1125,7 @@ async function reconcileMissingAttachments(
             fs.copyFileSync(sourcePath, newPointerPath);
             result.copied++;
             processedCount++;
-            
+
             if (processedCount % 10 === 0 || processedCount === totalFiles) {
                 progress.report({ message: `Reconciling attachments: ${processedCount}/${totalFiles}...` });
             }
@@ -1125,10 +1157,10 @@ async function reconcileMissingAttachments(
         } else {
             const { getCachedLfsBytes, setCachedLfsBytes } = await import("../../utils/mediaCache");
             const BATCH_SIZE = 5;
-            
+
             for (let i = 0; i < toDownload.length; i += BATCH_SIZE) {
                 const batch = toDownload.slice(i, i + BATCH_SIZE);
-                
+
                 await Promise.all(batch.map(async ({ relPath, pointer }) => {
                     try {
                         const success = await downloadFromOldLfs(
@@ -1141,7 +1173,7 @@ async function reconcileMissingAttachments(
                             getCachedLfsBytes,
                             setCachedLfsBytes
                         );
-                        
+
                         if (success) {
                             result.downloaded++;
                         } else {
@@ -1153,7 +1185,7 @@ async function reconcileMissingAttachments(
                         result.failedDownloads.push({ relPath, oid: pointer.oid, size: pointer.size });
                         debugLog(`Error downloading attachment ${relPath}:`, error);
                     }
-                    
+
                     processedCount++;
                     if (processedCount % 5 === 0 || processedCount === totalFiles) {
                         progress.report({ message: `Reconciling attachments: ${processedCount}/${totalFiles}...` });
@@ -1164,7 +1196,7 @@ async function reconcileMissingAttachments(
     }
 
     debugLog(`Attachment reconciliation complete: ${result.copied} copied, ${result.downloaded} downloaded, ${result.failed} failed`);
-    
+
     if (result.failedDownloads.length > 0) {
         debugLog(`Failed downloads will be tracked for later retrieval:`, result.failedDownloads.map(f => f.relPath));
     }
@@ -1177,7 +1209,7 @@ async function reconcileMissingAttachments(
  */
 async function downloadFromOldLfs(
     relPath: string,
-    pointer: { oid: string; size: number },
+    pointer: { oid: string; size: number; },
     oldProjectRemoteUrl: string,
     newFilesDir: string,
     newPointersDir: string,
@@ -1186,17 +1218,17 @@ async function downloadFromOldLfs(
     setCachedLfsBytes: (oid: string, bytes: Uint8Array) => void
 ): Promise<boolean> {
     const { createHash } = await import("crypto");
-    
+
     // Check cache first
     const cached = getCachedLfsBytes(pointer.oid);
     if (cached) {
         debugLog(`Using cached LFS content for ${relPath}`);
         const newFilePath = path.join(newFilesDir, relPath);
         const newPointerPath = path.join(newPointersDir, relPath);
-        
+
         fs.mkdirSync(path.dirname(newFilePath), { recursive: true });
         fs.mkdirSync(path.dirname(newPointerPath), { recursive: true });
-        
+
         fs.writeFileSync(newFilePath, cached);
         fs.writeFileSync(newPointerPath, cached);
         return true;
@@ -1205,7 +1237,7 @@ async function downloadFromOldLfs(
     try {
         // Download from old project's LFS
         const content = await frontierApi.downloadLFSFile(oldProjectRemoteUrl, pointer.oid, pointer.size);
-        
+
         if (!content) {
             debugLog(`Failed to download LFS content for ${relPath} - empty response`);
             return false;
@@ -1224,13 +1256,13 @@ async function downloadFromOldLfs(
         // Write to both files/ and pointers/
         const newFilePath = path.join(newFilesDir, relPath);
         const newPointerPath = path.join(newPointersDir, relPath);
-        
+
         fs.mkdirSync(path.dirname(newFilePath), { recursive: true });
         fs.mkdirSync(path.dirname(newPointerPath), { recursive: true });
-        
+
         fs.writeFileSync(newFilePath, content);
         fs.writeFileSync(newPointerPath, content);
-        
+
         debugLog(`Downloaded and saved LFS file: ${relPath}`);
         return true;
     } catch (error) {
@@ -1245,7 +1277,7 @@ async function downloadFromOldLfs(
  */
 async function scanAttachmentFiles(dirPath: string): Promise<string[]> {
     const files: string[] = [];
-    
+
     // Files to ignore (system/metadata files)
     const ignoredFiles = new Set([
         ".DS_Store",
@@ -1254,7 +1286,7 @@ async function scanAttachmentFiles(dirPath: string): Promise<string[]> {
         "Thumbs.db",
         "desktop.ini",
     ]);
-    
+
     if (!fs.existsSync(dirPath)) {
         return files;
     }
@@ -1266,10 +1298,10 @@ async function scanAttachmentFiles(dirPath: string): Promise<string[]> {
             if (ignoredFiles.has(entry.name) || entry.name.startsWith(".")) {
                 continue;
             }
-            
+
             const fullPath = path.join(currentPath, entry.name);
             const relPath = path.relative(relativeTo, fullPath);
-            
+
             if (entry.isDirectory()) {
                 scanDir(fullPath, relativeTo);
             } else if (entry.isFile()) {
