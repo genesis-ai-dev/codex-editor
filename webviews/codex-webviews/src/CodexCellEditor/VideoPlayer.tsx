@@ -30,6 +30,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     const [error, setError] = useState<string | null>(null);
     const [playing, setPlaying] = useState(false);
+    const [volume, setVolume] = useState(1);
+    const lastVideoElementForVolumeRef = useRef<HTMLVideoElement | null>(null);
 
     // Check if the URL is a YouTube URL
     const isYouTubeUrl = videoUrl?.includes("youtube.com") || videoUrl?.includes("youtu.be");
@@ -143,6 +145,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         return null;
     }, [playerRef]);
 
+    // Own volume and re-apply on every render so it sticks despite something resetting the element.
+    // Sync from native control via volumechange so user adjustments are kept in state.
+    useEffect(() => {
+        const videoElement = getVideoElement();
+        if (!videoElement) return;
+
+        const isNewElement = videoElement !== lastVideoElementForVolumeRef.current;
+        if (isNewElement) {
+            lastVideoElementForVolumeRef.current = videoElement;
+            videoElement.volume = volume;
+            const onVolumeChange = () => setVolume(videoElement.volume);
+            videoElement.addEventListener("volumechange", onVolumeChange);
+            return () => {
+                videoElement.removeEventListener("volumechange", onVolumeChange);
+                lastVideoElementForVolumeRef.current = null;
+            };
+        }
+        videoElement.volume = volume;
+    });
+
     // Add subtitle tracks for local videos (React Player v3 uses standard HTML video elements)
     useEffect(() => {
         if (subtitleUrl && showSubtitles && !isYouTubeUrl) {
@@ -237,11 +259,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </div>
                 ) : (
                     <ReactPlayer
-                        key={subtitleUrl}
+                        key={videoUrl}
                         ref={playerRef}
                         src={videoUrl}
                         playing={playing}
                         controls={true}
+                        volume={volume}
                         width="100%"
                         height={playerHeight}
                         onError={handleError}

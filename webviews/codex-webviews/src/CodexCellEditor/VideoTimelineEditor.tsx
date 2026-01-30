@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
 import { QuillCellContent } from "../../../../types";
 import { useMouse } from "@uidotdev/usehooks";
@@ -71,8 +71,16 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     const [currentTime, setCurrentTime] = useState(0);
     const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
+    // Throttle time updates so we don't re-render on every timeupdate (many/sec), which
+    // was preventing volume adjustments from sticking. ~10 updates/sec keeps audio sync tight.
+    const lastTimeUpdateRef = useRef(0);
+    const THROTTLE_MS = 100;
     const handleTimeUpdate = (time: number) => {
-        setCurrentTime(time);
+        const now = Date.now();
+        if (now - lastTimeUpdateRef.current >= THROTTLE_MS) {
+            lastTimeUpdateRef.current = now;
+            setCurrentTime(time);
+        }
     };
 
     const handlePlay = () => {
