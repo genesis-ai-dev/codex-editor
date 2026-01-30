@@ -91,11 +91,12 @@ export function initializeABTesting() {
         ctx.useOnlyValidatedExamples
       );
 
-      const correctTranslation = await generateCompletionFromPairs(
-        pairs,
-        ctx.numberOfFewShotExamples,
-        ctx
-      );
+      // Generate TWO correct translations for recovery flow
+      // If user selects wrong, we show both correct options
+      const [correctTranslation1, correctTranslation2] = await Promise.all([
+        generateCompletionFromPairs(pairs, ctx.numberOfFewShotExamples, ctx),
+        generateCompletionFromPairs(pairs, ctx.numberOfFewShotExamples, ctx),
+      ]);
 
       // Use the existing translation from the decoy cell
       const decoyTranslation = decoyPair.targetCell.content;
@@ -103,11 +104,12 @@ export function initializeABTesting() {
       console.debug(`[Attention Check] Generated test: correct for ${ctx.currentCellId}, decoy from ${decoyPair.cellId}`);
 
       return {
-        variants: [correctTranslation, decoyTranslation],
+        variants: [correctTranslation1, decoyTranslation],
         names: ["correct", "decoy"],
         isAttentionCheck: true,
         correctIndex: 0,
         decoyCellId: decoyPair.cellId,
+        spareVariant: correctTranslation2, // Second correct translation for recovery
       };
     }
   );

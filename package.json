@@ -928,6 +928,12 @@
                         "maximum": 1,
                         "description": "Probability (0-1) that any eligible event will run a true A/B test. When not triggered, the system returns identical variants to keep UX consistent without doubling compute."
                     },
+                    "codex-editor-extension.forceAttentionCheck": {
+                        "title": "Force Attention Check (Testing)",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, always triggers an attention check on every LLM completion. Use this for testing the attention check flow. Disable for normal use."
+                    },
                     "codex-editor-extension.searchAlgorithm": {
                         "title": "Search Algorithm",
                         "type": "string",
