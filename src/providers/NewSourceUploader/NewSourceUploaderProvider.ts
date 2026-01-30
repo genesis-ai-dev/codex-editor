@@ -959,6 +959,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 if (alignedCell.isParatext) {
                     // Add paratext cells
                     const paratextId = alignedCell.importedContent.id;
+                    const importedData = alignedCell.importedContent.data;
+                    const paratextData =
+                        typeof importedData === "object" && importedData !== null ? importedData : {};
                     const paratextCell = {
                         kind: 1, // vscode.NotebookCellKind.Code
                         languageId: "html",
@@ -967,9 +970,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             type: CodexCellTypes.PARATEXT,
                             id: paratextId,
                             data: {
+                                ...paratextData,
                                 startTime: alignedCell.importedContent.startTime,
                                 endTime: alignedCell.importedContent.endTime,
                             },
+                            parentId: alignedCell.importedContent.parentId,
                         },
                     };
                     processedCells.set(paratextId, paratextCell);

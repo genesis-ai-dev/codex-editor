@@ -339,15 +339,19 @@ const subtitlesCellAligner: CellAligner = async (
             }
         }
 
-        const paratextId = documentName
-            ? `${documentName} ${sectionId}:paratext-${generateRandomId()}`
-            : `paratext-${generateRandomId()}`; // Fallback if no document info found
+        const parentId = nearestCell?.notebookCell?.metadata?.id;
+        const paratextId = parentId
+            ? `${parentId}:paratext-${generateRandomId()}`
+            : documentName
+                ? `${documentName} ${sectionId}:paratext-${generateRandomId()}`
+                : `paratext-${generateRandomId()}`; // Fallback if no document info found
 
         alignedCells.splice(insertIndex, 0, {
             notebookCell: null,
             importedContent: {
                 ...item,
                 id: paratextId,
+                parentId: parentId,
             },
             isParatext: true,
             alignmentMethod: "timestamp",
