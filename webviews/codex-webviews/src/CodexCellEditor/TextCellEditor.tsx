@@ -379,6 +379,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [combinedAudioBlobKey, setCombinedAudioBlobKey] = useState(0); // Force recalculation when timestamps change
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
     const previousAudioTimestampValuesRef = useRef<[number, number] | null>(null);
+    const effectiveTimestampsRef = useRef<Timestamps | undefined>(undefined);
+    const contentBeingUpdatedRef = useRef<EditorCellContent>(contentBeingUpdated);
     const [prevAudioTimestamps, setPrevAudioTimestamps] = useState<Timestamps | null>(null);
     const [nextAudioTimestamps, setNextAudioTimestamps] = useState<Timestamps | null>(null);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -971,6 +973,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
         );
     }, [contentBeingUpdated.cellAudioTimestamps, cell.audioTimestamps, cell.data]);
 
+    // Keep refs updated so saveAudioToCell can read current state when updating audio timestamps
+    useEffect(() => {
+        effectiveTimestampsRef.current = effectiveTimestamps;
+    }, [effectiveTimestamps]);
+    useEffect(() => {
+        contentBeingUpdatedRef.current = contentBeingUpdated;
+    }, [contentBeingUpdated]);
+
     // Reset previous audio timestamp values ref when effectiveAudioTimestamps changes
     useEffect(() => {
         if (effectiveAudioTimestamps) {
@@ -982,22 +992,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [effectiveAudioTimestamps]);
 
-    // Initialize audio timestamps when Timestamps tab is opened with newly recorded audio
+    // Initialize or sync audio timestamps when Timestamps tab is opened with current cell audio
     useEffect(() => {
         // Only run when Timestamps tab is active
         if (activeTab !== "timestamps") {
             return;
         }
 
-        // Only initialize if we have audioBlob and audioDuration but no effectiveAudioTimestamps
-        if (
-            audioBlob &&
-            audioDuration &&
-            audioDuration > 0 &&
-            !effectiveAudioTimestamps &&
-            !contentBeingUpdated.cellAudioTimestamps
-        ) {
-            // Initialize audio timestamps based on the audio duration
+        if (!audioBlob || !audioDuration || audioDuration <= 0) {
+            return;
+        }
+
+        // Stored audio timestamps duration (if any) — compare to current audio duration
+        const storedDuration = effectiveAudioTimestamps
+            ? (effectiveAudioTimestamps.endTime ?? 0) - (effectiveAudioTimestamps.startTime ?? 0)
+            : 0;
+        const durationMismatch = Math.abs(storedDuration - audioDuration) > 0.01;
+
+        // Initialize when no audio timestamps, or overwrite when current audio duration differs (e.g. new recording)
+        const shouldUpdate =
+            (!effectiveAudioTimestamps && !contentBeingUpdated.cellAudioTimestamps) ||
+            durationMismatch;
+
+        if (shouldUpdate) {
             // Use effectiveTimestamps startTime if available, otherwise use 0
             const startTime = effectiveTimestamps?.startTime ?? 0;
             const endTime = startTime + audioDuration;
@@ -2530,6 +2547,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     mimeType: blob.type || undefined,
                     sizeBytes: blob.size,
                 };
+                let durationSec: number | undefined;
                 try {
                     const arrayBuf = await blob.arrayBuffer();
                     // Decode to PCM to obtain duration and channels
@@ -2538,7 +2556,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         sampleRate: 48000,
                     } as any);
                     const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-                    const durationSec = decoded.duration;
+                    durationSec = decoded.duration;
                     const channels = decoded.numberOfChannels;
                     // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
                     const bitrateKbps =
@@ -2560,6 +2578,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 } catch {
                     // ignore metadata decode errors
                 }
+
+                // Update Timestamps tab with current cell audio so it stays in sync after recording
+                if (typeof durationSec === "number" && durationSec > 0) {
+                    const startTime = effectiveTimestampsRef.current?.startTime ?? 0;
+                    const endTime = startTime + durationSec;
+                    const newAudioTimestamps: Timestamps = {
+                        startTime: Number(startTime.toFixed(3)),
+                        endTime: Number(endTime.toFixed(3)),
+                    };
+                    setContentBeingUpdated({
+                        ...contentBeingUpdatedRef.current,
+                        cellAudioTimestamps: newAudioTimestamps,
+                    });
+                    window.vscodeApi.postMessage({
+                        command: "updateCellAudioTimestamps",
+                        content: {
+                            cellId: cellMarkers[0],
+                            timestamps: newAudioTimestamps,
+                        },
+                    });
+                }
+
                 // Send to provider to save file
                 const requestId =
                     typeof crypto !== "undefined" &&
@@ -2590,7 +2630,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             };
             reader.readAsDataURL(blob);
         },
-        [cellMarkers]
+        [cellMarkers, setContentBeingUpdated]
     );
 
     // Keep ref updated with saveAudioToCell function
