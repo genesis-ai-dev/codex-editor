@@ -1,5 +1,6 @@
 import { AlignedCell, CellAligner, ImportedContent } from "../../types/plugin";
 import { v4 as uuidv4 } from "uuid";
+import { CodexCellTypes } from "../../../../../../types/enums";
 
 /**
  * Generate a random ID for child cells
@@ -87,6 +88,10 @@ export const subtitlesCellAligner: CellAligner = async (
     sourceCells,
     importedContent
 ): Promise<AlignedCell[]> => {
+    const filteredImportedContent = importedContent.filter((item) => {
+        const cellType = item.type as CodexCellTypes | undefined;
+        return cellType !== CodexCellTypes.MILESTONE && cellType !== CodexCellTypes.PARATEXT;
+    });
     const alignedCells: AlignedCell[] = [];
     let totalOverlaps = 0;
 
@@ -106,7 +111,7 @@ export const subtitlesCellAligner: CellAligner = async (
 
     // Debug logging: Show first 20 imported content with timestamps
     console.log("=== IMPORTED CONTENT (first 20) ===");
-    importedContent.slice(0, 20).forEach((item, i) => {
+    filteredImportedContent.slice(0, 20).forEach((item, i) => {
         const startTime = convertToSeconds(item.startTime);
         const endTime = convertToSeconds(item.endTime);
         console.log(
@@ -120,7 +125,7 @@ export const subtitlesCellAligner: CellAligner = async (
     // Create a map of best matches: for each import, find target with max overlap
     const importToBestTarget = new Map<number, { targetIndex: number; overlap: number }>();
 
-    importedContent.forEach((item, importIndex) => {
+    filteredImportedContent.forEach((item, importIndex) => {
         if (!item.content.trim()) return;
 
         let maxOverlap = 0;
@@ -175,7 +180,7 @@ export const subtitlesCellAligner: CellAligner = async (
         assignedImports.sort((a, b) => b.overlap - a.overlap);
 
         assignedImports.forEach(({ importIndex, overlap }, i) => {
-            const item = importedContent[importIndex];
+            const item = filteredImportedContent[importIndex];
             usedImportedIndices.add(importIndex);
             const targetId = targetCell.metadata?.id || uuidv4();
 
@@ -223,7 +228,7 @@ export const subtitlesCellAligner: CellAligner = async (
     });
 
     // Now add any unmatched imported items as paratext in their correct temporal positions
-    const remainingImports = importedContent
+    const remainingImports = filteredImportedContent
         .map((item, index) => ({ item, index }))
         .filter(({ item, index }) => !usedImportedIndices.has(index) && item.content.trim());
 
@@ -291,7 +296,7 @@ export const subtitlesCellAligner: CellAligner = async (
 
     // Only throw if we found no overlaps at all
     const hasTargetCells = alignedCells.some((cell) => cell.notebookCell);
-    if (totalOverlaps === 0 && importedContent.length > 0 && !hasTargetCells) {
+    if (totalOverlaps === 0 && filteredImportedContent.length > 0 && !hasTargetCells) {
         throw new Error("No overlapping content found. Please check the selected file.");
     }
 

@@ -78,6 +78,18 @@ suite("VTT round-trip integration (mock VTT fixtures)", function () {
         );
         assert.ok(preservedMilestone, "Expected milestone cell to be preserved during alignment");
 
+        const milestoneId = milestoneTarget.metadata?.id;
+        const paratextFromMilestone = aligned.find(
+            (cell: AlignedCell) =>
+                cell.isParatext === true &&
+                cell.importedContent?.parentId === milestoneId &&
+                cell.importedContent?.content?.trim() === "1"
+        );
+        assert.ok(
+            !paratextFromMilestone,
+            "Expected milestone cells to be ignored during subtitle alignment"
+        );
+
         const importedByStart = new Map<number, string>();
         importedContent.forEach((item) => {
             if (typeof item.startTime === "number") {
