@@ -3032,7 +3032,7 @@ export class SQLiteIndexManager {
         // Tokenize query - keep single characters for short queries
         const trimmedQuery = query.trim();
         const words = trimmedQuery
-            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ')
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
             .replace(/\s+/g, ' ')
             .trim()
             .split(/\s+/)
@@ -3260,7 +3260,7 @@ export class SQLiteIndexManager {
         // Tokenize query - keep single characters for short queries
         const trimmedQuery = query.trim();
         const words = trimmedQuery
-            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ')
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
             .replace(/\s+/g, ' ')
             .trim()
             .split(/\s+/)
