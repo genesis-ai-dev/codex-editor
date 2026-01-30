@@ -95,7 +95,7 @@ const calculateAlignmentConfidence = (
  * Simplified alignment function for subtitles that preserves temporal order
  * by processing imported content sequentially (like the old implementation)
  */
-const subtitlesCellAligner: CellAligner = async (
+export const subtitlesCellAligner: CellAligner = async (
     targetCells: any[],
     sourceCells: any[],
     importedContent: ImportedContent[]
@@ -343,8 +343,8 @@ const subtitlesCellAligner: CellAligner = async (
         const paratextId = parentId
             ? `${parentId}:paratext-${generateRandomId()}`
             : documentName
-                ? `${documentName} ${sectionId}:paratext-${generateRandomId()}`
-                : `paratext-${generateRandomId()}`; // Fallback if no document info found
+            ? `${documentName} ${sectionId}:paratext-${generateRandomId()}`
+            : `paratext-${generateRandomId()}`; // Fallback if no document info found
 
         alignedCells.splice(insertIndex, 0, {
             notebookCell: null,
