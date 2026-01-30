@@ -66,6 +66,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _cachedFileId: number | null = null;
     private _indexManager = getSQLiteIndexManager();
 
+    // Cache for milestone index to avoid rebuilding on every call
+    private _cachedMilestoneIndex: MilestoneIndex | null = null;
+    private _cachedMilestoneIndexCellsPerPage: number | null = null;
+    private _cachedMilestoneIndexCellCount: number = 0;
+    private _lastUpdatedMilestoneIndexCellCount: number = 0;
+
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
 
@@ -277,7 +283,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         retainValidations = false,
         skipAutoValidation = false
     ) {
-        console.log("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
+        debug("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
@@ -290,6 +296,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
+        // Update milestone value in cache if updating a milestone cell value
+        // Only invalidate cache if structure actually changed (e.g., milestone deleted/added)
+        if (cellToUpdate.metadata?.type === CodexCellTypes.MILESTONE && shouldUpdateValue) {
+            // Try to update the cached milestone value directly (more efficient)
+            const updated = this.updateMilestoneValueInCache(indexOfCellToUpdate, newContent);
+            if (!updated) {
+                // Cache doesn't exist or milestone not found - invalidate to force rebuild
+                this.invalidateMilestoneIndexCache();
+            }
+            // If updated successfully, cache remains valid with updated value
+        }
+
         // Block updates to locked cells (except for system operations like unlocking)
         // Allow LLM_GENERATION previews (shouldUpdateValue=false) but block actual content updates
         if (cellToUpdate.metadata?.isLocked && editType === EditType.USER_EDIT && shouldUpdateValue) {
@@ -297,15 +315,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return;
         }
 
-        // For user edits, only add the edit if content has actually changed
-        if (editType === EditType.USER_EDIT && cellToUpdate.value === newContent) {
-            return; // Skip adding edit if normalized content hasn't changed
-        }
 
         // Special case: for non-persisting LLM previews, do not update the cell value
         // but DO record an LLM_GENERATION edit in metadata so history/auditing is preserved
         if (editType === EditType.LLM_GENERATION && !shouldUpdateValue) {
-            console.log("trace 124 LLM_GENERATION and !shouldUpdateValue", cellId, newContent, editType, shouldUpdateValue);
+            debug("trace 124 LLM_GENERATION and !shouldUpdateValue", cellId, newContent, editType, shouldUpdateValue);
             // Ensure edit history array exists
             if (!cellToUpdate.metadata.edits) {
                 cellToUpdate.metadata.edits = [];
@@ -313,7 +327,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             const currentTimestamp = Date.now();
 
-            const previewEdit: any = {
+            const previewEdit = {
                 editMap: EditMapUtils.value(),
                 value: newContent,
                 timestamp: currentTimestamp,
@@ -324,7 +338,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             };
             cellToUpdate.metadata.edits.push(previewEdit);
 
-            console.log("trace 124 cellToUpdate", { cellToUpdate });
+            debug("trace 124 cellToUpdate", { cellToUpdate });
 
             // Mark dirty so edits are persisted on the next explicit save, but do not notify or save automatically.
             // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
@@ -604,7 +618,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 content           // Raw content with HTML tags
             );
 
-            console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
+            debug(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
 
         } catch (error) {
             console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
@@ -634,6 +648,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             });
         }
 
+        // Invalidate milestone index cache since cells have been removed
+        // (addCell will also invalidate, but we do it here too for clarity)
+        this.invalidateMilestoneIndexCache();
+
         this.addCell(
             targetCellId,
             cellMarkerOfCellBeforeNewCell,
@@ -646,7 +664,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             content
         );
     }
-
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const ourContent = formatJsonForNotebookFile(this._documentData);
 
@@ -659,7 +676,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
         } else {
             const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
             const mergedContent = await resolveCodexCustomMerge(ourContent, existing.content);
-            await atomicWriteUriText(this.uri, normalizeNotebookFileText(mergedContent));
+
+            // Safety: never write empty/invalid JSON to disk
+            let candidate =
+                typeof mergedContent === "string" && mergedContent.trim().length > 0
+                    ? mergedContent
+                    : ourContent;
+
+            candidate = normalizeNotebookFileText(candidate);
+
+            try {
+                JSON.parse(candidate);
+            } catch {
+                candidate = normalizeNotebookFileText(ourContent);
+            }
+
+            await atomicWriteUriText(this.uri, candidate);
         }
 
         // Record save timestamp to prevent file watcher from reverting our own save
@@ -671,6 +703,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
     }
+
 
     public async saveAs(
         targetResource: vscode.Uri,
@@ -693,6 +726,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);
         this._documentData = JSON.parse(diskContent.toString());
+        // Invalidate milestone index cache since document was reverted from disk
+        this.invalidateMilestoneIndexCache();
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
         this._onDidChangeForWebview.fire({
@@ -1015,6 +1050,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Set deleted flag
         (cellToSoftDelete.metadata.data).deleted = true;
 
+        // Invalidate milestone index cache if this is a milestone cell or if cells structure changed
+        if (cellToSoftDelete.metadata.type === CodexCellTypes.MILESTONE) {
+            this.invalidateMilestoneIndexCache();
+        }
+
         // Ensure edits array exists and record a deletion edit for merge/audit trails
         if (!cellToSoftDelete.metadata.edits) {
             cellToSoftDelete.metadata.edits = [];
@@ -1093,6 +1133,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             kind: vscode.NotebookCellKind.Code,
             metadata: cellMetadata,
         });
+
+        // Invalidate milestone index cache since cells have changed
+        this.invalidateMilestoneIndexCache();
 
         // Record the edit
         this._edits.push({
@@ -1222,140 +1265,282 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return this._documentData.metadata;
     }
 
-    // FIXME: Make this more efficient by mapping the milestone cells and allowing the map to be
-    // reused by other methods such as findMilestoneIndexForCell and findMilestoneAndSubsectionForCell.
+    /**
+     * Invalidates the cached milestone index when cells are modified.
+     * Call this whenever cells are added, removed, or their types/metadata change.
+     */
+    private invalidateMilestoneIndexCache(): void {
+        this._cachedMilestoneIndex = null;
+        this._cachedMilestoneIndexCellsPerPage = null;
+        this._cachedMilestoneIndexCellCount = 0;
+        this._lastUpdatedMilestoneIndexCellCount = 0;
+    }
+
+    /**
+     * Updates a milestone value in the cached milestone index without rebuilding.
+     * This is more efficient than invalidating and rebuilding when only the value changes.
+     * 
+     * @param cellIndex The index of the milestone cell in the cells array
+     * @param newValue The new milestone value
+     * @returns true if the milestone was found and updated, false otherwise
+     */
+    private updateMilestoneValueInCache(cellIndex: number, newValue: string): boolean {
+        if (!this._cachedMilestoneIndex || !this._cachedMilestoneIndex.milestones) {
+            return false;
+        }
+
+        // Find the milestone that matches this cellIndex
+        const milestone = this._cachedMilestoneIndex.milestones.find(
+            (m) => m.cellIndex === cellIndex
+        );
+
+        if (milestone) {
+            milestone.value = newValue;
+            return true;
+        }
+
+        return false;
+    }
 
     /**
      * Builds a milestone index from the document cells.
-     * This index is used for milestone-based pagination.
+     * This index is cached and reused until cells are modified.
      * 
      * @param cellsPerPage Number of cells per page for sub-pagination within milestones
      * @returns MilestoneIndex containing milestone information and pagination settings
      */
     public buildMilestoneIndex(cellsPerPage: number = 50): MilestoneIndex {
-        const milestones: MilestoneInfo[] = [];
         const cells = this._documentData.cells || [];
+        const currentCellCount = cells.length;
 
-        // Find all milestone cells and their positions (excluding deleted ones)
-        const milestoneCellIndices: { cellIndex: number; value: string; }[] = [];
+        // Check if we can use the cached index
+        if (
+            this._cachedMilestoneIndex !== null &&
+            this._cachedMilestoneIndexCellsPerPage === cellsPerPage &&
+            this._cachedMilestoneIndexCellCount === currentCellCount
+        ) {
+            return this._cachedMilestoneIndex;
+        }
 
+        // Build the milestone index
+        const milestones: MilestoneInfo[] = [];
+        let totalContentCells = 0;
+        let currentMilestoneIndex = -1; // Track which milestone we're currently in
+        let currentMilestoneCellCount = 0; // Count cells for current milestone
+
+        // Single pass: find milestones, count content cells, assign milestoneIndex, and build milestone info
         for (let i = 0; i < cells.length; i++) {
             const cell = cells[i];
-            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
-                // Skip deleted milestone cells
-                if (cell.metadata?.data?.deleted === true) {
-                    continue;
+            const cellType = cell.metadata?.type;
+
+            // Track milestone cells (excluding deleted ones)
+            if (cellType === CodexCellTypes.MILESTONE) {
+                if (cell.metadata?.data?.deleted !== true) {
+                    // If we have a previous milestone, finalize it before starting a new one
+                    if (currentMilestoneIndex >= 0) {
+                        milestones[currentMilestoneIndex].cellCount = currentMilestoneCellCount;
+                    }
+
+                    // Start a new milestone
+                    currentMilestoneIndex++;
+                    currentMilestoneCellCount = 0;
+                    milestones.push({
+                        index: currentMilestoneIndex,
+                        cellIndex: i,
+                        value: cell.value || String(currentMilestoneIndex + 1),
+                        cellCount: 0, // Will be set when we finalize this milestone
+                    });
                 }
-                milestoneCellIndices.push({
-                    cellIndex: i,
-                    value: cell.value || String(milestoneCellIndices.length + 1),
-                });
+            }
+
+            // Process content cells (excluding milestones and paratext)
+            if (cellType !== CodexCellTypes.MILESTONE && cellType !== "paratext") {
+                totalContentCells++;
+
+                // Only assign milestoneIndex if we've encountered at least one milestone
+                if (currentMilestoneIndex >= 0) {
+                    // Assign milestoneIndex to this cell
+                    // Ensure data object exists
+                    if (!cell.metadata) {
+                        cell.metadata = {} as CustomCellMetaData;
+                    }
+                    if (!cell.metadata.data) {
+                        cell.metadata.data = {} as any;
+                    }
+                    (cell.metadata.data as any).milestoneIndex = currentMilestoneIndex;
+                    currentMilestoneCellCount++;
+                }
+            }
+
+            // Assign milestoneIndex to Paratext cells for footnote numbering (but don't count them)
+            // Paratext cells need milestoneIndex to maintain sequential footnote numbering across cell types
+            if (cellType === "paratext") {
+                // Only assign milestoneIndex if we've encountered at least one milestone
+                if (currentMilestoneIndex >= 0) {
+                    // Assign milestoneIndex to this Paratext cell
+                    // Ensure data object exists
+                    if (!cell.metadata) {
+                        cell.metadata = {} as CustomCellMetaData;
+                    }
+                    if (!cell.metadata.data) {
+                        cell.metadata.data = {} as any;
+                    }
+                    (cell.metadata.data as any).milestoneIndex = currentMilestoneIndex;
+                }
             }
         }
 
-        // Count total content cells (excluding milestones and paratext)
-        let totalContentCells = 0;
-        for (const cell of cells) {
-            if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                cell.metadata?.type !== "paratext") {
-                totalContentCells++;
-            }
+        // Finalize the last milestone's cell count
+        if (currentMilestoneIndex >= 0) {
+            milestones[currentMilestoneIndex].cellCount = currentMilestoneCellCount;
         }
 
         // Edge case: No milestone cells found - create a virtual milestone at index 0
-        if (milestoneCellIndices.length === 0) {
-            milestones.push({
-                index: 0,
-                cellIndex: 0,
-                value: "1",
-                cellCount: totalContentCells,
-            });
-
-            return {
-                milestones,
-                totalCells: totalContentCells,
-                cellsPerPage,
-            };
-        }
-
-        // Build milestone info for each milestone
-        for (let i = 0; i < milestoneCellIndices.length; i++) {
-            const currentMilestone = milestoneCellIndices[i];
-            const nextMilestone = milestoneCellIndices[i + 1];
-
-            // Count content cells from this milestone to the next (or end of document)
-            const startIndex = currentMilestone.cellIndex;
-            const endIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
-
-            let cellCount = 0;
-            for (let j = startIndex; j < endIndex; j++) {
-                const cell = cells[j];
-                // Count only non-milestone, non-paratext cells
-                if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                    cell.metadata?.type !== "paratext") {
-                    cellCount++;
+        if (milestones.length === 0) {
+            // Assign milestoneIndex 0 to all non-milestone cells (including paratext for footnote numbering)
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                if (cell.metadata?.type !== CodexCellTypes.MILESTONE) {
+                    // Ensure data object exists
+                    if (!cell.metadata) {
+                        cell.metadata = {} as CustomCellMetaData;
+                    }
+                    if (!cell.metadata.data) {
+                        cell.metadata.data = {} as any;
+                    }
+                    (cell.metadata.data as any).milestoneIndex = 0;
                 }
             }
 
-            milestones.push({
-                index: i,
-                cellIndex: currentMilestone.cellIndex,
-                value: currentMilestone.value,
-                cellCount,
-            });
+            const result: MilestoneIndex = {
+                milestones: [{
+                    index: 0,
+                    cellIndex: 0,
+                    value: "1",
+                    cellCount: totalContentCells,
+                }],
+                totalCells: totalContentCells,
+                cellsPerPage,
+            };
+
+            // Cache the result
+            this._cachedMilestoneIndex = result;
+            this._cachedMilestoneIndexCellsPerPage = cellsPerPage;
+            this._cachedMilestoneIndexCellCount = currentCellCount;
+
+            return result;
         }
 
-        return {
+        const result: MilestoneIndex = {
             milestones,
             totalCells: totalContentCells,
             cellsPerPage,
         };
+
+        // Cache the result
+        this._cachedMilestoneIndex = result;
+        this._cachedMilestoneIndexCellsPerPage = cellsPerPage;
+        this._cachedMilestoneIndexCellCount = currentCellCount;
+
+        return result;
+    }
+
+    /**
+     * Updates the database with milestone indices for all cells.
+     * This should be called after buildMilestoneIndex() to persist the milestone indices.
+     */
+    public async updateCellMilestoneIndices(): Promise<void> {
+        if (!this._indexManager) {
+            this._indexManager = getSQLiteIndexManager();
+            if (!this._indexManager) {
+                console.warn(`[CodexDocument] Index manager not available for milestone index update`);
+                return;
+            }
+        }
+
+        const cells = this._documentData.cells || [];
+        const currentCellCount = cells.length;
+
+        // Optimization: Skip update if milestone indices haven't changed
+        // If cache is valid and cell count matches last update, indices haven't changed
+        if (
+            this._cachedMilestoneIndex !== null &&
+            this._cachedMilestoneIndexCellCount === currentCellCount &&
+            this._lastUpdatedMilestoneIndexCellCount === currentCellCount
+        ) {
+            // Milestone indices haven't changed, skip database update
+            return;
+        }
+
+        const contentType = this.getContentType();
+
+        // Get file ID
+        let fileId = this._cachedFileId;
+        if (!fileId) {
+            fileId = await this._indexManager.upsertFile(
+                this.uri.toString(),
+                contentType === "source" ? "source" : "codex",
+                Date.now()
+            );
+            this._cachedFileId = fileId;
+        }
+
+        // Use targeted UPDATE statement instead of full upserts
+        const db = this._indexManager.database;
+        if (!db) {
+            console.warn(`[CodexDocument] Database not available for milestone index update`);
+            return;
+        }
+
+        await this._indexManager.runInTransaction(() => {
+            // Prepare UPDATE statement once, reuse for all cells
+            const updateStatement = db.prepare(`
+                UPDATE cells 
+                SET milestone_index = ?
+                WHERE cell_id = ?
+            `);
+
+            try {
+                for (const cell of cells) {
+                    const cellId = cell.metadata?.id;
+                    if (!cellId) continue;
+
+                    const milestoneIndex = cell.metadata?.data?.milestoneIndex;
+
+                    // Execute UPDATE statement
+                    updateStatement.bind([
+                        milestoneIndex !== undefined ? milestoneIndex : null,
+                        cellId
+                    ]);
+                    updateStatement.step();
+                    updateStatement.reset();
+                }
+            } finally {
+                updateStatement.free();
+            }
+        });
+
+        // Track that we've updated for this cell count
+        this._lastUpdatedMilestoneIndexCellCount = currentCellCount;
     }
 
     /**
      * Finds the milestone index that a given cell belongs to.
+     * Uses O(1) lookup from cell.data.milestoneIndex.
      * @param cellId The ID of the cell to find the milestone for
      * @returns The milestone index (0-based), or null if not found
      */
     public findMilestoneIndexForCell(cellId: string): number | null {
         const cells = this._documentData.cells || [];
 
-        // Find the index of the cell in the cells array
-        const cellIndex = cells.findIndex((cell) => cell.metadata?.id === cellId);
-        if (cellIndex === -1) {
+        // Find the cell by ID
+        const cell = cells.find((cell) => cell.metadata?.id === cellId);
+        if (!cell) {
             return null;
         }
 
-        // Find all milestone cells and their positions
-        const milestoneCellIndices: number[] = [];
-        for (let i = 0; i < cells.length; i++) {
-            const cell = cells[i];
-            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
-                // Skip deleted milestone cells
-                if (cell.metadata?.data?.deleted === true) {
-                    continue;
-                }
-                milestoneCellIndices.push(i);
-            }
-        }
-
-        // If no milestones found, return 0 (virtual milestone)
-        if (milestoneCellIndices.length === 0) {
-            return 0;
-        }
-
-        // Find which milestone this cell belongs to
-        // A cell belongs to the last milestone that appears before it
-        let milestoneIndex = 0;
-        for (let i = 0; i < milestoneCellIndices.length; i++) {
-            if (milestoneCellIndices[i] <= cellIndex) {
-                milestoneIndex = i;
-            } else {
-                break;
-            }
-        }
-
-        return milestoneIndex;
+        // Return milestoneIndex from cell data (O(1) lookup)
+        return cell.metadata?.data?.milestoneIndex ?? null;
     }
 
     /**
@@ -1821,6 +2006,48 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Gets all cells in a milestone (without pagination).
+     * Used for calculating footnote offsets across pages.
+     * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @returns Array of all cells in the milestone
+     */
+    public getAllCellsForMilestone(milestoneIndex: number): QuillCellContent[] {
+        const cells = this._documentData.cells || [];
+        const milestoneInfo = this.buildMilestoneIndex(50); // Use default cellsPerPage for milestone info
+
+        // Validate milestone index
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            console.warn(`Invalid milestone index: ${milestoneIndex}`);
+            return [];
+        }
+
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+
+        // Get all cells in this milestone section
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+        // Convert all cells in milestone range to QuillCellContent format
+        const allCellsInMilestone: QuillCellContent[] = [];
+
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+
+            // Skip milestone cells - they're not displayed
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+
+            const quillContent = convertCellToQuillContent(cell);
+            allCellsInMilestone.push(quillContent);
+        }
+
+        return allCellsInMilestone;
+    }
+
+    /**
      * Gets the total number of subsections for a milestone.
      * 
      * @param milestoneIndex The index of the milestone (0-based)
@@ -2103,6 +2330,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this.isValidValidationEntry(entry)
         );
 
+        // Invalidate milestone index cache since validation changes affect progress calculations
+        // The milestone structure doesn't change, but progress needs to be recalculated
+        this.invalidateMilestoneIndexCache();
+
         // Mark document as dirty
         this._isDirty = true;
 
@@ -2123,7 +2354,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         // Log validation change for debugging
-        console.log(`[CodexDocument] 🔍 Validation change for cell ${cellId}:`, {
+        debug(`[CodexDocument] 🔍 Validation change for cell ${cellId}:`, {
             validate,
             username,
             validationCount: latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
@@ -2563,6 +2794,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return;
         }
 
+        // Check if this is a milestone cell and if we're modifying data that affects milestone index
+        const isMilestoneCell = cellToUpdate.metadata?.type === CodexCellTypes.MILESTONE;
+        const isModifyingDeletedFlag = 'deleted' in newData;
+        const shouldInvalidateCache = isMilestoneCell && isModifyingDeletedFlag;
+
         // Ensure metadata exists
         if (!this._documentData.cells[indexOfCellToUpdate].metadata) {
             this._documentData.cells[indexOfCellToUpdate].metadata = {
@@ -2583,6 +2819,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ...this._documentData.cells[indexOfCellToUpdate].metadata.data,
             ...newData,
         };
+
+        // Invalidate milestone index cache if milestone cell's deleted flag was modified
+        if (shouldInvalidateCache) {
+            this.invalidateMilestoneIndexCache();
+        }
 
         this._isDirty = true;
 
@@ -3114,7 +3355,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         attachments: cell.metadata?.attachments || {},
                         selectedAudioId: cell.metadata?.selectedAudioId,
                         selectionTimestamp: cell.metadata?.selectionTimestamp,
-                        type: "ai_learning",
+                        type: cell.metadata?.type || null,
                         lastUpdated: Date.now(),
                     };
 
@@ -3157,7 +3398,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             }
 
-            console.log(`[CodexDocument] ✅ AI knowledge updated: AI learned from ${syncedCells} cells, ${syncedValidations} cells with validation data`);
+            debug(`[CodexDocument] ✅ AI knowledge updated: AI learned from ${syncedCells} cells, ${syncedValidations} cells with validation data`);
 
         } catch (error) {
             console.error(`[CodexDocument] Error during AI learning:`, error);

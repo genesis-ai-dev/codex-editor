@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.15.0",
+    "version": "0.16.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -817,13 +817,10 @@
                         "title": "LLM Model",
                         "type": "string",
                         "enum": [
-                            "custom",
-                            "gpt-4o",
-                            "gpt-4o-mini",
-                            "davinci"
+                            "default"
                         ],
-                        "default": "gpt-4o",
-                        "description": "Model name selected for inference. Ignorable for local LLM. If you are using a custom LLM, set to 'custom' and update the customModel setting below."
+                        "default": "default",
+                        "description": "Model name selected for inference."
                     },
                     "codex-editor-extension.asrEndpoint": {
                         "title": "ASR WebSocket Endpoint",
@@ -858,12 +855,6 @@
                         "type": "boolean",
                         "default": false,
                         "description": "If enabled and supported by provider, also return phonetic (IPA) transcription."
-                    },
-                    "codex-editor-extension.customModel": {
-                        "title": "Custom LLM Model",
-                        "type": "string",
-                        "default": "",
-                        "description": "Custom LLM model to use for inference. Ignorable for OpenAI API."
                     },
                     "codex-editor-extension.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",

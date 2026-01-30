@@ -54,6 +54,7 @@ export interface CellListProps {
     }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
+    saveErrorMessage?: string | null; // Error message to display when save fails
     saveRetryCount?: number; // Number of save retry attempts
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     fontSize?: number; // Font size for responsive styling
@@ -115,6 +116,7 @@ const CellList: React.FC<CellListProps> = ({
     audioAttachments,
     isSaving = false,
     saveError = false,
+    saveErrorMessage = null,
     saveRetryCount = 0,
     isCorrectionEditorMode = false,
     fontSize = 14,
@@ -173,8 +175,8 @@ const CellList: React.FC<CellListProps> = ({
     // Previous queue reference for comparison
     const prevQueueRef = useRef<string[]>([]);
 
-    // Calculate footnote offset for each cell based on previous cells' footnote counts within the same chapter
-    // This uses fullDocumentTranslationUnits to count across all subsections within a chapter
+    // Calculate footnote offset for each cell based on previous cells' footnote counts within the same milestone
+    // This counts footnotes from previous subsections (pages) in the same milestone
     const calculateFootnoteOffset = useCallback(
         (cellIndex: number): number => {
             if (cellIndex >= workingTranslationUnits.length) return 0;
@@ -182,41 +184,77 @@ const CellList: React.FC<CellListProps> = ({
             const currentCell = workingTranslationUnits[cellIndex];
             const currentCellId = currentCell.cellMarkers[0];
 
-            // Extract chapter ID properly: "JUD 1:1" -> "JUD 1"
-            const currentChapterId = currentCellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
+            // Get the milestone index for the current cell from its metadata
+            // Cells have milestoneIndex stored in metadata.data.milestoneIndex
+            const currentMilestoneIdx =
+                (currentCell.data as any)?.milestoneIndex ??
+                (currentCell.metadata as any)?.data?.milestoneIndex;
 
-            // Use fullDocumentTranslationUnits to count footnotes across the entire chapter
-            // Find the current cell's index in the full document
-            const fullDocumentCellIndex = fullDocumentTranslationUnits.findIndex(
-                (cell) => cell.cellMarkers[0] === currentCellId
-            );
+            // If we have milestone index and milestone info, use milestone-based counting
+            if (
+                currentMilestoneIdx !== undefined &&
+                currentMilestoneIdx !== null &&
+                milestoneIndex &&
+                currentMilestoneIdx < milestoneIndex.milestones.length
+            ) {
+                // Use fullDocumentTranslationUnits which should now contain all cells in the milestone
+                // Find the current cell's index in the full milestone
+                const fullMilestoneCellIndex = fullDocumentTranslationUnits.findIndex(
+                    (cell) => cell.cellMarkers[0] === currentCellId
+                );
 
-            if (fullDocumentCellIndex === -1) return 0;
-
-            // Count footnotes only in previous cells within the same chapter (across entire document)
-            let footnoteCount = 0;
-            for (let i = 0; i < fullDocumentCellIndex; i++) {
-                const cell = fullDocumentTranslationUnits[i];
-                const cellId = cell.cellMarkers[0];
-                const cellChapterId = cellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
-
-                // Only count footnotes if the cell is in the same chapter
-                if (
-                    cellChapterId === currentChapterId &&
-                    cell.cellType !== CodexCellTypes.PARATEXT &&
-                    cell.cellType !== CodexCellTypes.MILESTONE
-                ) {
-                    // Extract footnotes from this cell's content
-                    const tempDiv = document.createElement("div");
-                    tempDiv.innerHTML = cell.cellContent || "";
-                    const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
-                    footnoteCount += footnoteMarkers.length;
+                if (fullMilestoneCellIndex === -1) {
+                    // Cell not found in full milestone, fall back to counting from current page
+                    let footnoteCount = 0;
+                    for (let i = 0; i < cellIndex; i++) {
+                        const cell = workingTranslationUnits[i];
+                        if (cell.cellType !== CodexCellTypes.MILESTONE) {
+                            const tempDiv = document.createElement("div");
+                            tempDiv.innerHTML = cell.cellContent || "";
+                            const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
+                            footnoteCount += footnoteMarkers.length;
+                        }
+                    }
+                    return footnoteCount;
                 }
+
+                // Count footnotes from all previous cells in the same milestone (including previous pages)
+                let footnoteCount = 0;
+                for (let i = 0; i < fullMilestoneCellIndex; i++) {
+                    const cell = fullDocumentTranslationUnits[i];
+
+                    // Get the milestone index for this cell
+                    const cellMilestoneIdx =
+                        (cell.data as any)?.milestoneIndex ??
+                        (cell.metadata as any)?.data?.milestoneIndex;
+
+                    // Only count footnotes if the cell is in the same milestone
+                    // Include paratext cells in the same milestone for footnote numbering continuity
+                    if (
+                        cellMilestoneIdx === currentMilestoneIdx &&
+                        cell.cellType !== CodexCellTypes.MILESTONE
+                    ) {
+                        // Extract footnotes from this cell's content
+                        const tempDiv = document.createElement("div");
+                        tempDiv.innerHTML = cell.cellContent || "";
+                        const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
+                        footnoteCount += footnoteMarkers.length;
+                    }
+                }
+
+                return footnoteCount;
             }
 
-            return footnoteCount;
+            return 0;
         },
-        [workingTranslationUnits, fullDocumentTranslationUnits]
+        [
+            workingTranslationUnits,
+            fullDocumentTranslationUnits,
+            milestoneIndex,
+            currentMilestoneIndex,
+            currentSubsectionIndex,
+            cellsPerPage,
+        ]
     );
 
     // Add debug logging for translation state tracking
@@ -902,6 +940,7 @@ const CellList: React.FC<CellListProps> = ({
                             openCellById={openCellById}
                             isSaving={isSaving}
                             saveError={saveError}
+                            saveErrorMessage={saveErrorMessage}
                             saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
                             audioAttachments={audioAttachments}
@@ -1094,7 +1133,7 @@ const CellList: React.FC<CellListProps> = ({
         "cellList-refreshComments",
         (event: MessageEvent) => {
             if (event.data.type === "refreshCommentCounts") {
-                console.log("Refreshing comment counts due to comments file change");
+                debug("Refreshing comment counts due to comments file change");
                 // Re-fetch comments count for all visible cells in one batch
                 const allCellIds = workingTranslationUnits.map((unit) => unit.cellMarkers[0]);
                 if (allCellIds.length > 0) {
@@ -1116,7 +1155,7 @@ const CellList: React.FC<CellListProps> = ({
     // Debug log to see the structure of translationUnits
     useEffect(() => {
         if (DEBUG_ENABLED && workingTranslationUnits.length > 0) {
-            console.log("Translation unit structure:", workingTranslationUnits[0]);
+            debug("Translation unit structure:", workingTranslationUnits[0]);
         }
     }, [workingTranslationUnits]);
 

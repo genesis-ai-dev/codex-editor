@@ -207,13 +207,15 @@ suite("Provider + Merge Integration - multi-user multi-field edits", () => {
             isDeleted: false,
         });
 
-        // Set selection timestamps so theirs is newer
+        // Set selection timestamps and selectedAudioId so theirs is newer
         const getCell = (doc: any) => JSON.parse(doc.getText()).cells.find((c: any) => c.metadata?.id === sharedCellId);
         const oursParsed1: CodexNotebookAsJSONData = JSON.parse((oursDoc as any).getText());
         const theirsParsed1: CodexNotebookAsJSONData = JSON.parse((theirsDoc as any).getText());
         const oursCellIdx = oursParsed1.cells.findIndex((c: any) => c.metadata?.id === sharedCellId);
         const theirsCellIdx = theirsParsed1.cells.findIndex((c: any) => c.metadata?.id === sharedCellId);
+        oursParsed1.cells[oursCellIdx].metadata.selectedAudioId = oursAudioId;
         oursParsed1.cells[oursCellIdx].metadata.selectionTimestamp = now + 50;
+        theirsParsed1.cells[theirsCellIdx].metadata.selectedAudioId = theirsAudioId;
         theirsParsed1.cells[theirsCellIdx].metadata.selectionTimestamp = now + 150;
         // Persist selection timestamps back to documents
         await vscode.workspace.fs.writeFile(localOursUri, Buffer.from(JSON.stringify(oursParsed1, null, 2)));

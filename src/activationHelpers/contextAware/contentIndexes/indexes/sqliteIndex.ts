@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 11; // Added cell_type column for filtering milestone cells
+export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index column for O(1) milestone lookup
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -119,7 +119,7 @@ export class SQLiteIndexManager {
     public addProgressEntry(step: string, duration: number, startTime: number): void {
         this.progressTimings.push({ step, duration, startTime });
         updateSplashScreenTimings(this.progressTimings);
-        console.log(`[Index] ${step}: ${duration.toFixed(2)}ms`);
+        debug(`[Index] ${step}: ${duration.toFixed(2)}ms`);
     }
 
     async initialize(context: vscode.ExtensionContext): Promise<void> {
@@ -169,7 +169,7 @@ export class SQLiteIndexManager {
             this.db = new this.sql!.Database(fileContent);
             stepStart = this.trackProgress("Parse database structure", stepStart);
 
-            console.log("Loaded existing index database");
+            debug("Loaded existing index database");
 
             // Ensure schema is up to date
             await this.ensureSchema();
@@ -199,7 +199,7 @@ export class SQLiteIndexManager {
             }
 
             stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
-            console.log("Creating new index database");
+            debug("Creating new index database");
             this.db = new this.sql!.Database();
 
             await this.createSchema();
@@ -303,6 +303,9 @@ export class SQLiteIndexManager {
                     t_audio_validated_by TEXT,
                     t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
                     
+                    -- Milestone index for O(1) lookup (0-based milestone index, NULL if no milestone)
+                    milestone_index INTEGER,
+                    
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
                 )
@@ -344,6 +347,7 @@ export class SQLiteIndexManager {
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_s_file_id ON cells(s_file_id)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_file_id ON cells(t_file_id)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_milestone_index ON cells(milestone_index)");
         });
 
         debug("Creating database triggers...");
@@ -519,7 +523,7 @@ export class SQLiteIndexManager {
                 debug("FULL RECREATION: No partial migrations - deleting and recreating database from scratch for maximum reliability");
 
                 // Log schema recreation to console instead of showing to user
-                console.log(`[SQLiteIndex] 🔄 AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`);
+                debug(`[SQLiteIndex] 🔄 AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`);
 
                 // CRITICAL: Delete the database file completely and recreate from scratch
                 // This handles ALL cases: old schemas, corrupted databases, future schema versions, etc.
@@ -776,7 +780,8 @@ export class SQLiteIndexManager {
         content: string,
         lineNumber?: number,
         metadata?: any,
-        rawContent?: string
+        rawContent?: string,
+        milestoneIndex?: number | null
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -835,7 +840,8 @@ export class SQLiteIndexManager {
             `${prefix}raw_content_hash`,
             `${prefix}line_number`,
             `${prefix}word_count`,
-            `${prefix}raw_content`
+            `${prefix}raw_content`,
+            'milestone_index'
         ];
 
         const values = [
@@ -845,7 +851,8 @@ export class SQLiteIndexManager {
             rawContentHash,
             lineNumber || null,
             wordCount,
-            actualRawContent
+            actualRawContent,
+            milestoneIndex !== undefined ? milestoneIndex : null
         ];
 
         // Add timestamps based on cell type
@@ -941,7 +948,8 @@ export class SQLiteIndexManager {
         content: string,
         lineNumber?: number,
         metadata?: any,
-        rawContent?: string
+        rawContent?: string,
+        milestoneIndex?: number | null
     ): { id: string; isNew: boolean; contentChanged: boolean; } {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -1000,7 +1008,8 @@ export class SQLiteIndexManager {
             `${prefix}raw_content_hash`,
             `${prefix}line_number`,
             `${prefix}word_count`,
-            `${prefix}raw_content`
+            `${prefix}raw_content`,
+            'milestone_index'
         ];
 
         const values = [
@@ -1010,7 +1019,8 @@ export class SQLiteIndexManager {
             rawContentHash,
             lineNumber || null,
             wordCount,
-            actualRawContent
+            actualRawContent,
+            milestoneIndex !== undefined ? milestoneIndex : null
         ];
 
         // Add timestamps based on cell type
@@ -1856,7 +1866,7 @@ export class SQLiteIndexManager {
 
             const ftsQuery = escapedWords.join(" OR ");
 
-            console.log(`[searchGreekText] Words extracted: ${words.length} - ${words.slice(0, 5).join(', ')}...`);
+            debug(`[searchGreekText] Words extracted: ${words.length} - ${words.slice(0, 5).join(', ')}...`);
 
 
             sql = `
@@ -2400,7 +2410,7 @@ export class SQLiteIndexManager {
                 // Sanitize content for FTS search (same as upsertCell does)
                 const sanitizedContent = this.sanitizeContent(content);
                 const actualRawContent = rawContent || content;
-                
+
                 // Manually sync this specific cell to FTS if triggers didn't work
                 // Use sanitized content for the content field (for searching) and raw content for raw_content field
                 this.db!.run(`
@@ -3046,11 +3056,11 @@ export class SQLiteIndexManager {
             .trim()
             .split(/\s+/)
             .filter(token => token.length > 1); // Filter out single characters
-        
+
         if (words.length === 0) {
             return this.searchCompleteTranslationPairs('', limit, returnRawContent);
         }
-        
+
         // Generate character-level n-grams (bigrams and trigrams) from each word
         const generateCharNGrams = (text: string, n: number): string[] => {
             const grams: string[] = [];
@@ -3060,21 +3070,21 @@ export class SQLiteIndexManager {
             }
             return grams;
         };
-        
+
         // Common 2-char sequences that are too generic (filter out for performance)
         const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
-        
+
         const searchTerms: string[] = [];
         for (const word of words) {
             // Always add the full word (exact match is most important)
             searchTerms.push(word);
-            
+
             // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
             // This helps with partial matching when FTS5 tokenizes words
             if (word.length >= 2 && word.length <= 4) {
                 searchTerms.push(word + '*'); // Prefix wildcard for FTS5
             }
-            
+
             // Generate n-grams for partial matching
             // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
             if (word.length >= 3) {
@@ -3082,7 +3092,7 @@ export class SQLiteIndexManager {
                 const trigrams = generateCharNGrams(word, 3);
                 searchTerms.push(...trigrams);
             }
-            
+
             // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
             if (word.length >= 2) {
                 const bigrams = generateCharNGrams(word, 2);
@@ -3090,15 +3100,15 @@ export class SQLiteIndexManager {
                 searchTerms.push(...filteredBigrams);
             }
         }
-        
+
         // Limit total terms to avoid huge queries (keep most relevant)
         // Prioritize: full words first, then trigrams, then bigrams
         const maxTerms = 50; // Reasonable limit for FTS5 performance
         const finalTerms = searchTerms.slice(0, maxTerms);
-        
+
         // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
         const cleanQuery = finalTerms.join(' OR ');
-        
+
         // Simple substring match for the original query - ensures "ccc" matches "cccb"
         // Escape % and _ for LIKE (SQL wildcards)
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
@@ -3108,12 +3118,12 @@ export class SQLiteIndexManager {
         // Use UNION to combine FTS5 MATCH results with LIKE substring matching
         // (FTS5 MATCH can't be combined with OR in WHERE clause)
         const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
-        
+
         // Build LIKE conditions - search source always, target only if searchSourceOnly is false
-        const likeConditions = searchSourceOnly 
+        const likeConditions = searchSourceOnly
             ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
             : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
-        
+
         const sql = `
             SELECT DISTINCT 
                 cell_id,
@@ -3305,11 +3315,11 @@ export class SQLiteIndexManager {
             .trim()
             .split(/\s+/)
             .filter(token => token.length > 1); // Filter out single characters
-        
+
         if (words.length === 0) {
             return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated, searchSourceOnly);
         }
-        
+
         // Generate character-level n-grams (bigrams and trigrams) from each word
         const generateCharNGrams = (text: string, n: number): string[] => {
             const grams: string[] = [];
@@ -3319,21 +3329,21 @@ export class SQLiteIndexManager {
             }
             return grams;
         };
-        
+
         // Common 2-char sequences that are too generic (filter out for performance)
         const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
-        
+
         const searchTerms: string[] = [];
         for (const word of words) {
             // Always add the full word (exact match is most important)
             searchTerms.push(word);
-            
+
             // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
             // This helps with partial matching when FTS5 tokenizes words
             if (word.length >= 2 && word.length <= 4) {
                 searchTerms.push(word + '*'); // Prefix wildcard for FTS5
             }
-            
+
             // Generate n-grams for partial matching
             // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
             if (word.length >= 3) {
@@ -3341,7 +3351,7 @@ export class SQLiteIndexManager {
                 const trigrams = generateCharNGrams(word, 3);
                 searchTerms.push(...trigrams);
             }
-            
+
             // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
             if (word.length >= 2) {
                 const bigrams = generateCharNGrams(word, 2);
@@ -3349,15 +3359,15 @@ export class SQLiteIndexManager {
                 searchTerms.push(...filteredBigrams);
             }
         }
-        
+
         // Limit total terms to avoid huge queries (keep most relevant)
         // Prioritize: full words first, then trigrams, then bigrams
         const maxTerms = 50; // Reasonable limit for FTS5 performance
         const finalTerms = searchTerms.slice(0, maxTerms);
-        
+
         // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
         const cleanQuery = finalTerms.join(' OR ');
-        
+
         // Simple substring match for the original query - ensures "ccc" matches "cccb"
         // Escape % and _ for LIKE (SQL wildcards)
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
@@ -3367,9 +3377,9 @@ export class SQLiteIndexManager {
         // Use UNION to combine FTS5 MATCH results with LIKE substring matching
         // (FTS5 MATCH can't be combined with OR in WHERE clause)
         const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
-        
+
         // Build LIKE conditions - search source always, target only if searchSourceOnly is false
-        const likeConditions = searchSourceOnly 
+        const likeConditions = searchSourceOnly
             ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
             : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
 

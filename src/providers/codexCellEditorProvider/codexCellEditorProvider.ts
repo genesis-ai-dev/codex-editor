@@ -703,6 +703,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 safePostMessageToPanel(webviewPanel, {
                     type: "refreshCurrentPage",
                     rev,
+                    milestoneIndex: currentPosition.milestoneIndex,
+                    subsectionIndex: currentPosition.subsectionIndex,
                 });
                 // Still send metadata updates below, but skip the initial content reset
             } else {
@@ -746,29 +748,65 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Build milestone index for paginated loading
             const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
 
+            // Update database with milestone indices (fire-and-forget, don't block webview update)
+            document.updateCellMilestoneIndices().catch((error) => {
+                console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
+            });
+
             // Calculate progress for all milestones
             const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);
             milestoneIndex.milestoneProgress = milestoneProgress;
 
-            // Get cached chapter and map it to milestone index
-            const cachedChapter = this.getCachedChapter(docUri);
+            // Check currentMilestoneSubsectionMap first to preserve position (same logic as refreshWebview)
             let initialMilestoneIndex = 0;
-            const initialSubsectionIndex = this.getCachedSubsection(docUri);
+            let initialSubsectionIndex = this.getCachedSubsection(docUri);
 
-            // If we have milestones and a cached chapter, try to find the matching milestone
-            if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
-                // Find milestone that matches the cached chapter number
-                const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
-                    const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
-                    return chapterNum !== null && chapterNum === cachedChapter;
-                });
-                if (milestoneIdx !== -1) {
-                    initialMilestoneIndex = milestoneIdx;
+            if (currentPosition && milestoneIndex.milestones.length > 0) {
+                // Use milestone index from map if it's valid
+                if (currentPosition.milestoneIndex >= 0 && currentPosition.milestoneIndex < milestoneIndex.milestones.length) {
+                    initialMilestoneIndex = currentPosition.milestoneIndex;
+                    initialSubsectionIndex = currentPosition.subsectionIndex;
                 } else {
-                    // Fallback: try using chapter number as index (1-indexed to 0-indexed)
-                    const fallbackIdx = cachedChapter - 1;
-                    if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
-                        initialMilestoneIndex = fallbackIdx;
+                    // Invalid milestone index in map, fall back to cached chapter logic
+                    const cachedChapter = this.getCachedChapter(docUri);
+                    initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                    if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                        // Find milestone that matches the cached chapter number
+                        const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                            const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                            return chapterNum !== null && chapterNum === cachedChapter;
+                        });
+                        if (milestoneIdx !== -1) {
+                            initialMilestoneIndex = milestoneIdx;
+                        } else {
+                            // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                            const fallbackIdx = cachedChapter - 1;
+                            if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                                initialMilestoneIndex = fallbackIdx;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No entry in map, fall back to cached chapter logic
+                const cachedChapter = this.getCachedChapter(docUri);
+                initialSubsectionIndex = this.getCachedSubsection(docUri);
+
+                if (milestoneIndex.milestones.length > 0 && cachedChapter > 0) {
+                    // Find milestone that matches the cached chapter number
+                    const milestoneIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                        const chapterNum = extractChapterNumberFromMilestoneValue(milestone.value);
+                        return chapterNum !== null && chapterNum === cachedChapter;
+                    });
+                    if (milestoneIdx !== -1) {
+                        initialMilestoneIndex = milestoneIdx;
+                    } else {
+                        // Fallback: try using chapter number as index (1-indexed to 0-indexed)
+                        const fallbackIdx = cachedChapter - 1;
+                        if (fallbackIdx >= 0 && fallbackIdx < milestoneIndex.milestones.length) {
+                            initialMilestoneIndex = fallbackIdx;
+                        }
                     }
                 }
             }
@@ -2329,6 +2367,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Build milestone index for paginated loading
         const milestoneIndex = document.buildMilestoneIndex(this.CELLS_PER_PAGE);
+
+        // Update database with milestone indices (fire-and-forget, don't block webview update)
+        document.updateCellMilestoneIndices().catch((error) => {
+            console.warn("[CodexCellEditorProvider] Failed to update milestone indices in database:", error);
+        });
 
         // Calculate progress for all milestones
         const milestoneProgress = document.calculateMilestoneProgress(validationCount, validationCountAudio);

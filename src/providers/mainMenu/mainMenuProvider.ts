@@ -852,11 +852,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await syncManager.executeSync("Manual sync triggered from main menu", true, undefined, true);
                 break;
             }
-            case "openBookNameEditor":
-                await vscode.commands.executeCommand("codex-editor.openBookNameEditor");
-                await this.store.refreshState();
-                safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
-                break;
             case "openCellLabelImporter":
                 await vscode.commands.executeCommand("codex-editor.openCellLabelImporter");
                 await this.store.refreshState();
@@ -950,9 +945,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openCellLabelImporter":
                 await vscode.commands.executeCommand("codex-editor.openCellLabelImporter");
-                break;
-            case "openBookNameEditor":
-                await vscode.commands.executeCommand("codex-editor.openBookNameEditor");
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();

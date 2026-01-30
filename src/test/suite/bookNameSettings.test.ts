@@ -84,16 +84,13 @@ suite("bookNameSettings Test Suite", () => {
         return codexUri;
     }
 
-    test("openBookNameEditor reads fileDisplayName from codex metadata files", async () => {
+    test("codex metadata fileDisplayName can be read and written", async () => {
         // Skip if no workspace folder
         if (!vscode.workspace.workspaceFolders?.[0]) {
             return;
         }
 
-        // This test verifies the logic in openBookNameEditor by checking
-        // that it reads from codex files. Since openBookNameEditor opens a webview,
-        // we'll test the metadata reading logic indirectly through importBookNamesFromXmlContent
-        // which uses similar logic.
+        // This test verifies that fileDisplayName can be read from and written to codex metadata files
 
         // Create codex files with fileDisplayName
         await createCodexFileWithMetadata("GEN", {
@@ -101,8 +98,6 @@ suite("bookNameSettings Test Suite", () => {
         });
         await createCodexFileWithMetadata("EXO", {}); // No fileDisplayName
 
-        // The actual verification would happen if we could test openBookNameEditor directly
-        // For now, we verify that the codex files exist and can be read
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             return;
@@ -249,8 +244,7 @@ suite("bookNameSettings Test Suite", () => {
             return;
         }
 
-        // This test verifies the save logic from openBookNameEditor
-        // Since we can't easily test the webview interaction, we test the core logic
+        // This test verifies the core logic for updating fileDisplayName in codex metadata files
         // by simulating what happens when book names are saved
 
         // Create codex files

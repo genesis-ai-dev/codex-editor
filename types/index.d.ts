@@ -655,9 +655,6 @@ export type EditorPostMessages =
             deleteFootnote?: string;
         };
     }
-    | { command: "openBookNameEditor"; }
-    | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
-    | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
     | { command: "triggerSync"; }
     // removed: requestAudioAttachments
@@ -786,7 +783,12 @@ export type EditorPostMessages =
         content: {
             milestoneIndex: number;
             newValue: string;
+            deferRefresh?: boolean; // If true, skip webview refresh (for batching multiple edits)
         };
+    }
+    | {
+        command: "refreshWebviewAfterMilestoneEdits";
+        content?: Record<string, never>; // Empty content
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
@@ -897,6 +899,7 @@ type CodexData = Timestamps & {
     deleted?: boolean;
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
+    milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
     audioStartTime?: number;
     audioEndTime?: number;
 };
@@ -1410,7 +1413,6 @@ type ProjectManagerMessageFromWebview =
         data: { autoSyncEnabled: boolean; syncDelayMinutes: number; };
     }
     | { command: "triggerSync"; }
-    | { command: "openBookNameEditor"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "openCellLabelImporter"; }
