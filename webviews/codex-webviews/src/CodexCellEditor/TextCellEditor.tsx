@@ -380,6 +380,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
     const previousAudioTimestampValuesRef = useRef<[number, number] | null>(null);
     const effectiveTimestampsRef = useRef<Timestamps | undefined>(undefined);
+    const effectiveAudioTimestampsRef = useRef<Timestamps | undefined>(undefined);
     const contentBeingUpdatedRef = useRef<EditorCellContent>(contentBeingUpdated);
     const [prevAudioTimestamps, setPrevAudioTimestamps] = useState<Timestamps | null>(null);
     const [nextAudioTimestamps, setNextAudioTimestamps] = useState<Timestamps | null>(null);
@@ -947,9 +948,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     },
                 };
                 window.vscodeApi.postMessage(messageContent);
-                // Optimistically clear staged audio timestamps - will be re-cleared by effect if needed
-                const { cellAudioTimestamps, ...restAfterAudio } = contentBeingUpdated;
-                setContentBeingUpdated(restAfterAudio as EditorCellContent);
             }
         }, 0);
     };
@@ -977,6 +975,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         effectiveTimestampsRef.current = effectiveTimestamps;
     }, [effectiveTimestamps]);
+    useEffect(() => {
+        effectiveAudioTimestampsRef.current = effectiveAudioTimestamps;
+    }, [effectiveAudioTimestamps]);
+
     useEffect(() => {
         contentBeingUpdatedRef.current = contentBeingUpdated;
     }, [contentBeingUpdated]);
@@ -1015,8 +1017,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
             durationMismatch;
 
         if (shouldUpdate) {
-            // Use effectiveTimestamps startTime if available, otherwise use 0
-            const startTime = effectiveTimestamps?.startTime ?? 0;
+            // Preserve previous audio start time when re-recording; otherwise use video start or 0
+            const startTime =
+                effectiveAudioTimestamps?.startTime ??
+                effectiveTimestamps?.startTime ??
+                0;
             const endTime = startTime + audioDuration;
 
             const initialAudioTimestamps: Timestamps = {
@@ -1549,8 +1554,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // Helper function to clean up all audio and video
             const cleanupAll = () => {
                 if (audioElementRef.current) {
+                    const audioToClean = audioElementRef.current;
                     if (audioTimeUpdateHandlerRef.current) {
-                        audioElementRef.current.removeEventListener(
+                        audioToClean.removeEventListener(
                             "timeupdate",
                             audioTimeUpdateHandlerRef.current
                         );
@@ -1561,9 +1567,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         URL.revokeObjectURL(combinedUrl);
                         overlappingAudioUrlsRef.current.delete("combined");
                     }
-                    audioElementRef.current.pause();
-                    audioElementRef.current.src = "";
+                    audioToClean.pause();
+                    audioToClean.src = "";
                     audioElementRef.current = null;
+                    // Release so globalAudioController clears current; otherwise VideoPlayer
+                    // play later thinks "other audio" is still playing and skips cell overlay audio.
+                    globalAudioController.release(audioToClean);
                 }
 
                 // Restore video mute state and clean up video
@@ -1826,6 +1835,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
                 audioElement.pause();
                 audioElement.src = "";
+                globalAudioController.release(audioElement);
             }
             // Clear combined audio blob cache
             combinedAudioBlobRef.current = null;
@@ -2579,9 +2589,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     // ignore metadata decode errors
                 }
 
-                // Update Timestamps tab with current cell audio so it stays in sync after recording
+                // Update Timestamps tab with current cell audio so it stays in sync after recording.
+                // Preserve previous audio start time when re-recording (from contentBeingUpdated, kept after save).
                 if (typeof durationSec === "number" && durationSec > 0) {
-                    const startTime = effectiveTimestampsRef.current?.startTime ?? 0;
+                    const startTime =
+                        effectiveAudioTimestampsRef.current?.startTime ??
+                        effectiveTimestampsRef.current?.startTime ??
+                        0;
                     const endTime = startTime + durationSec;
                     const newAudioTimestamps: Timestamps = {
                         startTime: Number(startTime.toFixed(3)),
