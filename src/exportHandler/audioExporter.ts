@@ -5,6 +5,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as os from "os";
 import * as fs from "fs";
+import { CodexCellTypes } from "../../types/enums";
 
 const execAsync = promisify(exec);
 
@@ -125,7 +126,8 @@ function computeDialogueLineNumbers(
         const isMerged = !!(data && data.merged);
         const isDeleted = !!(data && data.deleted);
         const isParatext = cell?.metadata?.type === "paratext";
-        if (!isValidKind || isMerged || isDeleted || isParatext) continue;
+        const isMilestone = cell?.metadata?.type === CodexCellTypes.MILESTONE;
+        if (!isValidKind || isMerged || isDeleted || isParatext || isMilestone) continue;
         const id: string | undefined = cell?.metadata?.id;
         if (!id) continue;
         line += 1;
@@ -538,6 +540,10 @@ export async function exportAudioAttachments(
                     // Accept both Code cells (kind 2) and Markup cells (kind 1) - consistent with other exporters
                     if (cell.kind !== 2 && cell.kind !== 1) {
                         debug(`Skipping cell with kind ${cell.kind}`);
+                        continue;
+                    }
+                    if (cell?.metadata?.type === CodexCellTypes.MILESTONE) {
+                        debug(`Skipping milestone cell: ${cell?.metadata?.id}`);
                         continue;
                     }
                     if (!isActiveCell(cell)) {
