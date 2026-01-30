@@ -21,6 +21,12 @@ type ExportAudioOptions = {
     includeTimestamps?: boolean;
 };
 
+type AudioCellData = {
+    startTime?: number;
+    endTime?: number;
+    audioStartTime?: number;
+    audioEndTime?: number;
+};
 
 function sanitizeFileComponent(input: string): string {
     return input
@@ -594,9 +600,9 @@ export async function exportAudioAttachments(
                     }
 
                     // Build destination filename: <file>_<lang>_<label>_<line>.wav (always export as WAV)
-                    const timeFromCell = (cell?.metadata?.data || {}) as { startTime?: number; endTime?: number; };
-                    const start = timeFromCell.startTime;
-                    const end = timeFromCell.endTime;
+                    const timeFromCell = (cell?.metadata?.data || {}) as AudioCellData;
+                    const start = timeFromCell.audioStartTime || timeFromCell.startTime;
+                    const end = timeFromCell.audioEndTime || timeFromCell.endTime;
                     const originalExt = extname(absoluteSrc.fsPath) || ".wav";
                     const labelRaw = cell?.metadata?.cellLabel || "unlabeled";
                     const label = sanitizeFileComponent(String(labelRaw).toLowerCase());
