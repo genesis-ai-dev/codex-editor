@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useContext, useCallback } from "react";
-import ReactPlayer from "react-player";
 import Quill from "quill";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -22,7 +22,6 @@ import { getCleanedHtml } from "./react-quill-spellcheck/SuggestionBoxes";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
-import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 
 import {
@@ -176,6 +175,7 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
+    const [isOtherTypeAudioPlaying, setIsOtherTypeAudioPlaying] = useState<boolean>(false);
 
     // Track if user has manually navigated away from the highlighted chapter in source files
     const [hasManuallyNavigatedAway, setHasManuallyNavigatedAway] = useState<boolean>(false);
@@ -186,7 +186,7 @@ const CodexCellEditor: React.FC = () => {
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
     const [videoUrl, setVideoUrl] = useState<string>("");
-    const playerRef = useRef<ReactPlayer>(null);
+    const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
 
@@ -1556,6 +1556,29 @@ const CodexCellEditor: React.FC = () => {
         registerQuillSpellChecker(Quill as any, vscode);
     }, []);
 
+    // Listen for audio state changes from other webview types
+    useMessageHandler(
+        "codexCellEditor-audioStateChanged",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.command === "audioStateChanged" &&
+                message.destination === "webview" &&
+                message.content?.type === "audioPlaying"
+            ) {
+                const { webviewType, isPlaying } = message.content;
+                // If current webview is source and message indicates target is playing, or vice versa
+                if (
+                    (isSourceText && webviewType === "target") ||
+                    (!isSourceText && webviewType === "source")
+                ) {
+                    setIsOtherTypeAudioPlaying(isPlaying);
+                }
+            }
+        },
+        [isSourceText]
+    );
+
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
         const sectionSet = new Set<string>();
         units.forEach((unit) => {
@@ -2385,7 +2408,7 @@ const CodexCellEditor: React.FC = () => {
             const startTime = parseTimestampFromCellId(cellId);
             if (startTime !== null) {
                 debug("video", `Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
-                playerRef.current.seekTo(startTime + OFFSET_SECONDS, "seconds");
+                playerRef.current.seekTo?.(startTime + OFFSET_SECONDS, "seconds");
             }
         }
     }, [contentBeingUpdated, OFFSET_SECONDS]);
@@ -2424,7 +2447,15 @@ const CodexCellEditor: React.FC = () => {
     const translationUnitsWithCurrentEditorContent = useMemo(() => {
         return translationUnitsForSection?.map((unit) => {
             if (unit.cellMarkers[0] === contentBeingUpdated.cellMarkers?.[0]) {
-                return { ...unit, cellContent: contentBeingUpdated.cellContent };
+                const updatedUnit: QuillCellContent = {
+                    ...unit,
+                    cellContent: contentBeingUpdated.cellContent,
+                };
+                // Merge audio timestamps if they exist in contentBeingUpdated
+                if (contentBeingUpdated.cellAudioTimestamps) {
+                    updatedUnit.audioTimestamps = contentBeingUpdated.cellAudioTimestamps;
+                }
+                return updatedUnit;
             }
             return unit;
         });
@@ -2962,6 +2993,7 @@ const CodexCellEditor: React.FC = () => {
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                             vscode={vscode}
                             playerRef={playerRef}
+                            audioAttachments={audioAttachments}
                         />
                     </div>
                 )}
@@ -3028,6 +3060,11 @@ const CodexCellEditor: React.FC = () => {
                             currentMilestoneIndex={currentMilestoneIndex}
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
+                            playerRef={playerRef}
+                            shouldShowVideoPlayer={shouldShowVideoPlayer}
+                            videoUrl={videoUrl}
+                            isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
+                            metadata={metadata}
                         />
                     </div>
                 </div>
