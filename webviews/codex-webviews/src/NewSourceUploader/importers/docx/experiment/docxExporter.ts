@@ -125,8 +125,18 @@ function collectTranslations(
         // Get paragraph identifier
         const paragraphId = meta?.paragraphId;
         const paragraphIndex = meta?.paragraphIndex;
+        const paragraphIndices = meta?.paragraphIndices;
 
-        if (typeof paragraphIndex === 'number') {
+        if (Array.isArray(paragraphIndices) && paragraphIndices.length > 0) {
+            // Table-cell case: a single Codex cell maps to multiple DOCX paragraphs.
+            // We map lines of the translation to each paragraph index (preserves paragraph count).
+            const parts = translated.split(/\r?\n/);
+            for (let j = 0; j < paragraphIndices.length; j++) {
+                const idx = paragraphIndices[j];
+                if (typeof idx !== "number") continue;
+                translations.set(idx, parts[j] ?? '');
+            }
+        } else if (typeof paragraphIndex === 'number') {
             translations.set(paragraphIndex, translated);
             // Keep logs light; large documents can have thousands of cells.
         } else if (typeof paragraphId === 'string') {

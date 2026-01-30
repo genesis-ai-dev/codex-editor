@@ -21,7 +21,8 @@ import {
 } from '../../../utils/workflowHelpers';
 import { DocxParser } from './docxParser';
 import type { DocxDocument, DocxParagraph, DocxRun } from './docxTypes';
-import { createDocxCellMetadata } from './cellMetadata';
+import { createDocxCellMetadata, createDocxTableCellMetadata } from './cellMetadata';
+import { extractTableCellParagraphGroups } from './utils/tableSegmentation';
 import { ProcessedNotebook } from '../../../types/common';
 const SUPPORTED_EXTENSIONS = ['docx'];
 
@@ -103,8 +104,8 @@ export const parseFile = async (
 
         onProgress?.(createProgress('Creating Cells', 'Converting paragraphs to cells...', 60));
 
-        // Convert paragraphs to cells
-        const cells = createCellsFromParagraphs(docxDoc, file.name);
+        // Convert document content to cells (paragraphs + table cells)
+        const cells = createCellsFromDocx(docxDoc, file.name);
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 80));
 
@@ -205,20 +206,69 @@ export const parseFile = async (
 /**
  * Convert DOCX paragraphs to Codex cells with complete metadata for round-trip
  */
-const createCellsFromParagraphs = (docxDoc: DocxDocument, fileName: string): any[] => {
+const createCellsFromDocx = (docxDoc: DocxDocument, fileName: string): any[] => {
     const cells: any[] = [];
 
-    for (const paragraph of docxDoc.paragraphs) {
-        // Skip empty paragraphs
-        const fullText = paragraph.runs.map(r => r.content).join('');
-        if (!fullText.trim()) {
+    // Group paragraph indices by <w:tc> (table cells), using XML order to match exporter indices.
+    const tableGroups = extractTableCellParagraphGroups(docxDoc.documentXml);
+    const paragraphIndexToTableGroup = new Map<number, number>();
+    for (const group of tableGroups) {
+        for (const idx of group.paragraphIndices) {
+            paragraphIndexToTableGroup.set(idx, group.tableCellIndex);
+        }
+    }
+
+    // Build quick lookup for DocxParagraph by paragraphIndex.
+    const paragraphsByIndex = new Map<number, DocxParagraph>();
+    for (const p of docxDoc.paragraphs) {
+        paragraphsByIndex.set(p.paragraphIndex, p);
+    }
+
+    // Emit cells in paragraphIndex order, collapsing paragraphs within the same table cell into one cell.
+    const emittedTableGroups = new Set<number>();
+    const sortedParagraphIndices = Array.from(paragraphsByIndex.keys()).sort((a, b) => a - b);
+
+    for (const idx of sortedParagraphIndices) {
+        const tableCellIndex = paragraphIndexToTableGroup.get(idx);
+        if (typeof tableCellIndex === 'number') {
+            if (emittedTableGroups.has(tableCellIndex)) continue;
+            emittedTableGroups.add(tableCellIndex);
+
+            const group = tableGroups.find((g) => g.tableCellIndex === tableCellIndex);
+            const groupIndices = group?.paragraphIndices ?? [idx];
+
+            const groupParagraphs = groupIndices
+                .map((pi) => paragraphsByIndex.get(pi))
+                .filter((p): p is DocxParagraph => Boolean(p));
+
+            const originalText = groupParagraphs.map((p) => p.runs.map((r) => r.content).join('')).join('\n');
+            // IMPORTANT: do not drop empty table cells.
+            // Translators may need to add content to an empty DOCX table cell, and we must preserve
+            // a stable mapping for every <w:tc>.
+            const htmlContent =
+                groupParagraphs.length > 0 ? groupParagraphs.map(convertParagraphToHtml).join('') : '<p></p>';
+
+            const { cellId, metadata } = createDocxTableCellMetadata({
+                paragraphIndices: groupIndices,
+                originalContent: originalText,
+            });
+
+            cells.push(
+                createProcessedCell(cellId, htmlContent, {
+                    ...metadata,
+                    type: 'text',
+                })
+            );
             continue;
         }
 
-        // Convert runs to HTML for display
-        const htmlContent = convertParagraphToHtml(paragraph);
+        const paragraph = paragraphsByIndex.get(idx);
+        if (!paragraph) continue;
 
-        // Create cell metadata with complete structure for round-trip (generates UUID internally)
+        const fullText = paragraph.runs.map((r) => r.content).join('');
+        if (!fullText.trim()) continue;
+
+        const htmlContent = convertParagraphToHtml(paragraph);
         const { cellId, metadata: cellMetadata } = createDocxCellMetadata({
             paragraphId: paragraph.id,
             paragraphIndex: paragraph.paragraphIndex,
@@ -228,16 +278,17 @@ const createCellsFromParagraphs = (docxDoc: DocxDocument, fileName: string): any
             fileName,
         });
 
-        // Create the cell
-        const cell = createProcessedCell(cellId, htmlContent, {
-            ...cellMetadata,
-            type: 'text',
-        });
-
-        cells.push(cell);
+        cells.push(
+            createProcessedCell(cellId, htmlContent, {
+                ...cellMetadata,
+                type: 'text',
+            })
+        );
     }
 
-    console.log(`[createCellsFromParagraphs] Created ${cells.length} cells from ${docxDoc.paragraphs.length} paragraphs`);
+    console.log(
+        `[createCellsFromDocx] Created ${cells.length} cells from ${docxDoc.paragraphs.length} paragraphs (${tableGroups.length} table cells)`
+    );
 
     return cells;
 };

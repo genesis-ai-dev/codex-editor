@@ -959,6 +959,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 if (alignedCell.isParatext) {
                     // Add paratext cells
                     const paratextId = alignedCell.importedContent.id;
+                    const importedData = alignedCell.importedContent.data;
+                    const paratextData =
+                        typeof importedData === "object" && importedData !== null ? importedData : {};
                     const paratextCell = {
                         kind: 1, // vscode.NotebookCellKind.Code
                         languageId: "html",
@@ -967,9 +970,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             type: CodexCellTypes.PARATEXT,
                             id: paratextId,
                             data: {
+                                ...paratextData,
                                 startTime: alignedCell.importedContent.startTime,
                                 endTime: alignedCell.importedContent.endTime,
                             },
+                            parentId: alignedCell.importedContent.parentId,
                         },
                     };
                     processedCells.set(paratextId, paratextCell);
@@ -977,10 +982,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (alignedCell.notebookCell) {
                     const targetId = alignedCell.importedContent.id;
                     const existingCell = existingCellsMap.get(targetId);
+                    const existingValue = existingCell?.value ?? alignedCell.notebookCell.value ?? "";
 
-                    if (existingCell && existingCell.value && existingCell.value.trim() !== "") {
+                    if (existingValue && existingValue.trim() !== "") {
                         // Keep existing content if cell already has content
-                        processedCells.set(targetId, existingCell);
+                        processedCells.set(targetId, existingCell || alignedCell.notebookCell);
                         skippedCount++;
                     } else {
                         // Update empty cell with new content
@@ -1037,10 +1043,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Add any existing cells that weren't in the aligned content (shouldn't happen normally)
             for (const cell of existingNotebook.cells) {
                 const cellId = cell.metadata?.id;
-                if (cellId && !usedExistingCellIds.has(cellId)) {
-                    console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
-                    newCells.push(cell);
+                if (!cellId || usedExistingCellIds.has(cellId)) {
+                    continue;
                 }
+                console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
+                newCells.push(cell);
             }
 
             // Update the notebook
