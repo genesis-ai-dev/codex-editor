@@ -486,7 +486,7 @@ const CellList: React.FC<CellListProps> = ({
         [getCellIdentifier]
     );
 
-    // Calculate offset for current page based on milestone/subsection indices
+    // Calculate offset for line numbers based on milestone indices only.
     const calculateLineNumberOffset = useCallback((): number => {
         if (!milestoneIndex || milestoneIndex.milestones.length === 0) {
             return 0;
@@ -494,24 +494,13 @@ const CellList: React.FC<CellListProps> = ({
 
         let offset = 0;
 
-        // Add cells from all previous milestones
+        // Add cells from all previous milestones only (not previous subsections in current milestone)
         for (let i = 0; i < currentMilestoneIndex && i < milestoneIndex.milestones.length; i++) {
             offset += milestoneIndex.milestones[i].cellCount;
         }
 
-        // Add cells from previous subsections in current milestone
-        if (
-            currentSubsectionIndex > 0 &&
-            currentMilestoneIndex < milestoneIndex.milestones.length
-        ) {
-            const currentMilestone = milestoneIndex.milestones[currentMilestoneIndex];
-            const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
-            // Calculate how many cells are in previous subsections
-            offset += currentSubsectionIndex * effectiveCellsPerPage;
-        }
-
         return offset;
-    }, [milestoneIndex, currentMilestoneIndex, currentSubsectionIndex, cellsPerPage]);
+    }, [milestoneIndex, currentMilestoneIndex]);
 
     // Helper function to get the chapter-based verse number (skipping paratext cells)
     // Now uses globalReferences and includes offset for pagination
