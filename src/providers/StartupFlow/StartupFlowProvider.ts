@@ -3562,7 +3562,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         await saveSwapPendingState(projectPath, {
                             swapState: "pending_downloads",
                             filesNeedingDownload: prereqResult.filesNeedingDownload,
-                            originalMediaStrategy: undefined, // Not changing strategy since we download directly
                             newProjectUrl,
                             swapUUID,
                             swapInitiatedAt: activeEntry.swapInitiatedAt,

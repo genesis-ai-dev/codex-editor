@@ -438,6 +438,10 @@ export async function activate(context: vscode.ExtensionContext) {
             checkPendingSwapDownloads(workspaceFolders[0].uri).catch(err => {
                 console.error("[Extension] Error checking pending swap downloads:", err);
             });
+            // Check if project needs to be closed after swap sync completes
+            checkCloseAfterSwap(workspaceFolders[0].uri).catch(err => {
+                console.error("[Extension] Error checking close after swap:", err);
+            });
         }
         if (workspaceFolders && workspaceFolders.length > 0) {
             startRealtimeStep("AI preparing search capabilities");
@@ -1053,11 +1057,11 @@ async function executeCommandsAfter(
  */
 async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> {
     try {
-        const { getSwapPendingState, checkPendingDownloadsComplete, clearSwapPendingState, downloadPendingSwapFiles, saveSwapPendingState, performProjectSwap } = 
+        const { getSwapPendingState, checkPendingDownloadsComplete, clearSwapPendingState, downloadPendingSwapFiles, saveSwapPendingState, performProjectSwap } =
             await import("./providers/StartupFlow/performProjectSwap");
-        
+
         const pendingState = await getSwapPendingState(projectUri.fsPath);
-        
+
         if (!pendingState || pendingState.swapState !== "pending_downloads") {
             return; // No pending swap downloads
         }
@@ -1075,7 +1079,7 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
 
         // Show progress and automatically download the files
         const totalFiles = pendingState.filesNeedingDownload.length;
-        
+
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "Downloading media for swap...",
@@ -1090,7 +1094,7 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
             });
 
             const result = await downloadPendingSwapFiles(projectUri.fsPath, progress);
-            
+
             if (cancelled) {
                 vscode.window.showInformationMessage(
                     `Download paused. ${result.downloaded}/${result.total} files downloaded. Reopen project to resume.`
@@ -1099,7 +1103,7 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
             }
 
             console.log(`[Extension] Download complete: ${result.downloaded}/${result.total}, failed: ${result.failed.length}`);
-            
+
             if (result.failed.length > 0) {
                 // Some downloads failed - show warning and let user decide
                 const action = await vscode.window.showWarningMessage(
@@ -1133,11 +1137,11 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
  * Show modal to continue or cancel swap after downloads complete
  */
 async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
-    const { saveSwapPendingState, performProjectSwap, clearSwapPendingState } = 
+    const { saveSwapPendingState, performProjectSwap, clearSwapPendingState } =
         await import("./providers/StartupFlow/performProjectSwap");
-    
+
     const newProjectName = pendingState.newProjectUrl.split('/').pop()?.replace('.git', '') || 'new project';
-    
+
     const action = await vscode.window.showInformationMessage(
         `All required media files have been downloaded. Ready to continue the project swap to "${newProjectName}".`,
         { modal: true },
@@ -1153,7 +1157,7 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
 
         // Perform the swap
         const projectName = projectUri.fsPath.split(/[\\/]/).pop() || "project";
-        
+
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "Completing project swap...",
@@ -1182,21 +1186,111 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
 }
 
 /**
- * Cancel a pending swap and restore original media strategy
+ * Cancel a pending swap.
+ * Since we no longer change media strategy during swap, just clear the pending state.
  */
-async function cancelSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
+async function cancelSwap(projectUri: vscode.Uri, _pendingState: any): Promise<void> {
     const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
-    
-    // Restore original media strategy
-    if (pendingState.originalMediaStrategy) {
-        const { setMediaFilesStrategy } = await import("./utils/localProjectSettings");
-        await setMediaFilesStrategy(
-            pendingState.originalMediaStrategy as any, 
-            projectUri
-        );
-    }
     await clearSwapPendingState(projectUri.fsPath);
     vscode.window.showInformationMessage("Project swap cancelled.");
+}
+
+/**
+ * Check if this project was just swapped and needs to be closed after sync completes.
+ * Shows a modal prompting user to close the project to finalize the swap.
+ */
+async function checkCloseAfterSwap(projectUri: vscode.Uri): Promise<void> {
+    try {
+        const { readLocalProjectSettings } = await import("./utils/localProjectSettings");
+
+        const settings = await readLocalProjectSettings(projectUri);
+        if (!settings.forceCloseAfterSuccessfulSwap) {
+            return; // Not a post-swap project
+        }
+
+        console.log("[Extension] Project has forceCloseAfterSuccessfulSwap flag - waiting for sync to complete");
+
+        // Wait for auth API to be ready (it might not be active yet during early startup)
+        let authApi = getAuthApi();
+        let retries = 0;
+        const maxRetries = 10;
+        while ((!authApi || !('onSyncStatusChange' in authApi)) && retries < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+            authApi = getAuthApi();
+            retries++;
+        }
+
+        if (!authApi || !('onSyncStatusChange' in authApi)) {
+            // Auth API still not available after retries - show modal with delay
+            console.log("[Extension] Auth API not available after retries - showing close modal after delay");
+            setTimeout(async () => {
+                await showCloseAfterSwapModal(projectUri);
+            }, 5000); // Wait 5 more seconds for sync to potentially complete
+            return;
+        }
+
+        // Listen for sync completion or error
+        let syncCompleted = false;
+        const subscription = (authApi as any).onSyncStatusChange(async (status: {
+            status: 'started' | 'completed' | 'error' | 'skipped' | 'progress';
+            message?: string;
+        }) => {
+            // Only act on completed, error, or skipped (not started or progress)
+            if (syncCompleted) return; // Already handled
+
+            if (status.status === 'completed' || status.status === 'error' || status.status === 'skipped') {
+                syncCompleted = true;
+                subscription?.dispose();
+
+                console.log(`[Extension] Sync ${status.status} - showing close modal`);
+                await showCloseAfterSwapModal(projectUri);
+            }
+        });
+
+        // Also set a timeout in case sync doesn't trigger (e.g., already idle or completed before listener)
+        setTimeout(async () => {
+            if (!syncCompleted) {
+                syncCompleted = true;
+                subscription?.dispose();
+                console.log("[Extension] Sync event timeout - showing close modal");
+                await showCloseAfterSwapModal(projectUri);
+            }
+        }, 30000); // 30 second timeout
+
+    } catch (error) {
+        console.error("[Extension] Error in checkCloseAfterSwap:", error);
+    }
+}
+
+/**
+ * Show modal prompting user to close the project after swap.
+ * 
+ * Since we copy ALL attachments and settings from the old project as-is during swap,
+ * we don't need to modify any media strategy state here. The files are already in
+ * the correct state for the user's media strategy.
+ */
+async function showCloseAfterSwapModal(projectUri: vscode.Uri): Promise<void> {
+    const { writeLocalProjectSettings } = await import("./utils/localProjectSettings");
+
+    const action = await vscode.window.showInformationMessage(
+        "Project swap completed! Close this project to finalize the swap.",
+        { modal: true },
+        "Close Project",
+        "Keep Open"
+    );
+
+    // Clear the forceCloseAfterSuccessfulSwap flag regardless of user choice
+    try {
+        await writeLocalProjectSettings({ forceCloseAfterSuccessfulSwap: undefined }, projectUri);
+        console.log("[Extension] Cleared forceCloseAfterSuccessfulSwap flag");
+    } catch (err) {
+        console.error("[Extension] Error clearing forceCloseAfterSuccessfulSwap flag:", err);
+    }
+
+    if (action === "Close Project") {
+        // Close the folder/workspace
+        await vscode.commands.executeCommand("workbench.action.closeFolder");
+    }
 }
 
 export function deactivate() {

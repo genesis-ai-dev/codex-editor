@@ -70,6 +70,11 @@ export interface LocalProjectSettings {
     };
     /** Track project swap migration state */
     projectSwap?: import("../../types").LocalProjectSwap;
+    /** 
+     * When true, the project should be closed after sync completes to finalize the swap.
+     * Set during project swap on the NEW project. Cleared after close or manual dismissal.
+     */
+    forceCloseAfterSuccessfulSwap?: boolean;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;

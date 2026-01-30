@@ -37,8 +37,6 @@ export interface SwapPendingDownloads {
     swapState: "pending_downloads" | "ready_to_swap";
     /** Files that need to be downloaded */
     filesNeedingDownload: string[];
-    /** Original media strategy to restore after swap */
-    originalMediaStrategy?: string;
     /** New project URL for resuming swap */
     newProjectUrl: string;
     /** Swap UUID for resuming */
@@ -578,6 +576,8 @@ export async function performProjectSwap(
                 // Non-fatal - file might not exist
             }
 
+            // Note: forceCloseAfterSuccessfulSwap flag is already set by copyLocalProjectSettings
+
             // Step 10: Cleanup temp directory (the system temp used for cloning)
             await cleanupTempDirectory(tempDir);
 
@@ -842,71 +842,69 @@ async function mergeProjectFiles(
         }
     }
 
-    // After merging, cross-reference old and new project attachments
-    // Only copy files that are MISSING from the new project (to avoid re-uploading files
-    // that were already uploaded by the first user who did "Copy to New Project")
-    const reconcileResult = await reconcileMissingAttachments(oldPath, newPath, progress);
+    // After merging:
+    // 1. Download any missing files to the OLD project (from its LFS)
+    // 2. Copy ALL files and pointers from OLD to NEW project
+    // 3. Copy localProjectSettings.json (preserving media settings, adding forceClose flag)
+    const reconcileResult = await reconcileAndCopyAttachments(oldPath, newPath, progress);
 
-    // Preserve the old project's media strategy (or default to auto-download)
-    await preserveMediaStrategy(oldPath, newPath, reconcileResult.failedDownloads);
+    // Copy local project settings from old to new (preserving media strategy as-is)
+    await copyLocalProjectSettings(oldPath, newPath, reconcileResult.failedDownloads);
 }
 
 /**
- * Preserve media strategy from old project to new project
- * If there are pending downloads, set to auto-download to ensure files are retrieved
+ * Copy localProjectSettings.json from old project to new project.
+ * 
+ * This preserves all settings (including media strategy) exactly as they were in the old project.
+ * Since we copy ALL files from old to new, the files are already in the correct state for the
+ * user's media strategy - no reconciliation needed.
+ * 
+ * Changes made:
+ * - Remove `projectSwap` (old project's swap tracking info)
+ * - Add `forceCloseAfterSuccessfulSwap: true` to trigger post-sync close modal
  */
-async function preserveMediaStrategy(
+async function copyLocalProjectSettings(
     oldPath: string,
     newPath: string,
     failedDownloads: Array<{ relPath: string; oid: string; size: number; }>
 ): Promise<void> {
     try {
-        const { getMediaFilesStrategy, setMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+        const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
 
-        // First, check if there's a saved original strategy from the pre-swap download phase
-        // This is important because we may have temporarily set stream-and-save for downloads
-        const pendingState = await getSwapPendingState(oldPath);
-        let strategyToApply: string | undefined;
+        // Read all settings from old project
+        const oldProjectUri = vscode.Uri.file(oldPath);
+        const oldSettings = await readLocalProjectSettings(oldProjectUri);
 
-        if (pendingState?.originalMediaStrategy) {
-            // Use the saved original strategy (from before we set stream-and-save for downloads)
-            strategyToApply = pendingState.originalMediaStrategy;
-            debugLog(`Using saved original media strategy: ${strategyToApply}`);
-        } else {
-            // No saved strategy - get current strategy from old project
-            const oldProjectUri = vscode.Uri.file(oldPath);
-            strategyToApply = await getMediaFilesStrategy(oldProjectUri);
-        }
-
-        // If there are failed downloads, we MUST use auto-download to retrieve them
-        // Otherwise, preserve the old strategy (or default to auto-download if none)
         const newProjectUri = vscode.Uri.file(newPath);
 
-        if (failedDownloads.length > 0) {
-            debugLog(`${failedDownloads.length} files need download - setting auto-download strategy`);
-            await setMediaFilesStrategy("auto-download", newProjectUri);
+        // Copy settings to new project, but:
+        // - Remove projectSwap (old project's tracking, not relevant for new)
+        // - Add forceCloseAfterSuccessfulSwap to trigger close modal after sync
+        const { projectSwap, ...settingsWithoutSwap } = oldSettings;
+        const newSettings = {
+            ...settingsWithoutSwap,
+            forceCloseAfterSuccessfulSwap: true,
+        };
 
-            // Get old project's remote URL for pending downloads
+        debugLog(`Copying localProjectSettings from old to new project (strategy: ${oldSettings.currentMediaFilesStrategy || "auto-download"})`);
+        await writeLocalProjectSettings(newSettings, newProjectUri);
+
+        // If there are failed downloads, store them for later retrieval
+        if (failedDownloads.length > 0) {
+            debugLog(`${failedDownloads.length} files need download from old LFS`);
             const oldProjectRemoteUrl = await getGitOriginUrl(oldPath);
             if (oldProjectRemoteUrl) {
                 await storePendingLfsDownloads(newPath, oldProjectRemoteUrl, failedDownloads);
             } else {
                 debugLog("Warning: Could not get old project remote URL - pending downloads may not be retrievable");
             }
-        } else if (strategyToApply) {
-            debugLog(`Applying media strategy to new project: ${strategyToApply}`);
-            await setMediaFilesStrategy(strategyToApply as any, newProjectUri);
-        } else {
-            // No strategy set - default to auto-download for safety
-            debugLog("No media strategy found - defaulting to auto-download");
-            await setMediaFilesStrategy("auto-download", newProjectUri);
         }
 
         // Clear the pending swap state from the old project since swap is complete
         await clearSwapPendingState(oldPath);
 
     } catch (error) {
-        debugLog("Error preserving media strategy:", error);
+        debugLog("Error copying local project settings:", error);
         // Non-fatal - continue with swap
     }
 }
@@ -962,13 +960,14 @@ interface ReconcileResult {
  * Cross-reference old and new project attachments, copying only what's missing.
  * 
  * Scenarios handled:
- * 1. Both files/ and pointers/ have full blob → copy blob to new project
- * 2. pointers/ has pointer, files/ has full blob → copy the blob from files/
- * 3. Both files/ and pointers/ have pointers → download from old LFS
+ * Cleaner approach:
+ * 1. Download any missing files TO THE OLD PROJECT (from its LFS)
+ * 2. Copy ALL files and pointers from OLD to NEW (simple overwrite)
  * 
- * If downloads fail, returns them so they can be tracked for later retrieval.
+ * This way the old project becomes the "source of truth" and we just copy everything.
+ * Files end up in exactly the same state they were in the old project.
  */
-async function reconcileMissingAttachments(
+async function reconcileAndCopyAttachments(
     oldPath: string,
     newPath: string,
     progress: vscode.Progress<{ increment?: number; message?: string; }>
@@ -987,150 +986,92 @@ async function reconcileMissingAttachments(
         failedDownloads: []
     };
 
-    // Scan old project for all attachment files (from both files/ and pointers/)
-    const oldAttachments = await scanAttachmentFiles(oldFilesDir);
-    const oldPointerAttachments = await scanAttachmentFiles(oldPointersDir);
+    // Scan old project for all attachment files (union of files/ and pointers/)
+    const oldFilesAttachments = await scanAttachmentFiles(oldFilesDir);
+    const oldPointersAttachments = await scanAttachmentFiles(oldPointersDir);
+    const allOldAttachments = new Set([...oldFilesAttachments, ...oldPointersAttachments]);
 
-    // Merge old attachments (files/ and pointers/ should be identical, but union for safety)
-    const allOldAttachments = new Set([...oldAttachments, ...oldPointerAttachments]);
-
-    // Scan new project's pointers/ to see what files exist
-    const newPointerAttachments = new Set(await scanAttachmentFiles(newPointersDir));
-
-    // Find files that exist in old but don't exist at all in new project
-    const missingInNew: string[] = [];
-    for (const relPath of allOldAttachments) {
-        if (!newPointerAttachments.has(relPath)) {
-            missingInNew.push(relPath);
-        }
-    }
-
-    if (missingInNew.length === 0) {
-        debugLog("No missing attachments to reconcile - new project has all files");
+    if (allOldAttachments.size === 0) {
+        debugLog("No attachments in old project to copy");
         return result;
     }
 
-    debugLog(`Found ${missingInNew.length} attachments in old project that are missing from new project`);
+    debugLog(`Found ${allOldAttachments.size} attachments in old project`);
 
-    // Categorize files based on what's available locally
-    // Priority: actual blob in files/ > actual blob in pointers/ > pointer (needs download)
-    const toCopy: Array<{ relPath: string; sourcePath: string; }> = [];
-    const toDownload: Array<{ relPath: string; pointer: { oid: string; size: number; }; }> = [];
+    // Step 1: Find files that need to be downloaded TO THE OLD PROJECT
+    // These are files where we don't have a local blob (only pointers)
+    const toDownloadToOld: Array<{ relPath: string; pointer: { oid: string; size: number; }; }> = [];
 
-    for (const relPath of missingInNew) {
+    for (const relPath of allOldAttachments) {
         const oldFilePath = path.join(oldFilesDir, relPath);
         const oldPointerPath = path.join(oldPointersDir, relPath);
 
-        let foundBlob = false;
+        let hasBlob = false;
         let pointer: { oid: string; size: number; } | null = null;
 
-        // Check files/ directory first - this is where blobs should be if downloaded
+        // Check if we have a blob anywhere in the old project
         if (fs.existsSync(oldFilePath)) {
             const isPtr = await isPointerFile(oldFilePath);
             if (!isPtr) {
-                // Found actual blob in files/
-                toCopy.push({ relPath, sourcePath: oldFilePath });
-                foundBlob = true;
-                debugLog(`[${relPath}] Found blob in files/`);
+                hasBlob = true;
             } else {
-                // files/ has a pointer - parse it for potential download
                 pointer = await parsePointerFile(oldFilePath);
-                debugLog(`[${relPath}] files/ has pointer (oid: ${pointer?.oid?.substring(0, 8)}...)`);
             }
         }
 
-        // If no blob in files/, check pointers/ - it might have a blob if recently recorded
-        if (!foundBlob && fs.existsSync(oldPointerPath)) {
+        if (!hasBlob && fs.existsSync(oldPointerPath)) {
             const isPtr = await isPointerFile(oldPointerPath);
             if (!isPtr) {
-                // Found actual blob in pointers/ (file was recorded but not yet synced)
-                toCopy.push({ relPath, sourcePath: oldPointerPath });
-                foundBlob = true;
-                debugLog(`[${relPath}] Found blob in pointers/`);
+                hasBlob = true;
             } else if (!pointer) {
-                // pointers/ also has a pointer - use it for download if we don't have one yet
                 pointer = await parsePointerFile(oldPointerPath);
-                debugLog(`[${relPath}] pointers/ has pointer (oid: ${pointer?.oid?.substring(0, 8)}...)`);
             }
         }
 
-        // If no blob found anywhere, we need to download from old LFS
-        if (!foundBlob && pointer) {
-            toDownload.push({ relPath, pointer });
-        } else if (!foundBlob && !pointer) {
-            debugLog(`[${relPath}] WARNING: No blob or valid pointer found - file may be corrupted`);
+        // If no blob found, we need to download to old project first
+        if (!hasBlob && pointer) {
+            toDownloadToOld.push({ relPath, pointer });
         }
     }
 
-    const totalFiles = toCopy.length + toDownload.length;
-    const totalDownloadSize = toDownload.reduce((sum, item) => sum + item.pointer.size, 0);
+    // Step 2: Download missing files TO THE OLD PROJECT
+    if (toDownloadToOld.length > 0) {
+        const totalDownloadSize = toDownloadToOld.reduce((sum, item) => sum + item.pointer.size, 0);
+        debugLog(`Downloading ${toDownloadToOld.length} missing files to old project (${formatBytes(totalDownloadSize)})`);
+        progress.report({ message: `Downloading ${toDownloadToOld.length} missing files...` });
 
-    debugLog(`Reconciliation plan: ${toCopy.length} to copy locally, ${toDownload.length} to download (${formatBytes(totalDownloadSize)})`);
-    progress.report({ message: `Reconciling ${totalFiles} missing attachments...` });
-
-    // Ensure directories exist
-    fs.mkdirSync(newFilesDir, { recursive: true });
-    fs.mkdirSync(newPointersDir, { recursive: true });
-
-    let processedCount = 0;
-
-    // Step 1: Copy local files (fast operation)
-    for (const { relPath, sourcePath } of toCopy) {
-        const newFilePath = path.join(newFilesDir, relPath);
-        const newPointerPath = path.join(newPointersDir, relPath);
-
-        try {
-            fs.mkdirSync(path.dirname(newFilePath), { recursive: true });
-            fs.mkdirSync(path.dirname(newPointerPath), { recursive: true });
-
-            fs.copyFileSync(sourcePath, newFilePath);
-            fs.copyFileSync(sourcePath, newPointerPath);
-            result.copied++;
-            processedCount++;
-
-            if (processedCount % 10 === 0 || processedCount === totalFiles) {
-                progress.report({ message: `Reconciling attachments: ${processedCount}/${totalFiles}...` });
-            }
-        } catch (error) {
-            result.failed++;
-            debugLog(`Error copying attachment ${relPath}:`, error);
-        }
-    }
-
-    // Step 2: Download from old LFS in parallel batches (network operation)
-    if (toDownload.length > 0) {
         const { getAuthApi } = await import("../../extension");
         const frontierApi = getAuthApi();
         const oldProjectRemoteUrl = await getGitOriginUrl(oldPath);
 
         if (!frontierApi?.downloadLFSFile) {
             debugLog("Warning: LFS download API not available");
-            // Track all as failed so they can be downloaded later
-            for (const { relPath, pointer } of toDownload) {
+            for (const { relPath, pointer } of toDownloadToOld) {
                 result.failedDownloads.push({ relPath, oid: pointer.oid, size: pointer.size });
             }
-            result.failed += toDownload.length;
+            result.failed += toDownloadToOld.length;
         } else if (!oldProjectRemoteUrl) {
             debugLog("Warning: Could not get old project remote URL");
-            for (const { relPath, pointer } of toDownload) {
+            for (const { relPath, pointer } of toDownloadToOld) {
                 result.failedDownloads.push({ relPath, oid: pointer.oid, size: pointer.size });
             }
-            result.failed += toDownload.length;
+            result.failed += toDownloadToOld.length;
         } else {
             const { getCachedLfsBytes, setCachedLfsBytes } = await import("../../utils/mediaCache");
             const BATCH_SIZE = 5;
 
-            for (let i = 0; i < toDownload.length; i += BATCH_SIZE) {
-                const batch = toDownload.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < toDownloadToOld.length; i += BATCH_SIZE) {
+                const batch = toDownloadToOld.slice(i, i + BATCH_SIZE);
 
                 await Promise.all(batch.map(async ({ relPath, pointer }) => {
                     try {
+                        // Download TO OLD project's directories (not new)
                         const success = await downloadFromOldLfs(
                             relPath,
                             pointer,
                             oldProjectRemoteUrl,
-                            newFilesDir,
-                            newPointersDir,
+                            oldFilesDir,  // Download TO old project
+                            oldPointersDir,
                             frontierApi,
                             getCachedLfsBytes,
                             setCachedLfsBytes
@@ -1147,17 +1088,57 @@ async function reconcileMissingAttachments(
                         result.failedDownloads.push({ relPath, oid: pointer.oid, size: pointer.size });
                         debugLog(`Error downloading attachment ${relPath}:`, error);
                     }
-
-                    processedCount++;
-                    if (processedCount % 5 === 0 || processedCount === totalFiles) {
-                        progress.report({ message: `Reconciling attachments: ${processedCount}/${totalFiles}...` });
-                    }
                 }));
+
+                progress.report({ message: `Downloaded ${Math.min(i + BATCH_SIZE, toDownloadToOld.length)}/${toDownloadToOld.length} files...` });
             }
         }
     }
 
-    debugLog(`Attachment reconciliation complete: ${result.copied} copied, ${result.downloaded} downloaded, ${result.failed} failed`);
+    // Step 3: Copy ALL files and pointers from OLD to NEW
+    // Simple overwrite - no need to check what's in the new project
+    debugLog(`Copying all attachments from old to new project...`);
+    progress.report({ message: `Copying ${allOldAttachments.size} attachments to new project...` });
+
+    // Ensure directories exist
+    fs.mkdirSync(newFilesDir, { recursive: true });
+    fs.mkdirSync(newPointersDir, { recursive: true });
+
+    let copiedCount = 0;
+    for (const relPath of allOldAttachments) {
+        const oldFilePath = path.join(oldFilesDir, relPath);
+        const oldPointerPath = path.join(oldPointersDir, relPath);
+        const newFilePath = path.join(newFilesDir, relPath);
+        const newPointerPath = path.join(newPointersDir, relPath);
+
+        try {
+            // Ensure subdirectories exist
+            fs.mkdirSync(path.dirname(newFilePath), { recursive: true });
+            fs.mkdirSync(path.dirname(newPointerPath), { recursive: true });
+
+            // Copy files/ if it exists
+            if (fs.existsSync(oldFilePath)) {
+                fs.copyFileSync(oldFilePath, newFilePath);
+            }
+
+            // Copy pointers/ if it exists
+            if (fs.existsSync(oldPointerPath)) {
+                fs.copyFileSync(oldPointerPath, newPointerPath);
+            }
+
+            result.copied++;
+            copiedCount++;
+
+            if (copiedCount % 20 === 0 || copiedCount === allOldAttachments.size) {
+                progress.report({ message: `Copied ${copiedCount}/${allOldAttachments.size} attachments...` });
+            }
+        } catch (error) {
+            result.failed++;
+            debugLog(`Error copying attachment ${relPath}:`, error);
+        }
+    }
+
+    debugLog(`Attachment copy complete: ${result.copied} copied, ${result.downloaded} downloaded, ${result.failed} failed`);
 
     if (result.failedDownloads.length > 0) {
         debugLog(`Failed downloads will be tracked for later retrieval:`, result.failedDownloads.map(f => f.relPath));
