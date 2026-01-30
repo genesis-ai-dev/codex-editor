@@ -1532,6 +1532,9 @@ async function copyDirectory(
  * This is critical after a project swap - the old projectName may have been
  * merged from the old project and needs to be updated to match the new identity.
  * 
+ * Also cleans up empty projectName edits that may have been merged from the old project
+ * and adds a proper edit entry for the new projectName.
+ * 
  * @param projectUri - URI of the project folder
  * @param folderName - The folder name to derive the project name from
  */
@@ -1553,15 +1556,54 @@ async function updateProjectNameToMatchFolder(projectUri: vscode.Uri, folderName
 
         const newProjectName = sanitizeProjectName(baseName) || "Untitled Project";
 
-        // Only update if different
+        // Clean up edits array: remove empty projectName and projectId edits that may have been merged
+        if (metadata.edits && Array.isArray(metadata.edits)) {
+            metadata.edits = metadata.edits.filter((edit: any) => {
+                if (!Array.isArray(edit.editMap) || edit.editMap.length !== 1) return true;
+                const field = edit.editMap[0];
+                const isIdentityEdit = field === "projectName" || field === "projectId";
+                const hasEmptyValue = edit.value === "" || edit.value === null || edit.value === undefined;
+                // Keep the edit unless it's an empty identity edit
+                return !(isIdentityEdit && hasEmptyValue);
+            });
+        }
+
+        // Only update projectName if different
         if (metadata.projectName !== newProjectName) {
             debugLog(`Updating projectName: "${metadata.projectName}" -> "${newProjectName}"`);
             metadata.projectName = newProjectName;
-            await vscode.workspace.fs.writeFile(
-                metadataPath,
-                Buffer.from(JSON.stringify(metadata, null, 4))
+
+            // Check if an edit with this projectName value already exists (from Copy to New Project)
+            const hasProjectNameEdit = metadata.edits?.some((edit: any) =>
+                Array.isArray(edit.editMap) &&
+                edit.editMap.length === 1 &&
+                edit.editMap[0] === "projectName" &&
+                edit.value === newProjectName
             );
+
+            // Only add edit if not already present with this value
+            if (!hasProjectNameEdit) {
+                const { getAuthApi } = await import("../../extension");
+                const authApi = getAuthApi();
+                let author = "system";
+                try {
+                    if (authApi?.getAuthStatus()?.isAuthenticated) {
+                        const userInfo = await authApi.getUserInfo();
+                        if (userInfo?.username) author = userInfo.username;
+                    }
+                } catch {
+                    // Use default author
+                }
+
+                const { EditMapUtils, addProjectMetadataEdit } = await import("../../utils/editMapUtils");
+                addProjectMetadataEdit(metadata, EditMapUtils.projectName(), newProjectName, author);
+            }
         }
+
+        await vscode.workspace.fs.writeFile(
+            metadataPath,
+            Buffer.from(JSON.stringify(metadata, null, 4))
+        );
     } catch (error) {
         debugLog("Error updating projectName:", error);
         throw error;

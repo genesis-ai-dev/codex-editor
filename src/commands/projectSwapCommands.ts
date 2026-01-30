@@ -1285,6 +1285,52 @@ export async function initiateSwapCopy(): Promise<void> {
                     }
                 }
 
+                // Clean up edits array: remove empty projectName and projectId edits
+                if (meta.edits && Array.isArray(meta.edits)) {
+                    meta.edits = meta.edits.filter((edit: any) => {
+                        if (!Array.isArray(edit.editMap) || edit.editMap.length !== 1) return true;
+                        const field = edit.editMap[0];
+                        const isIdentityEdit = field === "projectName" || field === "projectId";
+                        const hasEmptyValue = edit.value === "" || edit.value === null || edit.value === undefined;
+                        // Keep the edit unless it's an empty identity edit
+                        return !(isIdentityEdit && hasEmptyValue);
+                    });
+                }
+
+                // Get current user for edit author
+                const { getAuthApi } = await import("../extension");
+                const authApi = getAuthApi();
+                let author = "unknown";
+                if (authApi?.getAuthStatus()?.isAuthenticated) {
+                    const userInfo = await authApi.getUserInfo();
+                    if (userInfo?.username) author = userInfo.username;
+                }
+
+                // Add new edits for the new project identity (only if not already present with same value)
+                const { EditMapUtils, addProjectMetadataEdit } = await import("../utils/editMapUtils");
+
+                // Check if projectName edit with this value already exists
+                const hasProjectNameEdit = meta.edits?.some((edit: any) =>
+                    Array.isArray(edit.editMap) &&
+                    edit.editMap.length === 1 &&
+                    edit.editMap[0] === "projectName" &&
+                    edit.value === newName
+                );
+                if (!hasProjectNameEdit) {
+                    addProjectMetadataEdit(meta, EditMapUtils.projectName(), newName, author);
+                }
+
+                // Check if projectId edit with this value already exists
+                const hasProjectIdEdit = meta.edits?.some((edit: any) =>
+                    Array.isArray(edit.editMap) &&
+                    edit.editMap.length === 1 &&
+                    edit.editMap[0] === "projectId" &&
+                    edit.value === newUUID
+                );
+                if (!hasProjectIdEdit) {
+                    addProjectMetadataEdit(meta, ["projectId"], newUUID, author);
+                }
+
                 fs.writeFileSync(newMetadataPath, JSON.stringify(meta, null, 4));
             }
 
