@@ -39,6 +39,7 @@ interface ABTestState {
     isAttentionCheck?: boolean;
     correctIndex?: number;
     decoyCellId?: string;
+    spareVariant?: string; // Second correct translation for recovery
     // Recovery state - shown after wrong attention check selection
     isRecovery?: boolean;
     recoveryMessage?: string;
@@ -124,6 +125,8 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
 
             // Wrong selection on attention check - trigger recovery
             const correctVariant = abTestState.variants[abTestState.correctIndex];
+            // Use spare variant if available, otherwise fall back to correct variant
+            const secondVariant = abTestState.spareVariant || correctVariant;
 
             // Send feedback to backend (record the failure)
             vscode.postMessage({
@@ -144,15 +147,16 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 }
             } as unknown as EditorPostMessages);
 
-            // Show recovery with "Let's look at another" - both options are correct
+            // Show recovery with two different correct translations
             setAbTestState({
                 ...abTestState,
                 isRecovery: true,
                 recoveryMessage: "Let's look at another",
-                variants: [correctVariant, correctVariant], // Both identical correct variants
+                variants: [correctVariant, secondVariant], // Two different correct translations
                 names: undefined, // Don't show names in recovery
                 isAttentionCheck: false, // No longer an attention check
                 correctIndex: undefined,
+                spareVariant: undefined, // Clear spare since we used it
             });
             return;
         }
@@ -170,24 +174,27 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             setUnsavedChanges(true);
         }
 
-        // Send feedback to backend
-        vscode.postMessage({
-            command: "selectABTestVariant",
-            content: {
-                cellId: abTestState.cellId,
-                selectedIndex,
-                testId: abTestState.testId,
-                testName: abTestState.testName,
-                selectionTimeMs,
-                totalVariants: abTestState.variants?.length ?? 0,
-                names: abTestState.names,
-                // Attention check specific (if applicable)
-                isAttentionCheck: abTestState.isAttentionCheck ?? false,
-                attentionCheckPassed: abTestState.isAttentionCheck ? true : undefined,
-                correctIndex: abTestState.correctIndex,
-                decoyCellId: abTestState.decoyCellId
-            }
-        } as unknown as EditorPostMessages);
+        // Don't send analytics for recovery selections - only track the initial attention check result
+        if (!abTestState.isRecovery) {
+            // Send feedback to backend
+            vscode.postMessage({
+                command: "selectABTestVariant",
+                content: {
+                    cellId: abTestState.cellId,
+                    selectedIndex,
+                    testId: abTestState.testId,
+                    testName: abTestState.testName,
+                    selectionTimeMs,
+                    totalVariants: abTestState.variants?.length ?? 0,
+                    names: abTestState.names,
+                    // Attention check specific (if applicable)
+                    isAttentionCheck: abTestState.isAttentionCheck ?? false,
+                    attentionCheckPassed: abTestState.isAttentionCheck ? true : undefined,
+                    correctIndex: abTestState.correctIndex,
+                    decoyCellId: abTestState.decoyCellId
+                }
+            } as unknown as EditorPostMessages);
+        }
 
         // Keep modal open to reveal names/stats; user closes manually
     };
@@ -202,6 +209,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             isAttentionCheck: false,
             correctIndex: undefined,
             decoyCellId: undefined,
+            spareVariant: undefined,
             isRecovery: false,
             recoveryMessage: undefined
         });
@@ -245,7 +253,8 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                     names,
                     isAttentionCheck,
                     correctIndex,
-                    decoyCellId
+                    decoyCellId,
+                    spareVariant
                 } = event.data.content as {
                     variants: string[];
                     cellId: string;
@@ -255,6 +264,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                     isAttentionCheck?: boolean;
                     correctIndex?: number;
                     decoyCellId?: string;
+                    spareVariant?: string;
                 };
                 if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 0) {
                     const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
@@ -273,6 +283,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                             isAttentionCheck,
                             correctIndex,
                             decoyCellId,
+                            spareVariant,
                             isRecovery: false
                         });
                     } else {
