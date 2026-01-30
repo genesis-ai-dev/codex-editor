@@ -645,8 +645,8 @@ export async function updateMetadataFile() {
                 project.edits = [];
             }
 
-            // Track projectName changes
-            if (originalProjectName !== newProjectName) {
+            // Track projectName changes (only if we actually updated it - empty values don't update)
+            if (newProjectName && originalProjectName !== newProjectName) {
                 addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
             }
 
