@@ -3,9 +3,11 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { parseFile as parseVtt } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/subtitles/index";
-import { subtitlesCellAligner } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/subtitles/index.tsx";
+import { subtitlesCellAligner } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/subtitles/aligner";
 import { notebookToImportedContent } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/common/translationHelper";
 import { CodexCellTypes } from "../../../types/enums";
+import type { AlignedCell } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import type { CustomNotebookCellData } from "../../../types";
 
 type FileLike = {
     name: string;
@@ -57,17 +59,22 @@ suite("VTT round-trip integration (mock VTT fixtures)", function () {
         assert.strictEqual(targetImport.success, true, "Expected target VTT import success");
         assert.ok(targetImport.notebookPair, "Expected target notebookPair from VTT importer");
 
-        const targetCells = sourceImport.notebookPair!.codex.cells as any[];
+        const targetCells = sourceImport.notebookPair!.codex.cells.map((cell) => ({
+            kind: 1,
+            languageId: "html",
+            value: cell.content ?? "",
+            metadata: cell.metadata,
+        })) as CustomNotebookCellData[];
         const milestoneTarget = targetCells.find(
-            (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
+            (cell: CustomNotebookCellData) => cell.metadata?.type === CodexCellTypes.MILESTONE
         );
         assert.ok(milestoneTarget, "Expected milestone cell in target notebook");
 
         const importedContent = notebookToImportedContent(targetImport.notebookPair!);
-        const aligned = await subtitlesCellAligner(targetCells as any, [], importedContent);
+        const aligned = await subtitlesCellAligner(targetCells, [], importedContent);
 
         const preservedMilestone = aligned.find(
-            (cell) => cell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE
+            (cell: AlignedCell) => cell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE
         );
         assert.ok(preservedMilestone, "Expected milestone cell to be preserved during alignment");
 
@@ -78,7 +85,7 @@ suite("VTT round-trip integration (mock VTT fixtures)", function () {
             }
         });
 
-        const alignedTextCell = aligned.find((cell) => {
+        const alignedTextCell = aligned.find((cell: AlignedCell) => {
             const start = cell.notebookCell?.metadata?.data?.startTime;
             return typeof start === "number" && cell.notebookCell?.metadata?.type === CodexCellTypes.TEXT;
         });
