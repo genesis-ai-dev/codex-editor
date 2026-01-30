@@ -58,29 +58,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onTimeUpdate?.(currentTime);
     };
 
+    // Coalesce rapid play/pause events to avoid endless loop when switching cells quickly.
+    // Only suppress events that come within a short window of the previous one.
+    const lastPlayPauseTimeRef = useRef(0);
+    const COALESCE_MS = 30;
+
     const handlePlay = () => {
+        const now = Date.now();
+        if (now - lastPlayPauseTimeRef.current < COALESCE_MS) return;
+        lastPlayPauseTimeRef.current = now;
         setPlaying(true);
         onPlay?.();
     };
 
     const handlePause = () => {
+        const now = Date.now();
+        if (now - lastPlayPauseTimeRef.current < COALESCE_MS) return;
+        lastPlayPauseTimeRef.current = now;
         setPlaying(false);
         onPause?.();
     };
 
     const handleReady = () => {
-        // Player is ready, clear any previous errors
         setError(null);
         console.log("VideoPlayer: Player is ready");
-        // Trigger autoPlay when player is ready
         if (autoPlay) {
             setPlaying(true);
         }
     };
 
-    // Sync playing with autoPlay only when we intend to start; do not force pause when
-    // autoPlay is false, so programmatic play (e.g. from AudioPlayButton) is not
-    // interrupted and we avoid "play() request was interrupted by pause()" (AbortError).
     const prevVideoUrlRef = useRef(videoUrl);
     useEffect(() => {
         if (autoPlay && videoUrl) {

@@ -226,11 +226,8 @@ const AudioPlayButton: React.FC<{
                                             playerRef?.current &&
                                             cellTimestamps?.startTime !== undefined
                                         ) {
-                                            // Seek video to cell's start timestamp, mute it, and start playback
                                             try {
                                                 let seeked = false;
-
-                                                // First try seekTo method if available
                                                 if (
                                                     typeof playerRef.current.seekTo === "function"
                                                 ) {
@@ -240,11 +237,8 @@ const AudioPlayButton: React.FC<{
                                                     );
                                                     seeked = true;
                                                 }
-
-                                                // Try to find the video element for both seeking (fallback) and muting
                                                 const internalPlayer =
                                                     playerRef.current.getInternalPlayer?.();
-
                                                 if (internalPlayer instanceof HTMLVideoElement) {
                                                     videoElement = internalPlayer;
                                                     if (!seeked) {
@@ -256,14 +250,12 @@ const AudioPlayButton: React.FC<{
                                                     internalPlayer &&
                                                     typeof internalPlayer === "object"
                                                 ) {
-                                                    // Try different ways to access the video element
                                                     const foundVideo =
                                                         (internalPlayer as any).querySelector?.(
                                                             "video"
                                                         ) ||
                                                         (internalPlayer as any).video ||
                                                         internalPlayer;
-
                                                     if (foundVideo instanceof HTMLVideoElement) {
                                                         videoElement = foundVideo;
                                                         if (!seeked) {
@@ -273,8 +265,6 @@ const AudioPlayButton: React.FC<{
                                                         }
                                                     }
                                                 }
-
-                                                // Last resort: Try to find video element in the DOM
                                                 if (!videoElement && playerRef.current) {
                                                     const wrapper = playerRef.current as any;
                                                     const foundVideo =
@@ -282,7 +272,6 @@ const AudioPlayButton: React.FC<{
                                                         wrapper.parentElement?.querySelector?.(
                                                             "video"
                                                         );
-
                                                     if (foundVideo instanceof HTMLVideoElement) {
                                                         videoElement = foundVideo;
                                                         if (!seeked) {
@@ -292,24 +281,19 @@ const AudioPlayButton: React.FC<{
                                                         }
                                                     }
                                                 }
-
-                                                // Mute and start video playback if we found the element
                                                 if (videoElement) {
                                                     previousVideoMuteStateRef.current =
                                                         videoElement.muted;
                                                     videoElementRef.current = videoElement;
                                                     videoElement.muted = true;
-
-                                                    // Start video playback
                                                     try {
                                                         await videoElement.play();
                                                     } catch (playError) {
-                                                        // AbortError: play() was interrupted by pause() - ignore (race with VideoPlayer)
                                                         if (
                                                             playError instanceof Error &&
                                                             playError.name === "AbortError"
                                                         ) {
-                                                            // Continue to audio setup; do not return
+                                                            /* ignore */
                                                         } else {
                                                             console.warn(
                                                                 "Video play() failed, will wait for readiness:",
@@ -317,8 +301,6 @@ const AudioPlayButton: React.FC<{
                                                             );
                                                         }
                                                     }
-
-                                                    // Wait for video to be ready before starting audio
                                                     await waitForVideoReady(videoElement);
                                                 }
                                             } catch (error) {
@@ -503,19 +485,13 @@ const AudioPlayButton: React.FC<{
                         playerRef?.current &&
                         cellTimestamps?.startTime !== undefined
                     ) {
-                        // Seek video to cell's start timestamp, mute it, and start playback
                         try {
                             let seeked = false;
-
-                            // First try seekTo method if available
                             if (typeof playerRef.current.seekTo === "function") {
                                 playerRef.current.seekTo(cellTimestamps.startTime, "seconds");
                                 seeked = true;
                             }
-
-                            // Try to find the video element for both seeking (fallback) and muting
                             const internalPlayer = playerRef.current.getInternalPlayer?.();
-
                             if (internalPlayer instanceof HTMLVideoElement) {
                                 videoElement = internalPlayer;
                                 if (!seeked) {
@@ -523,12 +499,10 @@ const AudioPlayButton: React.FC<{
                                     seeked = true;
                                 }
                             } else if (internalPlayer && typeof internalPlayer === "object") {
-                                // Try different ways to access the video element
                                 const foundVideo =
                                     (internalPlayer as any).querySelector?.("video") ||
                                     (internalPlayer as any).video ||
                                     internalPlayer;
-
                                 if (foundVideo instanceof HTMLVideoElement) {
                                     videoElement = foundVideo;
                                     if (!seeked) {
@@ -537,14 +511,11 @@ const AudioPlayButton: React.FC<{
                                     }
                                 }
                             }
-
-                            // Last resort: Try to find video element in the DOM
                             if (!videoElement && playerRef.current) {
                                 const wrapper = playerRef.current as any;
                                 const foundVideo =
                                     wrapper.querySelector?.("video") ||
                                     wrapper.parentElement?.querySelector?.("video");
-
                                 if (foundVideo instanceof HTMLVideoElement) {
                                     videoElement = foundVideo;
                                     if (!seeked) {
@@ -553,23 +524,18 @@ const AudioPlayButton: React.FC<{
                                     }
                                 }
                             }
-
-                            // Mute and start video playback if we found the element
                             if (videoElement) {
                                 previousVideoMuteStateRef.current = videoElement.muted;
                                 videoElementRef.current = videoElement;
                                 videoElement.muted = true;
-
-                                // Start video playback
                                 try {
                                     await videoElement.play();
                                 } catch (playError) {
-                                    // AbortError: play() was interrupted by pause() - ignore (race with VideoPlayer)
                                     if (
                                         playError instanceof Error &&
                                         playError.name === "AbortError"
                                     ) {
-                                        // Continue to audio setup; do not return
+                                        /* ignore */
                                     } else {
                                         console.warn(
                                             "Video play() failed, will wait for readiness:",
@@ -577,8 +543,6 @@ const AudioPlayButton: React.FC<{
                                         );
                                     }
                                 }
-
-                                // Wait for video to be ready before starting audio
                                 await waitForVideoReady(videoElement);
                             }
                         } catch (error) {
@@ -616,17 +580,20 @@ const AudioPlayButton: React.FC<{
             }
         };
 
-        // Keep inline button in sync if this audio is stopped by global controller
+        // Keep inline button in sync if this audio is stopped by global controller (e.g. user
+        // clicked another cell's play). Do not call stopVideoPlayback() here: the new cell is
+        // now in charge of the video; pausing here would fight with it and can cause a loop.
         useEffect(() => {
             const handler = (e: AudioControllerEvent) => {
                 if (audioRef.current && e.audio === audioRef.current) {
                     setIsPlaying(false);
-                    stopVideoPlayback();
+                    previousVideoMuteStateRef.current = null;
+                    videoElementRef.current = null;
                 }
             };
             globalAudioController.addListener(handler);
             return () => globalAudioController.removeListener(handler);
-        }, [stopVideoPlayback]);
+        }, []);
 
         // Broadcast audio state changes to other webviews
         useEffect(() => {
