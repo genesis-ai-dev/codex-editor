@@ -1,6 +1,7 @@
 import { ImporterPlugin, CellAligner, AlignedCell, ImportedContent } from "../../types/plugin";
 import { Play } from "lucide-react";
 import { SubtitlesImporterForm } from "./SubtitlesImporterForm";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * Generate a random ID for child cells
@@ -246,7 +247,7 @@ const subtitlesCellAligner: CellAligner = async (
         assignedImports.forEach(({ importIndex, overlap }, i) => {
             const item = importedContent[importIndex];
             usedImportedIndices.add(importIndex);
-            const targetId = targetCell.metadata?.id || targetCell.id || `target-${targetIndex}`;
+            const targetId = targetCell.metadata?.id || uuidv4();
 
             if (i === 0) {
                 // Highest overlap - primary match
@@ -273,7 +274,7 @@ const subtitlesCellAligner: CellAligner = async (
         });
 
         if (assignedImports.length === 0) {
-            const targetId = targetCell.metadata?.id || targetCell.id || `target-${targetIndex}`;
+            const targetId = targetCell.metadata?.id || uuidv4();
             alignedCells.push({
                 notebookCell: targetCell,
                 importedContent: {
@@ -285,7 +286,7 @@ const subtitlesCellAligner: CellAligner = async (
                     startTime: targetCell.metadata?.data?.startTime,
                     endTime: targetCell.metadata?.data?.endTime,
                 },
-                alignmentMethod: "preserved",
+                alignmentMethod: "custom",
                 confidence: 1.0,
             });
         }
