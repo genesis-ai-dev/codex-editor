@@ -10,7 +10,7 @@ import {
 import { ProgressDots } from "./ProgressDots";
 import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import { Languages, Heart } from "lucide-react";
+import { Languages, Heart, Check, RotateCcw } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
@@ -46,6 +46,7 @@ interface MilestoneAccordionProps {
         averageHealth?: number;
     };
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    vscode: any;
     handleEditMilestoneModalOpen: () => void;
     showHealthIndicators?: boolean;
 }
@@ -64,6 +65,7 @@ export function MilestoneAccordion({
     anchorRef,
     calculateSubsectionProgress,
     requestSubsectionProgress,
+    vscode,
     handleEditMilestoneModalOpen,
     showHealthIndicators = false,
 }: MilestoneAccordionProps) {
