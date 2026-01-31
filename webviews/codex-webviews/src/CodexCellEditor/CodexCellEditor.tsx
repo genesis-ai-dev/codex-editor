@@ -139,6 +139,9 @@ const extractChapterFromMilestoneValue = (cellContent: string | undefined): stri
 
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
+    const [allCellsInCurrentMilestone, setAllCellsInCurrentMilestone] = useState<
+        QuillCellContent[]
+    >([]);
     const [alertColorCodes, setAlertColorCodes] = useState<{
         [cellId: string]: number;
     }>({});
@@ -269,6 +272,7 @@ const CodexCellEditor: React.FC = () => {
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
+    const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
     const [saveRetryCount, setSaveRetryCount] = useState(0);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const pendingSaveRequestIdRef = useRef<string | null>(null);
@@ -299,6 +303,8 @@ const CodexCellEditor: React.FC = () => {
 
     // Cache cells for each loaded page (LRU cache with max size of 10)
     const cellsCacheRef = useRef<Map<string, QuillCellContent[]>>(new Map());
+    // Cache all cells in milestone by milestone index (for footnote counting)
+    const milestoneCellsCacheRef = useRef<Map<number, QuillCellContent[]>>(new Map());
     const MAX_CACHE_SIZE = 10;
 
     // Create cache helpers
@@ -492,7 +498,10 @@ const CodexCellEditor: React.FC = () => {
                         const blob = await (await fetch(audioInfo.audioData)).blob();
 
                         // Transcribe
-                        debug("batchTranscription", `Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`);
+                        debug(
+                            "batchTranscription",
+                            `Creating client for cell ${cellId}: endpoint=${wsEndpoint}, hasToken=${!!asrConfig.authToken}`
+                        );
                         const client = new WhisperTranscriptionClient(
                             wsEndpoint,
                             asrConfig.authToken
@@ -865,7 +874,10 @@ const CodexCellEditor: React.FC = () => {
             }
             if (message?.type === "configurationChanged") {
                 // Configuration changes now send validationCount directly, no need to re-request
-                debug("validationConfig", "Configuration changed - validation count will be sent directly");
+                debug(
+                    "validationConfig",
+                    "Configuration changed - validation count will be sent directly"
+                );
             }
         },
         []
@@ -1440,6 +1452,10 @@ const CodexCellEditor: React.FC = () => {
 
             setMilestoneIndex(milestoneIdx);
             setTranslationUnits(cells);
+            // For initial load, use cells as allCellsInCurrentMilestone (will be updated when page changes)
+            setAllCellsInCurrentMilestone(cells);
+            // Cache all cells in milestone (use cells as fallback until we get the full milestone)
+            milestoneCellsCacheRef.current.set(currentMilestoneIdx, cells);
             setCurrentMilestoneIndex(currentMilestoneIdx);
             setCurrentSubsectionIndex(currentSubsectionIdx);
             setIsSourceText(isSourceTextValue);
@@ -1468,12 +1484,14 @@ const CodexCellEditor: React.FC = () => {
             milestoneIdx: number,
             subsectionIdx: number,
             cells: QuillCellContent[],
-            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
+            sourceCellMapValue: { [k: string]: { content: string; versions: string[] } },
+            allCellsInMilestone?: QuillCellContent[]
         ) => {
             debug("pagination", "Received cell page:", {
                 milestone: milestoneIdx,
                 subsection: subsectionIdx,
                 cells: cells.length,
+                allCellsInMilestone: allCellsInMilestone?.length,
             });
 
             // Always update latestRequestRef to track current position
@@ -1483,6 +1501,21 @@ const CodexCellEditor: React.FC = () => {
             setTranslationUnits(cells);
             setCurrentMilestoneIndex(milestoneIdx);
             setCurrentSubsectionIndex(subsectionIdx);
+
+            // Store all cells in milestone for footnote offset calculation
+            if (allCellsInMilestone) {
+                setAllCellsInCurrentMilestone(allCellsInMilestone);
+                // Cache all cells in milestone by milestone index
+                milestoneCellsCacheRef.current.set(milestoneIdx, allCellsInMilestone);
+            } else {
+                // Fall back to current page cells if allCellsInMilestone not provided
+                setAllCellsInCurrentMilestone(cells);
+                // Try to get from cache if available
+                const cachedAllCells = milestoneCellsCacheRef.current.get(milestoneIdx);
+                if (cachedAllCells) {
+                    setAllCellsInCurrentMilestone(cachedAllCells);
+                }
+            }
 
             // Merge source cell map
             setSourceCellMap((prev) => ({ ...prev, ...sourceCellMapValue }));
@@ -1634,6 +1667,14 @@ const CodexCellEditor: React.FC = () => {
                 const cachedCells = getCachedCells(pageKey);
                 if (cachedCells) {
                     setTranslationUnits(cachedCells);
+                    // Also retrieve cached allCellsInMilestone for this milestone
+                    const cachedAllCells = milestoneCellsCacheRef.current.get(milestoneIdx);
+                    if (cachedAllCells) {
+                        setAllCellsInCurrentMilestone(cachedAllCells);
+                    } else {
+                        // If not cached, fall back to current cells (will be updated when page loads)
+                        setAllCellsInCurrentMilestone(cachedCells);
+                    }
                     setCurrentMilestoneIndex(milestoneIdx);
                     setCurrentSubsectionIndex(subsectionIdx);
                     setIsLoadingCells(false);
@@ -1911,6 +1952,7 @@ const CodexCellEditor: React.FC = () => {
 
         // Reset error state and show saving spinner
         setSaveError(false);
+        setSaveErrorMessage(null);
         setIsSaving(true);
 
         // Track this save so we can wait for the provider's explicit ack (after disk persistence)
@@ -1925,6 +1967,7 @@ const CodexCellEditor: React.FC = () => {
             debug("editor", "Save operation timed out", { cellId, attempt: currentRetryCount + 1 });
             setIsSaving(false);
             setSaveError(true);
+            setSaveErrorMessage("Save operation timed out. Please try again.");
             setSaveRetryCount((prev) => prev + 1);
         }, SAVE_TIMEOUT_MS);
 
@@ -1957,6 +2000,7 @@ const CodexCellEditor: React.FC = () => {
                 pendingSaveRequestIdRef.current = null;
                 setIsSaving(false);
                 setSaveError(false);
+                setSaveErrorMessage(null);
                 setSaveRetryCount(0);
                 handleCloseEditor();
                 return;
@@ -1965,6 +2009,8 @@ const CodexCellEditor: React.FC = () => {
             // Save failed: keep editor open for manual retry
             setIsSaving(false);
             setSaveError(true);
+            const errorMessage = message?.content?.error || "Failed to save. Please try again.";
+            setSaveErrorMessage(errorMessage);
             setSaveRetryCount((prev) => prev + 1);
         },
         []
@@ -2927,7 +2973,11 @@ const CodexCellEditor: React.FC = () => {
                         <CellList
                             spellCheckResponse={spellCheckResponse}
                             translationUnits={translationUnitsForSection}
-                            fullDocumentTranslationUnits={translationUnits}
+                            fullDocumentTranslationUnits={
+                                allCellsInCurrentMilestone.length > 0
+                                    ? allCellsInCurrentMilestone
+                                    : translationUnits
+                            }
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={handleSetContentBeingUpdated}
                             handleCloseEditor={handleCloseEditor}
@@ -2959,6 +3009,7 @@ const CodexCellEditor: React.FC = () => {
                             isAudioOnly={Boolean(metadata?.audioOnly)}
                             isSaving={isSaving}
                             saveError={saveError}
+                            saveErrorMessage={saveErrorMessage}
                             saveRetryCount={saveRetryCount}
                             isCorrectionEditorMode={isCorrectionEditorMode}
                             fontSize={

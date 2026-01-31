@@ -34,6 +34,7 @@ import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
+import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 import {
     Dialog,
@@ -58,6 +59,7 @@ import {
     Settings,
     X,
     Check,
+    AlertCircle,
     FileCode,
     RefreshCcw,
     ListOrdered,
@@ -119,6 +121,7 @@ interface CellEditorProps {
     cell: QuillCellContent;
     isSaving?: boolean;
     saveError?: boolean;
+    saveErrorMessage?: string | null;
     saveRetryCount?: number;
     footnoteOffset?: number;
     prevEndTime?: number;
@@ -233,6 +236,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cell,
     isSaving = false,
     saveError = false,
+    saveErrorMessage = null,
     saveRetryCount = 0,
     footnoteOffset = 1,
     prevEndTime,
@@ -345,6 +349,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
     const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
+    const [currentSelectedAudioId, setCurrentSelectedAudioId] = useState<string | null>(null);
 
     // Transcription state
     const [isTranscribing, setIsTranscribing] = useState(false);
@@ -1580,6 +1585,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Load existing audio when component mounts
     useEffect(() => {
+        // Reset selected audio ID when switching cells
+        setCurrentSelectedAudioId(null);
         // Don't try to load from session storage or cell data directly
         // Just request audio attachments from the provider which will send proper base64 data
         preloadAudioForTab();
@@ -1632,6 +1639,60 @@ const CellEditor: React.FC<CellEditorProps> = ({
         async (event: MessageEvent) => {
             const message = event.data;
 
+            // Handle audio selection changes - reload audio when selection changes
+            if (
+                message.type === "audioAttachmentSelected" &&
+                message.content.cellId === cellMarkers[0] &&
+                message.content.success
+            ) {
+                const newSelectedAudioId = message.content.audioId;
+                // Only reload if the selection actually changed
+                if (currentSelectedAudioId !== newSelectedAudioId) {
+                    setCurrentSelectedAudioId(newSelectedAudioId);
+                    // Clear cached audio data since selected audio has changed
+                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    clearCachedAudio(cellMarkers[0]);
+                    // Clear current audio blob to force reload
+                    setAudioBlob(null);
+                    setAudioUrl(null);
+                    // Request the newly selected audio
+                    setIsAudioLoading(true);
+                    setAudioFetchPending(true);
+                    const messageContent: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] },
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+                }
+            }
+
+            // Handle audio validation state updates (includes selectedAudioId changes)
+            if (
+                message.type === "providerUpdatesAudioValidationState" &&
+                message.content.cellId === cellMarkers[0] &&
+                message.content.selectedAudioId
+            ) {
+                const newSelectedAudioId = message.content.selectedAudioId;
+                // Only reload if the selection actually changed
+                if (currentSelectedAudioId !== newSelectedAudioId) {
+                    setCurrentSelectedAudioId(newSelectedAudioId);
+                    // Clear cached audio data since selected audio has changed
+                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    clearCachedAudio(cellMarkers[0]);
+                    // Clear current audio blob to force reload
+                    setAudioBlob(null);
+                    setAudioUrl(null);
+                    // Request the newly selected audio
+                    setIsAudioLoading(true);
+                    setAudioFetchPending(true);
+                    const messageContent: EditorPostMessages = {
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] },
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+                }
+            }
+
             // Handle audio availability updates specifically for this cell
             if (message.type === "providerSendsAudioAttachments") {
                 // Clear cached audio data since selected audio might have changed
@@ -1639,6 +1700,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 clearCachedAudio(cellMarkers[0]);
 
                 // If we already have local audio (e.g., just recorded) or are loading, don't disrupt UI
+                // UNLESS this is coming after a selection change (which we handle above)
                 if (audioBlob || isAudioLoading) {
                     return;
                 }
@@ -1711,6 +1773,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 `audio-id-${cellMarkers[0]}`,
                                 message.content.audioId
                             );
+                            // Update tracked selected audio ID
+                            setCurrentSelectedAudioId(message.content.audioId);
                         }
                     } catch (error) {
                         console.error("Error converting audio data to blob:", error);
@@ -1794,7 +1858,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 });
             }
         },
-        [cellMarkers, audioBlob, isAudioLoading, centerEditor]
+        [cellMarkers, audioBlob, isAudioLoading, centerEditor, currentSelectedAudioId]
     );
 
     const displayEditableLabel = () => {
@@ -1818,6 +1882,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setHasAudioHistory(history.length > 0);
                 setAudioHistoryCount(history.length);
 
+                // Initialize currentSelectedAudioId from the current attachment ID if available
+                if (message.content.currentAttachmentId && !currentSelectedAudioId) {
+                    setCurrentSelectedAudioId(message.content.currentAttachmentId);
+                }
+
                 // If we just restored an audio (previously none loaded),
                 // auto-close history and request the current audio so the waveform appears
                 const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
@@ -1832,7 +1901,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
             }
         },
-        [cellMarkers, audioBlob, showAudioHistory]
+        [cellMarkers, audioBlob, showAudioHistory, currentSelectedAudioId]
     );
 
     // Clean up media recorder and stream on unmount
@@ -2939,6 +3008,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Save error message */}
+            {saveError && saveErrorMessage && (
+                <div className="p-4">
+                    <Alert variant="destructive">
+                        <AlertTitle className="flex items-center gap-1">
+                            <AlertCircle className="h-4 w-4" />
+                            Save Failed
+                        </AlertTitle>
+                        <AlertDescription className="mt-1">
+                            {saveErrorMessage}. Please try again.
+                        </AlertDescription>
+                    </Alert>
+                </div>
+            )}
         </Card>
     );
 };
