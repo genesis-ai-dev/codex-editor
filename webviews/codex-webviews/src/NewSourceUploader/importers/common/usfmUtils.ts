@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ProcessedCell,
     ProcessedNotebook,
@@ -544,7 +545,7 @@ export const createNotebookPair = <T extends keyof ProcessedNotebookMetadataByIm
         cells,
         metadata: {
             ...metadata,
-            id: `${importerType}-source-${Date.now()}`,
+            id: uuidv4(),
             originalFileName,
             sourceFile: originalFileName,
             importerType,
@@ -574,7 +575,7 @@ export const createNotebookPair = <T extends keyof ProcessedNotebookMetadataByIm
         cells: codexCells,
         metadata: {
             ...sourceNotebook.metadata,
-            id: `${importerType}-codex-${Date.now()}`,
+            id: uuidv4(),
         },
     };
 

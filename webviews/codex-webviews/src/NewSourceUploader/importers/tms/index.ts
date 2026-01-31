@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -323,7 +324,7 @@ export const parseFile = async (
             name: file.name.replace(/\.(tmx|xliff|xlf)$/, ''),
             cells: cells,
             metadata: {
-                id: `translation-source-${Date.now()}`,
+                id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for round-trip export
@@ -353,7 +354,7 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: `translation-codex-${Date.now()}`,
+                id: uuidv4(),
                 // Don't duplicate the original file data in codex
                 originalFileData: undefined,
             },

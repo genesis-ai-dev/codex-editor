@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -150,7 +151,7 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback, optio
             name: baseName,
             cells,
             metadata: {
-                id: `plaintext-source-${Date.now()}`,
+                id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
                 importerType: 'plaintext',
@@ -186,7 +187,7 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback, optio
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: `plaintext-codex-${Date.now()}`,
+                id: uuidv4(),
             },
         };
 

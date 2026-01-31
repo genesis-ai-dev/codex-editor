@@ -334,14 +334,16 @@ function getWebviewContent(
                                 <i class="codicon codicon-refresh"></i>
                                 <div>
                                     <strong>Rebuild Export</strong>
-                                    <p>Intelligently detects file type and exports back to original format (DOCX, IDML, Biblica, OBS, TMS, USFM)</p>
+                                    <p>Intelligently detects file type and exports back to original format (DOCX, IDML, Biblica, PDF, OBS, TMS, USFM, CSV/TSV)</p>
                                     <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
                                         <span class="format-tag" style="background-color: var(--vscode-charts-blue);">DOCX</span>
                                         <span class="format-tag" style="background-color: var(--vscode-charts-blue);">IDML</span>
                                         <span class="format-tag" style="background-color: var(--vscode-charts-blue);">Biblica</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">PDF</span>
                                         <span class="format-tag" style="background-color: var(--vscode-charts-blue);">OBS</span>
                                         <span class="format-tag" style="background-color: var(--vscode-charts-blue);">TMS</span>
                                         <span class="format-tag" style="background-color: var(--vscode-charts-blue);">USFM</span>
+                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">CSV/TSV</span>
                                     </div>
                                 </div>
                             </div>
