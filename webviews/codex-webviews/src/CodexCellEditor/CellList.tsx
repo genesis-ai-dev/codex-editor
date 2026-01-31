@@ -517,11 +517,14 @@ const CellList: React.FC<CellListProps> = ({
     // Now uses globalReferences and includes offset for pagination
     const getChapterBasedVerseNumber = useCallback(
         (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
-            const cellIdentifier = getCellIdentifier(cell);
-            if (!cellIdentifier) return 1; // Fallback if no identifier
+            // Use cellMarkers[0] (UUID) for finding the cell's position, not getCellIdentifier
+            // getCellIdentifier may return non-unique values (e.g., Biblica imports where multiple
+            // cells share the same first globalReference due to verse array accumulation)
+            const cellUuid = cell.cellMarkers?.[0];
+            if (!cellUuid) return 1; // Fallback if no UUID
 
             const cellIndex = allCells.findIndex(
-                (unit) => getCellIdentifier(unit) === cellIdentifier
+                (unit) => unit.cellMarkers?.[0] === cellUuid
             );
 
             if (cellIndex === -1) return 1; // Fallback if not found
@@ -544,7 +547,7 @@ const CellList: React.FC<CellListProps> = ({
             const offset = calculateLineNumberOffset();
             return visibleCellCount + offset;
         },
-        [getCellIdentifier, isChildCell, calculateLineNumberOffset]
+        [isChildCell, calculateLineNumberOffset]
     );
 
     const generateCellLabel = useCallback(

@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -582,6 +583,7 @@ export const parseFile = async (
         // Override metadata to indicate PDF origin
         sourceNotebook.metadata = {
             ...sourceNotebook.metadata,
+            id: uuidv4(),
             corpusMarker: 'pdf',
             importerType: 'pdf',
             originalFileName: file.name, // Keep original PDF filename
@@ -608,6 +610,7 @@ export const parseFile = async (
 
         codexNotebook.metadata = {
             ...codexNotebook.metadata,
+            id: uuidv4(),
             corpusMarker: 'pdf',
             importerType: 'pdf',
             originalFileName: file.name,

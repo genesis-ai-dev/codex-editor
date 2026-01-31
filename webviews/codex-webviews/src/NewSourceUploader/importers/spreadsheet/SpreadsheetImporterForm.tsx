@@ -443,7 +443,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         name: parsedData.filename,
                         cells: sourceCells,
                         metadata: {
-                            id: parsedData.filename,
+                            id: uuidv4(),
                             originalFileName: selectedFile!.name,
                             sourceFile: selectedFile!.name,
                             importerType: spreadsheetType,
@@ -474,7 +474,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             content: "", // Empty target cells
                         })),
                         metadata: {
-                            id: parsedData.filename,
+                            id: uuidv4(),
                             originalFileName: selectedFile!.name,
                             sourceFile: selectedFile!.name,
                             importerType: spreadsheetType,

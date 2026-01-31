@@ -366,14 +366,14 @@ async function exportCodexContentAsIdmlRoundtrip(
                         importerType === 'biblica' ||
                         fileType === 'biblica' ||
                         importerType === 'biblica-experimental' || // Backward compatibility
-                        fileType === 'biblica-experimental' || // Backward compatibility
-                        fileName.toLowerCase().endsWith('-biblica.codex');
+                        fileType === 'biblica-experimental'; // Backward compatibility
+                    // Note: We no longer check filename suffix since importer type is stored in metadata
                     const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
 
                     console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
 
                     // Lookup original attachment by originalFileName or originalName metadata on the notebook (fallback to {bookCode}.idml)
-                    // Note: NewSourceUploaderProvider stores it as "originalName", but some importers use "originalFileName"
+                    // Note: originalFileName now points to the actual deduplicated file in attachments/originals
                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
                         (codexNotebook.metadata as any)?.originalName ||
                         `${bookCode}.idml`;
@@ -464,20 +464,21 @@ async function exportCodexContentAsDocxRoundtrip(
                     }
 
                     // Lookup original attachment by originalFileName metadata
+                    // Note: originalFileName now points to the actual deduplicated file in attachments/originals
                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.docx`;
-                    // Originals are stored under `.project/attachments/files/originals/` (preferred).
-                    // Fallback to legacy `.project/attachments/originals/` if needed.
+                    // Originals are stored under `.project/attachments/originals/` (preferred).
+                    // Fallback to legacy `.project/attachments/files/originals/` if needed.
                     const originalsDirPreferred = vscode.Uri.joinPath(
                         workspaceFolders[0].uri,
                         ".project",
                         "attachments",
-                        "files",
                         "originals"
                     );
                     const originalsDirLegacy = vscode.Uri.joinPath(
                         workspaceFolders[0].uri,
                         ".project",
                         "attachments",
+                        "files",
                         "originals"
                     );
                     const preferredUri = vscode.Uri.joinPath(originalsDirPreferred, originalFileName);
@@ -1485,7 +1486,8 @@ async function exportCodexContentAsTmsRoundtrip(
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
                     const fileFormat = (codexNotebook.metadata as any)?.fileFormat || corpusMarker; // Fallback to corpusMarker for old files
                     const fileType = (codexNotebook.metadata as any)?.fileType; // Direct file type field (tmx or xliff)
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName; // Get original filename (stored as originalFileName in metadata)
+                    // Get original filename - this now points to the actual deduplicated file in attachments/originals
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName;
 
                     if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
                         console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);

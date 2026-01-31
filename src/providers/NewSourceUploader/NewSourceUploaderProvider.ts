@@ -267,35 +267,35 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     const { requestId, pdfBase64, outputPath } = message as { requestId: string; pdfBase64: string; outputPath?: string; };
                     try {
                         const scriptPath = path.join(this.context.extensionPath, 'webviews', 'codex-webviews', 'src', 'NewSourceUploader', 'importers', 'pdf', 'scripts', 'pdf_to_docx.py');
-                        
+
                         // Verify script exists
                         if (!fs.existsSync(scriptPath)) {
                             throw new Error(`Python script not found at: ${scriptPath}`);
                         }
-                        
+
                         // Create temp directory
                         const tempDir = path.join(this.context.extensionPath, '.temp');
                         if (!fs.existsSync(tempDir)) {
                             fs.mkdirSync(tempDir, { recursive: true });
                         }
-                        
+
                         // Write base64 PDF to temporary file to avoid command line length limits
                         const tempPdfPath = path.join(tempDir, `input_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
                         const pdfBuffer = Buffer.from(pdfBase64, 'base64');
                         fs.writeFileSync(tempPdfPath, pdfBuffer);
-                        
+
                         // Use temp file if outputPath not provided
                         const docxPath = outputPath || path.join(tempDir, `converted_${Date.now()}.docx`);
-                        
+
                         // Verify PDF file was written
                         if (!fs.existsSync(tempPdfPath)) {
                             throw new Error(`Failed to write PDF file to: ${tempPdfPath}`);
                         }
-                        
+
                         // Run Python script with file paths
                         // On Windows, use proper quoting; on Unix, paths should work as-is
                         const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-                        
+
                         // Quote paths properly for Windows (use double quotes and escape inner quotes)
                         const quotePath = (p: string) => {
                             if (process.platform === 'win32') {
@@ -306,12 +306,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                 return `'${p.replace(/'/g, "\\'")}'`;
                             }
                         };
-                        
+
                         const command = `${pythonCmd} ${quotePath(scriptPath)} ${quotePath(tempPdfPath)} ${quotePath(docxPath)}`;
-                        
+
                         console.log(`[PDF→DOCX] Converting PDF to DOCX...`);
                         console.log(`[PDF→DOCX] Command: ${command}`);
-                        
+
                         let stdout = '';
                         let stderr = '';
                         try {
@@ -323,7 +323,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             stdout = execErr.stdout || '';
                             stderr = execErr.stderr || '';
                             const errorMessage = execErr.message || 'Unknown error';
-                            
+
                             // If we have stdout that might be JSON, try to parse it
                             if (stdout.trim()) {
                                 try {
@@ -335,17 +335,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                     // Not JSON, use the exec error
                                 }
                             }
-                            
+
                             // Include both stdout and stderr in error message
                             const fullError = [
                                 errorMessage,
                                 stdout ? `\nStdout: ${stdout}` : '',
                                 stderr ? `\nStderr: ${stderr}` : ''
                             ].filter(Boolean).join('');
-                            
+
                             throw new Error(fullError);
                         }
-                        
+
                         // Clean up temp PDF file
                         try {
                             if (fs.existsSync(tempPdfPath)) {
@@ -354,7 +354,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         } catch (cleanupErr) {
                             console.warn(`[PDF→DOCX] Could not delete temp PDF: ${cleanupErr}`);
                         }
-                        
+
                         // Log progress messages from stderr (Python script sends progress updates there)
                         if (stderr) {
                             try {
@@ -380,7 +380,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                 }
                             }
                         }
-                        
+
                         // Parse JSON result
                         let result;
                         try {
@@ -388,40 +388,40 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         } catch (parseErr) {
                             throw new Error(`Failed to parse Python script output as JSON. Stdout: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}. Stderr: ${stderr}`);
                         }
-                        
+
                         if (result.success) {
                             console.log(`[PDF→DOCX] ✓ Successfully converted PDF to DOCX`);
-                            
+
                             // Verify the DOCX file exists and has content
                             if (!fs.existsSync(docxPath)) {
                                 throw new Error(`DOCX file not found at: ${docxPath}`);
                             }
-                            
+
                             const fileStats = fs.statSync(docxPath);
                             if (fileStats.size === 0) {
                                 throw new Error(`DOCX file is empty at: ${docxPath}`);
                             }
-                            
+
                             console.log(`[PDF→DOCX] Reading DOCX file (${fileStats.size} bytes)...`);
-                            
+
                             // For large files (>50MB), save directly to workspace and send file path instead of base64
                             // This avoids memory issues and webview message size limits
                             const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
                             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                            
+
                             if (fileStats.size > LARGE_FILE_THRESHOLD && workspaceFolder) {
                                 console.log(`[PDF→DOCX] Large file detected (${fileStats.size} bytes), saving to workspace instead of sending via message...`);
-                                
+
                                 // Save DOCX to temporary location in workspace
                                 const tempDir = vscode.Uri.joinPath(workspaceFolder.uri, '.project', 'temp');
                                 await vscode.workspace.fs.createDirectory(tempDir);
-                                
+
                                 const tempDocxUri = vscode.Uri.joinPath(tempDir, `pdf_conversion_${requestId}.docx`);
                                 const docxBuffer = fs.readFileSync(docxPath);
                                 await vscode.workspace.fs.writeFile(tempDocxUri, new Uint8Array(docxBuffer));
-                                
+
                                 console.log(`[PDF→DOCX] Saved large DOCX to workspace: ${tempDocxUri.fsPath}`);
-                                
+
                                 webviewPanel.webview.postMessage({
                                     command: 'convertPdfToDocxResult',
                                     requestId,
@@ -434,14 +434,14 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                 // For smaller files, send base64 as before
                                 const docxBuffer = fs.readFileSync(docxPath);
                                 const docxBase64 = docxBuffer.toString('base64');
-                                
+
                                 // Verify base64 encoding is valid
                                 if (!docxBase64 || docxBase64.length === 0) {
                                     throw new Error('Failed to encode DOCX file to base64');
                                 }
-                                
+
                                 console.log(`[PDF→DOCX] Sending DOCX data to webview (${docxBase64.length} base64 chars)...`);
-                                
+
                                 webviewPanel.webview.postMessage({
                                     command: 'convertPdfToDocxResult',
                                     requestId,
@@ -468,35 +468,35 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     const { requestId, docxBase64, outputPath } = message as { requestId: string; docxBase64: string; outputPath?: string; };
                     try {
                         const scriptPath = path.join(this.context.extensionPath, 'webviews', 'codex-webviews', 'src', 'NewSourceUploader', 'importers', 'pdf', 'scripts', 'docx_to_pdf.py');
-                        
+
                         // Verify script exists
                         if (!fs.existsSync(scriptPath)) {
                             throw new Error(`Python script not found at: ${scriptPath}`);
                         }
-                        
+
                         // Create temp directory
                         const tempDir = path.join(this.context.extensionPath, '.temp');
                         if (!fs.existsSync(tempDir)) {
                             fs.mkdirSync(tempDir, { recursive: true });
                         }
-                        
+
                         // Write base64 DOCX to temporary file to avoid command line length limits
                         const tempDocxPath = path.join(tempDir, `input_${Date.now()}_${Math.random().toString(36).slice(2)}.docx`);
                         const docxBuffer = Buffer.from(docxBase64, 'base64');
                         fs.writeFileSync(tempDocxPath, docxBuffer);
-                        
+
                         // Use temp file if outputPath not provided
                         const pdfPath = outputPath || path.join(tempDir, `converted_${Date.now()}.pdf`);
-                        
+
                         // Verify DOCX file was written
                         if (!fs.existsSync(tempDocxPath)) {
                             throw new Error(`Failed to write DOCX file to: ${tempDocxPath}`);
                         }
-                        
+
                         // Run Python script with file paths
                         // On Windows, use proper quoting; on Unix, paths should work as-is
                         const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-                        
+
                         // Quote paths properly for Windows (use double quotes and escape inner quotes)
                         const quotePath = (p: string) => {
                             if (process.platform === 'win32') {
@@ -507,12 +507,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                 return `'${p.replace(/'/g, "\\'")}'`;
                             }
                         };
-                        
+
                         const command = `${pythonCmd} ${quotePath(scriptPath)} ${quotePath(tempDocxPath)} ${quotePath(pdfPath)}`;
-                        
+
                         console.log(`[DOCX→PDF] Converting DOCX to PDF...`);
                         console.log(`[DOCX→PDF] Command: ${command}`);
-                        
+
                         let stdout = '';
                         let stderr = '';
                         try {
@@ -524,7 +524,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             stdout = execErr.stdout || '';
                             stderr = execErr.stderr || '';
                             const errorMessage = execErr.message || 'Unknown error';
-                            
+
                             // If we have stdout that might be JSON, try to parse it
                             if (stdout.trim()) {
                                 try {
@@ -536,17 +536,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                                     // Not JSON, use the exec error
                                 }
                             }
-                            
+
                             // Include both stdout and stderr in error message
                             const fullError = [
                                 errorMessage,
                                 stdout ? `\nStdout: ${stdout}` : '',
                                 stderr ? `\nStderr: ${stderr}` : ''
                             ].filter(Boolean).join('');
-                            
+
                             throw new Error(fullError);
                         }
-                        
+
                         // Clean up temp DOCX file
                         try {
                             if (fs.existsSync(tempDocxPath)) {
@@ -555,11 +555,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         } catch (cleanupErr) {
                             console.warn(`[DOCX→PDF] Could not delete temp DOCX: ${cleanupErr}`);
                         }
-                        
+
                         if (stderr && !stdout.includes('"success":true')) {
                             console.warn(`[DOCX→PDF] Python stderr: ${stderr}`);
                         }
-                        
+
                         // Parse JSON result
                         let result;
                         try {
@@ -567,7 +567,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         } catch (parseErr) {
                             throw new Error(`Failed to parse Python script output as JSON. Stdout: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}. Stderr: ${stderr}`);
                         }
-                        
+
                         if (result.success) {
                             console.log(`[DOCX→PDF] ✓ Successfully converted DOCX to PDF`);
                             webviewPanel.webview.postMessage({
@@ -788,22 +788,22 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 processedNotebook.metadata.importerType === "spreadsheet-csv" ||
                 processedNotebook.metadata.importerType === "spreadsheet-tsv"
                 ? (() => {
-                      const spreadsheetMetadata = processedNotebook.metadata as SpreadsheetNotebookMetadata;
-                      return {
-                          ...(spreadsheetMetadata.originalFileContent && {
-                              originalFileContent: spreadsheetMetadata.originalFileContent
-                          }),
-                          ...(spreadsheetMetadata.columnHeaders && {
-                              columnHeaders: spreadsheetMetadata.columnHeaders
-                          }),
-                          ...(spreadsheetMetadata.sourceColumnIndex !== undefined && {
-                              sourceColumnIndex: spreadsheetMetadata.sourceColumnIndex
-                          }),
-                          ...(spreadsheetMetadata.delimiter && {
-                              delimiter: spreadsheetMetadata.delimiter
-                          }),
-                      };
-                  })()
+                    const spreadsheetMetadata = processedNotebook.metadata as SpreadsheetNotebookMetadata;
+                    return {
+                        ...(spreadsheetMetadata.originalFileContent && {
+                            originalFileContent: spreadsheetMetadata.originalFileContent
+                        }),
+                        ...(spreadsheetMetadata.columnHeaders && {
+                            columnHeaders: spreadsheetMetadata.columnHeaders
+                        }),
+                        ...(spreadsheetMetadata.sourceColumnIndex !== undefined && {
+                            sourceColumnIndex: spreadsheetMetadata.sourceColumnIndex
+                        }),
+                        ...(spreadsheetMetadata.delimiter && {
+                            delimiter: spreadsheetMetadata.delimiter
+                        }),
+                    };
+                })()
                 : {}),
         };
 
@@ -848,83 +848,112 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
-        // Save original files if provided in metadata
+        // Import the original file utilities
+        const { saveOriginalFileWithDeduplication } = await import('./originalFileUtils');
+
+        // Save original files if provided in metadata (with hash-based deduplication)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (workspaceFolder) {
             for (const pair of message.notebookPairs) {
                 if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
-                    // Save the original file in attachments
-                    const originalFileName = pair.source.metadata.originalFileName || 'document.docx';
-                    // Store originals under attachments/files/originals for consistency with other attachment storage.
-                    // (Some existing projects may have originals under attachments/originals; exporter will fallback.)
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolder.uri,
-                        '.project',
-                        'attachments',
-                        'files',
-                        'originals'
-                    );
-                    await vscode.workspace.fs.createDirectory(originalsDir);
-
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                    // Save the original file with deduplication
+                    const requestedFileName = pair.source.metadata.originalFileName || 'document.docx';
                     const fileData = pair.source.metadata.originalFileData;
 
-                    // Convert ArrayBuffer to Uint8Array if needed
+                    // Convert to Uint8Array if needed
                     const buffer = fileData instanceof ArrayBuffer
                         ? new Uint8Array(fileData)
                         : Buffer.from(fileData);
 
-                    await vscode.workspace.fs.writeFile(originalFileUri, buffer);
+                    // Use hash-based deduplication to save the file
+                    // This handles:
+                    // 1. Same name, same hash: Keep existing file
+                    // 2. Different name, same hash: Return existing filename
+                    // 3. Same name, different hash: Rename to sample(1).idml etc.
+                    const result = await saveOriginalFileWithDeduplication(
+                        workspaceFolder,
+                        requestedFileName,
+                        buffer
+                    );
+
+                    console.log(`[NewSourceUploader] Original file: ${result.message}`);
+
+                    // Store the file hash in metadata for integrity verification and deduplication tracking
+                    (pair.source.metadata as any).originalFileHash = result.hash;
+                    if (pair.codex?.metadata) {
+                        (pair.codex.metadata as any).originalFileHash = result.hash;
+                    }
+
+                    // IMPORTANT: Preserve user's original filename as fileDisplayName before updating originalFileName
+                    // This ensures the display name reflects what the user imported, while originalFileName
+                    // points to the actual deduplicated file in attachments/originals
+                    if (result.fileName !== requestedFileName) {
+                        // Set fileDisplayName to user's original name (without extension) if not already set
+                        if (!pair.source.metadata.fileDisplayName) {
+                            const displayName = requestedFileName.replace(/\.[^/.]+$/, ''); // Remove extension
+                            (pair.source.metadata as any).fileDisplayName = displayName;
+                            console.log(`[NewSourceUploader] Set fileDisplayName: "${displayName}" (from original "${requestedFileName}")`);
+                        }
+                        if (pair.codex?.metadata && !pair.codex.metadata.fileDisplayName) {
+                            const displayName = requestedFileName.replace(/\.[^/.]+$/, '');
+                            (pair.codex.metadata as any).fileDisplayName = displayName;
+                        }
+
+                        // Update originalFileName to point to the actual stored file (deduplicated)
+                        pair.source.metadata.originalFileName = result.fileName;
+                        if (pair.codex?.metadata) {
+                            pair.codex.metadata.originalFileName = result.fileName;
+                        }
+                        console.log(`[NewSourceUploader] Updated originalFileName to deduplicated file: "${result.fileName}"`);
+                    }
 
                     // CRITICAL: Do not persist original binary content into JSON notebooks.
-                    // The original template is stored in `.project/attachments/originals/<originalFileName>`.
+                    // The original template is stored in `.project/attachments/originals/<actualFileName>`.
                     delete pair.source.metadata.originalFileData;
                 }
 
-                // For PDF imports: Also save the converted DOCX file for round-trip export
+                // For PDF imports: Also save the converted DOCX file for round-trip export (with deduplication)
                 const pdfMetadata = (pair.source.metadata as any)?.pdfDocumentMetadata;
                 if (pdfMetadata?.convertedDocxFileName) {
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolder.uri,
-                        '.project',
-                        'attachments',
-                        'files',
-                        'originals'
-                    );
-                    await vscode.workspace.fs.createDirectory(originalsDir);
+                    let docxBuffer: Uint8Array | null = null;
 
-                    const convertedDocxUri = vscode.Uri.joinPath(originalsDir, pdfMetadata.convertedDocxFileName);
-                    
-                    // If convertedDocxData is present (small files), save it directly
-                    // If isLargeFile flag is set, the file should already be saved in temp location
+                    // If convertedDocxData is present (small files), use it directly
                     if (pdfMetadata.convertedDocxData) {
                         const docxData = pdfMetadata.convertedDocxData;
-                        // Convert ArrayBuffer to Uint8Array if needed
-                        const docxBuffer = docxData instanceof ArrayBuffer
+                        docxBuffer = docxData instanceof ArrayBuffer
                             ? new Uint8Array(docxData)
                             : Buffer.from(docxData);
-                        await vscode.workspace.fs.writeFile(convertedDocxUri, docxBuffer);
-                        console.log(`[PDF Importer] Saved converted DOCX file: ${pdfMetadata.convertedDocxFileName}`);
                         // Remove from metadata to avoid persisting in JSON
                         delete pdfMetadata.convertedDocxData;
                     } else if (pdfMetadata.isLargeFile) {
-                        // For large files, check if temp file exists and copy it
+                        // For large files, check if temp file exists and read it
                         const tempDir = vscode.Uri.joinPath(workspaceFolder.uri, '.project', 'temp');
-                        const tempDocxUri = vscode.Uri.joinPath(tempDir, `pdf_conversion_*.docx`);
-                        // Note: We'd need the actual requestId to find the temp file
-                        // For now, try to find any matching temp file
                         try {
                             const tempFiles = await vscode.workspace.fs.readDirectory(tempDir);
                             const matchingFile = tempFiles.find(([name]) => name.startsWith('pdf_conversion_') && name.endsWith('.docx'));
                             if (matchingFile) {
                                 const tempFileUri = vscode.Uri.joinPath(tempDir, matchingFile[0]);
-                                const tempData = await vscode.workspace.fs.readFile(tempFileUri);
-                                await vscode.workspace.fs.writeFile(convertedDocxUri, tempData);
+                                docxBuffer = await vscode.workspace.fs.readFile(tempFileUri);
                                 await vscode.workspace.fs.delete(tempFileUri); // Clean up temp file
-                                console.log(`[PDF Importer] Saved large converted DOCX file: ${pdfMetadata.convertedDocxFileName}`);
                             }
                         } catch (err) {
                             console.warn(`[PDF Importer] Could not find/copy temp DOCX file: ${err}`);
+                        }
+                    }
+
+                    // Save with deduplication if we have data
+                    if (docxBuffer) {
+                        const docxResult = await saveOriginalFileWithDeduplication(
+                            workspaceFolder,
+                            pdfMetadata.convertedDocxFileName,
+                            docxBuffer
+                        );
+                        console.log(`[PDF Importer] Converted DOCX: ${docxResult.message}`);
+
+                        // Update convertedDocxFileName to point to the actual stored file (deduplicated)
+                        if (docxResult.fileName !== pdfMetadata.convertedDocxFileName) {
+                            console.log(`[PDF Importer] Updated convertedDocxFileName: "${pdfMetadata.convertedDocxFileName}" -> "${docxResult.fileName}"`);
+                            pdfMetadata.convertedDocxFileName = docxResult.fileName;
                         }
                     }
                 }

@@ -980,6 +980,12 @@ export interface CustomNotebookMetadata {
      */
     sourceFile?: string;
     /**
+     * Timestamp added to non-biblical imports to ensure unique filenames.
+     * Format: "YYYYMMDD_HHmmss" (e.g., "20260127_143025")
+     * This allows importing changed source files multiple times without overwriting.
+     */
+    importTimestamp?: string;
+    /**
      * One-time import context derived from the import process.
      * This is the canonical home for attributes that do not vary per-cell.
      */
