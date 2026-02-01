@@ -35,7 +35,10 @@ export class CommentsMigrator {
                 canReply: thread.canReply,
                 cellId: {
                     cellId: thread.cellId.cellId,
-                    uri: thread.cellId.uri
+                    uri: thread.cellId.uri,
+                    ...(thread.cellId.globalReferences && thread.cellId.globalReferences.length > 0 
+                        ? { globalReferences: thread.cellId.globalReferences } 
+                        : {})
                 },
                 collapsibleState: thread.collapsibleState,
                 threadTitle: thread.threadTitle

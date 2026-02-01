@@ -152,7 +152,7 @@ const UserAvatar = ({ username, email, size = "small" }: UserAvatar) => {
 };
 
 function App() {
-    const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "" });
+    const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "", globalReferences: [] });
     const [uri, setUri] = useState<string>();
     const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>([]);
     const [replyText, setReplyText] = useState<Record<string, string>>({});
@@ -240,7 +240,11 @@ function App() {
                 }
                 case "reload": {
                     if (message.data?.cellId) {
-                        setCellId({ cellId: message.data.cellId, uri: message.data.uri || "" });
+                        setCellId({ 
+                            cellId: message.data.cellId, 
+                            uri: message.data.uri || "",
+                            globalReferences: message.data.globalReferences || []
+                        });
                         if (viewMode === "cell") {
                             setSearchQuery(message.data.cellId);
                         }
@@ -354,6 +358,8 @@ function App() {
     const handleNewComment = () => {
         if (!newCommentText.trim() || !cellId.cellId || !currentUser.isAuthenticated) return;
 
+        console.log("[CommentsView] Creating new comment with cellId state:", cellId);
+
         // Generate a timestamp for the default title
         const now = new Date();
         const defaultTitle = now.toLocaleString();
@@ -379,6 +385,8 @@ function App() {
                 },
             ],
         };
+
+        console.log("[CommentsView] Sending new comment thread:", newThread);
 
         vscode.postMessage({
             command: "updateCommentThread",
@@ -454,11 +462,73 @@ function App() {
         setCollapsedThreads(newState);
     };
 
-    const getCellId = (cellId: string) => {
-        const parts = cellId.split(":");
-        const finalPart = parts[parts.length - 1] || cellId;
-        // Show full cell ID if it's less than 10 characters
-        return cellId.length < 10 ? cellId : finalPart;
+
+    /**
+     * Get display name for a cell, using new display fields or calculating fallback
+     * Priority:
+     * 1. Use fileDisplayName + milestoneValue + cellLineNumber if available
+     * 2. Fall back to globalReferences if available
+     * 3. Fall back to shortened cellId
+     * 
+     * Note: For stored comments, the display fields may not be present.
+     * The current cell selection will have them, but older saved comments won't.
+     * This is intentional - we want fresh data for the current cell, but we fall back
+     * to simpler display for historical comments to avoid expensive lookups.
+     */
+    const getCellDisplayName = (cellIdState: CellIdGlobalState | string): string => {
+        // Handle legacy string format (shouldn't happen after migration, but just in case)
+        if (typeof cellIdState === 'string') {
+            const parts = cellIdState.split(":");
+            const finalPart = parts[parts.length - 1] || cellIdState;
+            return cellIdState.length < 10 ? cellIdState : finalPart;
+        }
+
+        console.log("[CommentsView] Getting display name for cellIdState:", cellIdState);
+
+        // New format: CellIdGlobalState object
+        // Priority 1: Use the new display fields if all are available
+        if (cellIdState.fileDisplayName && cellIdState.milestoneValue && cellIdState.cellLineNumber) {
+            console.log("[CommentsView] Using Priority 1: All display fields available");
+            return `${cellIdState.fileDisplayName} · ${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
+        }
+
+        // Priority 2: Partial display info - show what we have
+        if (cellIdState.milestoneValue && cellIdState.cellLineNumber) {
+            console.log("[CommentsView] Using Priority 2: Milestone + line number");
+            return `${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
+        }
+
+        if (cellIdState.fileDisplayName && cellIdState.cellLineNumber) {
+            console.log("[CommentsView] Using Priority 2: File + line number");
+            return `${cellIdState.fileDisplayName} · Line ${cellIdState.cellLineNumber}`;
+        }
+
+        // Priority 3: Use globalReferences if available (for stored comments)
+        if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
+            console.log("[CommentsView] Using Priority 3: globalReferences");
+            // For stored comments with globalReferences, show them nicely
+            // Extract just the reference part (e.g., "GEN 1:1" -> "Gen 1:1" or "NUM 1:7" -> "Num 1:7")
+            const formatted = cellIdState.globalReferences.map(ref => {
+                // Capitalize first letter, lowercase rest: "NUM 1:7" -> "Num 1:7"
+                const parts = ref.split(' ');
+                if (parts.length >= 2) {
+                    const book = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+                    return `${book} ${parts.slice(1).join(' ')}`;
+                }
+                return ref;
+            });
+            return formatted.join(", ");
+        }
+
+        // Priority 4: Fall back to shortened cellId
+        console.log("[CommentsView] Using Priority 4: Shortened cellId");
+        const cellId = cellIdState.cellId;
+        if (cellId.length > 10) {
+            // Show last 8 characters for UUIDs
+            return `...${cellId.slice(-8)}`;
+        }
+
+        return cellId || "Unknown cell";
     };
 
     const filteredCommentThreads = useMemo(() => {
@@ -498,7 +568,7 @@ function App() {
             };
             return getLatestTimestamp(b) - getLatestTimestamp(a);
         });
-    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId, showResolvedThreads]);
+    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId, showResolvedThreads, isThreadDeleted, isThreadResolved]);
 
     // Count of hidden resolved threads
     const hiddenResolvedThreadsCount = useMemo(() => {
@@ -520,7 +590,7 @@ function App() {
 
             return isResolved && matchesCurrentCell && matchesSearch;
         }).length;
-    }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads]);
+    }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads, isThreadDeleted, isThreadResolved]);
 
     // Whether a user can start a new top-level comment thread (requires auth and active cell)
     const canStartNewComment = currentUser.isAuthenticated && Boolean(cellId.cellId);
@@ -727,7 +797,7 @@ function App() {
                                 placeholder={
                                     viewMode === "all"
                                         ? "Search all comments..."
-                                        : `Showing comments for ${getCellId(cellId.cellId)}`
+                                        : `Showing comments for ${getCellDisplayName(cellId)}`
                                 }
                                 value={searchQuery}
                                 className="pl-10"
@@ -774,7 +844,7 @@ function App() {
                     </div>
                 </div>
 
-                {/* New comment form */}
+                {/* New comment form CHANGE THIS TOO! THIS NEEDS TO HAVE THE CELLDISPLAYNAME INSTEAD OF CELLID, about 9 lines down.*/}
                 {showNewCommentForm && (
                     <Card className="m-4 bg-muted/50">
                         <CardContent className="p-4">
@@ -783,7 +853,7 @@ function App() {
                                 <span className="text-sm font-medium">New comment</span>
                                 {viewMode === "cell" && (
                                     <span className="text-xs text-muted-foreground">
-                                        on {getCellId(cellId.cellId)}
+                                        on {getCellDisplayName(cellId)}
                                     </span>
                                 )}
                             </div>
@@ -1007,9 +1077,17 @@ function App() {
                                             <div className="flex gap-2 items-center">
                                                 <span
                                                     className="text-primary max-w-48 truncate"
-                                                    title={thread.cellId.cellId}
+                                                    title={
+                                                        typeof thread.cellId === 'string'
+                                                            ? thread.cellId
+                                                            : `Cell ID: ${thread.cellId.cellId}${
+                                                                  thread.cellId.globalReferences?.length
+                                                                      ? `\nReferences: ${thread.cellId.globalReferences.join(", ")}`
+                                                                      : ""
+                                                              }`
+                                                    }
                                                 >
-                                                    {getCellId(thread.cellId.cellId)}
+                                                    {getCellDisplayName(thread.cellId)}
                                                 </span>
                                             </div>
                                             <span className="flex items-center gap-1">
