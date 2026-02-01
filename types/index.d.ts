@@ -162,6 +162,10 @@ interface CellIdGlobalState {
     globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
+    // Display information for UI (calculated at runtime, not persisted)
+    fileDisplayName?: string; // e.g., "Genesis", "Hebrew Matthew"
+    milestoneValue?: string; // e.g., "Genesis 1", "Matthew 5"
+    cellLineNumber?: number; // Line number within the current milestone (1-based)
 }
 interface ScriptureContent extends vscode.NotebookData {
     metadata: {

@@ -2610,14 +2610,97 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.warn("State store not initialized when trying to update cell ID");
             return;
         }
+
+        // Calculate display information for the cell
+        let fileDisplayName: string | undefined;
+        let milestoneValue: string | undefined;
+        let cellLineNumber: number | undefined;
+
+        if (doc) {
+            try {
+                // Get file display name from metadata
+                const metadata = (doc as any)._documentData?.metadata;
+                fileDisplayName = metadata?.fileDisplayName;
+                debug("File display name:", fileDisplayName);
+
+                // Build milestone index first - this populates milestoneIndex on cells
+                const milestoneIndexInfo = doc.buildMilestoneIndex();
+
+                // Get the cell content (now with milestoneIndex populated)
+                const cell = doc.getCellContent(cellId);
+                if (cell) {
+                    // Get milestone index from cell data
+                    const milestoneIndex = cell.data?.milestoneIndex;
+                    debug("Cell milestoneIndex:", milestoneIndex, "for cellId:", cellId);
+
+                    if (typeof milestoneIndex === 'number' && milestoneIndex >= 0) {
+                        // Get milestone information
+                        const milestone = milestoneIndexInfo.milestones[milestoneIndex];
+
+                        if (milestone) {
+                            milestoneValue = milestone.value;
+                            debug("Milestone value:", milestoneValue);
+
+                            // Calculate line number within milestone
+                            // Count non-paratext, non-milestone, non-child cells from milestone start to this cell
+                            const cells = (doc as any)._documentData?.cells || [];
+                            const nextMilestone = milestoneIndexInfo.milestones[milestoneIndex + 1];
+                            const startCellIndex = milestone.cellIndex + 1; // +1 to skip the milestone cell itself
+                            const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+                            let lineNumber = 0;
+                            for (let i = startCellIndex; i < endCellIndex; i++) {
+                                const currentCell = cells[i];
+                                const currentCellId = currentCell.metadata?.id;
+
+                                // Skip milestone and paratext cells
+                                if (currentCell.metadata?.type === CodexCellTypes.MILESTONE ||
+                                    currentCell.metadata?.type === CodexCellTypes.PARATEXT) {
+                                    continue;
+                                }
+
+                                // Skip child cells (have parentId)
+                                const isChildCell = currentCell.metadata?.data?.parentId !== undefined;
+                                if (isChildCell) {
+                                    continue;
+                                }
+
+                                // Increment line number for valid content cells
+                                lineNumber++;
+
+                                // If this is our target cell, we're done
+                                if (currentCellId === cellId) {
+                                    cellLineNumber = lineNumber;
+                                    debug("Calculated cellLineNumber:", cellLineNumber);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    debug("Cell not found for cellId:", cellId);
+                }
+            } catch (error) {
+                console.error("Error calculating display info for cell:", error);
+                // Continue without display info - it's optional
+            }
+        }
+
+        const cellIdState = {
+            cellId,
+            globalReferences,
+            uri,
+            timestamp: new Date().toISOString(),
+            fileDisplayName,
+            milestoneValue,
+            cellLineNumber,
+        };
+
+        debug("Broadcasting CellIdGlobalState:", cellIdState);
+
         this.stateStore.updateStoreState({
             key: "cellId",
-            value: {
-                cellId,
-                globalReferences,
-                uri,
-                timestamp: new Date().toISOString(),
-            },
+            value: cellIdState,
         });
     }
 
