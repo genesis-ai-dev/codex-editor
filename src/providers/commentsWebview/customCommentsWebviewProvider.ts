@@ -857,17 +857,19 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         for (const thread of comments) {
             try {
-                // Skip if cellId is missing or already has all display fields
+                // Skip if cellId is missing
                 if (!thread.cellId?.cellId || !thread.cellId?.uri) {
                     enrichedComments.push(thread);
                     continue;
                 }
 
-                // If already has all display fields, skip calculation
-                if (thread.cellId.fileDisplayName && thread.cellId.milestoneValue && thread.cellId.cellLineNumber) {
-                    enrichedComments.push(thread);
-                    continue;
-                }
+                // NOTE: Always calculate display info at runtime to ensure fresh, accurate data
+                // (Commented out caching to avoid using stale values from JSON)
+                // // If already has all display fields, skip calculation
+                // if (thread.cellId.fileDisplayName && thread.cellId.milestoneValue && thread.cellId.cellLineNumber) {
+                //     enrichedComments.push(thread);
+                //     continue;
+                // }
 
                 // Construct full URI from relative path
                 const fullUri = vscode.Uri.joinPath(workspaceFolder.uri, thread.cellId.uri);
