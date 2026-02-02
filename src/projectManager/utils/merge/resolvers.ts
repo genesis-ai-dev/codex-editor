@@ -170,10 +170,10 @@ async function mergeProjectSwap(
         let mergedEntry: ProjectSwapEntry;
 
         if (!ourEntry && theirEntry) {
-            // Only theirs has this entry - but preserve local's view of isOldProject
-            // Find local's isOldProject from any existing entry (all should be consistent)
-            const localIsOldProject = ourEntries.length > 0 ? ourEntries[0].isOldProject : theirEntry.isOldProject;
-            mergedEntry = { ...theirEntry, isOldProject: localIsOldProject };
+            // Only theirs has this entry - use their value for isOldProject
+            // Each swap entry is independent (chained swaps: A→B then B→C have different isOldProject values)
+            // The correct value will be set by updateSwapMetadata when the user performs the swap
+            mergedEntry = { ...theirEntry };
         } else if (ourEntry && !theirEntry) {
             // Only ours has this entry
             mergedEntry = { ...ourEntry };
