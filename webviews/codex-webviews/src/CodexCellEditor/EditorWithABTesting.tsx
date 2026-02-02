@@ -34,15 +34,6 @@ interface ABTestState {
     cellId: string;
     testId: string;
     testName?: string;
-    names?: string[];
-    // Attention check metadata
-    isAttentionCheck?: boolean;
-    correctIndex?: number;
-    decoyCellId?: string;
-    spareVariant?: string; // Second correct translation for recovery
-    // Recovery state - shown after wrong attention check selection
-    isRecovery?: boolean;
-    recoveryMessage?: string;
 }
 
 export interface EditorRef {
@@ -117,86 +108,21 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
     const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
         if (!abTestState.isActive) return;
 
-        // Check if this is an attention check and they selected the wrong option
-        if (abTestState.isAttentionCheck &&
-            typeof abTestState.correctIndex === 'number' &&
-            selectedIndex !== abTestState.correctIndex &&
-            !abTestState.isRecovery) {
+        // Send selection to backend - backend handles all logic
+        vscode.postMessage({
+            command: "selectABTestVariant",
+            content: {
+                cellId: abTestState.cellId,
+                selectedIndex,
+                testId: abTestState.testId,
+                testName: abTestState.testName,
+                selectionTimeMs,
+                totalVariants: abTestState.variants?.length ?? 0,
+            }
+        } as unknown as EditorPostMessages);
 
-            // Wrong selection on attention check - trigger recovery
-            const correctVariant = abTestState.variants[abTestState.correctIndex];
-            // Use spare variant if available, otherwise fall back to correct variant
-            const secondVariant = abTestState.spareVariant || correctVariant;
-
-            // Send feedback to backend (record the failure)
-            vscode.postMessage({
-                command: "selectABTestVariant",
-                content: {
-                    cellId: abTestState.cellId,
-                    selectedIndex,
-                    testId: abTestState.testId,
-                    testName: abTestState.testName,
-                    selectionTimeMs,
-                    totalVariants: abTestState.variants?.length ?? 0,
-                    names: abTestState.names,
-                    // Attention check specific
-                    isAttentionCheck: true,
-                    attentionCheckPassed: false,
-                    correctIndex: abTestState.correctIndex,
-                    decoyCellId: abTestState.decoyCellId
-                }
-            } as unknown as EditorPostMessages);
-
-            // Show recovery with two different correct translations
-            setAbTestState({
-                ...abTestState,
-                isRecovery: true,
-                recoveryMessage: "Let's look at another",
-                variants: [correctVariant, secondVariant], // Two different correct translations
-                names: undefined, // Don't show names in recovery
-                isAttentionCheck: false, // No longer an attention check
-                correctIndex: undefined,
-                spareVariant: undefined, // Clear spare since we used it
-            });
-            return;
-        }
-
-        const selectedVariant = abTestState.variants[selectedIndex];
-
-        // Apply the selected variant to the editor
-        if (quillRef.current && abTestState.cellId === props.currentLineId) {
-            quillRef.current.root.innerHTML = selectedVariant;
-            props.onChange?.({
-                html: quillRef.current.root.innerHTML,
-                text: quillRef.current.getText(),
-                wordCount: quillRef.current.getText().trim().split(/\s+/).length
-            });
-            setUnsavedChanges(true);
-        }
-
-        // Don't send analytics for recovery selections - only track the initial attention check result
-        if (!abTestState.isRecovery) {
-            // Send feedback to backend
-            vscode.postMessage({
-                command: "selectABTestVariant",
-                content: {
-                    cellId: abTestState.cellId,
-                    selectedIndex,
-                    testId: abTestState.testId,
-                    testName: abTestState.testName,
-                    selectionTimeMs,
-                    totalVariants: abTestState.variants?.length ?? 0,
-                    names: abTestState.names,
-                    // Attention check specific (if applicable)
-                    isAttentionCheck: abTestState.isAttentionCheck ?? false,
-                    attentionCheckPassed: abTestState.isAttentionCheck ? true : undefined,
-                    correctIndex: abTestState.correctIndex,
-                    decoyCellId: abTestState.decoyCellId
-                }
-            } as unknown as EditorPostMessages);
-        }
-
-        // Keep modal open to reveal names/stats; user closes manually
+        // Close the selector - backend will send new one if needed
+        handleDismissABTest();
     };
 
     const handleDismissABTest = () => {
@@ -206,12 +132,6 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             cellId: '',
             testId: '',
             testName: '',
-            isAttentionCheck: false,
-            correctIndex: undefined,
-            decoyCellId: undefined,
-            spareVariant: undefined,
-            isRecovery: false,
-            recoveryMessage: undefined
         });
     };
 
@@ -244,57 +164,21 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                     );
                 }
             } else if (event.data.type === "providerSendsABTestVariants") {
-                // Handle A/B test variants: show UI only if variants differ
-                const {
-                    variants,
-                    cellId,
-                    testId,
-                    testName,
-                    names,
-                    isAttentionCheck,
-                    correctIndex,
-                    decoyCellId,
-                    spareVariant
-                } = event.data.content as {
+                // Handle A/B test variants: always show selector for user choice
+                const { variants, cellId, testId, testName } = event.data.content as {
                     variants: string[];
                     cellId: string;
                     testId: string;
                     testName?: string;
-                    names?: string[];
-                    isAttentionCheck?: boolean;
-                    correctIndex?: number;
-                    decoyCellId?: string;
-                    spareVariant?: string;
                 };
-                if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 0) {
-                    const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
-                    const allIdentical = variants.every((v) => norm(v) === norm(variants[0]));
-
-                    // For attention checks, always show the selector even if variants look similar
-                    // (The decoy should be different content but valid translation style)
-                    if ((variants.length > 1 && !allIdentical) || isAttentionCheck) {
-                        setAbTestState({
-                            isActive: true,
-                            variants,
-                            cellId,
-                            testId,
-                            testName,
-                            names,
-                            isAttentionCheck,
-                            correctIndex,
-                            decoyCellId,
-                            spareVariant,
-                            isRecovery: false
-                        });
-                    } else {
-                        // Auto-apply first variant silently
-                        quillRef.current?.root && (quillRef.current.root.innerHTML = variants[0]);
-                        props.onChange?.({
-                            html: variants[0],
-                            text: variants[0],
-                            wordCount: variants[0]?.trim()?.split(/\s+/).length || 0,
-                        });
-                    }
+                if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 1) {
+                    setAbTestState({
+                        isActive: true,
+                        variants,
+                        cellId,
+                        testId,
+                        testName,
+                    });
                 }
             }
             updateHeaderLabel();
@@ -370,11 +254,10 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             {/* A/B Testing Overlay */}
             {abTestState.isActive && (
                 <ABTestVariantSelector
-                    key={`${abTestState.testId}-${abTestState.isRecovery ? 'recovery' : 'initial'}`}
+                    key={abTestState.testId}
                     variants={abTestState.variants}
                     cellId={abTestState.cellId}
                     testId={abTestState.testId}
-                    headerOverride={abTestState.recoveryMessage}
                     onVariantSelected={handleVariantSelected}
                     onDismiss={handleDismissABTest}
                 />

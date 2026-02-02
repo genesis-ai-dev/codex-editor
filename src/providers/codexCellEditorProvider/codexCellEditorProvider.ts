@@ -3408,7 +3408,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, testName, names, isAttentionCheck, correctIndex, decoyCellId, spareVariant } = completionResult as any;
+                        const { variants, testId, testName, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
 
                         // If variants are identical (ignoring whitespace), treat as single completion
                         try {
@@ -3433,18 +3433,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
 
                         if (webviewPanel) {
+                            const actualTestId = testId || `${currentCellId}-${Date.now()}`;
+
+                            // If this is an attention check, register it so we can handle the response
+                            if (isAttentionCheck && typeof correctIndex === 'number') {
+                                const { registerAttentionCheck } = await import("./codexCellEditorMessagehandling");
+                                registerAttentionCheck(actualTestId, {
+                                    cellId: currentCellId,
+                                    correctIndex,
+                                    correctVariant: variants[correctIndex],
+                                    decoyCellId,
+                                });
+                                console.log(`[Attention Check] Registered for testId ${actualTestId}, correctIndex ${correctIndex}`);
+                            }
+
+                            // Send variants to webview - frontend doesn't need attention check details
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
                                     variants,
                                     cellId: currentCellId,
-                                    testId: testId || `${currentCellId}-${Date.now()}`,
+                                    testId: actualTestId,
                                     testName,
-                                    names,
-                                    isAttentionCheck,
-                                    correctIndex,
-                                    decoyCellId,
-                                    spareVariant,
                                 },
                             });
                         }

@@ -39,6 +39,27 @@ function debug(...args: any[]): void {
     }
 }
 
+// Track pending attention checks - keyed by testId
+interface PendingAttentionCheck {
+    cellId: string;
+    correctIndex: number;
+    correctVariant: string;
+    decoyCellId?: string;
+}
+const pendingAttentionChecks = new Map<string, PendingAttentionCheck>();
+
+export function registerAttentionCheck(testId: string, data: PendingAttentionCheck): void {
+    pendingAttentionChecks.set(testId, data);
+}
+
+export function getAttentionCheck(testId: string): PendingAttentionCheck | undefined {
+    return pendingAttentionChecks.get(testId);
+}
+
+export function clearAttentionCheck(testId: string): void {
+    pendingAttentionChecks.delete(testId);
+}
+
 // Debounce container for broadcasting auto-download flag updates
 let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
 let pendingAutoDownloadValue: boolean | undefined;
@@ -1419,37 +1440,59 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await provider.updateCachedSubsection(document.uri.toString(), typedEvent.content);
     },
 
-    selectABTestVariant: async ({ event }) => {
+    selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const {
-            cellId,
-            selectedIndex,
-            testId,
-            testName,
-            selectionTimeMs,
-            names,
-            // Attention check specific fields
-            isAttentionCheck,
-            attentionCheckPassed,
-            correctIndex,
-            decoyCellId
-        } = (typedEvent as any).content || {};
+        const { cellId, selectedIndex, testId, testName, selectionTimeMs } = (typedEvent as any).content || {};
+        const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 
-        // Import and call the A/B testing feedback function
-        const { recordVariantSelection, recordAttentionCheckResult } = await import("../../utils/abTestingUtils");
-        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
+        // Check if this was a pending attention check
+        const attentionCheck = getAttentionCheck(testId);
 
-        // If this was an attention check, record the result separately
-        if (isAttentionCheck) {
-            await recordAttentionCheckResult({
-                testId,
-                cellId,
-                passed: attentionCheckPassed ?? false,
-                selectionTimeMs,
-                correctIndex,
-                decoyCellId
-            });
-            debug(`Attention check recorded: Cell ${cellId}, passed=${attentionCheckPassed}, decoy=${decoyCellId}`);
+        if (attentionCheck) {
+            const pickedWrong = selectedIndex !== attentionCheck.correctIndex;
+
+            if (!isRecovery) {
+                // Record the result
+                const { recordVariantSelection, recordAttentionCheckResult } = await import("../../utils/abTestingUtils");
+                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, undefined, testName);
+                await recordAttentionCheckResult({
+                    testId,
+                    cellId,
+                    passed: !pickedWrong,
+                    selectionTimeMs,
+                    correctIndex: attentionCheck.correctIndex,
+                    decoyCellId: attentionCheck.decoyCellId
+                });
+            }
+
+            if (pickedWrong) {
+                // User picked the decoy - send new A/B test with both correct
+                console.log(`[Attention Check] User picked decoy for cell ${cellId}, showing recovery options`);
+                clearAttentionCheck(testId);
+
+                if (webviewPanel) {
+                    const recoveryTestId = `${cellId}-recovery-${Date.now()}`;
+                    provider.postMessageToWebview(webviewPanel, {
+                        type: "providerSendsABTestVariants",
+                        content: {
+                            variants: [attentionCheck.correctVariant, attentionCheck.correctVariant],
+                            cellId: attentionCheck.cellId,
+                            testId: recoveryTestId,
+                            testName: "Recovery",
+                        },
+                    });
+                }
+                return;
+            }
+
+            // User picked correctly - apply and clear
+            clearAttentionCheck(testId);
+        } else {
+            // Regular A/B test
+            if (!isRecovery) {
+                const { recordVariantSelection } = await import("../../utils/abTestingUtils");
+                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, undefined, testName);
+            }
         }
 
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);

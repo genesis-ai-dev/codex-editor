@@ -1,6 +1,5 @@
 type ABTestResultPayload<TVariant> = TVariant[] | {
   variants: TVariant[];
-  names?: string[];
   isAttentionCheck?: boolean;
   correctIndex?: number;
   decoyCellId?: string;
@@ -31,7 +30,6 @@ class ABTestingRegistry {
     context: TContext
   ): Promise<{
     variants: TVariant[];
-    names?: string[];
     testName?: string;
     isAttentionCheck?: boolean;
     correctIndex?: number;

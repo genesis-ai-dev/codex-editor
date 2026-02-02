@@ -56,12 +56,10 @@ function postProcessABTestResult(
 function handleABTestResult(
     result: {
         variants: string[];
-        names?: string[];
         testName?: string;
         isAttentionCheck?: boolean;
         correctIndex?: number;
         decoyCellId?: string;
-        spareVariant?: string;
     } | null,
     currentCellId: string,
     testIdPrefix: string,
@@ -71,37 +69,27 @@ function handleABTestResult(
     if (result && Array.isArray(result.variants) && result.variants.length === 2) {
         const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
         const variants = result.variants.map((txt) => postProcessABTestResult(txt, allowHtml, returnHTML));
-        // Process spare variant for recovery flow
-        const spareVariant = result.spareVariant
-            ? postProcessABTestResult(result.spareVariant, allowHtml, returnHTML)
-            : undefined;
         return {
             variants,
             isABTest: true,
             testId: `${currentCellId}-${testIdPrefix}-${Date.now()}`,
             testName: result.testName,
-            names: result.names,
-            // Pass through attention check metadata
             isAttentionCheck: result.isAttentionCheck,
             correctIndex: result.correctIndex,
             decoyCellId: result.decoyCellId,
-            spareVariant,
         };
     }
     return null;
 }
 
 export interface LLMCompletionResult {
-    variants: string[]; // Always present; length 1 for non-AB scenarios
-    isABTest: boolean; // True only when variants.length > 1
+    variants: string[];
+    isABTest: boolean;
     testId?: string;
     testName?: string;
-    names?: string[];
-    // Attention check metadata
     isAttentionCheck?: boolean;
     correctIndex?: number;
     decoyCellId?: string;
-    spareVariant?: string; // Second correct translation for recovery flow
 }
 
 export async function llmCompletion(
