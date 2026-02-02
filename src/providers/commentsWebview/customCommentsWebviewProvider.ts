@@ -7,6 +7,8 @@ import { Uri, window, workspace } from "vscode";
 import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { getAuthApi } from "../../extension";
+import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
+import { CodexCellDocument } from "../codexCellEditorProvider/codexDocument";
 
 const DEBUG_COMMENTS_WEBVIEW_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
@@ -841,6 +843,72 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         });
     }
 
+    /**
+     * Enrich comments with display information (fileDisplayName, milestoneValue, cellLineNumber)
+     * calculated at runtime from the documents
+     */
+    private async enrichCommentsWithDisplayInfo(comments: NotebookCommentThread[]): Promise<NotebookCommentThread[]> {
+        const workspaceFolder = workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return comments;
+        }
+
+        const enrichedComments: NotebookCommentThread[] = [];
+
+        for (const thread of comments) {
+            try {
+                // Skip if cellId is missing or already has all display fields
+                if (!thread.cellId?.cellId || !thread.cellId?.uri) {
+                    enrichedComments.push(thread);
+                    continue;
+                }
+
+                // If already has all display fields, skip calculation
+                if (thread.cellId.fileDisplayName && thread.cellId.milestoneValue && thread.cellId.cellLineNumber) {
+                    enrichedComments.push(thread);
+                    continue;
+                }
+
+                // Construct full URI from relative path
+                const fullUri = vscode.Uri.joinPath(workspaceFolder.uri, thread.cellId.uri);
+                
+                // Load the document
+                let doc: CodexCellDocument | undefined;
+                try {
+                    const fileContent = await workspace.fs.readFile(fullUri);
+                    const content = new TextDecoder().decode(fileContent);
+                    doc = new CodexCellDocument(fullUri, content);
+                } catch (error) {
+                    debug(`Could not load document for ${thread.cellId.uri}:`, error);
+                    enrichedComments.push(thread);
+                    continue;
+                }
+
+                // Calculate display info
+                const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(
+                    thread.cellId.cellId,
+                    doc
+                );
+
+                // Create enriched thread with display info
+                enrichedComments.push({
+                    ...thread,
+                    cellId: {
+                        ...thread.cellId,
+                        fileDisplayName: displayInfo.fileDisplayName,
+                        milestoneValue: displayInfo.milestoneValue,
+                        cellLineNumber: displayInfo.cellLineNumber,
+                    },
+                });
+            } catch (error) {
+                debug(`Error enriching comment ${thread.id}:`, error);
+                enrichedComments.push(thread);
+            }
+        }
+
+        return enrichedComments;
+    }
+
     private async sendCommentsToWebview(webviewView: vscode.WebviewView, isLiveUpdate: boolean = false) {
         // Load comments into memory if not already initialized
         if (!this._isInitialized && this.commentsFilePath) {
@@ -848,8 +916,11 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
 
         try {
-            // Send in-memory comments to webview (no file reading needed)
-            const content = CommentsMigrator.formatCommentsForStorage(this._inMemoryComments);
+            // Enrich comments with display information calculated at runtime
+            const enrichedComments = await this.enrichCommentsWithDisplayInfo(this._inMemoryComments);
+            
+            // Send enriched comments to webview
+            const content = CommentsMigrator.formatCommentsForStorage(enrichedComments);
 
             safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
