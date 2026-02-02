@@ -38,7 +38,11 @@ export class CommentsMigrator {
                     uri: thread.cellId.uri,
                     ...(thread.cellId.globalReferences && thread.cellId.globalReferences.length > 0 
                         ? { globalReferences: thread.cellId.globalReferences } 
-                        : {})
+                        : {}),
+                    // Include display fields if they exist (calculated at runtime, optionally saved)
+                    ...(thread.cellId.fileDisplayName ? { fileDisplayName: thread.cellId.fileDisplayName } : {}),
+                    ...(thread.cellId.milestoneValue ? { milestoneValue: thread.cellId.milestoneValue } : {}),
+                    ...(thread.cellId.cellLineNumber ? { cellLineNumber: thread.cellId.cellLineNumber } : {})
                 },
                 collapsibleState: thread.collapsibleState,
                 threadTitle: thread.threadTitle

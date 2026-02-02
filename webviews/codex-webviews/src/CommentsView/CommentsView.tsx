@@ -358,8 +358,6 @@ function App() {
     const handleNewComment = () => {
         if (!newCommentText.trim() || !cellId.cellId || !currentUser.isAuthenticated) return;
 
-        console.log("[CommentsView] Creating new comment with cellId state:", cellId);
-
         // Generate a timestamp for the default title
         const now = new Date();
         const defaultTitle = now.toLocaleString();
@@ -385,8 +383,6 @@ function App() {
                 },
             ],
         };
-
-        console.log("[CommentsView] Sending new comment thread:", newThread);
 
         vscode.postMessage({
             command: "updateCommentThread",
@@ -483,29 +479,23 @@ function App() {
             return cellIdState.length < 10 ? cellIdState : finalPart;
         }
 
-        console.log("[CommentsView] Getting display name for cellIdState:", cellIdState);
-
         // New format: CellIdGlobalState object
         // Priority 1: Use the new display fields if all are available
         if (cellIdState.fileDisplayName && cellIdState.milestoneValue && cellIdState.cellLineNumber) {
-            console.log("[CommentsView] Using Priority 1: All display fields available");
             return `${cellIdState.fileDisplayName} · ${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
         }
 
         // Priority 2: Partial display info - show what we have
         if (cellIdState.milestoneValue && cellIdState.cellLineNumber) {
-            console.log("[CommentsView] Using Priority 2: Milestone + line number");
             return `${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
         }
 
         if (cellIdState.fileDisplayName && cellIdState.cellLineNumber) {
-            console.log("[CommentsView] Using Priority 2: File + line number");
             return `${cellIdState.fileDisplayName} · Line ${cellIdState.cellLineNumber}`;
         }
 
         // Priority 3: Use globalReferences if available (for stored comments)
         if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
-            console.log("[CommentsView] Using Priority 3: globalReferences");
             // For stored comments with globalReferences, show them nicely
             // Extract just the reference part (e.g., "GEN 1:1" -> "Gen 1:1" or "NUM 1:7" -> "Num 1:7")
             const formatted = cellIdState.globalReferences.map(ref => {
@@ -521,7 +511,6 @@ function App() {
         }
 
         // Priority 4: Fall back to shortened cellId
-        console.log("[CommentsView] Using Priority 4: Shortened cellId");
         const cellId = cellIdState.cellId;
         if (cellId.length > 10) {
             // Show last 8 characters for UUIDs
