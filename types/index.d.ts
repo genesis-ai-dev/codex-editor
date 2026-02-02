@@ -2090,8 +2090,7 @@ type EditorReceiveMessages =
     }
     | {
         type: "highlightCell";
-        globalReferences: string[];
-        cellId?: string; // Optional cellId for fallback matching when globalReferences is empty
+        cellId?: string;
     }
     | {
         type: "updateCellsPerPage";

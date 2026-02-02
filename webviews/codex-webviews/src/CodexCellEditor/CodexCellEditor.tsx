@@ -145,7 +145,6 @@ const CodexCellEditor: React.FC = () => {
     const [alertColorCodes, setAlertColorCodes] = useState<{
         [cellId: string]: number;
     }>({});
-    const [highlightedGlobalReferences, setHighlightedGlobalReferences] = useState<string[]>([]);
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
@@ -714,17 +713,11 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data;
             if (message.type === "highlightCell") {
-                // Set the highlighted global references
-                setHighlightedGlobalReferences(message.globalReferences || []);
-
-                // Set the highlighted cellId (used as fallback when globalReferences is empty)
-                setHighlightedCellId(message.cellId || null);
+                const nextHighlightedCellId = message.cellId || null;
+                setHighlightedCellId(nextHighlightedCellId);
 
                 // Reset manual navigation tracking when highlight is cleared
-                if (
-                    (!message.globalReferences || message.globalReferences.length === 0) &&
-                    !message.cellId
-                ) {
+                if (!nextHighlightedCellId) {
                     setHasManuallyNavigatedAway(false);
                     setLastHighlightedChapter(null);
                     setChapterWhenHighlighted(null);
@@ -921,19 +914,14 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         // Check if we have either globalReferences or cellId to highlight
-        const hasHighlightData =
-            (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) ||
-            highlightedCellId;
+        const hasHighlightData = Boolean(highlightedCellId);
 
         if (hasHighlightData && scrollSyncEnabled && isSourceText) {
-            let firstRef: string | undefined;
             let isBibleBookFormat = false;
             let newChapterNumber = 1;
             let shouldFilterByChapter = false;
 
-            // Prioritize cellId over globalReferences
             if (highlightedCellId) {
-                firstRef = highlightedCellId;
                 // Check if the cellId follows Bible book format (e.g., "GEN 1:1")
                 // Format: "BOOK CHAPTER:VERSE" where BOOK is followed by space, then CHAPTER:VERSE
                 const cellIdBibleFormatMatch = highlightedCellId.match(/^[^\s]+\s+\d+:\d+/);
@@ -944,39 +932,30 @@ const CodexCellEditor: React.FC = () => {
                     newChapterNumber = parseInt(chapter) || 1;
                     shouldFilterByChapter = true;
                 }
-            } else if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
-                // Fallback to globalReferences matching
-                firstRef = highlightedGlobalReferences[0];
-                // Check if the reference follows Bible book format (e.g., "GEN 1:1")
-                // Format: "BOOK CHAPTER:VERSE" where BOOK is followed by space, then CHAPTER:VERSE
-                const bibleBookFormatMatch = firstRef?.match(/^[^\s]+\s+\d+:\d+/);
-                isBibleBookFormat = Boolean(bibleBookFormatMatch);
-
-                if (isBibleBookFormat) {
-                    // Extract chapter number for Bible book format
-                    const chapter = firstRef?.split(" ")[1]?.split(":")[0];
-                    newChapterNumber = parseInt(chapter) || 1;
-                    shouldFilterByChapter = true;
-                }
             }
             // If not Bible book format, don't filter by chapter - search all cells
 
             // Check if this is a new highlight (different chapter than last highlighted)
-            const isNewHighlight = newChapterNumber !== lastHighlightedChapter;
+            const isNewHighlight = shouldFilterByChapter && newChapterNumber !== lastHighlightedChapter;
 
             if (isNewHighlight) {
                 // Reset the manual navigation flag for new highlights
                 setHasManuallyNavigatedAway(false);
                 setLastHighlightedChapter(newChapterNumber);
                 setChapterWhenHighlighted(chapterNumber); // Remember current chapter when highlight was set
+            } else if (!shouldFilterByChapter && lastHighlightedChapter !== null) {
+                setHasManuallyNavigatedAway(false);
+                setLastHighlightedChapter(null);
+                setChapterWhenHighlighted(null);
             }
 
             // Only auto-navigate if:
             // 1. User hasn't manually navigated away, OR this is a new highlight
             // 2. We're still on the same chapter as when the highlight was originally set (prevents conflicts)
-            const shouldAutoNavigate =
-                (!hasManuallyNavigatedAway || isNewHighlight) &&
-                (isNewHighlight || chapterNumber === chapterWhenHighlighted);
+            const shouldAutoNavigate = shouldFilterByChapter
+                ? (!hasManuallyNavigatedAway || isNewHighlight) &&
+                  (isNewHighlight || chapterNumber === chapterWhenHighlighted)
+                : true;
 
             if (shouldAutoNavigate) {
                 let cellsToSearch: QuillCellContent[];
@@ -1010,22 +989,12 @@ const CodexCellEditor: React.FC = () => {
 
                 // Find the index of the highlighted cell within the cells to search
                 // Prioritize cellId matching
-                const cellIndexInSearchSet = cellsToSearch.findIndex((verse) => {
-                    // Prioritize cellId matching
-                    if (highlightedCellId) {
-                        return verse.cellMarkers && verse.cellMarkers.includes(highlightedCellId);
-                    } else if (
-                        highlightedGlobalReferences &&
-                        highlightedGlobalReferences.length > 0
-                    ) {
-                        // Fallback to globalReferences matching
-                        const cellGlobalRefs = verse.data?.globalReferences || [];
-                        return highlightedGlobalReferences.some((ref) =>
-                            cellGlobalRefs.includes(ref)
-                        );
-                    }
-                    return false;
-                });
+                    const cellIndexInSearchSet = cellsToSearch.findIndex(
+                        (verse) =>
+                            highlightedCellId &&
+                            verse.cellMarkers &&
+                            verse.cellMarkers.includes(highlightedCellId)
+                    );
 
                 // Calculate which subsection this cell belongs to
                 let targetSubsectionIndex = 0;
@@ -1053,7 +1022,6 @@ const CodexCellEditor: React.FC = () => {
             }
         }
     }, [
-        highlightedGlobalReferences,
         highlightedCellId,
         scrollSyncEnabled,
         chapterNumber,
@@ -1070,7 +1038,7 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         if (
             isSourceText &&
-            highlightedGlobalReferences.length > 0 &&
+            Boolean(highlightedCellId) &&
             lastHighlightedChapter !== null
         ) {
             // If current chapter is different from the highlighted chapter, user navigated manually
@@ -1078,7 +1046,7 @@ const CodexCellEditor: React.FC = () => {
                 setHasManuallyNavigatedAway(true);
             }
         }
-    }, [chapterNumber, isSourceText, highlightedGlobalReferences, lastHighlightedChapter]);
+    }, [chapterNumber, isSourceText, highlightedCellId, lastHighlightedChapter]);
 
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
@@ -3022,7 +2990,6 @@ const CodexCellEditor: React.FC = () => {
                             windowHeight={windowHeight}
                             headerHeight={headerHeight}
                             alertColorCodes={alertColorCodes}
-                            highlightedGlobalReferences={highlightedGlobalReferences}
                             highlightedCellId={highlightedCellId}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationQueue={translationQueue}
