@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
 import {
     MediaFilesStrategy,
     getMediaFilesStrategy,
@@ -85,6 +86,45 @@ export async function replaceSpecificFilesWithPointers(projectPath: string, uplo
     } catch (error) {
         console.error("Error replacing specific files with pointers:", error);
         throw error;
+    }
+}
+
+/**
+ * Count how many actual media files (not pointers) exist in the files directory
+ * This is used to determine if we should ask the user about keeping files when switching strategies
+ * @param projectPath - Root path of the project
+ * @returns Number of downloaded media files
+ */
+export async function countDownloadedMediaFiles(projectPath: string): Promise<number> {
+    try {
+        const filesDir = path.join(projectPath, ".project", "attachments", "files");
+
+        if (!fs.existsSync(filesDir)) {
+            return 0;
+        }
+
+        let count = 0;
+        const scanDir = async (dirPath: string): Promise<void> => {
+            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dirPath, entry.name);
+                if (entry.isDirectory()) {
+                    await scanDir(fullPath);
+                } else if (entry.isFile() && !entry.name.startsWith(".")) {
+                    // Check if it's an actual file (not a pointer)
+                    const isPtr = await isPointerFile(fullPath);
+                    if (!isPtr) {
+                        count++;
+                    }
+                }
+            }
+        };
+
+        await scanDir(filesDir);
+        return count;
+    } catch (error) {
+        debug("Error counting downloaded media files:", error);
+        return 0;
     }
 }
 
@@ -459,9 +499,7 @@ async function trySmartRecovery(
 
         const removed = await removeFilesPointerStubs(projectPath);
         if (removed > 0) {
-            vscode.window.showInformationMessage(
-                `Recovered from interrupted switch. Preserved existing media files and cleaned up ${removed} placeholder(s).`
-            );
+            vscode.window.showInformationMessage(`Recovered. Cleaned up ${removed} placeholder(s).`);
         }
         return true;
     }
@@ -475,9 +513,7 @@ async function trySmartRecovery(
 
         const replacedCount = await replaceFilesWithPointers(projectPath);
         if (replacedCount > 0) {
-            vscode.window.showInformationMessage(
-                `Recovered from interrupted switch. Ensured ${replacedCount} file(s) are set to stream-only mode.`
-            );
+            vscode.window.showInformationMessage(`Recovered. Updated ${replacedCount} file(s).`);
         }
         return true;
     }
@@ -490,9 +526,7 @@ async function trySmartRecovery(
 
         const replacedCount = await replaceFilesWithPointers(projectPath);
         if (replacedCount > 0) {
-            vscode.window.showInformationMessage(
-                `Recovered from interrupted switch. Ensured ${replacedCount} file(s) are set to stream-and-save mode.`
-            );
+            vscode.window.showInformationMessage(`Recovered. Updated ${replacedCount} file(s).`);
         }
         return true;
     }
@@ -519,8 +553,13 @@ export async function applyMediaStrategyAndRecord(
         const settingsMod = await import("./localProjectSettings");
         const switchStarted = await settingsMod.getSwitchStarted(projectUri);
 
+        // Check if there's a pending keepFilesOnStreamAndSave choice that needs to be applied
+        const settings = await settingsMod.readLocalProjectSettings(projectUri);
+        const hasKeepFilesChoice = settings.keepFilesOnStreamAndSave !== undefined;
+
         // Only skip if returning to last run strategy AND no interrupted switch
-        if (lastModeRun === newStrategy && !switchStarted) {
+        // AND no pending keepFilesOnStreamAndSave choice (which requires file operations)
+        if (lastModeRun === newStrategy && !switchStarted && !hasKeepFilesChoice) {
             await setMediaFilesStrategy(newStrategy, projectUri);
             await setLastModeRun(newStrategy, projectUri);
             await setChangesApplied(true, projectUri);
@@ -530,7 +569,8 @@ export async function applyMediaStrategyAndRecord(
 
         // If there was an interrupted switch and we're returning to the same strategy,
         // try smart recovery to minimize unnecessary work
-        if (lastModeRun === newStrategy && switchStarted) {
+        // BUT: if there's a pending keepFilesOnStreamAndSave choice, we must apply it
+        if (lastModeRun === newStrategy && switchStarted && !hasKeepFilesChoice) {
             debug("Detected interrupted switch, attempting smart recovery");
             const recovered = await trySmartRecovery(projectUri, newStrategy, lastModeRun);
             if (recovered) {
@@ -640,10 +680,7 @@ export async function applyMediaStrategy(
                 debug(`Removed ${removed} pointer stub(s) from files directory.`);
 
                 if (removed > 0) {
-                    vscode.window.showInformationMessage(
-                        `Preparing to download ${removed} media file(s). ` +
-                        "Your media will be automatically downloaded and saved on your device."
-                    );
+                    vscode.window.showInformationMessage(`Downloading ${removed} media file(s).`);
                 }
 
                 // Process any pending LFS downloads from a previous project swap
@@ -658,33 +695,43 @@ export async function applyMediaStrategy(
                 }
                 break;
             }
-            case "stream-only":
-            case "stream-and-save": {
-                // Replace files with pointers
+            case "stream-only": {
+                // Always replace files with pointers to free disk space
                 const replacedCount = await replaceFilesWithPointers(projectPath);
 
-                if (newStrategy === "stream-only") {
-                    if (replacedCount > 0) {
-                        vscode.window.showInformationMessage(
-                            `Freed up disk space by removing ${replacedCount} media file(s). ` +
-                            "Your media will be streamed from the cloud when you need it."
-                        );
-                    } else {
-                        vscode.window.showInformationMessage(
-                            "Your media will be streamed from the cloud when you need it."
-                        );
-                    }
+                if (replacedCount > 0) {
+                    vscode.window.showInformationMessage(`Removed ${replacedCount} file(s). Media will stream.`);
                 } else {
+                    vscode.window.showInformationMessage("Media will stream when needed.");
+                }
+                break;
+            }
+            case "stream-and-save": {
+                // Check if user chose to keep or free files during strategy switch
+                // (only relevant when switching from auto-download)
+                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("./localProjectSettings");
+                const settings = await readLocalProjectSettings(projectUri);
+
+                if (settings.keepFilesOnStreamAndSave === false) {
+                    // User chose to free space - replace files with pointers
+                    const replacedCount = await replaceFilesWithPointers(projectPath);
                     if (replacedCount > 0) {
-                        vscode.window.showInformationMessage(
-                            `Prepared ${replacedCount} media file(s) for streaming. ` +
-                            "Media will be streamed and saved in the background for offline use when you need it."
-                        );
+                        vscode.window.showInformationMessage(`Removed ${replacedCount} file(s). Media will stream and save.`);
                     } else {
-                        vscode.window.showInformationMessage(
-                            "Media will be streamed and saved in the background for offline use when you need it."
-                        );
+                        vscode.window.showInformationMessage("Media will stream and save when accessed.");
                     }
+                } else if (settings.keepFilesOnStreamAndSave === true) {
+                    // User chose to keep files
+                    vscode.window.showInformationMessage("Files kept. Media will stream and save when accessed.");
+                } else {
+                    // No choice stored (e.g., switching from stream-only)
+                    vscode.window.showInformationMessage("Media will stream and save when accessed.");
+                }
+
+                // Clear the flag after applying
+                if (settings.keepFilesOnStreamAndSave !== undefined) {
+                    settings.keepFilesOnStreamAndSave = undefined;
+                    await writeLocalProjectSettings(settings, projectUri);
                 }
                 break;
             }
@@ -759,7 +806,7 @@ export async function processPendingSwapDownloads(projectUri: vscode.Uri): Promi
     const fs = await import("fs");
     const projectPath = projectUri.fsPath;
     const localSwapPath = path.join(projectPath, ".project", "localProjectSwap.json");
-    
+
     // Check if there are pending downloads
     if (!fs.existsSync(localSwapPath)) {
         debug("No localProjectSwap.json found - no pending downloads");
@@ -798,12 +845,12 @@ export async function processPendingSwapDownloads(projectUri: vscode.Uri): Promi
 
     const filesDir = path.join(projectPath, ".project", "attachments", "files");
     const pointersDir = path.join(projectPath, ".project", "attachments", "pointers");
-    
+
     fs.mkdirSync(filesDir, { recursive: true });
     fs.mkdirSync(pointersDir, { recursive: true });
 
     let downloadedCount = 0;
-    const failedFiles: Array<{ relPath: string; oid: string; size: number }> = [];
+    const failedFiles: Array<{ relPath: string; oid: string; size: number; }> = [];
     const { createHash } = await import("crypto");
 
     // Show progress
@@ -822,10 +869,10 @@ export async function processPendingSwapDownloads(projectUri: vscode.Uri): Promi
             for (let i = 0; i < files.length; i += BATCH_SIZE) {
                 const batch = files.slice(i, i + BATCH_SIZE);
 
-                await Promise.all(batch.map(async (file: { relPath: string; oid: string; size: number }) => {
+                await Promise.all(batch.map(async (file: { relPath: string; oid: string; size: number; }) => {
                     try {
                         const { relPath, oid, size } = file;
-                        
+
                         // Check if file already exists (maybe downloaded through normal sync)
                         const filesPath = path.join(filesDir, relPath);
                         if (fs.existsSync(filesPath)) {
@@ -840,7 +887,7 @@ export async function processPendingSwapDownloads(projectUri: vscode.Uri): Promi
                         // Try to download from the old project's LFS
                         debug(`Downloading from old project LFS: ${relPath}`);
                         const content = await frontierApi.downloadLFSFile(sourceRemoteUrl, oid, size);
-                        
+
                         if (!content) {
                             debug(`Download failed (empty response): ${relPath}`);
                             failedFiles.push(file);
@@ -859,7 +906,7 @@ export async function processPendingSwapDownloads(projectUri: vscode.Uri): Promi
                         const pointersPath = path.join(pointersDir, relPath);
                         fs.mkdirSync(path.dirname(filesPath), { recursive: true });
                         fs.mkdirSync(path.dirname(pointersPath), { recursive: true });
-                        
+
                         fs.writeFileSync(filesPath, content);
                         fs.writeFileSync(pointersPath, content);
 
@@ -902,10 +949,8 @@ export async function processPendingSwapDownloads(projectUri: vscode.Uri): Promi
     }
 
     if (downloadedCount > 0) {
-        vscode.window.showInformationMessage(
-            `Downloaded ${downloadedCount} media file(s) from previous project.` +
-            (failedFiles.length > 0 ? ` ${failedFiles.length} file(s) could not be downloaded.` : "")
-        );
+        const failedMsg = failedFiles.length > 0 ? ` (${failedFiles.length} failed)` : "";
+        vscode.window.showInformationMessage(`Downloaded ${downloadedCount} file(s) from previous project${failedMsg}.`);
     }
 
     return downloadedCount;

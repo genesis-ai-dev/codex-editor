@@ -2934,6 +2934,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     if (flags?.lastModeRun === mediaStrategy && !switchStarted) {
                         debugLog(`Switching back to last applied strategy "${mediaStrategy}" - auto-applying without dialog`);
 
+                        // Clear keepFilesOnStreamAndSave if switching away from stream-and-save
+                        if (mediaStrategy !== "stream-and-save") {
+                            try {
+                                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
+                                const settings = await readLocalProjectSettings(projectUri);
+                                if (settings.keepFilesOnStreamAndSave !== undefined) {
+                                    settings.keepFilesOnStreamAndSave = undefined;
+                                    await writeLocalProjectSettings(settings, projectUri);
+                                }
+                            } catch (e) { /* ignore */ }
+                        }
+
                         // Just update the stored strategy without touching files
                         await setMediaFilesStrategy(mediaStrategy, projectUri);
                         await setLastModeRun(mediaStrategy, projectUri);
@@ -2996,6 +3008,57 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     if (selection === switchButton) {
                         // Switch but do not open; mark changesApplied=false and only update strategy
+
+                        // Only ask about keeping files when: auto-download → stream-and-save
+                        // For stream-only: always convert to pointers (no prompt)
+                        // From stream-only: nothing to keep (no prompt)
+                        if (currentStrategy === "auto-download" && mediaStrategy === "stream-and-save") {
+                            const { countDownloadedMediaFiles } = await import("../../utils/mediaStrategyManager");
+                            const downloadedCount = await countDownloadedMediaFiles(projectPath);
+
+                            if (downloadedCount > 0) {
+                                const keepOrFreeChoice = await vscode.window.showInformationMessage(
+                                    `${downloadedCount} media file(s) stored locally. Keep or free up space?`,
+                                    { modal: true },
+                                    "Keep Files",
+                                    "Free Space"
+                                );
+
+                                if (!keepOrFreeChoice) {
+                                    // User cancelled - revert selection
+                                    debugLog("User cancelled keep/free choice for media strategy change");
+                                    this.safeSendMessage({
+                                        command: "project.setMediaStrategyResult",
+                                        success: false,
+                                        projectPath,
+                                        mediaStrategy,
+                                    } as any);
+                                    return;
+                                }
+
+                                // Store choice to apply when project opens
+                                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
+                                const settings = await readLocalProjectSettings(projectUri);
+                                settings.keepFilesOnStreamAndSave = (keepOrFreeChoice === "Keep Files");
+                                await writeLocalProjectSettings(settings, projectUri);
+
+                                vscode.window.showInformationMessage("Changes apply when project opens.");
+                            }
+                        } else if (mediaStrategy !== "stream-and-save") {
+                            // Clear keepFilesOnStreamAndSave if switching away from stream-and-save
+                            // (e.g., user switched to stream-and-save, then back to auto-download)
+                            try {
+                                const { readLocalProjectSettings, writeLocalProjectSettings } = await import("../../utils/localProjectSettings");
+                                const settings = await readLocalProjectSettings(projectUri);
+                                if (settings.keepFilesOnStreamAndSave !== undefined) {
+                                    settings.keepFilesOnStreamAndSave = undefined;
+                                    await writeLocalProjectSettings(settings, projectUri);
+                                    debugLog("Cleared keepFilesOnStreamAndSave as strategy changed away from stream-and-save");
+                                }
+                            } catch (clearErr) {
+                                debugLog("Failed to clear keepFilesOnStreamAndSave", clearErr);
+                            }
+                        }
 
                         // Initialize switchStarted flag if missing (one-time initialization on strategy change)
                         try {

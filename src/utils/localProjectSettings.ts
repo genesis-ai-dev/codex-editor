@@ -51,6 +51,12 @@ export interface LocalProjectSettings {
      * Set to true when beginning a strategy switch, false when switch completes successfully.
      */
     mediaFileStrategySwitchStarted?: boolean;
+    /**
+     * When switching from auto-download to stream-and-save, tracks user's choice.
+     * true = keep downloaded files, false = free space (replace with pointers).
+     * Cleared after the switch is applied on project open.
+     */
+    keepFilesOnStreamAndSave?: boolean;
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
@@ -198,6 +204,8 @@ async function writeLocalProjectSettingsInternal(
             lastMediaFileStrategyRun: settings.lastMediaFileStrategyRun ?? settings.lastModeRun ?? "auto-download",
             mediaFileStrategyApplyState: settings.mediaFileStrategyApplyState ?? (settings as any).applyState ?? "applied",
             mediaFileStrategySwitchStarted: settings.mediaFileStrategySwitchStarted ?? false,
+            keepFilesOnStreamAndSave: settings.keepFilesOnStreamAndSave,
+            forceCloseAfterSuccessfulSwap: settings.forceCloseAfterSuccessfulSwap,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen ?? false,
             detailedAIMetrics: settings.detailedAIMetrics,
             lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
