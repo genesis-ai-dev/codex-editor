@@ -1024,9 +1024,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (shouldUpdate) {
             // Preserve previous audio start time when re-recording; otherwise use video start or 0
             const startTime =
-                effectiveAudioTimestamps?.startTime ??
-                effectiveTimestamps?.startTime ??
-                0;
+                effectiveAudioTimestamps?.startTime ?? effectiveTimestamps?.startTime ?? 0;
             const endTime = startTime + audioDuration;
 
             const initialAudioTimestamps: Timestamps = {
@@ -2466,12 +2464,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // If already recording or countdown active, do nothing (stopRecording handles stopping)
         if (isRecording || countdown !== null) {
-            return;
-        }
-
-        // Check if timestamps are available
-        if (!cellTimestamps?.startTime || !cellTimestamps?.endTime) {
-            setRecordingStatus("Cannot record: video timestamps not available for this cell");
             return;
         }
 
@@ -4578,7 +4570,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         ) : (
                                                             <Play className="mr-1 h-4 w-4" />
                                                         )}
-                                                        Play
+                                                        Play Video
                                                     </Button>
                                                 )}
                                                 <Button
@@ -4596,7 +4588,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     Revert
                                                 </Button>
                                             </div>
-                                            {isSubtitlesType && (
+                                            {isSubtitlesType && shouldShowVideoPlayer && (
                                                 <div className="flex items-center gap-2">
                                                     <Checkbox
                                                         id="mute-video-audio-during-playback"
@@ -4742,10 +4734,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                 ? stopRecording
                                                                                 : startRecording
                                                                         }
-                                                                        disabled={
-                                                                            isCellLocked ||
-                                                                            !targetDuration
-                                                                        }
+                                                                        disabled={isCellLocked}
                                                                         className={cn(
                                                                             "h-24 w-24 rounded-full text-2xl font-bold transition-all",
                                                                             isRecording
@@ -4753,16 +4742,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                 : countdown !== null
                                                                                 ? "border-green-500 bg-green-500 hover:bg-green-600"
                                                                                 : "bg-blue-600 hover:bg-blue-700",
-                                                                            isCellLocked ||
-                                                                                !targetDuration
+                                                                            isCellLocked
                                                                                 ? "opacity-50 cursor-not-allowed"
                                                                                 : ""
                                                                         )}
                                                                         title={
                                                                             isCellLocked
                                                                                 ? "Cannot record: cell is locked"
-                                                                                : !targetDuration
-                                                                                ? "Cannot record: video timestamps not available"
                                                                                 : isRecording
                                                                                 ? "Stop Recording"
                                                                                 : countdown !== null
@@ -4780,7 +4766,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     </Button>
 
                                                                     {/* Progress Bar */}
-                                                                    {targetDuration ? (
+                                                                    {targetDuration && (
                                                                         <div className="w-full space-y-2">
                                                                             <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
                                                                                 <div
@@ -4822,11 +4808,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                     s
                                                                                 </span>
                                                                             </div>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="text-xs text-muted-foreground text-center">
-                                                                            Video timestamps not
-                                                                            available for this cell
                                                                         </div>
                                                                     )}
                                                                 </div>
