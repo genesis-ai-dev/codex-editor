@@ -782,9 +782,13 @@ const CodexCellEditor: React.FC = () => {
                 cellsCacheRef.current.clear();
                 loadedPagesRef.current.clear();
 
-                // Use refs to get current values without adding them to dependency array
-                const milestoneIdx = currentMilestoneIndexRef.current;
-                const subsectionIdx = currentSubsectionIndexRef.current;
+                // Prefer: 1) in-flight navigation (latestRequestRef), 2) refs (webview's current position).
+                // Always use refs over the provider message so our position wins when the provider sends a stale
+                // position (e.g. source doc: provider hasn't processed our request yet). Refs are updated when we
+                // navigate, use cache, or receive handleCellPage/setContentPaginated.
+                const pending = latestRequestRef.current;
+                const milestoneIdx = pending?.milestoneIdx ?? currentMilestoneIndexRef.current;
+                const subsectionIdx = pending?.subsectionIdx ?? currentSubsectionIndexRef.current;
 
                 // Request fresh cells for the current page
                 if (requestCellsForMilestoneRef.current) {
@@ -1443,6 +1447,25 @@ const CodexCellEditor: React.FC = () => {
             isSourceTextValue: boolean,
             sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
         ) => {
+            // Ignore initial content when we're already on a different page (e.g. source: provider sent
+            // providerSendsInitialContentPaginated (0,0) after we navigated to (0,1), which would revert us).
+            if (
+                currentMilestoneIndexRef.current !== currentMilestoneIdx ||
+                currentSubsectionIndexRef.current !== currentSubsectionIdx
+            ) {
+                debug(
+                    "pagination",
+                    "Ignoring stale initial content; we are on",
+                    {
+                        refMilestone: currentMilestoneIndexRef.current,
+                        refSubsection: currentSubsectionIndexRef.current,
+                    },
+                    "message had",
+                    { currentMilestoneIdx, currentSubsectionIdx }
+                );
+                return;
+            }
+
             debug("pagination", "Received paginated content:", {
                 milestones: milestoneIdx.milestones.length,
                 cells: cells.length,
@@ -1458,6 +1481,9 @@ const CodexCellEditor: React.FC = () => {
             milestoneCellsCacheRef.current.set(currentMilestoneIdx, cells);
             setCurrentMilestoneIndex(currentMilestoneIdx);
             setCurrentSubsectionIndex(currentSubsectionIdx);
+            // Keep refs in sync so refreshCurrentPage / stale initial-content checks use correct position
+            currentMilestoneIndexRef.current = currentMilestoneIdx;
+            currentSubsectionIndexRef.current = currentSubsectionIdx;
             setIsSourceText(isSourceTextValue);
             setSourceCellMap(sourceCellMapValue);
 
@@ -1494,8 +1520,10 @@ const CodexCellEditor: React.FC = () => {
                 allCellsInMilestone: allCellsInMilestone?.length,
             });
 
-            // Always update latestRequestRef to track current position
+            // Always update refs immediately so a subsequent providerSendsInitialContentPaginated (e.g. source) is ignored
             latestRequestRef.current = { milestoneIdx, subsectionIdx };
+            currentMilestoneIndexRef.current = milestoneIdx;
+            currentSubsectionIndexRef.current = subsectionIdx;
 
             // Replace translation units with new cells
             setTranslationUnits(cells);
@@ -1675,6 +1703,9 @@ const CodexCellEditor: React.FC = () => {
                     }
                     setCurrentMilestoneIndex(milestoneIdx);
                     setCurrentSubsectionIndex(subsectionIdx);
+                    // Update refs immediately so refreshCurrentPage (source and target) uses this position
+                    currentMilestoneIndexRef.current = milestoneIdx;
+                    currentSubsectionIndexRef.current = subsectionIdx;
                     setIsLoadingCells(false);
                     return;
                 } else {
@@ -1688,6 +1719,10 @@ const CodexCellEditor: React.FC = () => {
                 `Requesting cells for milestone ${milestoneIdx}, subsection ${subsectionIdx}`
             );
             setIsLoadingCells(true);
+
+            // Update refs immediately so refreshCurrentPage (or other handlers) see the page we're navigating to
+            currentMilestoneIndexRef.current = milestoneIdx;
+            currentSubsectionIndexRef.current = subsectionIdx;
 
             vscode.postMessage({
                 command: "requestCellsForMilestone",

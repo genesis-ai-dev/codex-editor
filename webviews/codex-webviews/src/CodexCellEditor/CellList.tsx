@@ -480,6 +480,7 @@ const CellList: React.FC<CellListProps> = ({
     }, []);
 
     // Calculate offset for line numbers based on milestone indices only.
+    // Do NOT add subsection offset: when fullDocumentTranslationUnits is the full milestone, it will include all cells from the previous milestones.
     const calculateLineNumberOffset = useCallback((): number => {
         if (!milestoneIndex || milestoneIndex.milestones.length === 0) {
             return 0;
