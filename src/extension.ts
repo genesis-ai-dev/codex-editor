@@ -1270,7 +1270,7 @@ async function checkCloseAfterSwap(projectUri: vscode.Uri): Promise<void> {
  * the correct state for the user's media strategy.
  */
 async function showCloseAfterSwapModal(projectUri: vscode.Uri): Promise<void> {
-    const { writeLocalProjectSettings } = await import("./utils/localProjectSettings");
+    const { readLocalProjectSettings, writeLocalProjectSettings } = await import("./utils/localProjectSettings");
 
     const action = await vscode.window.showInformationMessage(
         "Project swap completed! Close this project to finalize the swap.",
@@ -1280,9 +1280,14 @@ async function showCloseAfterSwapModal(projectUri: vscode.Uri): Promise<void> {
     );
 
     // Clear the forceCloseAfterSuccessfulSwap flag regardless of user choice
+    // IMPORTANT: Read existing settings first to preserve media strategy and other settings
     try {
-        await writeLocalProjectSettings({ forceCloseAfterSuccessfulSwap: undefined }, projectUri);
-        console.log("[Extension] Cleared forceCloseAfterSuccessfulSwap flag");
+        const existingSettings = await readLocalProjectSettings(projectUri);
+        await writeLocalProjectSettings({
+            ...existingSettings,
+            forceCloseAfterSuccessfulSwap: undefined,
+        }, projectUri);
+        console.log("[Extension] Cleared forceCloseAfterSuccessfulSwap flag (preserved other settings)");
     } catch (err) {
         console.error("[Extension] Error clearing forceCloseAfterSuccessfulSwap flag:", err);
     }

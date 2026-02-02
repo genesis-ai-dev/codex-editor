@@ -445,10 +445,14 @@ export async function performProjectSwap(
         swapAttempts: 1,
     };
 
+    // Read existing settings BEFORE the try block so they're accessible in the catch block
+    // IMPORTANT: This preserves the user's media strategy throughout the swap
+    const existingOldSettings = await readLocalProjectSettings(projectUri);
+
     try {
-        // Update local state
+        // Update local state - preserve existing settings (especially media strategy)
         await writeLocalProjectSettings(
-            { projectSwap: localSwap },
+            { ...existingOldSettings, projectSwap: localSwap },
             projectUri
         );
 
@@ -456,7 +460,7 @@ export async function performProjectSwap(
         progress.report({ increment: 5, message: "Backing up current project..." });
         const backupPath = await backupOldProject(oldProjectPath, projectName);
         localSwap.backupPath = backupPath;
-        await writeLocalProjectSettings({ projectSwap: localSwap }, projectUri);
+        await writeLocalProjectSettings({ ...existingOldSettings, projectSwap: localSwap }, projectUri);
 
         debugLog("Backup created at:", backupPath);
 
@@ -550,12 +554,15 @@ export async function performProjectSwap(
             // Step 9: Finalize local settings on the NEW project
             // Clear projectSwap entirely - it tracked the swap execution which is now complete.
             // The NEW project doesn't need the old project's swap execution state (swapUUID, backupPath, etc.)
+            // IMPORTANT: Read existing settings first to preserve media strategy that was set by copyLocalProjectSettings
             progress.report({ increment: 5, message: "Finalizing swap..." });
             const finalProjectUri = vscode.Uri.file(targetProjectPath);
+            const existingSettings = await readLocalProjectSettings(finalProjectUri);
             await writeLocalProjectSettings({
+                ...existingSettings,
                 projectSwap: undefined,
             }, finalProjectUri);
-            debugLog("Cleared projectSwap from localProjectSettings.json (swap complete)");
+            debugLog("Cleared projectSwap from localProjectSettings.json (swap complete, preserved media strategy)");
 
             // Step 9b: Update projectName in metadata to match the new folder name
             // This is critical after a swap - the old projectName may have been merged from the old project
@@ -602,11 +609,11 @@ export async function performProjectSwap(
     } catch (error) {
         debugLog("Project swap failed:", error);
 
-        // Update local state with error
+        // Update local state with error - preserve existing settings (especially media strategy)
         localSwap.swapInProgress = false;
         localSwap.lastAttemptTimestamp = Date.now();
         localSwap.lastAttemptError = error instanceof Error ? error.message : String(error);
-        await writeLocalProjectSettings({ projectSwap: localSwap }, projectUri);
+        await writeLocalProjectSettings({ ...existingOldSettings, projectSwap: localSwap }, projectUri);
         // Error state is tracked only in localProjectSettings.json, not in metadata
 
         throw error;
@@ -1096,9 +1103,14 @@ async function reconcileAndCopyAttachments(
     }
 
     // Step 3: Copy ALL files and pointers from OLD to NEW
-    // Simple overwrite - no need to check what's in the new project
+    // Strategy-aware: files/ content depends on media strategy
     debugLog(`Copying all attachments from old to new project...`);
     progress.report({ message: `Copying ${allOldAttachments.size} attachments to new project...` });
+
+    // Get media strategy to determine how to handle files/ folder
+    const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
+    const mediaStrategy = await getMediaFilesStrategy(vscode.Uri.file(oldPath));
+    debugLog(`Media strategy for copy: ${mediaStrategy}`);
 
     // Ensure directories exist
     fs.mkdirSync(newFilesDir, { recursive: true });
@@ -1116,14 +1128,92 @@ async function reconcileAndCopyAttachments(
             fs.mkdirSync(path.dirname(newFilePath), { recursive: true });
             fs.mkdirSync(path.dirname(newPointerPath), { recursive: true });
 
-            // Copy files/ if it exists
-            if (fs.existsSync(oldFilePath)) {
-                fs.copyFileSync(oldFilePath, newFilePath);
+            // Determine what's in the old project
+            const oldFileExists = fs.existsSync(oldFilePath);
+            const oldPointerExists = fs.existsSync(oldPointerPath);
+            const oldFileIsPointer = oldFileExists ? await isPointerFile(oldFilePath) : true;
+            const oldPointerIsPointer = oldPointerExists ? await isPointerFile(oldPointerPath) : true;
+
+            // Find where we have a blob and where we have a pointer
+            let blobSource: string | null = null;
+            let pointerSource: string | null = null;
+
+            if (oldFileExists && !oldFileIsPointer) {
+                blobSource = oldFilePath;
+            } else if (oldPointerExists && !oldPointerIsPointer) {
+                blobSource = oldPointerPath;
             }
 
-            // Copy pointers/ if it exists
-            if (fs.existsSync(oldPointerPath)) {
-                fs.copyFileSync(oldPointerPath, newPointerPath);
+            if (oldFileExists && oldFileIsPointer) {
+                pointerSource = oldFilePath;
+            } else if (oldPointerExists && oldPointerIsPointer) {
+                pointerSource = oldPointerPath;
+            }
+
+            // Copy to NEW project based on media strategy
+            switch (mediaStrategy) {
+                case "auto-download":
+                    // files/ should have blobs, pointers/ should have pointers
+                    if (blobSource) {
+                        fs.copyFileSync(blobSource, newFilePath);
+                    } else if (pointerSource) {
+                        // We only have a pointer - this file wasn't downloaded yet
+                        // Copy pointer to files/ (will be downloaded by media strategy later)
+                        // This is not ideal but better than nothing
+                        fs.copyFileSync(pointerSource, newFilePath);
+                        debugLog(`Warning: No blob for ${relPath} in auto-download mode, copied pointer`);
+                    }
+                    if (pointerSource) {
+                        fs.copyFileSync(pointerSource, newPointerPath);
+                    } else if (blobSource) {
+                        // We have blob but no pointer - copy blob to pointers/ for sync
+                        fs.copyFileSync(blobSource, newPointerPath);
+                    }
+                    break;
+
+                case "stream-and-save":
+                    // Preserve the exact state from old project
+                    if (oldFileExists) {
+                        fs.copyFileSync(oldFilePath, newFilePath);
+                    }
+                    if (oldPointerExists) {
+                        fs.copyFileSync(oldPointerPath, newPointerPath);
+                    }
+                    break;
+
+                case "stream-only":
+                    // files/ should have pointers (for streaming), pointers/ should have blobs (for sync)
+                    if (pointerSource) {
+                        fs.copyFileSync(pointerSource, newFilePath);
+                    } else if (blobSource) {
+                        // We have a blob but stream-only expects pointer in files/
+                        // Generate pointer content and write to files/
+                        const pointer = await parsePointerFile(oldPointerPath) || await parsePointerFile(oldFilePath);
+                        if (pointer) {
+                            const pointerContent = `version https://git-lfs.github.com/spec/v1\noid sha256:${pointer.oid}\nsize ${pointer.size}\n`;
+                            fs.writeFileSync(newFilePath, pointerContent);
+                        } else {
+                            // Can't generate pointer, just copy the blob (better than nothing)
+                            fs.copyFileSync(blobSource, newFilePath);
+                        }
+                    }
+                    // pointers/ should have the blob for sync
+                    if (blobSource) {
+                        fs.copyFileSync(blobSource, newPointerPath);
+                    } else if (pointerSource) {
+                        fs.copyFileSync(pointerSource, newPointerPath);
+                    }
+                    break;
+
+                default:
+                    // Unknown strategy - preserve old state (same as stream-and-save)
+                    if (oldFileExists) {
+                        fs.copyFileSync(oldFilePath, newFilePath);
+                    }
+                    if (oldPointerExists) {
+                        fs.copyFileSync(oldPointerPath, newPointerPath);
+                    }
+                    break;
             }
 
             result.copied++;
