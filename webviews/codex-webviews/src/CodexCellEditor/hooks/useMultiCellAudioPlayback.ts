@@ -32,6 +32,7 @@ interface UseMultiCellAudioPlaybackProps {
     vscode: WebviewApi<unknown>;
     isVideoPlaying: boolean;
     currentVideoTime: number;
+    muteVideoWhenPlayingAudio?: boolean;
 }
 
 /**
@@ -45,6 +46,7 @@ export function useMultiCellAudioPlayback({
     vscode,
     isVideoPlaying,
     currentVideoTime,
+    muteVideoWhenPlayingAudio = true,
 }: UseMultiCellAudioPlaybackProps): void {
     const audioElementsRef = useRef<Map<string, CellAudioData>>(new Map());
     const pendingRequestsRef = useRef<Set<string>>(new Set());
@@ -152,16 +154,19 @@ export function useMultiCellAudioPlayback({
         return false;
     }, []);
 
-    // Update mute state based on playing audio
+    // Update mute state based on playing audio (only mute when user preference is true)
     const updateVideoMuteState = useCallback(
         (currentTime?: number) => {
             if (hasPlayingAudio(currentTime)) {
-                muteVideoAudio();
+                if (muteVideoWhenPlayingAudio) {
+                    muteVideoAudio();
+                }
+                // When muteVideoWhenPlayingAudio is false, leave video unmuted so video + recorded audio play together
             } else {
                 restoreVideoMuteState();
             }
         },
-        [hasPlayingAudio, muteVideoAudio, restoreVideoMuteState]
+        [hasPlayingAudio, muteVideoWhenPlayingAudio, muteVideoAudio, restoreVideoMuteState]
     );
 
     // Request audio for a cell

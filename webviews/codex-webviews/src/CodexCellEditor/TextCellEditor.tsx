@@ -155,6 +155,8 @@ interface CellEditorProps {
     videoUrl?: string;
     shouldShowVideoPlayer?: boolean;
     metadata?: CustomNotebookMetadata;
+    muteVideoAudioDuringPlayback?: boolean;
+    setMuteVideoAudioDuringPlayback?: (value: boolean) => void;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -270,6 +272,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     videoUrl,
     shouldShowVideoPlayer,
     metadata,
+    muteVideoAudioDuringPlayback: muteVideoAudioDuringPlaybackProp,
+    setMuteVideoAudioDuringPlayback: setMuteVideoAudioDuringPlaybackProp,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -381,7 +385,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const overlappingAudioOffsetsRef = useRef<Map<string, number>>(new Map());
     const audioBufferCacheRef = useRef<Map<string, AudioBuffer>>(new Map()); // Cache decoded AudioBuffers by blob URL
     const [combinedAudioBlobKey, setCombinedAudioBlobKey] = useState(0); // Force recalculation when timestamps change
-    const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
+    const [internalMuteVideoDuringPlayback, setInternalMuteVideoDuringPlayback] = useState(true);
+    const muteVideoAudioDuringPlayback =
+        muteVideoAudioDuringPlaybackProp ?? internalMuteVideoDuringPlayback;
+    const setMuteVideoAudioDuringPlayback =
+        setMuteVideoAudioDuringPlaybackProp ?? setInternalMuteVideoDuringPlayback;
     const previousAudioTimestampValuesRef = useRef<[number, number] | null>(null);
     const effectiveTimestampsRef = useRef<Timestamps | undefined>(undefined);
     const effectiveAudioTimestampsRef = useRef<Timestamps | undefined>(undefined);

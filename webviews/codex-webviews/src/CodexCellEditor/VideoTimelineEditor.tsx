@@ -22,6 +22,7 @@ interface VideoTimelineEditorProps {
     audioAttachments?: {
         [cellId: string]: AudioAttachmentState;
     };
+    muteVideoWhenPlayingAudio?: boolean;
 }
 
 const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
@@ -30,6 +31,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     vscode,
     playerRef,
     audioAttachments,
+    muteVideoWhenPlayingAudio = true,
 }) => {
     const [playerHeight, setPlayerHeight] = useState<number>(300);
     const [isDragging, setIsDragging] = useState(false);
@@ -99,6 +101,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
         vscode,
         isVideoPlaying,
         currentVideoTime: currentTime,
+        muteVideoWhenPlayingAudio,
     });
 
     return (

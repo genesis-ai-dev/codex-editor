@@ -79,6 +79,8 @@ export interface CellListProps {
     playerRef?: React.RefObject<ReactPlayerRef>;
     shouldShowVideoPlayer?: boolean;
     videoUrl?: string;
+    muteVideoAudioDuringPlayback?: boolean;
+    setMuteVideoAudioDuringPlayback?: (value: boolean) => void;
     // Audio playback state from other webview type
     isOtherTypeAudioPlaying?: boolean;
     metadata?: CustomNotebookMetadata;
@@ -134,6 +136,8 @@ const CellList: React.FC<CellListProps> = ({
     playerRef,
     shouldShowVideoPlayer = false,
     videoUrl,
+    muteVideoAudioDuringPlayback = true,
+    setMuteVideoAudioDuringPlayback,
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
@@ -954,6 +958,8 @@ const CellList: React.FC<CellListProps> = ({
                             videoUrl={videoUrl}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             metadata={metadata}
+                            muteVideoAudioDuringPlayback={muteVideoAudioDuringPlayback}
+                            setMuteVideoAudioDuringPlayback={setMuteVideoAudioDuringPlayback}
                         />
                     </span>
                 );
@@ -1077,6 +1083,12 @@ const CellList: React.FC<CellListProps> = ({
         requiredAudioValidations,
         isAudioOnly,
         isAuthenticated,
+        muteVideoAudioDuringPlayback,
+        setMuteVideoAudioDuringPlayback,
+        metadata,
+        playerRef,
+        shouldShowVideoPlayer,
+        videoUrl,
     ]);
 
     // Fetch comments count for all visible cells (batched)

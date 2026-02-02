@@ -188,6 +188,7 @@ const CodexCellEditor: React.FC = () => {
     const [videoUrl, setVideoUrl] = useState<string>("");
     const playerRef = useRef<ReactPlayerRef>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
+    const [muteVideoAudioDuringPlayback, setMuteVideoAudioDuringPlayback] = useState(true);
     const { setSourceCellMap } = useContext(SourceCellContext);
 
     // Backtranslation inline display state
@@ -2994,6 +2995,7 @@ const CodexCellEditor: React.FC = () => {
                             vscode={vscode}
                             playerRef={playerRef}
                             audioAttachments={audioAttachments}
+                            muteVideoWhenPlayingAudio={muteVideoAudioDuringPlayback}
                         />
                     </div>
                 )}
@@ -3065,6 +3067,8 @@ const CodexCellEditor: React.FC = () => {
                             videoUrl={videoUrl}
                             isOtherTypeAudioPlaying={isOtherTypeAudioPlaying}
                             metadata={metadata}
+                            muteVideoAudioDuringPlayback={muteVideoAudioDuringPlayback}
+                            setMuteVideoAudioDuringPlayback={setMuteVideoAudioDuringPlayback}
                         />
                     </div>
                 </div>
