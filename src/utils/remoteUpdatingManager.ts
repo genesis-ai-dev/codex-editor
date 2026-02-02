@@ -585,11 +585,11 @@ async function hasUserSwappedInNewProject(
     }
 
     // Import normalize helpers dynamically
-    const { normalizeProjectSwapInfo, findSwapEntryByTimestamp } = await import("./projectSwapManager");
+    const { normalizeProjectSwapInfo, findSwapEntryByUUID } = await import("./projectSwapManager");
     const normalizedNewSwap = normalizeProjectSwapInfo(newSwapInfo);
 
-    // Find the matching entry in the new project by swapInitiatedAt
-    const matchingEntry = findSwapEntryByTimestamp(normalizedNewSwap, activeEntry.swapInitiatedAt);
+    // Find the matching entry in the new project by swapUUID
+    const matchingEntry = findSwapEntryByUUID(normalizedNewSwap, activeEntry.swapUUID);
     if (matchingEntry?.swappedUsers) {
         const normalizedEntries = matchingEntry.swappedUsers.map((entry: ProjectSwapUserEntry) =>
             normalizeSwapUserEntry(entry)

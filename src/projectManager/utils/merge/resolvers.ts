@@ -7,7 +7,7 @@ import { getAuthApi } from "../../../extension";
 import { checkProjectAdminPermissions } from "../../../utils/projectAdminPermissionChecker";
 import { isFeatureEnabled } from "../../../utils/remoteUpdatingManager";
 import { normalizeUpdateEntry, RemoteUpdatingEntry, normalizeSwapUserEntry } from "../../../utils/remoteUpdatingManager";
-import { normalizeProjectSwapInfo, findSwapEntryByTimestamp } from "../../../utils/projectSwapManager";
+import { normalizeProjectSwapInfo } from "../../../utils/projectSwapManager";
 import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../../types";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
@@ -122,7 +122,7 @@ function mergeValidatedByLists(
 /**
  * Merges projectSwap from base, ours, and theirs with intelligent handling:
  * - Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
- * - Rule 2: Merge swapEntries by swapInitiatedAt
+ * - Rule 2: Merge swapEntries by swapUUID (unique identifier for each swap)
  * - Rule 3: For matching entries, merge swappedUsers arrays
  * 
  * All swap info is now contained in each entry (swapUUID, isOldProject, oldProjectUrl, etc.)
@@ -150,22 +150,22 @@ async function mergeProjectSwap(
     const normalizedTheirs = normalizeProjectSwapInfo(theirSwap!);
     const normalizedBase = baseSwap ? normalizeProjectSwapInfo(baseSwap) : undefined;
 
-    // Rule 2: Merge swapEntries by swapInitiatedAt
+    // Rule 2: Merge swapEntries by swapUUID (the unique identifier for each swap)
     const ourEntries = normalizedOurs.swapEntries || [];
     const theirEntries = normalizedTheirs.swapEntries || [];
     const baseEntries = normalizedBase?.swapEntries || [];
 
-    // Collect all unique swapInitiatedAt timestamps
-    const allTimestamps = new Set<number>();
-    ourEntries.forEach(e => allTimestamps.add(e.swapInitiatedAt));
-    theirEntries.forEach(e => allTimestamps.add(e.swapInitiatedAt));
+    // Collect all unique swapUUIDs
+    const allSwapUUIDs = new Set<string>();
+    ourEntries.forEach(e => allSwapUUIDs.add(e.swapUUID));
+    theirEntries.forEach(e => allSwapUUIDs.add(e.swapUUID));
 
     const mergedEntries: ProjectSwapEntry[] = [];
 
-    for (const timestamp of allTimestamps) {
-        const ourEntry = ourEntries.find(e => e.swapInitiatedAt === timestamp);
-        const theirEntry = theirEntries.find(e => e.swapInitiatedAt === timestamp);
-        const baseEntry = baseEntries.find(e => e.swapInitiatedAt === timestamp);
+    for (const swapUUID of allSwapUUIDs) {
+        const ourEntry = ourEntries.find(e => e.swapUUID === swapUUID);
+        const theirEntry = theirEntries.find(e => e.swapUUID === swapUUID);
+        const baseEntry = baseEntries.find(e => e.swapUUID === swapUUID);
 
         let mergedEntry: ProjectSwapEntry;
 
@@ -2066,7 +2066,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
 
         // 1.5. Resolve projectSwap (Complex Merge Logic)
         // Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
-        // Rule 2: Merge swapEntries by swapInitiatedAt
+        // Rule 2: Merge swapEntries by swapUUID (unique identifier for each swap)
         // Rule 3: For matching entries, merge swappedUsers arrays
         const mergedProjectSwap = await mergeProjectSwap(
             base?.meta?.projectSwap,

@@ -1561,14 +1561,14 @@ async function processProjectDirectory(
             // Non-fatal - localProjectSwap.json might not exist
         }
 
-        // Merge entries from both sources by swapInitiatedAt, keeping the one with most recent swapModifiedAt
+        // Merge entries from both sources by swapUUID, keeping the one with most recent swapModifiedAt
         const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
         const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
 
-        const mergedEntriesMap = new Map<number, ProjectSwapEntry>();
+        const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
 
         const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-            const key = entry.swapInitiatedAt;
+            const key = entry.swapUUID;
             const existing = mergedEntriesMap.get(key);
             if (!existing) {
                 mergedEntriesMap.set(key, entry);

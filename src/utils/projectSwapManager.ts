@@ -39,7 +39,21 @@ export function getActiveSwapEntry(swapInfo: ProjectSwapInfo): ProjectSwapEntry 
 }
 
 /**
+ * Find a swap entry by its swapUUID (preferred method)
+ * @param swapInfo - Normalized ProjectSwapInfo
+ * @param swapUUID - The swapUUID to find
+ * @returns Matching swap entry or undefined
+ */
+export function findSwapEntryByUUID(swapInfo: ProjectSwapInfo, swapUUID: string): ProjectSwapEntry | undefined {
+    const normalized = normalizeProjectSwapInfo(swapInfo);
+    const entries = normalized.swapEntries || [];
+
+    return entries.find(entry => entry.swapUUID === swapUUID);
+}
+
+/**
  * Find a swap entry by its swapInitiatedAt timestamp
+ * @deprecated Use findSwapEntryByUUID instead for more reliable matching
  * @param swapInfo - Normalized ProjectSwapInfo
  * @param timestamp - The swapInitiatedAt timestamp to find
  * @returns Matching swap entry or undefined
@@ -159,50 +173,50 @@ export async function checkProjectSwapRequired(
                         const hasActiveOldProjectSwap = remoteEntries.some(
                             e => e.swapStatus === "active" && e.isOldProject === true
                         );
-                        
+
                         if (hasActiveOldProjectSwap) {
                             // Cache the remote swap info locally for offline use, but MERGE with existing local data
                             // to preserve local modifications (like cancellations with more recent timestamps)
                             // This creates .project/localProjectSwap.json which is gitignored
                             try {
-                                const existingLocalEntries = localSwapFileInfo 
+                                const existingLocalEntries = localSwapFileInfo
                                     ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || [])
                                     : [];
-                                
+
                                 // Build merged entries map - local entries first, then remote
-                                // For matching swapInitiatedAt, keep the one with more recent swapModifiedAt
-                                const mergedMap = new Map<number, ProjectSwapEntry>();
+                                // For matching swapUUID, keep the one with more recent swapModifiedAt
+                                const mergedMap = new Map<string, ProjectSwapEntry>();
                                 for (const entry of existingLocalEntries) {
-                                    mergedMap.set(entry.swapInitiatedAt, entry);
+                                    mergedMap.set(entry.swapUUID, entry);
                                 }
                                 for (const entry of remoteEntries) {
-                                    const existing = mergedMap.get(entry.swapInitiatedAt);
+                                    const existing = mergedMap.get(entry.swapUUID);
                                     if (!existing) {
-                                        mergedMap.set(entry.swapInitiatedAt, entry);
+                                        mergedMap.set(entry.swapUUID, entry);
                                     } else {
                                         // Compare timestamps - keep the more recent one
                                         const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
                                         const remoteModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
                                         if (remoteModified > existingModified) {
-                                            mergedMap.set(entry.swapInitiatedAt, entry);
+                                            mergedMap.set(entry.swapUUID, entry);
                                             debug(`Cache merge: using remote entry (modified ${remoteModified}) over local (modified ${existingModified})`);
                                         } else {
                                             debug(`Cache merge: keeping local entry (modified ${existingModified}) over remote (modified ${remoteModified})`);
                                         }
                                     }
                                 }
-                                
+
                                 const mergedSwapInfo: ProjectSwapInfo = {
                                     swapEntries: Array.from(mergedMap.values()),
                                 };
-                                
+
                                 await writeLocalProjectSwapFile({
                                     remoteSwapInfo: mergedSwapInfo,
                                     fetchedAt: Date.now(),
                                     sourceOriginUrl: sanitizeGitUrl(gitOriginUrl),
                                 }, projectUri);
                                 debug("Cached merged swap info to localProjectSwap.json (OLD project with active swap)");
-                                
+
                                 // Update localSwapFileInfo with the merged data for later comparison
                                 localSwapFileInfo = mergedSwapInfo;
                             } catch (cacheError) {
@@ -222,19 +236,19 @@ export async function checkProjectSwapRequired(
 
         // Determine which swap info to use by MERGING entries and comparing swapModifiedAt timestamps
         // This ensures that if local has a more recent cancellation, it takes precedence over remote's active status
-        // Key insight: For the SAME swap entry (matched by swapInitiatedAt), use the version with
+        // Key insight: For the SAME swap entry (matched by swapUUID), use the version with
         // the most recent swapModifiedAt timestamp
-        
+
         // Collect all entries from all sources (ensure arrays are never undefined)
         const remoteEntries = remoteSwapInfo ? (normalizeProjectSwapInfo(remoteSwapInfo).swapEntries || []) : [];
         const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
         const localMetadataEntries = localMetadataSwapInfo ? (normalizeProjectSwapInfo(localMetadataSwapInfo).swapEntries || []) : [];
-        
-        // Merge entries by swapInitiatedAt, keeping the one with the most recent swapModifiedAt
-        const mergedEntriesMap = new Map<number, ProjectSwapEntry>();
-        
+
+        // Merge entries by swapUUID, keeping the one with the most recent swapModifiedAt
+        const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+
         const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-            const key = entry.swapInitiatedAt;
+            const key = entry.swapUUID;
             const existing = mergedEntriesMap.get(key);
             if (!existing) {
                 mergedEntriesMap.set(key, entry);
@@ -248,7 +262,7 @@ export async function checkProjectSwapRequired(
                 }
             }
         };
-        
+
         // Add entries from all sources - local metadata first, then localSwapFile, then remote
         // This order means that if timestamps are equal, remote would be last processed,
         // but since we're comparing timestamps, the order doesn't matter for different timestamps
@@ -261,13 +275,13 @@ export async function checkProjectSwapRequired(
         for (const entry of remoteEntries) {
             addOrUpdateEntry(entry);
         }
-        
+
         // Build the effective swap info from merged entries
         const mergedEntries = Array.from(mergedEntriesMap.values());
         const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
             ? { swapEntries: mergedEntries }
             : (remoteSwapInfo || localSwapFileInfo || localMetadataSwapInfo);
-        
+
         if (mergedEntries.length > 0) {
             debug(`Merged ${mergedEntries.length} swap entries from all sources`);
         }
@@ -350,9 +364,9 @@ async function getSwapUserEntries(swapInfo: ProjectSwapInfo, activeEntry: Projec
                 const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                 const remoteSwap = remoteMetadata?.meta?.projectSwap;
                 if (remoteSwap) {
-                    // Normalize and find matching entry by swapInitiatedAt
+                    // Normalize and find matching entry by swapUUID
                     const normalizedRemote = normalizeProjectSwapInfo(remoteSwap);
-                    const matchingEntry = findSwapEntryByTimestamp(normalizedRemote, activeEntry.swapInitiatedAt);
+                    const matchingEntry = findSwapEntryByUUID(normalizedRemote, activeEntry.swapUUID);
                     if (matchingEntry?.swappedUsers && matchingEntry.swappedUsers.length > 0) {
                         return matchingEntry.swappedUsers.map((entry: ProjectSwapUserEntry) =>
                             normalizeSwapUserEntry(entry)

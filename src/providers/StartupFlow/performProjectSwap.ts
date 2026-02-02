@@ -5,7 +5,7 @@ import * as os from "os";
 import archiver from "archiver";
 import { ProjectMetadata, LocalProjectSwap, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { MetadataManager } from "../../utils/metadataManager";
-import { extractProjectNameFromUrl, getGitOriginUrl, normalizeProjectSwapInfo, findSwapEntryByTimestamp, sanitizeGitUrl } from "../../utils/projectSwapManager";
+import { extractProjectNameFromUrl, getGitOriginUrl, normalizeProjectSwapInfo, sanitizeGitUrl } from "../../utils/projectSwapManager";
 import { validateAndFixProjectMetadata } from "../../projectManager/utils/projectUtils";
 import { readLocalProjectSettings, writeLocalProjectSettings } from "../../utils/localProjectSettings";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
@@ -1312,10 +1312,10 @@ async function updateSwapMetadata(
                 ? normalizeProjectSwapInfo(meta.meta.projectSwap)
                 : { swapEntries: [] };
 
-            // Find or create the matching swap entry by swapInitiatedAt
+            // Find or create the matching swap entry by swapUUID
             let entries = existingSwap.swapEntries || [];
             const swapInitiatedAt = options.swapInitiatedAt || now;
-            let targetEntry = entries.find(e => e.swapInitiatedAt === swapInitiatedAt);
+            let targetEntry = entries.find(e => e.swapUUID === swapUUID);
 
             if (!targetEntry) {
                 // Create new entry (this happens on NEW project after swap)

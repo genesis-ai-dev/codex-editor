@@ -87,12 +87,12 @@ async function triggerSyncAndWaitForCompletion(
 }
 
 /**
- * Helper function to cancel a specific swap entry by its swapInitiatedAt timestamp
+ * Helper function to cancel a specific swap entry by its swapUUID
  * Updates the entry's status to "cancelled" and records who cancelled it
  */
 async function cancelSwapEntry(
     projectUri: vscode.Uri,
-    swapInitiatedAt: number,
+    swapUUID: string,
     cancelledBy: string
 ): Promise<boolean> {
     const now = Date.now();
@@ -106,8 +106,8 @@ async function cancelSwapEntry(
             const normalized = normalizeProjectSwapInfo(meta.meta.projectSwap);
             const entries = normalized.swapEntries || [];
 
-            // Find and update the specific entry
-            const entryIndex = entries.findIndex(e => e.swapInitiatedAt === swapInitiatedAt);
+            // Find and update the specific entry by swapUUID
+            const entryIndex = entries.findIndex(e => e.swapUUID === swapUUID);
             if (entryIndex >= 0) {
                 entries[entryIndex] = {
                     ...entries[entryIndex],
@@ -134,7 +134,7 @@ async function cancelSwapEntry(
             if (localSwapFile?.remoteSwapInfo) {
                 const normalized = normalizeProjectSwapInfo(localSwapFile.remoteSwapInfo);
                 const entries = normalized.swapEntries || [];
-                const entryIndex = entries.findIndex(e => e.swapInitiatedAt === swapInitiatedAt);
+                const entryIndex = entries.findIndex(e => e.swapUUID === swapUUID);
                 if (entryIndex >= 0) {
                     entries[entryIndex] = {
                         ...entries[entryIndex],
@@ -641,7 +641,7 @@ export async function initiateProjectSwap(): Promise<void> {
 
                 if (action === "Cancel Pending Swap") {
                     // Cancel the pending swap first
-                    await cancelSwapEntry(projectUri, activeEntry.swapInitiatedAt, permission.currentUser || "unknown");
+                    await cancelSwapEntry(projectUri, activeEntry.swapUUID, permission.currentUser || "unknown");
                     // Continue to prompt for new project URL below (don't return)
                 } else {
                     // User chose to keep existing swap or cancelled
@@ -916,7 +916,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
 
         for (let i = 0; i < allEntries.length; i++) {
             const entry = allEntries[i];
-            const isActive = activeEntry && entry.swapInitiatedAt === activeEntry.swapInitiatedAt;
+            const isActive = activeEntry && entry.swapUUID === activeEntry.swapUUID;
             const statusIcon = entry.swapStatus === "active" ? "⏳" : "❌";
 
             statusMessage += `${isActive ? "► " : "  "}${statusIcon} Swap UUID: ${entry.swapUUID}\n`;
@@ -1062,7 +1062,7 @@ export async function cancelProjectSwap(): Promise<void> {
         // Cancel the active swap entry
         const success = await cancelSwapEntry(
             projectUri,
-            activeEntry.swapInitiatedAt,
+            activeEntry.swapUUID,
             permission.currentUser || "unknown"
         );
 

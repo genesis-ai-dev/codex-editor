@@ -1591,7 +1591,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (swapCheck.required && swapCheck.activeEntry && remoteProjectRequirements?.currentUsername) {
                             try {
                                 const { extractProjectIdFromUrl, fetchRemoteMetadata, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
-                                const { findSwapEntryByTimestamp, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+                                const { findSwapEntryByUUID, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
                                 const newProjectUrl = swapCheck.activeEntry.newProjectUrl;
                                 if (!newProjectUrl) {
                                     debugLog("No newProjectUrl found in swap info");
@@ -1602,9 +1602,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                                     const remoteSwap = remoteMetadata?.meta?.projectSwap;
                                     if (remoteSwap) {
-                                        // Find matching entry in remote by swapInitiatedAt timestamp
+                                        // Find matching entry in remote by swapUUID
                                         const normalizedRemoteSwap = normalizeProjectSwapInfo(remoteSwap);
-                                        const matchingEntry = findSwapEntryByTimestamp(normalizedRemoteSwap, swapCheck.activeEntry.swapInitiatedAt);
+                                        const matchingEntry = findSwapEntryByUUID(normalizedRemoteSwap, swapCheck.activeEntry.swapUUID);
                                         const entries = (matchingEntry?.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
                                             normalizeSwapUserEntry(entry)
                                         );
@@ -3531,7 +3531,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const projectName = metadataResult.metadata?.projectName || path.basename(projectPath);
 
                     // Normalize swap info to get active entry
-                    const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByTimestamp } = await import("../../utils/projectSwapManager");
+                    const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
                     const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
                     const activeEntry = getActiveSwapEntry(normalizedSwap);
 
@@ -3550,9 +3550,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             const remoteMetadata = await fetchRemoteMetadata(projectId, false);
                             const remoteSwap = remoteMetadata?.meta?.projectSwap;
                             if (remoteSwap) {
-                                // Find matching entry by swapInitiatedAt timestamp
+                                // Find matching entry by swapUUID
                                 const normalizedRemoteSwap = normalizeProjectSwapInfo(remoteSwap);
-                                const matchingEntry = findSwapEntryByTimestamp(normalizedRemoteSwap, activeEntry.swapInitiatedAt);
+                                const matchingEntry = findSwapEntryByUUID(normalizedRemoteSwap, activeEntry.swapUUID);
                                 const entries = (matchingEntry?.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
                                     normalizeSwapUserEntry(entry)
                                 );
