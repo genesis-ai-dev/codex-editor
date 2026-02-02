@@ -782,7 +782,6 @@ export type EditorPostMessages =
         content: {
             milestoneIndex: number;
             newValue: string;
-            deferRefresh?: boolean; // If true, skip webview refresh (for batching multiple edits)
         };
     }
     | {
@@ -2046,6 +2045,9 @@ type EditorReceiveMessages =
          * Optional rev for correlation; refresh is a pull-trigger, so the response payload rev is authoritative.
          */
         rev?: number;
+        /** Optional position from provider; webview uses this when present to avoid reverting during navigation. */
+        milestoneIndex?: number;
+        subsectionIndex?: number;
     }
     | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
@@ -2124,8 +2126,7 @@ type EditorReceiveMessages =
     }
     | {
         type: "highlightCell";
-        globalReferences: string[];
-        cellId?: string; // Optional cellId for fallback matching when globalReferences is empty
+        cellId?: string;
     }
     | {
         type: "updateCellsPerPage";

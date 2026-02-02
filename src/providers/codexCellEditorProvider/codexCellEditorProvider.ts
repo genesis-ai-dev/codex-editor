@@ -343,7 +343,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     debug("Sending highlight message to source file:", panelUri);
                                     safePostMessageToPanel(panel, {
                                         type: "highlightCell",
-                                        globalReferences: value.globalReferences || [],
                                         cellId: value.cellId,
                                     });
                                 }
@@ -2546,7 +2545,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
                         safePostMessageToPanel(panel, {
                             type: "highlightCell",
-                            globalReferences: [],
                             cellId: cellId,
                         });
 
