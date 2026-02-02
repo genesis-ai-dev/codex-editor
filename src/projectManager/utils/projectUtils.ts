@@ -6,7 +6,7 @@ import { getAllBookRefs } from "../../utils";
 import * as vscode from "vscode";
 import * as path from "path";
 import semver from "semver";
-import { LocalProject, ProjectMetadata, ProjectOverview } from "../../../types";
+import { LocalProject, ProjectMetadata, ProjectOverview, ProjectSwapInfo, ProjectSwapEntry } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
@@ -1542,24 +1542,59 @@ async function processProjectDirectory(
         }
 
         // Populate convenience fields on projectSwap for webview access
-        // Check BOTH metadata.json AND localProjectSwap.json (same as checkProjectSwapRequired)
+        // MERGE entries from BOTH metadata.json AND localProjectSwap.json (same as checkProjectSwapRequired)
+        // This is critical for chained swaps where metadata.json may have old cancelled entries
+        // but localProjectSwap.json has the new active entry
         const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
         const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 
-        let effectiveSwapInfo = projectMetadata?.meta?.projectSwap;
+        const metadataSwapInfo = projectMetadata?.meta?.projectSwap;
+        let localSwapFileInfo: ProjectSwapInfo | undefined;
 
-        // Also check localProjectSwap.json - it may have swap info from remote that wasn't synced yet
-        if (!effectiveSwapInfo) {
-            try {
-                const localSwapFile = await readLocalProjectSwapFile(vscode.Uri.file(projectPath));
-                if (localSwapFile?.remoteSwapInfo) {
-                    effectiveSwapInfo = localSwapFile.remoteSwapInfo;
-                    debug("Using swap info from localProjectSwap.json for project list");
-                }
-            } catch {
-                // Non-fatal - localProjectSwap.json might not exist
+        // Always try to read localProjectSwap.json - it may have newer entries
+        try {
+            const localSwapFile = await readLocalProjectSwapFile(vscode.Uri.file(projectPath));
+            if (localSwapFile?.remoteSwapInfo) {
+                localSwapFileInfo = localSwapFile.remoteSwapInfo;
             }
+        } catch {
+            // Non-fatal - localProjectSwap.json might not exist
         }
+
+        // Merge entries from both sources by swapInitiatedAt, keeping the one with most recent swapModifiedAt
+        const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
+        const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+
+        const mergedEntriesMap = new Map<number, ProjectSwapEntry>();
+
+        const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+            const key = entry.swapInitiatedAt;
+            const existing = mergedEntriesMap.get(key);
+            if (!existing) {
+                mergedEntriesMap.set(key, entry);
+            } else {
+                // Compare swapModifiedAt timestamps - use the more recent one
+                const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                if (newModified > existingModified) {
+                    mergedEntriesMap.set(key, entry);
+                }
+            }
+        };
+
+        // Add entries from both sources
+        for (const entry of metadataEntries) {
+            addOrUpdateEntry(entry);
+        }
+        for (const entry of localSwapEntries) {
+            addOrUpdateEntry(entry);
+        }
+
+        // Build the effective swap info from merged entries
+        const mergedEntries = Array.from(mergedEntriesMap.values());
+        const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
+            ? { swapEntries: mergedEntries }
+            : (metadataSwapInfo || localSwapFileInfo);
 
         let projectSwapWithConvenience = effectiveSwapInfo;
         if (projectSwapWithConvenience) {
