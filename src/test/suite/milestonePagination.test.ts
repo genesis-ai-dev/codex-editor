@@ -445,6 +445,58 @@ suite("Milestone-Based Pagination Test Suite", () => {
         assert.ok(!subsection1.some((c) => c.cellMarkers[0] === "GEN 1:1:paratext-1"), "Second subsection should exclude paratext when parent is not on that page");
     });
 
+    test("getCellsForMilestone includes child content cells (metadata.parentId) on same page as parent (root-based pagination)", async () => {
+        // Pagination is by root content cells only. Child cells (with metadata.parentId) appear with their parent.
+        const cells = [
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "1",
+                metadata: {
+                    type: CodexCellTypes.MILESTONE,
+                    id: "milestone-1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Root 1",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Child of root 1",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:1:child-cue-1",
+                    parentId: "GEN 1:1",
+                },
+            },
+            {
+                kind: 2,
+                languageId: "scripture",
+                value: "Root 2",
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: "GEN 1:2",
+                },
+            },
+        ];
+
+        const document = await createDocumentWithCells(cells);
+        const result = document.getCellsForMilestone(0, 0, 50);
+
+        assert.strictEqual(result.length, 3, "Should return 2 roots + 1 child (child on same page as parent)");
+        const cellIds = result.map((c) => c.cellMarkers[0]);
+        assert.ok(cellIds.includes("GEN 1:1"), "Should include root 1");
+        assert.ok(cellIds.includes("GEN 1:1:child-cue-1"), "Should include child of root 1");
+        assert.ok(cellIds.includes("GEN 1:2"), "Should include root 2");
+    });
+
     test("getCellsForMilestone returns empty array for invalid milestone index", async () => {
         const cells = [
             {

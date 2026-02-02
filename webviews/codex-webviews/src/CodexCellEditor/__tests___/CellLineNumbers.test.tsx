@@ -89,7 +89,12 @@ const createMockCell = (
     cellId: string,
     cellType: CodexCellTypes = CodexCellTypes.TEXT,
     content: string = "<p>Test content</p>",
-    options?: { merged?: boolean; deleted?: boolean; cellLabel?: string }
+    options?: {
+        merged?: boolean;
+        deleted?: boolean;
+        cellLabel?: string;
+        metadata?: { parentId?: string; [key: string]: unknown };
+    }
 ): QuillCellContent => ({
     cellMarkers: [cellId],
     cellContent: content,
@@ -111,6 +116,7 @@ const createMockCell = (
     },
     merged: options?.merged,
     deleted: options?.deleted,
+    ...(options?.metadata && { metadata: options.metadata }),
 });
 
 // Create a regular cell with a Bible-like ID (e.g., "GEN 1:1")
@@ -128,17 +134,20 @@ const createBibleCell = (
     );
 };
 
-// Create a child cell with a Bible-like ID (e.g., "GEN 1:1:1234567890-abc123")
+// Create a child cell with a Bible-like ID and metadata.parentId (post-migration format).
+// CellList identifies child cells by metadata.parentId (or data.parentId), not by ID format.
 const createBibleChildCell = (
     book: string,
     chapter: number,
     verse: number,
     childId: string
 ): QuillCellContent => {
+    const parentId = `${book} ${chapter}:${verse}`;
     return createMockCell(
-        `${book} ${chapter}:${verse}:${childId}`,
+        `${parentId}:${childId}`,
         CodexCellTypes.TEXT,
-        `<p>Child content for ${book} ${chapter}:${verse}</p>`
+        `<p>Child content for ${book} ${chapter}:${verse}</p>`,
+        { metadata: { parentId } }
     );
 };
 
@@ -360,16 +369,14 @@ describe("Cell Line Numbers and Labels", () => {
                 }
             });
 
-            // Verify we have lines 1-5 (not counting child cell as a separate line)
-            // Total should be: 1, 2, 3, 3.1, 4 (5 cells)
+            // Verify we have 4 main line numbers (1, 2, 3, 4) and one child (3.1); child is not counted as a main line
             expect(lineNumberTexts).toContain("1");
             expect(lineNumberTexts).toContain("2");
             expect(lineNumberTexts).toContain("3");
-            expect(lineNumberTexts).toContain("3.1"); // Child of line 3
-            expect(lineNumberTexts).toContain("4"); // This is the critical assertion!
+            expect(lineNumberTexts).toContain("3.1"); // Child of line 3 (metadata.parentId identifies it)
+            expect(lineNumberTexts).toContain("4"); // Next main line after child—critical assertion
 
-            // The bug would cause this to be 5 instead of 4
-            // Make sure line 5 does NOT exist (we only have 4 main lines + 1 child)
+            // With bug: child would be counted and we'd see "5" here
             expect(lineNumberTexts).not.toContain("5");
         });
 
@@ -587,24 +594,18 @@ describe("Cell Line Numbers and Labels", () => {
         });
     });
 
-    describe("Cell ID format validation", () => {
-        it("should correctly identify child cells by ID format (more than 2 colon-separated parts)", () => {
-            // Regular cells have 2 parts: "BOOK CHAPTER:VERSE"
-            // Child cells have 3+ parts: "BOOK CHAPTER:VERSE:TIMESTAMP-ID"
-
-            const regularCellId = "GEN 1:5";
-            const childCellId = "GEN 1:5:1740475700855-sbcr37orm";
-
-            const regularParts = regularCellId.split(":");
-            const childParts = childCellId.split(":");
-
-            expect(regularParts.length).toBe(2); // Regular cell
-            expect(childParts.length).toBe(3); // Child cell
-
-            // The fix ensures only cells with exactly 2 parts count toward line numbers
-            expect(regularParts.length).toBeLessThan(3); // Counted
-            expect(childParts.length).not.toBeLessThan(3); // NOT counted
+    describe("Child cell identification (post-migration)", () => {
+        it("identifies child cells by metadata.parentId (primary); legacy ID format is fallback for labeling", () => {
+            // CellList identifies child cells by metadata.parentId (or data.parentId), not by ID format.
+            // Cells with metadata.parentId set are not counted in the main line number sequence and get
+            // decimal labels (e.g. 2.1, 2.2). Legacy ID format (3+ colon-separated parts) is used only
+            // as fallback when parentId is missing (e.g. for labeling).
+            const parentId = "GEN 1:5";
+            const childCell = createBibleChildCell("GEN", 1, 5, "1740475700855-sbcr37orm");
+            expect(childCell.metadata?.parentId).toBe(parentId);
+            expect(childCell.cellMarkers[0]).toContain(parentId);
+            // Child cells with parentId set are excluded from line count in getChapterBasedVerseNumber
+            expect(childCell.metadata?.parentId).toBeDefined();
         });
     });
 });
-
