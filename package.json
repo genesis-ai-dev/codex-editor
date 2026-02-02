@@ -805,13 +805,13 @@
                     },
                     "codex-editor-extension.llmEndpoint": {
                         "type": "string",
-                        "default": "https://api.openai.com/v1",
-                        "description": "The endpoint for the completion API. Currently only supports OpenAI API, or openai-compatible local endpoints such as LM Studio, etc."
+                        "default": "https://api.frontierrnd.com/api/v1",
+                        "description": "The endpoint for the completion API. Defaults to Frontier API. Supports OpenAI-compatible endpoints."
                     },
                     "codex-editor-extension.wsEndpoint": {
                         "type": "string",
-                        "default": "wss://api.openai.com/v1/chat/completions",
-                        "description": "The endpoint for the realtime chat API. Currently only supports OpenAI API."
+                        "default": "wss://api.frontierrnd.com/api/v1/realtime",
+                        "description": "The endpoint for the realtime chat API."
                     },
                     "codex-editor-extension.model": {
                         "title": "LLM Model",
@@ -927,12 +927,6 @@
                         "minimum": 0,
                         "maximum": 1,
                         "description": "Probability (0-1) that any eligible event will run a true A/B test. When not triggered, the system returns identical variants to keep UX consistent without doubling compute."
-                    },
-                    "codex-editor-extension.forceAttentionCheck": {
-                        "title": "Force Attention Check (Testing)",
-                        "type": "boolean",
-                        "default": false,
-                        "description": "When enabled, always triggers an attention check on every LLM completion. Use this for testing the attention check flow. Disable for normal use."
                     },
                     "codex-editor-extension.searchAlgorithm": {
                         "title": "Search Algorithm",
