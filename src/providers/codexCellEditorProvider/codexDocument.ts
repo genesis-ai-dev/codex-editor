@@ -988,7 +988,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             insertIndex = direction === "above" ? indexOfReferenceCell : indexOfReferenceCell + 1;
         }
 
-        // For paratext cells, ensure parentId is set in metadata so they can be associated with their parent cell
+        // For child cells, ensure parentId is set in metadata so they can be associated with their parent cell
         const cellMetadata: CustomCellMetaData = {
             id: newCellId,
             type: cellType,
@@ -997,7 +997,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             data: data,
         };
 
-        if (cellType === CodexCellTypes.PARATEXT && referenceCellId) {
+        if (referenceCellId) {
             cellMetadata.parentId = referenceCellId;
         }
 

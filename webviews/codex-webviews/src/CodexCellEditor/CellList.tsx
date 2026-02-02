@@ -473,18 +473,11 @@ const CellList: React.FC<CellListProps> = ({
     }, []);
 
     // Helper function to check if a cell is a child cell
-    const isChildCell = useCallback(
-        (cell: QuillCellContent): boolean => {
-            // Check if this is a child cell by checking metadata.parentId (new UUID format)
-            if (cell.data?.parentId !== undefined) {
-                return true;
-            }
-            // Legacy: also check ID format for backward compatibility during migration
-            const cellId = getCellIdentifier(cell);
-            return Boolean(cellId && cellId.split(":").length > 2);
-        },
-        [getCellIdentifier]
-    );
+    const isChildCell = useCallback((cell: QuillCellContent): boolean => {
+        // Check if this is a child cell by checking metadata.parentId (new UUID format)
+        // Check both metadata.parentId and data.parentId for compatibility
+        return cell.metadata?.parentId !== undefined || cell.data?.parentId !== undefined;
+    }, []);
 
     // Calculate offset for line numbers based on milestone indices only.
     const calculateLineNumberOffset = useCallback((): number => {
@@ -558,13 +551,13 @@ const CellList: React.FC<CellListProps> = ({
 
             // Check if this is a child cell
             if (isChildCell(cell)) {
-                // Get the parent cell ID
-                const parentId = cell.data?.parentId;
+                // Get the parent cell ID - check both metadata and data (same as isChildCell)
+                const parentId = cell.metadata?.parentId || cell.data?.parentId;
                 const cellIdentifier = getCellIdentifier(cell);
 
                 let parentCellId: string | undefined;
 
-                // Try to get parent ID from metadata first (new UUID format)
+                // Try to get parent ID from metadata or data (new UUID format)
                 if (parentId) {
                     parentCellId = parentId;
                 } else {
@@ -576,11 +569,21 @@ const CellList: React.FC<CellListProps> = ({
                 }
 
                 if (parentCellId) {
-                    // Find the parent cell in the full document using globalReferences or cellMarkers
+                    // Find the parent cell in the full document
+                    // parentCellId is a UUID that should match the parent cell's metadata.id (stored in cellMarkers[0])
                     const parentCell = fullDocumentTranslationUnits.find(
                         (unit: QuillCellContent) => {
+                            // Match against cellMarkers[0] which contains the UUID (metadata.id)
+                            if (unit.cellMarkers[0] === parentCellId) {
+                                return true;
+                            }
+                            // Also check metadata.id if it exists (for extra safety)
+                            if ((unit.metadata as any)?.id === parentCellId) {
+                                return true;
+                            }
+                            // Legacy: try matching against globalReferences/cellMarkers for backward compatibility
                             const unitId = getCellIdentifier(unit);
-                            return unitId === parentCellId || unit.cellMarkers[0] === parentCellId;
+                            return unitId === parentCellId;
                         }
                     );
 
@@ -598,7 +601,8 @@ const CellList: React.FC<CellListProps> = ({
                         // Find all siblings (cells with the same parent)
                         const siblings = fullDocumentTranslationUnits.filter(
                             (unit: QuillCellContent) => {
-                                const unitParentId = unit.data?.parentId;
+                                // Check both metadata and data for parentId (same as isChildCell)
+                                const unitParentId = unit.metadata?.parentId || unit.data?.parentId;
                                 if (unitParentId) {
                                     return unitParentId === parentCellId;
                                 }
@@ -850,18 +854,8 @@ const CellList: React.FC<CellListProps> = ({
                 workingTranslationUnits[i];
 
             const checkIfCurrentCellIsChild = () => {
-                const currentCellId = cellMarkers[0];
-                const translationUnitsWithCurrentCellRemoved = workingTranslationUnits.filter(
-                    ({ cellMarkers }) => cellMarkers[0] !== currentCellId
-                );
-
-                const currentCellWithLastIdSegmentRemoved = currentCellId
-                    .split(":")
-                    .slice(0, 2)
-                    .join(":");
-                return translationUnitsWithCurrentCellRemoved.some(
-                    ({ cellMarkers }) => cellMarkers[0] === currentCellWithLastIdSegmentRemoved
-                );
+                // Use the isChildCell helper to check if current cell has a parentId
+                return isChildCell(workingTranslationUnits[i]);
             };
 
             if (

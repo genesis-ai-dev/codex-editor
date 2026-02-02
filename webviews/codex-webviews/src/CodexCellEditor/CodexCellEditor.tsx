@@ -1591,12 +1591,10 @@ const CodexCellEditor: React.FC = () => {
         let lineNumber = 0;
         for (let i = 0; i <= cellIndex; i++) {
             const unit = allUnits[i];
-            // MILESTONES: Can probably remove this after the cell ID migration.
             // Check if this is a child cell by checking metadata.parentId (new UUID format)
-            // Legacy: also check ID format for backward compatibility during migration
+            // Check both metadata.parentId and data.parentId for compatibility
             const isChildCell =
-                unit.data?.parentId !== undefined ||
-                (getCellIdentifier(unit) && getCellIdentifier(unit).split(":").length > 2);
+                unit.metadata?.parentId !== undefined || unit.data?.parentId !== undefined;
 
             if (
                 unit.cellType !== CodexCellTypes.PARATEXT &&
