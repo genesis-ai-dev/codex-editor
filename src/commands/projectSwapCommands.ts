@@ -30,6 +30,63 @@ const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwapCommands]", ...args) : () => { };
 
 /**
+ * Helper function to trigger sync and wait for completion
+ * Used for critical operations like swap initiation/cancellation where we need confirmation
+ * that the change reached the remote before showing success
+ */
+async function triggerSyncAndWaitForCompletion(
+    commitMessage: string,
+    timeoutMs: number = 120000
+): Promise<{ success: boolean; error?: string; }> {
+    const { getAuthApi } = await import("../extension");
+    const authApi = getAuthApi();
+
+    // Set up a promise to wait for sync completion
+    const syncCompletionPromise = new Promise<{ success: boolean; error?: string; }>((resolve) => {
+        if (!authApi || !('onSyncStatusChange' in authApi)) {
+            debug("Auth API not available or doesn't support sync events, proceeding without confirmation");
+            resolve({ success: true }); // Optimistically assume success
+            return;
+        }
+
+        let resolved = false;
+
+        const subscription = (authApi as any).onSyncStatusChange((status: any) => {
+            if (resolved) return;
+
+            if (status.status === 'completed') {
+                resolved = true;
+                subscription?.dispose();
+                resolve({ success: true });
+            } else if (status.status === 'error') {
+                resolved = true;
+                subscription?.dispose();
+                resolve({ success: false, error: status.message || 'Sync failed' });
+            }
+        });
+
+        // Set a timeout in case something goes wrong
+        setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                subscription?.dispose();
+                resolve({ success: false, error: 'Sync timeout - please check if the operation completed' });
+            }
+        }, timeoutMs);
+    });
+
+    // Trigger the sync (don't await - it returns immediately)
+    vscode.commands.executeCommand(
+        "codex-editor-extension.triggerSync",
+        commitMessage,
+        { bypassUpdatingCheck: true }
+    );
+
+    // Wait for sync to complete
+    return syncCompletionPromise;
+}
+
+/**
  * Helper function to cancel a specific swap entry by its swapInitiatedAt timestamp
  * Updates the entry's status to "cancelled" and records who cancelled it
  */
@@ -121,11 +178,12 @@ async function cancelSwapEntry(
 
         // Commit and push the changes - bypass swap check since we just cancelled it locally
         // This ensures the cancellation can be pushed to remote without being blocked
-        await vscode.commands.executeCommand(
-            "codex-editor-extension.triggerSync",
-            "Cancelled project swap",
-            { bypassUpdatingCheck: true }
-        );
+        // Wait for sync completion to ensure cancellation reaches remote
+        const syncResult = await triggerSyncAndWaitForCompletion("Cancelled project swap");
+        if (!syncResult.success) {
+            debug("Sync after cancel may have failed:", syncResult.error);
+            // Return true since local update succeeded, but log the sync issue
+        }
     }
 
     return updateResult.success;
@@ -751,15 +809,36 @@ export async function initiateProjectSwap(): Promise<void> {
 
         debug("Metadata updated successfully, committing and pushing changes...");
 
-        // Commit and push the changes
+        // Commit and push the changes - WAIT for sync completion
+        // This is critical: we need confirmation that the swap reached remote
+        // before telling the user it succeeded
         const commitMessage = `Initiated project swap to ${newProjectName}`;
-        await vscode.commands.executeCommand(
-            "codex-editor-extension.triggerSync",
-            commitMessage,
-            { bypassUpdatingCheck: true } // allow sync even though swap requirement is now set
+
+        // Show progress while waiting for sync
+        const syncResult = await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Publishing swap to remote...",
+                cancellable: false,
+            },
+            async () => {
+                return await triggerSyncAndWaitForCompletion(commitMessage);
+            }
         );
 
-        // Show success message
+        if (!syncResult.success) {
+            // Sync failed - warn the user
+            await vscode.window.showWarningMessage(
+                `⚠️ Swap Created Locally\n\n` +
+                `The swap was saved locally but may not have reached the remote server.\n\n` +
+                `Error: ${syncResult.error || 'Unknown'}\n\n` +
+                `Please try syncing manually to ensure other users see this swap.`,
+                { modal: true }
+            );
+            return;
+        }
+
+        // Show success message only after sync confirmed
         await vscode.window.showInformationMessage(
             `✅ Project Swap Initiated\n\n` +
             `All users will be prompted to swap to "${newProjectName}" when they next open or sync this project.`,
