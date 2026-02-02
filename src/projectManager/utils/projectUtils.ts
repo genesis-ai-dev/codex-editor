@@ -1289,20 +1289,45 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
                 // metadata.json might not exist
             }
 
-            // Check BOTH metadata.json AND localProjectSwap.json for swap info
-            let effectiveSwapInfo = metadata?.meta?.projectSwap;
+            // Gather swap info from all sources and MERGE by swapUUID
+            const metadataSwapInfo = metadata?.meta?.projectSwap;
+            let localSwapFileInfo: ProjectSwapInfo | undefined;
 
-            if (!effectiveSwapInfo) {
-                try {
-                    const localSwapFile = await readLocalProjectSwapFile(projectUri);
-                    if (localSwapFile?.remoteSwapInfo) {
-                        effectiveSwapInfo = localSwapFile.remoteSwapInfo;
-                        debug("Using swap info from localProjectSwap.json for filtering");
-                    }
-                } catch {
-                    // Non-fatal - localProjectSwap.json might not exist
+            try {
+                const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                if (localSwapFile?.remoteSwapInfo) {
+                    localSwapFileInfo = localSwapFile.remoteSwapInfo;
                 }
+            } catch {
+                // Non-fatal - localProjectSwap.json might not exist
             }
+
+            // MERGE entries from all sources by swapUUID, keeping the most recent swapModifiedAt
+            const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
+            const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+
+            const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+            const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+                const key = entry.swapUUID;
+                const existing = mergedEntriesMap.get(key);
+                if (!existing) {
+                    mergedEntriesMap.set(key, entry);
+                } else {
+                    const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                    const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                    if (newModified > existingModified) {
+                        mergedEntriesMap.set(key, entry);
+                    }
+                }
+            };
+
+            for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
+            for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
+
+            const mergedEntries = Array.from(mergedEntriesMap.values());
+            const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
+                ? { swapEntries: mergedEntries }
+                : (localSwapFileInfo || metadataSwapInfo);
 
             if (!effectiveSwapInfo) {
                 // No swap info - show project

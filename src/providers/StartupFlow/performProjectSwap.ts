@@ -1312,8 +1312,13 @@ async function updateSwapMetadata(
                 ? normalizeProjectSwapInfo(meta.meta.projectSwap)
                 : { swapEntries: [] };
 
-            // Find or create the matching swap entry by swapUUID
-            let entries = existingSwap.swapEntries || [];
+            // For NEW projects (isOldProject: false), we only keep entries for the CURRENT swap.
+            // This prevents old swap history from propagating through chained swaps.
+            // OLD projects preserve history so users can see the swap chain.
+            let entries = isOldProject
+                ? (existingSwap.swapEntries || [])
+                : (existingSwap.swapEntries || []).filter(e => e.swapUUID === swapUUID);
+
             const swapInitiatedAt = options.swapInitiatedAt || now;
             let targetEntry = entries.find(e => e.swapUUID === swapUUID);
 

@@ -1213,25 +1213,50 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
+                    const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+                    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 
-                    // Check BOTH metadata.json AND localProjectSwap.json for swap info
-                    let swapInfo = metaResult.success
+                    // Gather swap info from all sources and MERGE by swapUUID
+                    const metadataSwapInfo = metaResult.success
                         ? (metaResult.metadata?.meta?.projectSwap as ProjectSwapInfo | undefined)
                         : undefined;
 
-                    if (!swapInfo) {
-                        try {
-                            const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
-                            const localSwapFile = await readLocalProjectSwapFile(projectUri);
-                            if (localSwapFile?.remoteSwapInfo) {
-                                swapInfo = localSwapFile.remoteSwapInfo;
-                            }
-                        } catch {
-                            // Non-fatal
+                    let localSwapFileInfo: ProjectSwapInfo | undefined;
+                    try {
+                        const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                        if (localSwapFile?.remoteSwapInfo) {
+                            localSwapFileInfo = localSwapFile.remoteSwapInfo;
                         }
+                    } catch {
+                        // Non-fatal
                     }
 
-                    const { getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+                    // MERGE entries from all sources by swapUUID, keeping the most recent swapModifiedAt
+                    const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
+                    const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+
+                    const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+                    const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+                        const key = entry.swapUUID;
+                        const existing = mergedEntriesMap.get(key);
+                        if (!existing) {
+                            mergedEntriesMap.set(key, entry);
+                        } else {
+                            const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                            const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                            if (newModified > existingModified) {
+                                mergedEntriesMap.set(key, entry);
+                            }
+                        }
+                    };
+
+                    for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
+                    for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
+
+                    const mergedEntries = Array.from(mergedEntriesMap.values());
+                    const swapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
+                        ? { swapEntries: mergedEntries }
+                        : (localSwapFileInfo || metadataSwapInfo);
                     const activeEntry = swapInfo ? getActiveSwapEntry(swapInfo) : undefined;
 
                     // isOldProject is now in each entry, not at the top level
@@ -3504,23 +3529,49 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
+                    const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
+                    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 
-                    // Check BOTH metadata.json AND localProjectSwap.json for swap info
-                    let effectiveSwapInfo = metadataResult.metadata?.meta?.projectSwap;
-
-                    if (!effectiveSwapInfo) {
-                        // Try localProjectSwap.json
-                        try {
-                            const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
-                            const localSwapFile = await readLocalProjectSwapFile(projectUri);
-                            if (localSwapFile?.remoteSwapInfo) {
-                                effectiveSwapInfo = localSwapFile.remoteSwapInfo;
-                                debugLog("Using swap info from localProjectSwap.json for performSwap");
-                            }
-                        } catch {
-                            // Non-fatal
+                    // Gather swap info from all sources
+                    const metadataSwapInfo = metadataResult.metadata?.meta?.projectSwap;
+                    let localSwapFileInfo: ProjectSwapInfo | undefined;
+                    try {
+                        const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                        if (localSwapFile?.remoteSwapInfo) {
+                            localSwapFileInfo = localSwapFile.remoteSwapInfo;
                         }
+                    } catch {
+                        // Non-fatal
                     }
+
+                    // MERGE entries from all sources by swapUUID, keeping the most recent swapModifiedAt
+                    // This ensures we use cancelled status if it's more recent than active status
+                    const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
+                    const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+
+                    const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+                    const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+                        const key = entry.swapUUID;
+                        const existing = mergedEntriesMap.get(key);
+                        if (!existing) {
+                            mergedEntriesMap.set(key, entry);
+                        } else {
+                            // Compare swapModifiedAt timestamps - use the more recent one
+                            const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                            const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                            if (newModified > existingModified) {
+                                mergedEntriesMap.set(key, entry);
+                            }
+                        }
+                    };
+
+                    for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
+                    for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
+
+                    const mergedEntries = Array.from(mergedEntriesMap.values());
+                    const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
+                        ? { swapEntries: mergedEntries }
+                        : (localSwapFileInfo || metadataSwapInfo);
 
                     if (!effectiveSwapInfo) {
                         vscode.window.showErrorMessage("Cannot perform swap: Project swap metadata missing.");
@@ -3531,7 +3582,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const projectName = metadataResult.metadata?.projectName || path.basename(projectPath);
 
                     // Normalize swap info to get active entry
-                    const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
                     const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
                     const activeEntry = getActiveSwapEntry(normalizedSwap);
 
