@@ -612,7 +612,7 @@ export async function updateMetadataFile() {
 
             // Update project properties
             // Only update projectName if config has a non-empty value (don't overwrite with empty)
-            const newProjectName = projectSettings.get("projectName", "");
+            const newProjectName = projectSettings.get("projectName", "")?.trim();
             if (newProjectName) {
                 project.projectName = newProjectName;
             }
@@ -1961,6 +1961,7 @@ export function sanitizeProjectName(name: string): string {
     // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
     return (
         name
+            .trim() // Remove leading/trailing whitespace first
             .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$|^git$/i, "-") // Invalid/reserved chars and names
             .replace(/\s+/g, "-") // Replace spaces with hyphens
             .replace(/\.+/g, "-") // Replace periods with hyphens
@@ -2073,7 +2074,7 @@ export async function validateAndFixProjectMetadata(projectUri: vscode.Uri): Pro
                 newName = newName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
             }
 
-            metadata.projectName = sanitizeProjectName(newName) || "Untitled Project";
+            metadata.projectName = sanitizeProjectName(newName);
             needsSave = true;
             console.log(`Auto-fixed empty projectName to "${metadata.projectName}"`);
         }

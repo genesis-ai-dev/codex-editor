@@ -3412,7 +3412,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         // Final safety check: if projectName is still empty, use the new folder name (minus ID)
                         if (!metadata.projectName || metadata.projectName.trim() === "") {
-                            metadata.projectName = newFolderName.replace(newId, "").replace(/-+$/, "").replace(/^-+/, "");
+                            metadata.projectName = newFolderName.replace(newId, "").replace(/-+$/, "").replace(/^-+/, "").trim() || "Untitled Project";
                         }
 
                         // Write updated metadata

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, sanitizeProjectName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -1750,6 +1750,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             return;
         }
 
+        // Sanitize the project name from user input
+        const sanitizedName = sanitizeProjectName(newProjectName?.trim() || "");
+
         try {
             // Get current user name for edit tracking
             let author = "unknown";
@@ -1767,7 +1770,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             await config.update(
                 "projectName",
-                newProjectName,
+                sanitizedName,
                 vscode.ConfigurationTarget.Workspace
             );
 
@@ -1776,15 +1779,15 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 workspaceFolder,
                 (project: any) => {
                     const originalProjectName = project.projectName;
-                    project.projectName = newProjectName;
+                    project.projectName = sanitizedName;
 
                     // Track edit if projectName changed
-                    if (originalProjectName !== newProjectName) {
+                    if (originalProjectName !== sanitizedName) {
                         // Ensure edits array exists
                         if (!project.edits) {
                             project.edits = [];
                         }
-                        addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
+                        addProjectMetadataEdit(project, EditMapUtils.projectName(), sanitizedName, author);
                     }
 
                     return project;

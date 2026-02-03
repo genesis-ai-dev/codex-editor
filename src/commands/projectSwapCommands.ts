@@ -1334,7 +1334,7 @@ export async function initiateSwapCopy(): Promise<void> {
             if (fs.existsSync(newMetadataPath)) {
                 const metaContent = fs.readFileSync(newMetadataPath, 'utf-8');
                 const meta = JSON.parse(metaContent);
-                meta.projectName = newName;
+                meta.projectName = sanitizedBaseName;
                 meta.projectId = newUUID;
 
                 // Ensure meta structure
@@ -1393,10 +1393,10 @@ export async function initiateSwapCopy(): Promise<void> {
                     Array.isArray(edit.editMap) &&
                     edit.editMap.length === 1 &&
                     edit.editMap[0] === "projectName" &&
-                    edit.value === newName
+                    edit.value === sanitizedBaseName
                 );
                 if (!hasProjectNameEdit) {
-                    addProjectMetadataEdit(meta, EditMapUtils.projectName(), newName, author);
+                    addProjectMetadataEdit(meta, EditMapUtils.projectName(), sanitizedBaseName, author);
                 }
 
                 // Check if projectId edit with this value already exists

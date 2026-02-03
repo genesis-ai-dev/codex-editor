@@ -1644,7 +1644,7 @@ async function updateProjectNameToMatchFolder(projectUri: vscode.Uri, folderName
             baseName = baseName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
         }
 
-        const newProjectName = sanitizeProjectName(baseName) || "Untitled Project";
+        const newProjectName = sanitizeProjectName(baseName);
 
         // Clean up edits array: remove empty projectName and projectId edits that may have been merged
         if (metadata.edits && Array.isArray(metadata.edits)) {
