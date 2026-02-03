@@ -97,18 +97,15 @@ export async function atomicWriteUriTextWithFs(
             }
         }
 
-        // If rename failed but temp file was created, clean it up
-
-        // Check if temp file exists before attempting to delete
+        // If rename failed but temp file was created, clean it up.
+        // Best-effort delete: ignore if temp file is already gone.
         try {
-            await fs.stat(tmpUri);
             await fs.delete(tmpUri);
-        } catch (statErr) {
+        } catch (deleteErr) {
             console.log(
                 `Temp file ${tmpUri.fsPath} did not exist after write failure:`,
-                statErr
+                deleteErr
             );
-            // temp file did not exist, nothing to clean up
         }
 
 
