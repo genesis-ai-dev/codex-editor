@@ -5278,11 +5278,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // END CONSOLIDATED SWAP VISIBILITY FILTERING
             // ============================================================
 
+            // Get current username to pass to webview for swap initiator checks
+            let currentUsername: string | undefined;
+            try {
+                const { getCurrentUsername } = await import("../../utils/remoteUpdatingManager");
+                currentUsername = (await getCurrentUsername()) || undefined;
+            } catch {
+                // Best effort - continue without username
+            }
+
             safePostMessageToPanel(
                 webviewPanel,
                 {
                     command: "projectsListFromGitLab",
                     projects: filteredProjectList,
+                    currentUsername,
                 } as MessagesFromStartupFlowProvider,
                 "StartupFlow"
             );

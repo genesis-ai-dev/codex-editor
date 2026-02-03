@@ -10,6 +10,11 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "../../../components/ui/tooltip";
 
 interface ParsedProjectInfo {
     groups: string[];
@@ -37,6 +42,7 @@ interface ProjectCardProps {
     isProgressDataLoaded?: boolean;
     isAnyOperationApplying?: boolean;
     isOnline?: boolean;
+    currentUsername?: string;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({
@@ -54,6 +60,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     isProgressDataLoaded = false,
     isAnyOperationApplying = false,
     isOnline = true,
+    currentUsername,
 }) => {
     const [mediaStrategy, setMediaStrategy] = useState<MediaFilesStrategy>(
         project.mediaStrategy || "auto-download"
@@ -76,6 +83,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         project.syncStatus
     );
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
+
+    // Check if this project has an active swap that was initiated by the current user
+    // If so, the media strategy dropdown should be disabled (initiator must have auto-download)
+    const activeSwapEntry = project.projectSwap?.swapEntries?.find(
+        (entry) => entry.swapStatus === "active" && entry.isOldProject
+    );
+    const isSwapInitiator = activeSwapEntry && currentUsername && activeSwapEntry.swapInitiatedBy === currentUsername;
+    const disableMediaStrategyForSwap = isSwapInitiator;
+
     const disableControls =
         isAnyOperationApplying ||
         isChangingStrategy ||
@@ -251,8 +267,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const renderMediaStrategyDropdown = () => {
         // Highlight dropdown when strategy is being changed/applied (either explicitly or during open/clone)
         const isStrategyHighlighted = isChangingStrategy || isApplyingStrategyDuringOtherOp;
+        // Disable media strategy changes if user is swap initiator (must keep auto-download until swap completes)
+        const isDisabled = disableControls || disableMediaStrategyForSwap;
 
-        return (
+        const dropdown = (
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button
@@ -261,10 +279,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         className={cn(
                             "h-6 text-xs px-2",
                             isStrategyHighlighted &&
-                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm",
+                            disableMediaStrategyForSwap && "opacity-60 cursor-not-allowed"
                         )}
-                        disabled={disableControls}
-                        title="Media Files Download Strategy"
+                        disabled={isDisabled}
                     >
                         {isChangingStrategy ? (
                             <>
@@ -286,7 +304,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             "text-xs cursor-pointer",
                             mediaStrategy === "auto-download" && "bg-accent"
                         )}
-                        disabled={disableControls}
+                        disabled={isDisabled}
                     >
                         <i className="codicon codicon-cloud-download mr-2" />
                         Auto Download Media
@@ -297,7 +315,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             "text-xs cursor-pointer",
                             mediaStrategy === "stream-and-save" && "bg-accent"
                         )}
-                        disabled={disableControls}
+                        disabled={isDisabled}
                     >
                         <i className="codicon codicon-cloud-upload mr-2" />
                         Stream & Save
@@ -308,7 +326,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             "text-xs cursor-pointer",
                             mediaStrategy === "stream-only" && "bg-accent"
                         )}
-                        disabled={disableControls}
+                        disabled={isDisabled}
                     >
                         <i className="codicon codicon-play-circle mr-2" />
                         Stream Only
@@ -316,6 +334,24 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 </DropdownMenuContent>
             </DropdownMenu>
         );
+
+        // Wrap in tooltip when disabled due to swap initiation
+        if (disableMediaStrategyForSwap) {
+            return (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <span className="inline-block">
+                            {dropdown}
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                        Media strategy locked - you initiated this swap and must keep Auto Download
+                    </TooltipContent>
+                </Tooltip>
+            );
+        }
+
+        return dropdown;
     };
 
     const renderProjectActions = (project: ProjectWithSyncStatus) => {

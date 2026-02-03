@@ -44,6 +44,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         newProjectName?: string;
     } | null>(null);
     const [isCloningDeprecated, setIsCloningDeprecated] = useState(false);
+    const [currentUsername, setCurrentUsername] = useState<string | undefined>(undefined);
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -116,6 +117,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             const message = event.data;
             if (message.command === "projectsListFromGitLab") {
                 setProjectsList(message.projects);
+                setCurrentUsername((message as any).currentUsername);
                 setIsLoading(false);
             } else if (message.command === "project.deleteResponse") {
                 if (message.success) {
@@ -366,6 +368,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 vscode={vscode}
                 progressData={progressData}
                 disableAllActions={disableAllActions}
+                currentUsername={currentUsername}
             />
         </div>
     );

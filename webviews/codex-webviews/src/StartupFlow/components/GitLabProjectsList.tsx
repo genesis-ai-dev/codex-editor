@@ -28,6 +28,7 @@ interface GitLabProjectsListProps {
     vscode: any;
     progressData?: any;
     disableAllActions?: boolean;
+    currentUsername?: string;
 }
 
 interface ProjectGroup {
@@ -64,6 +65,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     vscode,
     progressData,
     disableAllActions = false,
+    currentUsername,
 }) => {
     const [isAnyApplying, setIsAnyApplying] = useState(false);
     useEffect(() => {
@@ -551,6 +553,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
+                                                currentUsername={currentUsername}
                                             />
                                         ) : null
                                     )}
@@ -572,6 +575,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
+                                                currentUsername={currentUsername}
                                             />
                                         ))}
                                 </div>
@@ -620,6 +624,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
+                                                currentUsername={currentUsername}
                                             />
                                         ) : null
                                     )}
@@ -641,6 +646,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
+                                                currentUsername={currentUsername}
                                             />
                                         ))}
                                 </div>
@@ -673,6 +679,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                 isOnline={!!isOnline}
+                                currentUsername={currentUsername}
                             />
                         ) : null
                     )}
@@ -715,6 +722,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                             isOnline={!!isOnline}
+                                            currentUsername={currentUsername}
                                         />
                                     ))}
                                 </div>

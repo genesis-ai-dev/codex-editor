@@ -330,6 +330,7 @@ export type MessagesFromStartupFlowProvider =
     | {
         command: "projectsListFromGitLab";
         projects: Array<ProjectWithSyncStatus>;
+        currentUsername?: string;
         error?: string;
     }
     | {

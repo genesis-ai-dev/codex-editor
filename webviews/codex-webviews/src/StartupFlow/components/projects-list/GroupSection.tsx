@@ -44,6 +44,7 @@ interface GroupSectionProps {
     isProgressDataLoaded?: boolean;
     isAnyOperationApplying?: boolean;
     isOnline?: boolean;
+    currentUsername?: string;
 }
 
 const INDENTATION_SIZE_REM = 1.25;
@@ -69,6 +70,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
     isProgressDataLoaded = false,
     isAnyOperationApplying = false,
     isOnline = true,
+    currentUsername,
 }) => {
     if (!group || typeof group !== "object") return null;
 
@@ -186,6 +188,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         isProgressDataLoaded={isProgressDataLoaded}
                                         isAnyOperationApplying={isAnyOperationApplying}
                                         isOnline={isOnline}
+                                        currentUsername={currentUsername}
                                     />
                                 ))}
                             </div>
@@ -224,6 +227,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         isProgressDataLoaded={isProgressDataLoaded}
                                         isAnyOperationApplying={isAnyOperationApplying}
                                         isOnline={isOnline}
+                                        currentUsername={currentUsername}
                                     />
                                 </div>
                             );
