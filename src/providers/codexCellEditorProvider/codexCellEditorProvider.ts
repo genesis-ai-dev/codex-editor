@@ -1047,10 +1047,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up navigation functions
         const navigateToSection = (cellId: string) => {
             debug("Navigating to section:", cellId);
-            safePostMessageToPanel(webviewPanel, {
-                type: "jumpToSection",
-                content: cellId,
-            });
+
+            // Compute the correct position using the document's milestone/subsection finder
+            // This is more accurate than the webview's algorithm which incorrectly assumes
+            // verse numbers correspond to cell positions
+            const cellsPerPage = this.CELLS_PER_PAGE;
+            const position = document.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
+
+            if (position) {
+                debug("Computed position for cell:", cellId, "milestoneIndex:", position.milestoneIndex, "subsectionIndex:", position.subsectionIndex);
+                safePostMessageToPanel(webviewPanel, {
+                    type: "jumpToSection",
+                    content: cellId,
+                    milestoneIndex: position.milestoneIndex,
+                    subsectionIndex: position.subsectionIndex,
+                });
+            } else {
+                // Fallback: send just the cellId if position couldn't be computed
+                debug("Could not compute position for cell:", cellId, "falling back to cellId only");
+                safePostMessageToPanel(webviewPanel, {
+                    type: "jumpToSection",
+                    content: cellId,
+                });
+            }
         };
         const openCellByIdImpl = (cellId: string, text: string) => {
             debug("Opening cell by ID:", cellId, text);
@@ -1313,6 +1332,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         } else {
             console.error("No active webview panels");
+        }
+    }
+
+    /**
+     * Toggle the in-tab floating search bar in the current document's webview
+     */
+    public toggleInTabSearch() {
+        debug("Toggling in-tab search");
+        if (!this.currentDocument) {
+            debug("No current document, cannot toggle search");
+            return;
+        }
+
+        const docUri = this.currentDocument.uri.toString();
+        const panel = this.webviewPanels.get(docUri);
+        if (panel) {
+            safePostMessageToPanel(panel, {
+                type: "toggleSearch",
+            } as any);
+        } else {
+            console.error("No webview panel found for current document");
         }
     }
 

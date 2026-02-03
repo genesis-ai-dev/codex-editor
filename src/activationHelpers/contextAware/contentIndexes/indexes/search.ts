@@ -91,6 +91,7 @@ export async function getTranslationPairFromProject(
 
             return {
                 cellId,
+                cellLabel: translationPair.cellLabel, // NO FALLBACK
                 sourceCell: {
                     cellId: translationPair.cellId,
                     content: sourceContent,
@@ -458,7 +459,7 @@ export async function searchAllCells(
     // Note: searchScope is "both" here since "source" and "target" return early above
     // Use the optimized SQLite method for complete pairs, then add incomplete pairs if needed
     let translationPairs: TranslationPair[] = [];
-    
+
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         // Use the optimized searchCompleteTranslationPairsWithValidation method
         const searchLimit = includeIncomplete ? k * 2 : k; // Request more if we need to add incomplete pairs
@@ -474,6 +475,7 @@ export async function searchAllCells(
         
         translationPairs = searchResults.map((result) => ({
             cellId: result.cellId || result.cell_id,
+            cellLabel: result.cellLabel ?? result.cell_label ?? null,
             sourceCell: {
                 cellId: result.cellId || result.cell_id,
                 content: result.sourceContent || result.content || "",
@@ -505,12 +507,13 @@ export async function searchAllCells(
             })
             .map((result: any) => ({
                 cellId: result.cellId,
+                cellLabel: result.cellLabel,
                 sourceCell: {
                     cellId: result.cellId,
                     content: result.content,
                     versions: result.versions,
                     notebookId: result.notebookId,
-                    uri: result.uri || "", // Include URI for file filtering
+                    uri: result.uri || "",
                 },
                 targetCell: {
                     cellId: result.cellId,

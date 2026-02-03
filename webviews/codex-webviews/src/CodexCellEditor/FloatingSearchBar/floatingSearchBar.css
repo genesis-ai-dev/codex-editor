@@ -1,0 +1,175 @@
+.floating-search-bar {
+    position: fixed;
+    top: 60px;
+    right: 30px;
+    z-index: 1000;
+    background-color: var(--vscode-editor-background, #1e1e1e);
+    border: 1px solid var(--vscode-editorWidget-border, #454545);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    min-width: 340px;
+    max-width: 450px;
+}
+
+.floating-search-bar-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.floating-search-bar-input-wrapper {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 4px;
+}
+
+.floating-search-bar-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.floating-search-bar-match-count {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #888);
+    white-space: nowrap;
+    padding: 0 6px;
+    min-width: fit-content;
+}
+
+.floating-search-bar-navigation {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.floating-search-bar-navigation button {
+    padding: 4px 6px;
+    min-width: 28px;
+}
+
+.floating-search-bar-close {
+    padding: 4px 6px;
+    min-width: 28px;
+}
+
+.floating-search-bar-options {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vscode-editorWidget-border, #454545);
+}
+
+.floating-search-bar-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--vscode-foreground, #ccc);
+    cursor: pointer;
+    user-select: none;
+}
+
+.floating-search-bar-checkbox input {
+    cursor: pointer;
+    margin: 0;
+}
+
+.floating-search-bar-replace-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--vscode-foreground, #ccc);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background-color 0.15s ease;
+}
+
+.floating-search-bar-replace-toggle:hover {
+    background-color: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+    color: var(--vscode-foreground, #fff);
+}
+
+.floating-search-bar-replace {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vscode-editorWidget-border, #454545);
+}
+
+.floating-search-bar-replace-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.floating-search-bar-replace-input {
+    width: 100%;
+}
+
+.floating-search-bar-replace-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.floating-search-bar-replace-actions button {
+    flex: 1;
+}
+
+/* DOM-based floating search highlights */
+mark.floating-search-highlight {
+    background-color: rgba(255, 235, 59, 0.4);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+mark.floating-search-highlight.floating-search-highlight-current {
+    background-color: rgba(255, 152, 0, 0.6);
+    outline: 2px solid rgba(255, 152, 0, 0.9);
+    border-radius: 2px;
+}
+
+/* Inline diff styles for replace preview */
+.floating-search-diff {
+    display: inline;
+    border-radius: 3px;
+    padding: 1px 2px;
+}
+
+.floating-search-diff.floating-search-highlight-current {
+    outline: 2px solid rgba(255, 152, 0, 0.9);
+}
+
+.diff-removed {
+    background-color: rgba(239, 68, 68, 0.3);
+    text-decoration: line-through;
+    color: var(--vscode-errorForeground, #f87171);
+}
+
+.diff-added {
+    background-color: rgba(34, 197, 94, 0.4);
+    color: var(--vscode-gitDecoration-addedResourceForeground, #4ade80);
+    margin-left: 2px;
+}
+
+/* Animation for search bar appearance */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.floating-search-bar {
+    animation: slideIn 0.15s ease-out;
+}

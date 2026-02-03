@@ -170,7 +170,9 @@ const CellItem: React.FC<CellItemProps> = ({
                 <div className="flex justify-between items-start mb-4">
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-3">
-                            <h3 className="text-lg font-semibold">{item.cellId}</h3>
+                            <h3 className="text-lg font-semibold">
+                                {item.cellLabel ?? `[NO LABEL: ${item.cellId}]`}
+                            </h3>
                             {isPinned && (
                                 <Badge variant="secondary" className="text-blue-600">
                                     Pinned
