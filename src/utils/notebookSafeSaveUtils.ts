@@ -19,6 +19,27 @@ export async function uriExists(uri: vscode.Uri): Promise<boolean> {
     }
 }
 
+export async function uriExistsWithFs(fs: NotebookFs, uri: vscode.Uri): Promise<boolean> {
+    try {
+        await fs.stat(uri);
+        return true;
+    } catch (error) {
+        if (error instanceof vscode.FileSystemError) {
+            if (error.code === "FileNotFound" || error.code === "EntryNotFound") {
+                return false;
+            }
+            throw error;
+        }
+        if (typeof error === "object" && error !== null && "message" in error) {
+            const message = String((error as { message?: unknown; }).message ?? "");
+            if (message.includes("FileNotFound") || message.includes("EntryNotFound")) {
+                return false;
+            }
+        }
+        throw error;
+    }
+}
+
 /**
  * Read UTF-8 text from a URI.
  */
@@ -46,6 +67,13 @@ export async function atomicWriteUriTextWithFs(
     text: string
 ): Promise<void> {
     const encoder = new TextEncoder();
+    const targetExists = await uriExistsWithFs(fs, uri);
+
+    if (targetExists) {
+        await fs.writeFile(uri, encoder.encode(text));
+        return;
+    }
+
     const dirPath = uri.path.slice(0, Math.max(0, uri.path.lastIndexOf("/")));
     const dirUri = uri.with({ path: dirPath || "/" });
     const baseName = path.posix.basename(uri.path);
