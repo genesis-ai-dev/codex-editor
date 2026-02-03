@@ -1,5 +1,6 @@
 import { NotebookPair, ProcessedNotebook } from './common';
 import { WizardContext } from './wizard';
+import React from 'react';
 
 /**
  * Information about existing source files in the project
