@@ -79,11 +79,13 @@ export async function atomicWriteUriTextWithFs(
     const baseName = path.posix.basename(uri.path);
     const tmpName = `${baseName}.tmp-${Date.now()}-${randomUUID()}`;
     const tmpUri = vscode.Uri.joinPath(dirUri, tmpName);
+    let tempFileCreated = false;
 
 
     try {
         // Write to temp file first
         await fs.writeFile(tmpUri, encoder.encode(text));
+        tempFileCreated = true;
 
         // Atomically rename temp file over target
         await fs.rename(tmpUri, uri, { overwrite: true });
@@ -97,15 +99,17 @@ export async function atomicWriteUriTextWithFs(
             }
         }
 
-        // If rename failed but temp file was created, clean it up.
-        // Best-effort delete: ignore if temp file is already gone.
-        try {
-            await fs.delete(tmpUri);
-        } catch (deleteErr) {
-            console.log(
-                `Temp file ${tmpUri.fsPath} did not exist after write failure:`,
-                deleteErr
-            );
+        if (tempFileCreated) {
+            // If rename failed but temp file was created, clean it up.
+            // Best-effort delete: ignore if temp file is already gone.
+            try {
+                await fs.delete(tmpUri);
+            } catch (deleteErr) {
+                console.log(
+                    `Temp file ${tmpUri.fsPath} did not exist after write failure:`,
+                    deleteErr
+                );
+            }
         }
 
 
