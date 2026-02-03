@@ -26,7 +26,6 @@ interface GitLabProjectsListProps {
     onDeleteProject?: (project: ProjectWithSyncStatus) => void;
     isLoading: boolean;
     vscode: any;
-    progressData?: any;
     disableAllActions?: boolean;
     currentUsername?: string;
 }
@@ -63,7 +62,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     onDeleteProject,
     isLoading,
     vscode,
-    progressData,
     disableAllActions = false,
     currentUsername,
 }) => {
@@ -160,59 +158,10 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         }
     }, [projects, projectsWithProgress]);
 
-    // Add effect to update projects with progress data
+    // Update projects with sorted display
     useEffect(() => {
-        if (!progressData || !progressData.projectSummaries || !projects) {
-            // If no progress data yet, just use the original projects
-            setProjectsWithProgress(sortProjectsForDisplay(projects));
-            return;
-        }
-
-        const progressMap = new Map();
-        progressData.projectSummaries.forEach((summary: any) => {
-            progressMap.set(summary.projectId, summary.completionPercentage);
-            // Also map by name for fuzzy matching
-            progressMap.set(summary.projectName, summary.completionPercentage);
-        });
-
-        // Create a deep copy of projects to update
-        const updatedProjects = projects.map((project) => {
-            const projectCopy = { ...project };
-
-            // First try direct ID match
-            if (project.gitOriginUrl) {
-                // Extract project ID from URL or name
-                const urlParts = project.gitOriginUrl.split("/");
-                const possibleId = urlParts[urlParts.length - 1].replace(".git", "");
-
-                if (progressMap.has(possibleId)) {
-                    projectCopy.completionPercentage = progressMap.get(possibleId);
-                    return projectCopy;
-                }
-            }
-
-            // Try matching by project name
-            if (progressMap.has(project.name)) {
-                projectCopy.completionPercentage = progressMap.get(project.name);
-                return projectCopy;
-            }
-
-            // Try fuzzy matching by checking if name is contained in other names
-            for (const [key, percentage] of progressMap.entries()) {
-                const projectNameLower = project.name.toLowerCase();
-                const keyLower = key.toLowerCase();
-
-                if (keyLower.includes(projectNameLower) || projectNameLower.includes(keyLower)) {
-                    projectCopy.completionPercentage = percentage;
-                    return projectCopy;
-                }
-            }
-
-            return projectCopy;
-        });
-
-        setProjectsWithProgress(sortProjectsForDisplay(updatedProjects));
-    }, [progressData, projects, sortProjectsForDisplay]);
+        setProjectsWithProgress(sortProjectsForDisplay(projects));
+    }, [projects, sortProjectsForDisplay]);
 
     const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
         switch (syncStatus) {
@@ -550,7 +499,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 parseProjectUrl={parseProjectUrl}
                                                 getStatusIcon={getStatusIcon}
                                                 filterProjects={filterProjectsPinned}
-                                                isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
                                                 currentUsername={currentUsername}
@@ -572,7 +520,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 statusChangedProjects={statusChangedProjects}
                                                 parseProjectUrl={parseProjectUrl}
                                                 getStatusIcon={getStatusIcon}
-                                                isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
                                                 currentUsername={currentUsername}
@@ -621,7 +568,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 parseProjectUrl={parseProjectUrl}
                                                 getStatusIcon={getStatusIcon}
                                                 filterProjects={filterProjectsPinned}
-                                                isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
                                                 currentUsername={currentUsername}
@@ -643,7 +589,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 statusChangedProjects={statusChangedProjects}
                                                 parseProjectUrl={parseProjectUrl}
                                                 getStatusIcon={getStatusIcon}
-                                                isProgressDataLoaded={!!progressData}
                                                 isAnyOperationApplying={isLocked}
                                                 isOnline={!!isOnline}
                                                 currentUsername={currentUsername}
@@ -676,8 +621,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 parseProjectUrl={parseProjectUrl}
                                 getStatusIcon={getStatusIcon}
                                 filterProjects={filterProjects}
-                                isProgressDataLoaded={!!progressData}
-                                                isAnyOperationApplying={isLocked}
+                                isAnyOperationApplying={isLocked}
                                 isOnline={!!isOnline}
                                 currentUsername={currentUsername}
                             />
@@ -719,8 +663,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             statusChangedProjects={statusChangedProjects}
                                             parseProjectUrl={parseProjectUrl}
                                             getStatusIcon={getStatusIcon}
-                                            isProgressDataLoaded={!!progressData}
-                                                isAnyOperationApplying={isLocked}
+                                            isAnyOperationApplying={isLocked}
                                             isOnline={!!isOnline}
                                             currentUsername={currentUsername}
                                         />

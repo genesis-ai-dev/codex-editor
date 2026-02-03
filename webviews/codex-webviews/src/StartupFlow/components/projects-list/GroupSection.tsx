@@ -41,7 +41,6 @@ interface GroupSectionProps {
         className: string;
     };
     filterProjects: (projects: ProjectWithSyncStatus[]) => ProjectWithSyncStatus[];
-    isProgressDataLoaded?: boolean;
     isAnyOperationApplying?: boolean;
     isOnline?: boolean;
     currentUsername?: string;
@@ -67,7 +66,6 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
     parseProjectUrl,
     getStatusIcon,
     filterProjects,
-    isProgressDataLoaded = false,
     isAnyOperationApplying = false,
     isOnline = true,
     currentUsername,
@@ -185,7 +183,6 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         statusChangedProjects={statusChangedProjects}
                                         parseProjectUrl={parseProjectUrl}
                                         getStatusIcon={getStatusIcon}
-                                        isProgressDataLoaded={isProgressDataLoaded}
                                         isAnyOperationApplying={isAnyOperationApplying}
                                         isOnline={isOnline}
                                         currentUsername={currentUsername}
@@ -224,7 +221,6 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         parseProjectUrl={parseProjectUrl}
                                         getStatusIcon={getStatusIcon}
                                         filterProjects={filterProjects}
-                                        isProgressDataLoaded={isProgressDataLoaded}
                                         isAnyOperationApplying={isAnyOperationApplying}
                                         isOnline={isOnline}
                                         currentUsername={currentUsername}

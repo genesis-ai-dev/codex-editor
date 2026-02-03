@@ -276,10 +276,6 @@ export type MessagesToStartupFlowProvider =
     | { command: "metadata.check"; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
-    | { command: "project.submitProgressReport"; forceSubmit?: boolean; }
-    | { command: "getProjectProgress"; }
-    | { command: "getAggregatedProgress"; }
-    | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
     | { command: "skipAuth"; }
     | { command: "network.connectivityRestored"; }
@@ -321,7 +317,6 @@ export type MediaFilesStrategy =
 export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     mediaStrategy?: MediaFilesStrategy; // Media files download strategy for this project
-    completionPercentage?: number;
     projectSwap?: ProjectSwapInfo;
 };
 
@@ -376,9 +371,6 @@ export type MessagesFromStartupFlowProvider =
     }
     | { command: "setupIncompleteCriticalDataMissing"; }
     | { command: "setupComplete"; }
-    | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
-    | { command: "progressData"; data: any; }
-    | { command: "aggregatedProgressData"; data: any; }
     | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
     | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
     | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
@@ -1570,8 +1562,6 @@ type ProjectManagerMessageFromWebview =
     | { command: "openCodexMigrationTool"; }
     | { command: "navigateToMainMenu"; }
     | { command: "openLoginFlow"; }
-    | { command: "getProjectProgress"; }
-    | { command: "showProgressDashboard"; }
     | { command: "project.delete"; data: { path: string; }; }
     | { command: "checkForUpdates"; }
     | { command: "downloadUpdate"; }
@@ -1636,10 +1626,6 @@ type ProjectManagerMessageToWebview =
             isPublishingInProgress: boolean;
             publishingStage: string;
         };
-    }
-    | {
-        command: "progressData";
-        data: any; // Type for progress data
     }
     | {
         command: "updateStateChanged";

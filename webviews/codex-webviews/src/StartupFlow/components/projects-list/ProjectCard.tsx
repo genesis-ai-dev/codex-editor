@@ -39,7 +39,6 @@ interface ProjectCardProps {
         title: string;
         className: string;
     };
-    isProgressDataLoaded?: boolean;
     isAnyOperationApplying?: boolean;
     isOnline?: boolean;
     currentUsername?: string;
@@ -57,7 +56,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     statusChangedProjects,
     parseProjectUrl,
     getStatusIcon,
-    isProgressDataLoaded = false,
     isAnyOperationApplying = false,
     isOnline = true,
     currentUsername,

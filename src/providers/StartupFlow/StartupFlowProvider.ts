@@ -254,10 +254,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const isVisible = e.webviewPanel.visible;
             StartupFlowGlobalState.instance.setOpen(isVisible);
 
-            // When becoming visible again, refresh the list and progress data
+            // When becoming visible again, refresh the list
             if (isVisible) {
                 this.sendList(webviewPanel);
-                this.fetchAndSendProgressData(webviewPanel);
             }
         });
         this.disposables.push(visibilityDisposable);
@@ -1922,45 +1921,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         this.disposables.push(this.metadataWatcher);
     }
 
-    // Add method to fetch project progress data
-    private async fetchAndSendProgressData(webviewPanel?: vscode.WebviewPanel) {
-        try {
-            // Check if frontier authentication is available
-            if (!this.frontierApi) {
-                this.frontierApi = getAuthApi();
-                if (!this.frontierApi) {
-                    console.log("Frontier API not available for progress data");
-                    return;
-                }
-            }
-
-            // Check authentication status first
-            const authStatus = this.frontierApi.getAuthStatus();
-            if (!authStatus?.isAuthenticated) {
-                debugLog("User not authenticated, skipping fetchAndSendProgressData");
-                return;
-            }
-
-            // Try to get aggregated progress data
-            try {
-                const progressData = await vscode.commands.executeCommand(
-                    "frontier.getAggregatedProgress"
-                );
-
-                if (progressData && this.webviewPanel) {
-                    this.safeSendMessage({
-                        command: "progressData",
-                        data: progressData,
-                    } as MessagesFromStartupFlowProvider);
-                }
-            } catch (error) {
-                console.log("Unable to fetch progress data:", error);
-            }
-        } catch (error) {
-            console.error("Error fetching progress data:", error);
-        }
-    }
-
     // Helper function to detect binary files
     private isBinaryFile(filePath: string): boolean {
         const binaryExtensions = [
@@ -2278,42 +2238,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Send a response back to the webview
                 this.safeSendMessage({ command: "actionCompleted" });
                 break;
-            case "getAggregatedProgress":
-                debugLog("Fetching aggregated progress data");
-                try {
-                    if (!this.frontierApi) {
-                        this.frontierApi = getAuthApi();
-                        if (!this.frontierApi) {
-                            console.log("Frontier API not available for progress data");
-                            return;
-                        }
-                    }
-
-                    // Check authentication status first
-                    const authStatus = this.frontierApi.getAuthStatus();
-                    if (!authStatus?.isAuthenticated) {
-                        debugLog("User not authenticated, skipping aggregated progress fetch");
-                        return;
-                    }
-
-                    const progressData = await vscode.commands.executeCommand(
-                        "frontier.getAggregatedProgress"
-                    );
-
-                    if (progressData) {
-                        this.safeSendMessage({
-                            command: "aggregatedProgressData",
-                            data: progressData,
-                        } as MessagesFromStartupFlowProvider);
-                    }
-                } catch (error) {
-                    console.error("Error fetching aggregated progress data:", error);
-                    this.safeSendMessage({
-                        command: "error",
-                        message: `Failed to fetch progress data: ${error instanceof Error ? error.message : String(error)}`,
-                    } as MessagesFromStartupFlowProvider);
-                }
-                break;
             case "project.showManager":
                 await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 break;
@@ -2527,33 +2451,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     );
                 } catch (error) {
                     console.error("Error triggering sync:", error);
-                }
-                break;
-            case "project.submitProgressReport":
-                // Trigger progress report submission via the SyncManager
-                try {
-                    debugLog("Submitting progress report");
-                    const { forceSubmit = false } = message;
-
-                    // Execute the report submission command which is registered in syncManager.ts
-                    await vscode.commands.executeCommand(
-                        "codex-editor-extension.submitProgressReport",
-                        forceSubmit
-                    );
-
-                    // Send response back to webview
-                    this.safeSendMessage({
-                        command: "project.progressReportSubmitted",
-                        success: true,
-                    });
-                } catch (error) {
-                    console.error("Error submitting progress report:", error);
-                    // Send error response back to webview
-                    this.safeSendMessage({
-                        command: "project.progressReportSubmitted",
-                        success: false,
-                        error: error instanceof Error ? error.message : String(error),
-                    });
                 }
                 break;
             case "workspace.status":
@@ -2781,20 +2678,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     await this.sendList(this.webviewPanel!);
                 }
 
-                break;
-            }
-            case "getProjectProgress":
-                // Handle request for project progress data
-                await this.fetchAndSendProgressData();
-                break;
-            case "showProgressDashboard": {
-                // Open the progress dashboard
-                try {
-                    await vscode.commands.executeCommand("frontier.showProgressDashboard");
-                } catch (error) {
-                    console.error("Error opening progress dashboard:", error);
-                    vscode.window.showErrorMessage("Failed to open progress dashboard");
-                }
                 break;
             }
             case "zipProject": {
@@ -5300,8 +5183,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const mergeTime = Date.now() - startTime;
             debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${filteredProjectList.length} projects`);
 
-            this.fetchProgressDataAsync(webviewPanel);
-
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
             safePostMessageToPanel(
@@ -5313,61 +5194,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } as MessagesFromStartupFlowProvider,
                 "StartupFlow"
             );
-        }
-    }
-
-    /**
-     * Fetch progress data asynchronously and send when ready
-     */
-    private async fetchProgressDataAsync(webviewPanel: vscode.WebviewPanel) {
-        try {
-            debugLog("Fetching progress data asynchronously...");
-            const progressStartTime = Date.now();
-
-            const progressData = await this.fetchProgressData();
-
-            const progressTime = Date.now() - progressStartTime;
-            debugLog(`Progress data fetched in ${progressTime}ms`);
-
-            // Only send if webview is still available
-            if (safeIsVisible(webviewPanel, "StartupFlow")) {
-                safePostMessageToPanel(webviewPanel, {
-                    command: "progressData",
-                    data: progressData,
-                } as MessagesFromStartupFlowProvider, "StartupFlow");
-
-                debugLog("Progress data sent to webview");
-            }
-        } catch (error) {
-            console.warn("Error fetching progress data:", error);
-            // Don't send error for progress data as it's not critical
-        }
-    }
-
-    /**
-     * Fetch progress data with error handling
-     */
-    private async fetchProgressData(): Promise<any> {
-        try {
-            if (!this.frontierApi) {
-                this.frontierApi = getAuthApi();
-            }
-
-            if (this.frontierApi) {
-                const authStatus = this.frontierApi.getAuthStatus();
-                if (!authStatus?.isAuthenticated) {
-                    debugLog("User not authenticated, skipping fetchProgressData");
-                    return undefined;
-                }
-            }
-
-            const progressData = await vscode.commands.executeCommand(
-                "frontier.getAggregatedProgress"
-            );
-            return progressData;
-        } catch (error) {
-            console.warn("Error fetching progress data:", error);
-            return undefined;
         }
     }
 

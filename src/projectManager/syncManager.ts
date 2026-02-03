@@ -9,25 +9,9 @@ import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
-import { BookCompletionData } from "../progressReporting/progressReportingService";
-import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
 import { markPendingUpdateRequired } from "../utils/localProjectSettings";
-// Define TranslationProgress interface locally since it's not exported from types
-interface BookProgress {
-    bookId: string;
-    totalVerses: number;
-    translatedVerses: number;
-    validatedVerses?: number;
-}
-
-interface TranslationProgress {
-    totalVerses: number;
-    translatedVerses: number;
-    validatedVerses?: number;
-    bookProgress?: BookProgress[];
-}
 
 const DEBUG_SYNC_MANAGER = false;
 
@@ -35,46 +19,6 @@ function debug(message: string, ...args: any[]): void {
     if (DEBUG_SYNC_MANAGER) {
         console.log(`[SyncManager] ${message}`, ...args);
     }
-}
-
-// Progress report interface - moved to progressReportingService.ts
-// Keeping this for backward compatibility
-export interface ProjectProgressReport {
-    projectId: string; // Unique project identifier
-    projectName: string; // Human-readable project name
-    timestamp: string; // ISO timestamp of report generation
-    reportId: string; // Unique report identifier
-
-    // Translation metrics
-    translationProgress: {
-        bookCompletionMap: Record<string, BookCompletionData>; // Book ID -> completion data
-        totalVerseCount: number; // Total verses in project
-        translatedVerseCount: number; // Verses with translations
-        validatedVerseCount: number; // Verses passing validation
-        wordsTranslated: number; // Total words translated
-    };
-
-    // Validation metrics
-    validationStatus: {
-        stage: "none" | "initial" | "community" | "expert" | "finished";
-        versesPerStage: Record<string, number>; // Stage -> verse count
-        lastValidationTimestamp: string; // ISO timestamp
-    };
-
-    // Activity metrics
-    activityMetrics: {
-        lastEditTimestamp: string; // ISO timestamp
-        editCountLast24Hours: number; // Edit count
-        editCountLastWeek: number; // Edit count
-        averageDailyEdits: number; // Avg edits per active day
-    };
-
-    // Quality indicators
-    qualityMetrics: {
-        spellcheckIssueCount: number; // Spelling issues
-        flaggedSegmentsCount: number; // Segments needing review
-        consistencyScore: number; // 0-100 score
-    };
 }
 
 /**
@@ -212,7 +156,7 @@ export class SyncManager {
                 // If so, DON'T show the swap modal - let downloads complete first
                 const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
                 const pendingState = await getSwapPendingState(projectPath);
-                
+
                 if (pendingState && pendingState.swapState === "pending_downloads") {
                     debug("Swap has pending downloads - suppressing swap modal, allowing media downloads");
                     // Return false to allow media operations to proceed
@@ -285,7 +229,7 @@ export class SyncManager {
                 // If so, DON'T show the swap modal - let downloads complete first
                 const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
                 const pendingState = await getSwapPendingState(projectPath);
-                
+
                 if (pendingState && pendingState.swapState === "pending_downloads") {
                     debug("[SyncManager] Post-sync: Swap has pending downloads - suppressing modal");
                     return;
@@ -988,11 +932,6 @@ export class SyncManager {
                 // Non-fatal error
             }
 
-            // Schedule progress report after successful sync (when there are actual changes)
-            const progressReportingService = ProgressReportingService.getInstance();
-            progressReportingService.scheduleProgressReport();
-            debug("📊 Progress report scheduled after successful sync");
-
             // Rebuild indexes in the background after successful sync (truly async)
             // Pass the sync result to optimize database synchronization
             this.rebuildIndexesInBackground(syncResult);
@@ -1306,12 +1245,6 @@ export class SyncManager {
         );
     }
 
-    // Force a progress report generation and submission
-    public async forceProgressReport(): Promise<boolean> {
-        const progressReportingService = ProgressReportingService.getInstance();
-        return await progressReportingService.forceProgressReport();
-    }
-
     // Show progress indicator for sync operation
     private async showSyncProgress(commitMessage: string): Promise<void> {
         // Wait for previous notification to close
@@ -1452,9 +1385,6 @@ export class SyncManager {
 
 // Register the command to trigger sync
 export function registerSyncCommands(context: vscode.ExtensionContext): void {
-    // Register progress reporting commands with background service
-    registerProgressReportingCommands(context);
-
     const syncManager = SyncManager.getInstance();
 
     // Command to trigger immediate sync

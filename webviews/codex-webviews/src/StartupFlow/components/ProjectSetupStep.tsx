@@ -33,8 +33,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
     const [isLoading, setIsLoading] = useState(true);
-    const [progressData, setProgressData] = useState<any>(null);
-    const [isLoadingProgress, setIsLoadingProgress] = useState(false);
     const [isAnyApplying, setIsAnyApplying] = useState(false);
     const [disableAllActions, setDisableAllActions] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -65,13 +63,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
         setIsLoading(true);
-    };
-
-    const fetchProgressData = () => {
-        setIsLoadingProgress(true);
-        vscode.postMessage({
-            command: "getAggregatedProgress",
-        } as MessagesToStartupFlowProvider);
     };
 
     const fetchSyncStatus = () => {
@@ -132,12 +123,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     }
                     // No need to set loading false since we never set it true for cancelled deletions
                 }
-            } else if (
-                message.command === "aggregatedProgressData" ||
-                message.command === "progressData"
-            ) {
-                setProgressData(message.data);
-                setIsLoadingProgress(false);
             } else if (message.command === "projectsSyncStatus") {
                 setSyncStatus(message.status);
             } else if ((message as any).command === "project.mediaStrategyApplying") {
@@ -366,7 +351,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     }
                 }}
                 vscode={vscode}
-                progressData={progressData}
                 disableAllActions={disableAllActions}
                 currentUsername={currentUsername}
             />

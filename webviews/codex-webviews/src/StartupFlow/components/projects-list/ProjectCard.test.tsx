@@ -29,7 +29,6 @@ describe("ProjectCard - Clean Media visibility", () => {
                 statusChangedProjects={new Set()}
                 parseProjectUrl={(u: string) => ({ groups: [], cleanName: "", displayUrl: u, uniqueId: "id" }) as any}
                 getStatusIcon={() => ({ icon: "", title: "", className: "" })}
-                isProgressDataLoaded={true}
             />
         );
         return { vscode };
