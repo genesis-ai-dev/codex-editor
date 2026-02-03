@@ -6,9 +6,9 @@ import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
 import { checkProjectAdminPermissions } from "../../../utils/projectAdminPermissionChecker";
 import { isFeatureEnabled } from "../../../utils/remoteUpdatingManager";
-import { normalizeUpdateEntry, RemoteUpdatingEntry, normalizeSwapUserEntry } from "../../../utils/remoteUpdatingManager";
+import { normalizeUpdateEntry } from "../../../utils/remoteUpdatingManager";
 import { normalizeProjectSwapInfo } from "../../../utils/projectSwapManager";
-import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../../types";
+import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry, RemoteUpdatingEntry } from "../../../../types";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
@@ -1892,15 +1892,8 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         const allSignatures = new Set<string>();
         const entryMap = new Map<string, { base?: any, ours?: any, theirs?: any; }>();
 
-        // Helper to normalize entry to object (filtering out strings)
-        const normalize = (entry: any): any => {
-            if (typeof entry === 'string' || entry === null || typeof entry !== 'object') {
-                return null;
-            }
-            return entry;
-        };
-
         // Generate signature for an entry (matches markUserAsUpdatedInRemoteList logic)
+        // Uses createdAt as the unique timestamp component of the signature
         const generateSignature = (entry: RemoteUpdatingEntry): string => {
             const user = entry?.userToUpdate || "";
             const addedBy = entry?.addedBy || "";
@@ -1917,10 +1910,19 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 const username = entry.userToUpdate;
                 if (!username) continue;
 
-                // Defensive: If createdAt is missing, use updatedAt as fallback and set it
-                if (!entry.createdAt && entry.updatedAt) {
-                    entry.createdAt = entry.updatedAt;
-                    console.warn(`[Merge] Entry missing createdAt, using updatedAt (${entry.updatedAt}) for user: ${username}`);
+                // Defensive: Ensure createdAt exists for consistent signature generation
+                // Priority: createdAt > updatedAt > Date.now() (last resort)
+                if (!entry.createdAt) {
+                    if (entry.updatedAt) {
+                        entry.createdAt = entry.updatedAt;
+                        console.warn(`[Merge] Entry missing createdAt, using updatedAt (${entry.updatedAt}) for user: ${username}`);
+                    } else {
+                        // Both createdAt and updatedAt are missing - use current timestamp
+                        // This ensures unique signatures and prevents entries from colliding
+                        entry.createdAt = Date.now();
+                        entry.updatedAt = entry.createdAt;
+                        console.warn(`[Merge] Entry missing both createdAt and updatedAt, using Date.now() (${entry.createdAt}) for user: ${username}`);
+                    }
                 }
 
                 const signature = generateSignature(entry);
@@ -1938,11 +1940,25 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
 
         const mergedUpdatingList: any[] = [];
 
+        // Cache permission check result before the loop (avoids repeated API calls)
+        // Only needed if feature is enabled and there might be entries with clearEntry flag
+        let cachedPermissionCheck: { hasPermission: boolean; error?: string; currentUser?: string; } | null = null;
+        const featureEnabled = isFeatureEnabled('ENABLE_ENTRY_CLEARING');
+        if (featureEnabled) {
+            try {
+                cachedPermissionCheck = await checkProjectAdminPermissions();
+            } catch (error) {
+                console.error(`[Merge] Error checking clear entry permission:`, error);
+                cachedPermissionCheck = { hasPermission: false, error: String(error) };
+            }
+        }
+
         // Helper to check if entry should be cleared (permanently removed)
         // Only clear if: feature is enabled, clearEntry flag is true, and user has permission
-        const shouldClearEntry = async (entry: any): Promise<boolean> => {
+        // Uses cached permission check to avoid repeated API calls
+        const shouldClearEntry = (entry: any): boolean => {
             // Check feature flag first
-            if (!isFeatureEnabled('ENABLE_ENTRY_CLEARING')) {
+            if (!featureEnabled) {
                 // Feature is disabled - remove any clearEntry flags
                 delete entry.clearEntry;
                 delete entry.obliterate; // TODO: Remove in 0.17.0 (legacy field)
@@ -1953,28 +1969,19 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 return false;
             }
 
-            // Check if current user has permission to clear entries
-            try {
-                const permCheck = await checkProjectAdminPermissions();
-
-                if (!permCheck.hasPermission) {
-                    console.warn(
-                        `[Merge] User lacks permission to clear entry for ${entry.userToUpdate}. ` +
-                        `Preserving entry and removing clearEntry flag. Reason: ${permCheck.error}`
-                    );
-                    // Remove clearEntry flag since user doesn't have permission
-                    delete entry.clearEntry;
-                    return false;
-                }
-
-                console.log(`[Merge] User ${permCheck.currentUser} has permission to clear entry for ${entry.userToUpdate}`);
-                return true;
-            } catch (error) {
-                console.error(`[Merge] Error checking clear entry permission:`, error);
-                // On error, preserve entry (safe default)
+            // Use cached permission check
+            if (!cachedPermissionCheck || !cachedPermissionCheck.hasPermission) {
+                console.warn(
+                    `[Merge] User lacks permission to clear entry for ${entry.userToUpdate}. ` +
+                    `Preserving entry and removing clearEntry flag. Reason: ${cachedPermissionCheck?.error || 'Unknown'}`
+                );
+                // Remove clearEntry flag since user doesn't have permission
                 delete entry.clearEntry;
                 return false;
             }
+
+            console.log(`[Merge] User ${cachedPermissionCheck.currentUser} has permission to clear entry for ${entry.userToUpdate}`);
+            return true;
         };
 
         for (const signature of allSignatures) {
@@ -2061,8 +2068,8 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             }
 
             if (finalEntry) {
-                // Check if entry should be cleared (permanently removed) - with permission check
-                if (await shouldClearEntry(finalEntry)) {
+                // Check if entry should be cleared (permanently removed) - uses cached permission check
+                if (shouldClearEntry(finalEntry)) {
                     // Skip this entry completely - no history preservation
                     console.log(`[Merge] Clearing entry for ${finalEntry.userToUpdate} from history (clearEntry: true)`);
                     continue;
@@ -2174,8 +2181,8 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         // Clean up old field name from final result
         if (finalResult.meta) {
             delete finalResult.meta.initiateRemoteHealingFor;
-            // Remove projectSwap if it's undefined/null
-            if (!finalResult.meta.projectSwap) {
+            // Remove projectSwap if it's undefined or null (mergeProjectSwap returns undefined when nothing to merge)
+            if (finalResult.meta.projectSwap === undefined || finalResult.meta.projectSwap === null) {
                 delete finalResult.meta.projectSwap;
             }
         }

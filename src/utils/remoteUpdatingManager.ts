@@ -3,7 +3,10 @@ import { getAuthApi } from "../extension";
 import { MetadataManager } from "./metadataManager";
 import * as git from "isomorphic-git";
 import * as fs from "fs";
-import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../types";
+import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry, RemoteUpdatingEntry } from "../../types";
+
+// Re-export RemoteUpdatingEntry so existing imports from this file continue to work
+export type { RemoteUpdatingEntry };
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[RemoteUpdating]", ...args) : () => { };
@@ -34,16 +37,8 @@ export function isFeatureEnabled(feature: keyof typeof FEATURE_FLAGS): boolean {
     return FEATURE_FLAGS[feature];
 }
 
-export interface RemoteUpdatingEntry {
-    userToUpdate: string;
-    addedBy: string;
-    createdAt: number;
-    updatedAt: number;
-    cancelled: boolean;      // Indicates update requirement was cancelled
-    cancelledBy: string;
-    executed: boolean;
-    clearEntry?: boolean;    // When true, completely removes entry from history (feature flagged)
-}
+// RemoteUpdatingEntry is now imported from types/index.d.ts (single source of truth)
+// The types definition includes deprecated legacy fields (deleted, deletedBy) for backward compatibility
 
 /**
  * Normalizes legacy field names to current terminology.
