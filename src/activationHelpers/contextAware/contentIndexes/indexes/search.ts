@@ -81,6 +81,7 @@ export async function getTranslationPairFromProject(
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         const translationPair = await translationPairsIndex.getTranslationPair(cellId);
         if (translationPair) {
+            console.log(`[getTranslationPairFromProject] cellId=${cellId}, cellLabel from DB=${translationPair.cellLabel}`);
             // For search passages webview, use raw content if available for proper HTML display
             const sourceContent = isParallelPassagesWebview && translationPair.rawSourceContent
                 ? translationPair.rawSourceContent
@@ -91,6 +92,7 @@ export async function getTranslationPairFromProject(
 
             return {
                 cellId,
+                cellLabel: translationPair.cellLabel, // NO FALLBACK
                 sourceCell: {
                     cellId: translationPair.cellId,
                     content: sourceContent,
@@ -387,6 +389,7 @@ export async function searchAllCells(
     options?: any
 ): Promise<TranslationPair[]> {
     const searchScope = options?.searchScope || "both"; // "both" | "source" | "target"
+    console.log(`[searchAllCells] ENTRY: query="${query}", searchScope="${searchScope}", includeIncomplete=${includeIncomplete}`);
     const selectedFiles = options?.selectedFiles || []; // Array of file URIs to filter by
 
     function matchesSelectedFiles(pair: TranslationPair): boolean {
@@ -405,6 +408,7 @@ export async function searchAllCells(
 
     // Handle explicit search scope (source or target only)
     if (searchScope === "source" && translationPairsIndex instanceof SQLiteIndexManager) {
+        console.log(`[searchAllCells] Using SOURCE-ONLY path`);
         // Search only source cells
         const sourceCells = await translationPairsIndex.searchCells(query, "source", k * 2, options?.isParallelPassagesWebview || false);
         
@@ -431,6 +435,7 @@ export async function searchAllCells(
 
     // For searchScope === "target", search directly in target cells
     if (searchScope === "target" && translationPairsIndex instanceof SQLiteIndexManager) {
+        console.log(`[searchAllCells] Using TARGET-ONLY path`);
         const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
         
         const results: TranslationPair[] = [];
@@ -458,12 +463,14 @@ export async function searchAllCells(
     // Note: searchScope is "both" here since "source" and "target" return early above
     // Use the optimized SQLite method for complete pairs, then add incomplete pairs if needed
     let translationPairs: TranslationPair[] = [];
-    
+
     if (translationPairsIndex instanceof SQLiteIndexManager) {
+        console.log(`[searchAllCells] Using BOTH path (searchCompleteTranslationPairsWithValidation)`);
         // Use the optimized searchCompleteTranslationPairsWithValidation method
         const searchLimit = includeIncomplete ? k * 2 : k; // Request more if we need to add incomplete pairs
         // For UI search, search both source and target when searchScope is "both", otherwise source-only
         const searchSourceOnly = searchScope === "both" ? false : true;
+        console.log(`[searchAllCells] Calling searchCompleteTranslationPairsWithValidation with searchSourceOnly=${searchSourceOnly}`);
         const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
             query,
             searchLimit,
@@ -472,21 +479,25 @@ export async function searchAllCells(
             searchSourceOnly
         );
         
-        translationPairs = searchResults.map((result) => ({
-            cellId: result.cellId || result.cell_id,
-            sourceCell: {
+        translationPairs = searchResults.map((result) => {
+            console.log(`[searchAllCells] Result cellId=${result.cellId || result.cell_id}, cellLabel=${result.cellLabel}, cell_label=${result.cell_label}`);
+            return {
                 cellId: result.cellId || result.cell_id,
-                content: result.sourceContent || result.content || "",
-                uri: result.uri || "",
-                line: result.line || 0,
-            },
-            targetCell: {
-                cellId: result.cellId || result.cell_id,
-                content: result.targetContent || "",
-                uri: result.uri || "",
-                line: result.line || 0,
-            },
-        }));
+                cellLabel: result.cellLabel ?? result.cell_label ?? null,
+                sourceCell: {
+                    cellId: result.cellId || result.cell_id,
+                    content: result.sourceContent || result.content || "",
+                    uri: result.uri || "",
+                    line: result.line || 0,
+                },
+                targetCell: {
+                    cellId: result.cellId || result.cell_id,
+                    content: result.targetContent || "",
+                    uri: result.uri || "",
+                    line: result.line || 0,
+                },
+            };
+        });
     }
 
     let combinedResults: TranslationPair[] = translationPairs;
@@ -503,23 +514,27 @@ export async function searchAllCells(
                 boost: { content: 2 },
                 ...options // Pass through options including isParallelPassagesWebview
             })
-            .map((result: any) => ({
-                cellId: result.cellId,
-                sourceCell: {
+            .map((result: any) => {
+                console.log(`[searchAllCells] sourceOnlyCells result: cellId=${result.cellId}, cellLabel=${result.cellLabel}`);
+                return {
                     cellId: result.cellId,
-                    content: result.content,
-                    versions: result.versions,
-                    notebookId: result.notebookId,
-                    uri: result.uri || "", // Include URI for file filtering
-                },
-                targetCell: {
-                    cellId: result.cellId,
-                    content: "",
-                    versions: [],
-                    notebookId: "",
-                },
-                score: result.score,
-            }))
+                    cellLabel: result.cellLabel, // Include label from source index
+                    sourceCell: {
+                        cellId: result.cellId,
+                        content: result.content,
+                        versions: result.versions,
+                        notebookId: result.notebookId,
+                        uri: result.uri || "", // Include URI for file filtering
+                    },
+                    targetCell: {
+                        cellId: result.cellId,
+                        content: "",
+                        versions: [],
+                        notebookId: "",
+                    },
+                    score: result.score,
+                };
+            })
             .filter((pair: TranslationPair) => matchesSelectedFiles(pair)) // Filter by selected files
             // Only include source-only cells that aren't already in translationPairs
             .filter((sourcePair: TranslationPair) => 

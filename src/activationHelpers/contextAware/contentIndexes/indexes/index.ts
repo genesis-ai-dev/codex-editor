@@ -884,6 +884,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     // Convert to TranslationPair format
                     let translationPairs = searchResults.map((result) => ({
                         cellId: result.cellId || result.cell_id,
+                        cellLabel: result.cellLabel,
                         sourceCell: {
                             cellId: result.cellId || result.cell_id,
                             content: result.sourceContent || result.content || "",
