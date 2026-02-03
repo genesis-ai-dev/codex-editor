@@ -127,11 +127,11 @@ function mergeValidatedByLists(
  * 
  * All swap info is now contained in each entry (swapUUID, isOldProject, oldProjectUrl, etc.)
  */
-async function mergeProjectSwap(
+function mergeProjectSwap(
     baseSwap: ProjectSwapInfo | undefined,
     ourSwap: ProjectSwapInfo | undefined,
     theirSwap: ProjectSwapInfo | undefined
-): Promise<ProjectSwapInfo | undefined> {
+): ProjectSwapInfo | undefined {
     // If neither ours nor theirs has projectSwap, return undefined
     if (!ourSwap && !theirSwap) {
         return undefined;
@@ -255,7 +255,7 @@ function mergeSwappedUsers(
 
     const mergedList: ProjectSwapUserEntry[] = [];
 
-    for (const [username, { base, ours, theirs }] of userMap) {
+    for (const [, { base, ours, theirs }] of userMap) {
         let merged: ProjectSwapUserEntry;
 
         if (!ours && !theirs) {
@@ -2084,7 +2084,7 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         // Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
         // Rule 2: Merge swapEntries by swapUUID (unique identifier for each swap)
         // Rule 3: For matching entries, merge swappedUsers arrays
-        const mergedProjectSwap = await mergeProjectSwap(
+        const mergedProjectSwap = mergeProjectSwap(
             base?.meta?.projectSwap,
             ours?.meta?.projectSwap,
             theirs?.meta?.projectSwap
