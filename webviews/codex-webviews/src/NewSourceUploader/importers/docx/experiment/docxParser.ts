@@ -169,8 +169,45 @@ export class DocxParser {
         const paragraphs: DocxParagraph[] = [];
 
         try {
-            // Navigate to body > paragraphs
-            // OOXML structure: document > body > p (paragraphs)
+            /**
+             * IMPORTANT:
+             * For round-trip export, `paragraphIndex` MUST correspond to the linear <w:p> order
+             * inside <w:body> in `word/document.xml`.
+             *
+             * Using object traversal (`findAllElements`) can drift from true XML order in complex
+             * structures like tables, leading to incorrect mapping during export.
+             *
+             * So we enumerate paragraph XML fragments in-order using a regex scan over <w:body>,
+             * then parse each paragraph fragment into an object and extract runs/properties from it.
+             */
+            const paragraphXmls = this.extractParagraphXmlList(documentXml);
+            if (paragraphXmls.length > 0) {
+                this.debugLog(`Found ${paragraphXmls.length} paragraph XML fragments (XML-order scan)`);
+
+                for (let i = 0; i < paragraphXmls.length; i++) {
+                    const pXml = paragraphXmls[i];
+                    const pElement = this.parseParagraphFragment(pXml);
+                    if (!pElement) {
+                        this.debugLog(`  -> Skipped paragraph ${i} (could not parse fragment)`);
+                        continue;
+                    }
+
+                    this.debugLog(`Processing paragraph ${i}`);
+                    const paragraph = await this.extractParagraph(pElement, i, documentXml);
+                    if (paragraph) {
+                        this.debugLog(`  -> Added paragraph ${i} with ${paragraph.runs.length} runs`);
+                        paragraphs.push(paragraph);
+                    } else {
+                        this.debugLog(`  -> Skipped paragraph ${i} (empty or error)`);
+                    }
+                }
+
+                this.debugLog(`Total paragraphs extracted: ${paragraphs.length}`);
+                return paragraphs;
+            }
+
+            // Fallback (should be rare): old behavior using parsed object traversal.
+            this.debugLog('Falling back to parsedDoc traversal for paragraphs (XML-order scan found none)');
             this.debugLog(`Parsed doc keys: ${Object.keys(parsedDoc).join(', ')}`);
 
             const body = this.findElement(parsedDoc, 'w:body');
@@ -180,21 +217,13 @@ export class DocxParser {
                 return paragraphs;
             }
 
-            this.debugLog(`Body found, keys: ${Object.keys(body).join(', ')}`);
-
             const pElements = this.findAllElements(body, 'w:p');
-            this.debugLog(`Found ${pElements.length} paragraph elements`);
+            this.debugLog(`Found ${pElements.length} paragraph elements (fallback traversal)`);
 
             for (let i = 0; i < pElements.length; i++) {
                 const pElement = pElements[i];
-                this.debugLog(`Processing paragraph ${i}`);
                 const paragraph = await this.extractParagraph(pElement, i, documentXml);
-                if (paragraph) {
-                    this.debugLog(`  -> Added paragraph ${i} with ${paragraph.runs.length} runs`);
-                    paragraphs.push(paragraph);
-                } else {
-                    this.debugLog(`  -> Skipped paragraph ${i} (empty or error)`);
-                }
+                if (paragraph) paragraphs.push(paragraph);
             }
 
             this.debugLog(`Total paragraphs extracted: ${paragraphs.length}`);
@@ -204,6 +233,36 @@ export class DocxParser {
         }
 
         return paragraphs;
+    }
+
+    private sliceBodyXml(documentXml: string): string | null {
+        const bodyOpenIdx = documentXml.indexOf('<w:body');
+        if (bodyOpenIdx < 0) return null;
+        const bodyStart = documentXml.indexOf('>', bodyOpenIdx);
+        const bodyCloseIdx = documentXml.indexOf('</w:body>');
+        if (bodyStart < 0 || bodyCloseIdx < 0) return null;
+        return documentXml.slice(bodyStart + 1, bodyCloseIdx);
+    }
+
+    private extractParagraphXmlList(documentXml: string): string[] {
+        const bodyXml = this.sliceBodyXml(documentXml);
+        if (!bodyXml) return [];
+        const paraRe = /<w:p\b[\s\S]*?<\/w:p>|<w:p\b[^>]*\/>/g;
+        const matches = bodyXml.match(paraRe);
+        return matches ?? [];
+    }
+
+    private parseParagraphFragment(paragraphXml: string): any | null {
+        try {
+            const parsed = this.xmlParser.parse(paragraphXml);
+            // Fast-xml-parser returns `{ 'w:p': {...} }` for a <w:p> root.
+            if (parsed && typeof parsed === 'object' && parsed['w:p']) return parsed['w:p'];
+            // Self-closing paragraphs may parse slightly differently; accept root object.
+            return parsed ?? null;
+        } catch (err) {
+            this.debugLog(`Error parsing paragraph fragment: ${err instanceof Error ? err.message : String(err)}`);
+            return null;
+        }
     }
 
     /**

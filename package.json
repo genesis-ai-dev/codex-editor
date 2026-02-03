@@ -44,6 +44,13 @@
                 "command": "codex-editor-extension.openParallelPassagesWithReplace",
                 "key": "ctrl+shift+r",
                 "mac": "cmd+shift+r",
+                "key": "cmd+shift+s",
+                "command": "codex-editor.preventSaveAs",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "key": "ctrl+shift+s",
+                "command": "codex-editor.preventSaveAs",
                 "when": "activeCustomEditorId == 'codex.cellEditor'"
             }
         ],
@@ -164,6 +171,11 @@
             ]
         },
         "commands": [
+            {
+                "command": "codex-editor.preventSaveAs",
+                "title": "Prevent Save As for Codex Files",
+                "category": "Codex Editor"
+            },
             {
                 "command": "codex-editor-extension.submitProgressReport",
                 "title": "Submit Progress Report",
