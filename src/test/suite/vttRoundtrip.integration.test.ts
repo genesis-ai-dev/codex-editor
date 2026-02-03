@@ -2,7 +2,7 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
 
-import { parseFile as parseVtt } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/subtitles/index.ts";
+import { parseFile as parseVtt } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/subtitles/index";
 import { subtitlesCellAligner } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/subtitles/aligner";
 import { notebookToImportedContent } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/common/translationHelper";
 import { CodexCellTypes } from "../../../types/enums";
