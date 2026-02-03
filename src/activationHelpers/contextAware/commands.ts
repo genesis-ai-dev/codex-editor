@@ -178,7 +178,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             filesToExport: string[];
             options?: { skipValidation?: boolean; removeIds?: boolean; };
         }) => {
-            await exportCodexContent(format, userSelectedPath, filesToExport, options);
+            return exportCodexContent(format, userSelectedPath, filesToExport, options);
         }
     );
 

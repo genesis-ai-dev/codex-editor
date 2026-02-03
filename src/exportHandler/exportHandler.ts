@@ -9,7 +9,7 @@ import * as fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
-import { generateVttData } from "./vttUtils";
+import { generateVttData, hasOverlappingCues } from "./vttUtils";
 // import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -59,6 +59,36 @@ function getActiveCells(cells: CodexNotebookAsJSONData["cells"]) {
         const isDeleted = !!(data && data.deleted);
         return !isMerged && !isDeleted;
     });
+}
+
+const SUBTITLE_OVERLAP_WARNING =
+    "Some selected files have overlapping subtitle timestamps. To split overlapping cues so they appear at different times, use the WebVTT with Cue Splitting option. Do you want to export anyway?";
+
+/**
+ * Checks selected files for overlapping VTT/SRT cues. If any file has overlaps, shows a warning
+ * and asks the user to confirm. Returns true if export should proceed, false to cancel.
+ */
+async function checkSubtitleOverlapsAndConfirm(filesToExport: string[]): Promise<boolean> {
+    let hasOverlaps = false;
+    for (const filePath of filesToExport) {
+        try {
+            const codexData = await readCodexNotebookFromUri(vscode.Uri.file(filePath));
+            const cells = getActiveCells(codexData.cells);
+            if (hasOverlappingCues(cells)) {
+                hasOverlaps = true;
+                break;
+            }
+        } catch {
+            // If we can't read a file, skip overlap check for it; export will fail later if needed
+        }
+    }
+    if (!hasOverlaps) return true;
+    const choice = await vscode.window.showWarningMessage(
+        SUBTITLE_OVERLAP_WARNING,
+        { modal: true },
+        "Export anyway"
+    );
+    return choice === "Export anyway";
 }
 
 /**
@@ -1466,54 +1496,66 @@ async function exportCodexContentAsRebuild(
     );
 }
 
+/**
+ * @returns true if export completed, false if user cancelled due to subtitle overlap warning.
+ */
 export async function exportCodexContent(
     format: CodexExportFormat,
     userSelectedPath: string,
     filesToExport: string[],
     options?: ExportOptions
-) {
+): Promise<boolean> {
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
             await exportCodexContentAsPlaintext(userSelectedPath, filesToExport, options);
-            break;
+            return true;
         case CodexExportFormat.USFM:
             await exportCodexContentAsUsfm(userSelectedPath, filesToExport, options);
-            break;
+            return true;
         case CodexExportFormat.HTML:
             await exportCodexContentAsHtml(userSelectedPath, filesToExport, options);
-            break;
+            return true;
         case CodexExportFormat.AUDIO: {
             const { exportAudioAttachments } = await import("./audioExporter");
             await exportAudioAttachments(userSelectedPath, filesToExport, { includeTimestamps: (options as any)?.includeTimestamps });
-            break;
+            return true;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
-            await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, true);
-            break;
+            if (await checkSubtitleOverlapsAndConfirm(filesToExport)) {
+                await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, true);
+                return true;
+            }
+            return false;
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
-            await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false);
-            break;
+            if (await checkSubtitleOverlapsAndConfirm(filesToExport)) {
+                await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false);
+                return true;
+            }
+            return false;
         case CodexExportFormat.SUBTITLES_VTT_WITH_CUE_SPLITTING:
             await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false, true);
-            break;
+            return true;
         case CodexExportFormat.SUBTITLES_SRT:
-            await exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options);
-            break;
+            if (await checkSubtitleOverlapsAndConfirm(filesToExport)) {
+                await exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options);
+                return true;
+            }
+            return false;
         case CodexExportFormat.XLIFF:
             await exportCodexContentAsXliff(userSelectedPath, filesToExport, options);
-            break;
+            return true;
         case CodexExportFormat.CSV:
             await exportCodexContentAsCsv(userSelectedPath, filesToExport, options);
-            break;
+            return true;
         case CodexExportFormat.TSV:
             await exportCodexContentAsTsv(userSelectedPath, filesToExport, options);
-            break;
+            return true;
         case CodexExportFormat.REBUILD_EXPORT:
             await exportCodexContentAsRebuild(userSelectedPath, filesToExport, options);
-            break;
+            return true;
         case CodexExportFormat.BACKTRANSLATIONS:
             await exportCodexContentAsBacktranslations(userSelectedPath, filesToExport, options);
-            break;
+            return true;
     }
 }
 

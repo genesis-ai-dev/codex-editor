@@ -1,6 +1,5 @@
 import { CodexNotebookAsJSONData } from "@types";
 import { removeHtmlTags } from "./subtitleUtils";
-import { ExportOptions } from "./exportHandler";
 import * as vscode from "vscode";
 
 /**
@@ -110,6 +109,32 @@ ${unit.finalText}
     return `WEBVTT
 
 ${cues}`;
+};
+
+/**
+ * Returns true if any two cues in the given cells have overlapping time ranges.
+ * Uses the same cell filtering as generateVttData (excludes merged, requires startTime).
+ * Two cues [s1,e1] and [s2,e2] overlap when s1 < e2 && s2 < e1.
+ */
+export const hasOverlappingCues = (cells: CodexNotebookAsJSONData["cells"]): boolean => {
+    const units = cells
+        .filter((unit) => {
+            const metadata = unit.metadata;
+            return !metadata?.data?.merged && !!unit.metadata?.data?.startTime;
+        })
+        .map((unit, index) => ({
+            startTime: Number(unit.metadata?.data?.startTime ?? index),
+            endTime: Number(unit.metadata?.data?.endTime ?? index + 1),
+        }));
+
+    for (let i = 0; i < units.length; i++) {
+        for (let j = i + 1; j < units.length; j++) {
+            const a = units[i];
+            const b = units[j];
+            if (a.startTime < b.endTime && b.startTime < a.endTime) return true;
+        }
+    }
+    return false;
 };
 
 /**

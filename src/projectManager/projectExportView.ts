@@ -72,8 +72,8 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 break;
             case "export":
                 try {
-                    await vscode.commands.executeCommand(
-                        `codex-editor-extension.exportCodexContent`,
+                    const completed = await vscode.commands.executeCommand<boolean>(
+                        "codex-editor-extension.exportCodexContent",
                         {
                             format: message.format as CodexExportFormat,
                             userSelectedPath: message.userSelectedPath,
@@ -81,7 +81,9 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                             options: message.options,
                         }
                     );
-                    panel.dispose();
+                    if (completed !== false) {
+                        panel.dispose();
+                    }
                 } catch (error) {
                     vscode.window.showErrorMessage(
                         "Failed to export project. Please check your configuration."
