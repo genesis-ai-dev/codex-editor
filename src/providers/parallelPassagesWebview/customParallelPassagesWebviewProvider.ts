@@ -181,25 +181,26 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 break;
             case "search":
                 try {
-                    const replaceMode = !!(message.replaceText && message.replaceText.trim());
-                    const searchScope = message.searchScope || "both"; // "both" | "source" | "target"
-                    // Always use searchAllCells with includeIncomplete: false to get optimized search results
-                    // This ensures we use the optimized SQLite searchCompleteTranslationPairsWithValidation method
-                    // while still supporting searchScope filtering. The completeOnly checkbox is kept for UI consistency.
-                    const command = "codex-editor-extension.searchAllCells";
+                    const searchScope = message.searchScope || "both";
+                    const selectedFiles = message.selectedFiles || [];
+                    const completeOnly = message.completeOnly || false;
 
-                    const selectedFiles = message.selectedFiles || []; // Array of file URIs
+                    // Include incomplete (source-only) cells when:
+                    // 1. completeOnly is unchecked, OR
+                    // 2. searching source scope specifically
+                    const includeIncomplete = !completeOnly || searchScope === "source";
+
                     const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                        command,
+                        "codex-editor-extension.searchAllCells",
                         message.query,
-                        500, // k value - show up to 500 results
-                        false, // includeIncomplete: false - ensures optimized SQLite path is used
+                        500, // Max results
+                        includeIncomplete,
                         false, // showInfo
                         {
                             isParallelPassagesWebview: true,
-                            replaceMode: replaceMode, // Pass replace mode flag
-                            searchScope: searchScope, // Pass search scope: "both" | "source" | "target"
-                            selectedFiles: selectedFiles // Pass selected file URIs for filtering
+                            searchScope: searchScope,
+                            selectedFiles: selectedFiles,
+                            completeOnly: completeOnly,
                         }
                     );
                     if (results) {
