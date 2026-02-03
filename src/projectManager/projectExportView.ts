@@ -428,6 +428,13 @@ function getWebviewContent(
                                         <span class="format-tag">Plain Text Only</span>
                                     </div>
                                 </div>
+                                <div class="format-option" data-format="subtitles-vtt-with-cue-splitting">
+                                    <div class="format-option-content">
+                                        <strong>WebVTT with Cue Splitting</strong>
+                                        <p>Only use this option if you have overlapping subtitles representing independent speakers that need to appear and disappear at different times.</p>
+                                        <span class="format-tag">Plain Text Only</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

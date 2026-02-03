@@ -305,6 +305,7 @@ export enum CodexExportFormat {
     SUBTITLES_SRT = "subtitles-srt",
     SUBTITLES_VTT_WITH_STYLES = "subtitles-vtt-with-styles",
     SUBTITLES_VTT_WITHOUT_STYLES = "subtitles-vtt-without-styles",
+    SUBTITLES_VTT_WITH_CUE_SPLITTING = "subtitles-vtt-with-cue-splitting",
     XLIFF = "xliff",
     CSV = "csv",
     TSV = "tsv",
@@ -1492,6 +1493,9 @@ export async function exportCodexContent(
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
             await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false);
             break;
+        case CodexExportFormat.SUBTITLES_VTT_WITH_CUE_SPLITTING:
+            await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false, true);
+            break;
         case CodexExportFormat.SUBTITLES_SRT:
             await exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options);
             break;
@@ -1619,7 +1623,8 @@ export const exportCodexContentAsSubtitlesVtt = async (
     userSelectedPath: string,
     filesToExport: string[],
     options?: ExportOptions,
-    includeStyles: boolean = true
+    includeStyles: boolean = true,
+    cueSplitting: boolean = false
 ) => {
     try {
         debug("Starting exportCodexContentAsSubtitlesVtt function");
@@ -1667,7 +1672,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
                     debug(`File has ${cells.length} active cells`);
 
                     // Generate VTT content
-                    const vttContent = generateVttData(cells, includeStyles, file.fsPath); // Include styles for VTT
+                    const vttContent = generateVttData(cells, includeStyles, cueSplitting, file.fsPath); // Include styles for VTT
                     debug({ vttContent, cells, includeStyles });
 
                     // Write file

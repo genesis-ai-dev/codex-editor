@@ -1,5 +1,4 @@
-import { useMemo } from "react";
-import { CodexNotebookAsJSONData, QuillCellContent } from "@types";
+import { CodexNotebookAsJSONData } from "@types";
 import { removeHtmlTags } from "./subtitleUtils";
 import { ExportOptions } from "./exportHandler";
 import * as vscode from "vscode";
@@ -53,9 +52,17 @@ const processVttContent = (content: string): string => {
     return ensureDialogueLineBreaks(processed);
 };
 
+type ProcessedUnit = {
+    id: string | undefined;
+    startTime: number;
+    endTime: number;
+    finalText: string;
+};
+
 export const generateVttData = (
     cells: CodexNotebookAsJSONData["cells"],
     includeStyles: boolean,
+    cueSplitting: boolean,
     filePath: string
 ): string => {
     if (!cells.length) return "";
@@ -65,24 +72,37 @@ export const generateVttData = (
         return date.toISOString().substr(11, 12);
     };
 
-    const cues = cells
-        // Filter out merged cells before processing
+    const units: ProcessedUnit[] = cells
         .filter((unit) => {
             const metadata = unit.metadata;
             return !metadata?.data?.merged && !!unit.metadata?.data?.startTime;
         })
         .map((unit, index) => {
-            const startTime = unit.metadata?.data?.startTime ?? index;
-            const endTime = unit.metadata?.data?.endTime ?? index + 1;
+            const startTime = Number(unit.metadata?.data?.startTime ?? index);
+            const endTime = Number(unit.metadata?.data?.endTime ?? index + 1);
             const text = includeStyles ? processVttContent(unit.value) : removeHtmlTags(unit.value);
             const finalText = ensureDialogueLineBreaks(text);
-            return `${unit.metadata?.id}
-${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
-${finalText}
+            return {
+                id: unit.metadata?.cellLabel || unit.metadata?.id,
+                startTime,
+                endTime,
+                finalText,
+            };
+        });
 
-`;
-        })
-        .join("\n");
+    const cues =
+        cueSplitting && units.length > 0
+            ? buildSplitCues(units, formatTime)
+            : units
+                .map(
+                    (unit) =>
+                        `${unit.id}
+${formatTime(unit.startTime)} --> ${formatTime(unit.endTime)}
+${unit.finalText}
+
+`
+                )
+                .join("\n");
 
     if (cues.length === 0) {
         vscode.window.showInformationMessage("No cues found in the " + filePath);
@@ -91,3 +111,36 @@ ${finalText}
 
 ${cues}`;
 };
+
+/**
+ * Build VTT cues by splitting on all unique timestamps. For each adjacent pair of timestamps,
+ * emits one cue containing the concatenated text of all units active in that time range.
+ * Cue is active in [tStart, tEnd) when unit.startTime < tEnd && unit.endTime > tStart.
+ */
+function buildSplitCues(units: ProcessedUnit[], formatTime: (s: number) => string): string {
+    const timestamps = new Set<number>();
+    for (const unit of units) {
+        timestamps.add(unit.startTime);
+        timestamps.add(unit.endTime);
+    }
+    const sorted = Array.from(timestamps).sort((a, b) => a - b);
+
+    const parts: string[] = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const tStart = sorted[i];
+        const tEnd = sorted[i + 1];
+        if (tStart === tEnd) continue;
+
+        const active = units.filter((unit) => unit.startTime < tEnd && unit.endTime > tStart);
+        if (active.length === 0) continue;
+
+        const text = active.map((unit) => unit.finalText).join("\n\n");
+        const cueId = `${active[0].id}-split`;
+        parts.push(`${cueId}
+${formatTime(tStart)} --> ${formatTime(tEnd)}
+${text}
+
+`);
+    }
+    return parts.join("\n");
+}
