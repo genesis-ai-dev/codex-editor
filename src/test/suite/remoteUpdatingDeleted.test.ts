@@ -36,7 +36,7 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         const adminUser = "admin";
         const createdAt = Date.now() - 1000;
 
-        // Setup: Create metadata with a deleted entry (admin cancelled it)
+        // Setup: Create metadata with a cancelled entry (admin cancelled it)
         const metadata = {
             format: "scripture burrito",
             meta: {
@@ -50,8 +50,8 @@ suite("Remote Updating - Deleted Entry Handling", () => {
                         addedBy: adminUser,
                         createdAt,
                         updatedAt: createdAt,
-                        deleted: true,  // Admin cancelled this
-                        deletedBy: adminUser,
+                        cancelled: true,  // Admin cancelled this
+                        cancelledBy: adminUser,
                         executed: false, // User hasn't completed yet
                     },
                 ],
@@ -78,7 +78,7 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         // Execute: Mark user as updateed
         await markUserAsUpdatedInRemoteList(tempDir, username);
 
-        // Verify: Entry should now be executed but still cancelled (normalized from deleted)
+        // Verify: Entry should now be executed but still cancelled
         const updatedMetadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
         const entry = updatedMetadata.meta.initiateRemoteUpdatingFor[0];
 
@@ -94,7 +94,7 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         const adminUser = "admin";
         const createdAt = Date.now() - 1000;
 
-        // Setup: Create metadata with a normal (non-deleted) entry
+        // Setup: Create metadata with a normal (non-cancelled) entry
         const metadata = {
             format: "scripture burrito",
             meta: {
@@ -108,8 +108,8 @@ suite("Remote Updating - Deleted Entry Handling", () => {
                         addedBy: adminUser,
                         createdAt,
                         updatedAt: createdAt,
-                        deleted: false,
-                        deletedBy: "",
+                        cancelled: false,
+                        cancelledBy: "",
                         executed: false,
                     },
                 ],
@@ -136,7 +136,7 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         // Execute: Mark user as updateed
         await markUserAsUpdatedInRemoteList(tempDir, username);
 
-        // Verify: Entry should be executed and NOT cancelled (normalized from deleted)
+        // Verify: Entry should be executed and NOT cancelled
         const updatedMetadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
         const entry = updatedMetadata.meta.initiateRemoteUpdatingFor[0];
 
@@ -165,8 +165,8 @@ suite("Remote Updating - Deleted Entry Handling", () => {
                         addedBy: adminUser,
                         createdAt,
                         updatedAt: createdAt,
-                        deleted: true,  // Deleted entry
-                        deletedBy: adminUser,
+                        cancelled: true,  // Cancelled entry
+                        cancelledBy: adminUser,
                         executed: false,
                     },
                     {
@@ -174,8 +174,8 @@ suite("Remote Updating - Deleted Entry Handling", () => {
                         addedBy: adminUser,
                         createdAt,
                         updatedAt: createdAt,
-                        deleted: false, // Active entry
-                        deletedBy: "",
+                        cancelled: false, // Active entry
+                        cancelledBy: "",
                         executed: false,
                     },
                 ],
@@ -202,7 +202,7 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         // Execute: Mark user1 as updateed (the deleted one)
         await markUserAsUpdatedInRemoteList(tempDir, user1);
 
-        // Verify: user1 should be cancelled+executed, user2 unchanged (normalized from deleted)
+        // Verify: user1 should be cancelled+executed, user2 unchanged
         const updatedMetadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
         const entries = updatedMetadata.meta.initiateRemoteUpdatingFor;
 
@@ -239,8 +239,8 @@ suite("Remote Updating - Deleted Entry Handling", () => {
                         addedBy: adminUser,
                         createdAt: originalUpdatedAt - 5000,
                         updatedAt: originalUpdatedAt,
-                        deleted: false,
-                        deletedBy: "",
+                        cancelled: false,
+                        cancelledBy: "",
                         executed: true, // Already executed
                     },
                 ],

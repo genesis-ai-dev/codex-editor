@@ -22,7 +22,7 @@ suite("Connectivity Checker - Behavioral Documentation", () => {
          * 4. Once online, continues with the update process
          * 5. User CANNOT skip this check - must wait for connectivity
          * 
-         * LOCATION: StartupFlowProvider.ts → performProjectHeal()
+         * LOCATION: StartupFlowProvider.ts → performProjectUpdate()
          * CODE: await ensureConnectivity("project update");
          */
         assert.ok(true, "Documented behavior");
@@ -42,7 +42,7 @@ suite("Connectivity Checker - Behavioral Documentation", () => {
          *    - Throws immediately (no retry)
          *    - Triggers standard update rollback
          * 
-         * LOCATION: StartupFlowProvider.ts → performProjectHeal() → clone step
+         * LOCATION: StartupFlowProvider.ts → performProjectUpdate() → clone step
          * CODE: await withConnectivityCheck("project clone", async () => {...})
          */
         assert.ok(true, "Documented behavior");

@@ -1413,7 +1413,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 try {
                     // Check if remote update is required before opening or if a local update is in-progress
                     let remoteUpdateWasPerformed = false;
-                    let shouldHeal = false;
+                    let shouldUpdate = false;
                     let updatingReason = "Remote requirement";
                     let remoteProjectRequirements:
                         | {
@@ -1428,7 +1428,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     try {
                         debugLog("Checking remote update requirement for project:", projectPath);
                         const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
-                        // Pass true for bypassCache to ensure we verify connectivity before deciding to heal
+                        // Pass true for bypassCache to ensure we verify connectivity before deciding to update
                         remoteProjectRequirements = await checkRemoteProjectRequirements(projectPath, undefined, true);
 
                         if (remoteProjectRequirements.updateRequired) {
@@ -1438,7 +1438,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             } catch (e) {
                                 debugLog("Failed to persist pending update flag", e);
                             }
-                            shouldHeal = true;
+                            shouldUpdate = true;
                             updatingReason = "Remote requirement";
                         } else {
                             // If remote no longer requires update, still continue if local state indicates an in-progress update
@@ -1450,12 +1450,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 } catch (e) {
                                     debugLog("Failed to persist pending update flag for local pending state", e);
                                 }
-                                shouldHeal = true;
+                                shouldUpdate = true;
                                 updatingReason = "Local pending update";
                             }
                         }
 
-                        if (shouldHeal) {
+                        if (shouldUpdate) {
                             remoteUpdateWasPerformed = true;
 
                             // Inform webview that updating is starting (not opening)
@@ -3647,12 +3647,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Legacy command - handling removed as renaming is now automatic during scan
                 break;
             }
-            case "project.heal": {
+            case "project.update": {
                 const { projectName, projectPath, gitOriginUrl } = message;
 
                 if (!gitOriginUrl) {
                     vscode.window.showErrorMessage(
-                        "Cannot heal project: No remote repository URL found. This project may not be connected to a remote repository."
+                        "Cannot update project: No remote repository URL found. This project may not be connected to a remote repository."
                     );
                     return;
                 }
@@ -3660,10 +3660,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Show notification first so user knows the process is starting
                 vscode.window.showInformationMessage("Update process starting - check for confirmation dialog");
 
-                const yesConfirm = "Yes, Heal Project";
+                const yesConfirm = "Yes, Update Project";
 
                 const confirm = await vscode.window.showWarningMessage(
-                    `This will heal the project "${projectName}" by:\n\n` +
+                    `This will update the project "${projectName}" by:\n\n` +
                     "1. Creating a backup ZIP\n" +
                     "2. Saving your local changes temporarily\n" +
                     "3. Re-cloning from the remote repository\n" +
@@ -3876,7 +3876,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         // Check if frontier extension is available and at required version
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         if (!frontierExtension) {
-            throw new Error("Frontier Authentication extension is not installed. Please install it to use the heal feature.");
+            throw new Error("Frontier Authentication extension is not installed. Please install it to use the update feature.");
         }
 
         const requiredVersion = "0.4.11";
@@ -4160,9 +4160,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         try {
             const { getMediaFilesStrategy } = await import("../../utils/localProjectSettings");
             updateMediaStrategy = await getMediaFilesStrategy(projectUri);
-            debugLog(`Heal using media strategy: ${updateMediaStrategy || "(default)"}`);
+            debugLog(`Update using media strategy: ${updateMediaStrategy || "(default)"}`);
         } catch (e) {
-            debugLog("Could not read media strategy before heal; default will be used", e);
+            debugLog("Could not read media strategy before update; default will be used", e);
         }
 
         // Step 3: Prepare cloning target (canonical_cloning) and delete if stale
@@ -4230,7 +4230,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 oursRoot: tempFolderUri,
                 theirsRoot: cloningProjectUri,
                 exclude: (relativePath) => {
-                    // Generated databases should not be preserved during heal
+                    // Generated databases should not be preserved during update
                     return (
                         relativePath.endsWith(".sqlite") ||
                         relativePath.endsWith(".sqlite3") ||
@@ -4240,13 +4240,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 isBinary: (relativePath) => this.isBinaryFile(relativePath),
             });
 
-            debugLog("Heal merge inputs prepared:", {
+            debugLog("Update merge inputs prepared:", {
                 textConflicts: textConflicts.length,
                 binaryCopies: binaryCopies.length,
             });
 
             // Merge all text files using the same resolver pipeline as sync.
-            // IMPORTANT: do NOT refresh ours from disk during heal; ours is the snapshot content.
+            // IMPORTANT: do NOT refresh ours from disk during update; ours is the snapshot content.
             if (textConflicts.length > 0) {
                 debugLog(`Merging ${textConflicts.length} text files with shared merge engine...`);
                 await resolveConflictFiles(textConflicts, cloningProjectUri.fsPath, { refreshOursFromDisk: false });
@@ -4290,7 +4290,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             });
 
             // Step 6: Swap canonical with cloning target
-            progress.report({ increment: 10, message: "Swapping healed project into place..." });
+            progress.report({ increment: 10, message: "Swapping updated project into place..." });
             const canonicalUri = vscode.Uri.file(projectPath);
             // Move canonical aside
             try {
@@ -4401,10 +4401,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             await this.clearUpdateState(projectPath);
         }
 
-        // Step 7: Finalize by opening the healed project and running the LFS-aware sync on next activation.
+        // Step 7: Finalize by opening the updated project and running the LFS-aware sync on next activation.
         // Opening a folder from an empty window restarts extensions (VS Code prompts if Startup Flow is open),
-        // so we persist a "pending heal sync" payload and complete it after reload.
-        progress.report({ increment: 10, message: "Opening healed project to sync..." });
+        // so we persist a "pending update sync" payload and complete it after reload.
+        progress.report({ increment: 10, message: "Opening updated project to sync..." });
 
         const updatedUri = vscode.Uri.file(projectPath);
         const commitMessage = "Updated project: merged local changes after re-clone";
@@ -4882,9 +4882,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     /**
-     * Commit healed changes to git
+     * Commit updated changes to git
      */
-    private async commitHealedChanges(projectPath: string): Promise<void> {
+    private async commitUpdatedChanges(projectPath: string): Promise<void> {
         try {
             const author = {
                 name: this.frontierApi?.getUserInfo ?
@@ -4900,7 +4900,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 filepath: "."
             });
 
-            // Commit the healed changes
+            // Commit the updated changes
             await git.commit({
                 fs,
                 dir: projectPath,
@@ -4911,7 +4911,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             debugLog("Committed updated project changes");
         } catch (error) {
             console.warn("Error committing updated changes (non-critical):", error);
-            // Non-critical error, don't fail the heal operation
+            // Non-critical error, don't fail the update operation
         }
     }
 

@@ -80,13 +80,13 @@ suite("Update + Sync shared merge engine", () => {
             await resolveConflictFile(conflict, tempDir, { refreshOursFromDisk: false });
 
             const merged = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
-            
+
             // Should have ALL 3 entries (deduplicated by signature: userToUpdate + addedBy + createdAt)
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor.length, 3, "Should preserve all 3 distinct entries");
-            
+
             // All should have userToUpdate field
             assert.ok(merged.meta.initiateRemoteUpdatingFor.every((e: any) => e.userToUpdate === "test0216d"));
-            
+
             // All should have different createdAt timestamps
             const createdAtValues = merged.meta.initiateRemoteUpdatingFor.map((e: any) => e.createdAt).sort();
             assert.deepStrictEqual(createdAtValues, [1767418330866, 1767428182082, 1767428683671]);
@@ -118,8 +118,8 @@ suite("Update + Sync shared merge engine", () => {
                             // createdAt missing!
                             updatedAt: 5000,
                             executed: false,
-                            deleted: false,
-                            deletedBy: ""
+                            cancelled: false,
+                            cancelledBy: ""
                         }
                     ]
                 }
@@ -135,8 +135,8 @@ suite("Update + Sync shared merge engine", () => {
                             createdAt: 6000,
                             updatedAt: 6000,
                             executed: false,
-                            deleted: false,
-                            deletedBy: ""
+                            cancelled: false,
+                            cancelledBy: ""
                         }
                     ]
                 }
@@ -154,16 +154,16 @@ suite("Update + Sync shared merge engine", () => {
             await resolveConflictFile(conflict, tempDir, { refreshOursFromDisk: false });
 
             const merged = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
-            
+
             // Should have both entries
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor.length, 2);
-            
+
             // Entry with missing createdAt should now have it set to updatedAt
             const user1Entry = merged.meta.initiateRemoteUpdatingFor.find((e: any) => e.userToUpdate === "user1");
             assert.ok(user1Entry);
             assert.strictEqual(user1Entry.createdAt, 5000, "createdAt should be set from updatedAt");
             assert.strictEqual(user1Entry.updatedAt, 5000);
-            
+
             // Other entry should be unchanged
             const user2Entry = merged.meta.initiateRemoteUpdatingFor.find((e: any) => e.userToUpdate === "user2");
             assert.ok(user2Entry);
@@ -173,26 +173,25 @@ suite("Update + Sync shared merge engine", () => {
         }
     });
 
-    // TODO: Remove this test in 0.17.0 when clearEntry feature is enabled by default
     test("resolveConflictFile clears entries marked with clearEntry: true (with permission and feature enabled)", async function () {
         this.timeout(10000);
 
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-merge-clear-"));
-        
+
         // Mock permission check to return true (user has permission)
         const permModule = await import("../../utils/projectAdminPermissionChecker");
         const originalCheck = permModule.checkProjectAdminPermissions;
         const checkStub = () => Promise.resolve({ hasPermission: true, currentUser: "admin" });
-        
+
         // Mock feature flag to enable clearEntry
         const flagModule = await import("../../utils/remoteUpdatingManager");
         const originalFlags = { ...flagModule.FEATURE_FLAGS };
         (flagModule.FEATURE_FLAGS as any).ENABLE_ENTRY_CLEARING = true;
-        
+
         try {
             // Replace the function temporarily
             (permModule as any).checkProjectAdminPermissions = checkStub;
-            
+
             const metadataPath = path.join(tempDir, "metadata.json");
 
             const base = {
@@ -264,11 +263,11 @@ suite("Update + Sync shared merge engine", () => {
             await resolveConflictFile(conflict, tempDir, { refreshOursFromDisk: false });
 
             const merged = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
-            
+
             // Should only have user2 (user1 was cleared)
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor.length, 1);
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor[0].userToUpdate, "user2");
-            
+
             // user1 should be completely gone (not just soft cancelled)
             const user1Entry = merged.meta.initiateRemoteUpdatingFor.find((e: any) => e.userToUpdate === "user1");
             assert.strictEqual(user1Entry, undefined, "user1 should be completely removed");
@@ -280,26 +279,25 @@ suite("Update + Sync shared merge engine", () => {
         }
     });
 
-    // TODO: Remove this test in 0.17.0 when clearEntry feature is enabled by default
     test("resolveConflictFile preserves entries when user lacks clearEntry permission", async function () {
         this.timeout(10000);
 
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-merge-no-perm-"));
-        
+
         // Mock permission check to return false (user lacks permission)
         const permModule = await import("../../utils/projectAdminPermissionChecker");
         const originalCheck = permModule.checkProjectAdminPermissions;
         const checkStub = () => Promise.resolve({ hasPermission: false, error: "Insufficient permissions", currentUser: "user" });
-        
+
         // Mock feature flag to enable clearEntry
         const flagModule = await import("../../utils/remoteUpdatingManager");
         const originalFlags = { ...flagModule.FEATURE_FLAGS };
         (flagModule.FEATURE_FLAGS as any).ENABLE_ENTRY_CLEARING = true;
-        
+
         try {
             // Replace the function temporarily
             (permModule as any).checkProjectAdminPermissions = checkStub;
-            
+
             const metadataPath = path.join(tempDir, "metadata.json");
 
             const base = {
@@ -352,11 +350,11 @@ suite("Update + Sync shared merge engine", () => {
             await resolveConflictFile(conflict, tempDir, { refreshOursFromDisk: false });
 
             const merged = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
-            
+
             // Should still have user1 (clearing was denied)
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor.length, 1);
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor[0].userToUpdate, "user1");
-            
+
             // clearEntry flag should be removed
             assert.strictEqual(merged.meta.initiateRemoteUpdatingFor[0].clearEntry, undefined, "clearEntry flag should be removed when permission denied");
         } finally {

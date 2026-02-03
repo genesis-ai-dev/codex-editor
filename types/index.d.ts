@@ -283,7 +283,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
-    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
+    | { command: "project.update"; projectName: string; projectPath: string; gitOriginUrl?: string; }
     | { command: "project.renameFolder"; projectPath: string; newName: string; }
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
     | { command: "project.cleanupMediaFiles"; projectPath: string; }
@@ -1183,8 +1183,6 @@ type ProjectMetadata = {
         };
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
-        /** @deprecated Use initiateRemoteUpdatingFor instead - kept for backward compatibility during migration */
-        initiateRemoteHealingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
         /** Project swap information for swapping to a new Git repository */
         projectSwap?: ProjectSwapInfo;
@@ -1348,12 +1346,6 @@ export interface ProjectSwapUserEntry {
     executed: boolean;
     /** When this user completed their swap */
     swapCompletedAt?: number;
-}
-
-/** @deprecated Use RemoteUpdatingEntry instead - kept for backward compatibility during migration */
-export interface RemoteHealingEntry extends RemoteUpdatingEntry {
-    /** @deprecated Use userToUpdate instead */
-    userToHeal?: string;
 }
 
 /**

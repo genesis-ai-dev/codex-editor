@@ -442,7 +442,7 @@ export type ResolveConflictOptions = {
      * When true (default), re-read the on-disk file to refresh conflict.ours before merging.
      * This is useful for sync, so recent user edits aren't lost.
      *
-     * When false, uses the provided conflict.ours as-is (required for heal, where ours is a snapshot).
+     * When false, uses the provided conflict.ours as-is (required for update, where ours is a snapshot).
      */
     refreshOursFromDisk?: boolean;
 };
@@ -1874,12 +1874,9 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
 
         // 1. Resolve initiateRemoteUpdatingFor (Complex Merge Logic)
         // Helper to extract and normalize updating list
-        // Supports both old (initiateRemoteHealingFor) and new (initiateRemoteUpdatingFor) field names
-        // Automatically converts legacy field names to current terminology on read
         const getList = (obj: any): RemoteUpdatingEntry[] => {
-            // Prefer new field name, fallback to old for backward compatibility
-            const rawList = (obj?.meta?.initiateRemoteUpdatingFor || obj?.meta?.initiateRemoteHealingFor || []) as any[];
-            // Normalize all entries to convert legacy field names (deleted → cancelled, etc.)
+            const rawList = (obj?.meta?.initiateRemoteUpdatingFor || []) as any[];
+            // Normalize entries to ensure defaults/validation
             return rawList.map(entry => normalizeUpdateEntry(entry));
         };
 
@@ -1961,7 +1958,6 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             if (!featureEnabled) {
                 // Feature is disabled - remove any clearEntry flags
                 delete entry.clearEntry;
-                delete entry.obliterate; // TODO: Remove in 0.17.0 (legacy field)
                 return false;
             }
 
@@ -2114,8 +2110,8 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             ]);
 
             for (const key of keys) {
-                // Skip initiateRemoteUpdatingFor (and old initiateRemoteHealingFor) - already handled above
-                if (path.length === 1 && path[0] === 'meta' && (key === 'initiateRemoteUpdatingFor' || key === 'initiateRemoteHealingFor')) {
+                // Skip initiateRemoteUpdatingFor - already handled above
+                if (path.length === 1 && path[0] === 'meta' && key === 'initiateRemoteUpdatingFor') {
                     continue; // Skip, already merged above
                 }
 
@@ -2155,14 +2151,10 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         };
 
         // Apply the merged updating list to resolved metadata
-        // TODO: Remove old field name support in 0.17.0
         if (!resolvedMetadata.meta) {
             resolvedMetadata.meta = {};
         }
-        // Use new field name for the merged result
         resolvedMetadata.meta.initiateRemoteUpdatingFor = mergedUpdatingList;
-        // Clean up old field name if it exists
-        delete resolvedMetadata.meta.initiateRemoteHealingFor;
 
         // Merge other fields (excluding edits and initiateRemoteUpdatingFor which are already handled)
         const otherFieldsMerged = mergeObjects(base, ours, theirs);
@@ -2178,13 +2170,9 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 projectSwap: mergedProjectSwap, // From specialized merge
             }
         };
-        // Clean up old field name from final result
-        if (finalResult.meta) {
-            delete finalResult.meta.initiateRemoteHealingFor;
-            // Remove projectSwap if it's undefined or null (mergeProjectSwap returns undefined when nothing to merge)
-            if (finalResult.meta.projectSwap === undefined || finalResult.meta.projectSwap === null) {
-                delete finalResult.meta.projectSwap;
-            }
+        // Remove projectSwap if it's undefined or null (mergeProjectSwap returns undefined when nothing to merge)
+        if (finalResult.meta && (finalResult.meta.projectSwap === undefined || finalResult.meta.projectSwap === null)) {
+            delete finalResult.meta.projectSwap;
         }
 
         return JSON.stringify(finalResult, null, 4);
@@ -2505,7 +2493,7 @@ export async function resolveConflictFiles(
             };
 
             // Ensure all parent directories exist before resolving/writing files.
-            // This is critical for heal, where locally-created directories may not exist in a fresh clone.
+            // This is critical for update, where locally-created directories may not exist in a fresh clone.
             try {
                 const uniqueDirs = new Set<string>();
                 for (const conflict of conflicts) {

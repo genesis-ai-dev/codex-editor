@@ -38,53 +38,31 @@ export function isFeatureEnabled(feature: keyof typeof FEATURE_FLAGS): boolean {
 }
 
 // RemoteUpdatingEntry is now imported from types/index.d.ts (single source of truth)
-// The types definition includes deprecated legacy fields (deleted, deletedBy) for backward compatibility
 
 /**
- * Normalizes legacy field names to current terminology.
- * Converts old → new as soon as we read entries from metadata.json.
- * This allows us to only use new field names in our code.
+ * Validates and ensures defaults for update entry fields.
+ * All entries should already have current field names (userToUpdate, cancelled, cancelledBy, clearEntry).
  * 
- * Legacy mappings:
- * - deleted → cancelled
- * - deletedBy → cancelledBy
- * - obliterate → clearEntry
- * 
- * @param entry Raw entry from metadata.json (may contain legacy fields)
- * @returns Normalized entry with only current field names
+ * @param entry Raw entry from metadata.json
+ * @returns Validated entry with required fields having defaults
  */
 export function normalizeUpdateEntry(entry: any): RemoteUpdatingEntry {
-    const normalized: any = { ...entry };
-
-    // Normalize legacy field: deleted → cancelled
-    if ('deleted' in normalized && !('cancelled' in normalized)) {
-        normalized.cancelled = normalized.deleted;
-        delete normalized.deleted;
-    }
-
-    // Normalize legacy field: deletedBy → cancelledBy
-    if ('deletedBy' in normalized && !('cancelledBy' in normalized)) {
-        normalized.cancelledBy = normalized.deletedBy;
-        delete normalized.deletedBy;
-    }
-
-    // Normalize legacy field: obliterate → clearEntry
-    if ('obliterate' in normalized && !('clearEntry' in normalized)) {
-        normalized.clearEntry = normalized.obliterate;
-        delete normalized.obliterate;
-    }
-
-    // Ensure required fields have defaults
-    normalized.cancelled = normalized.cancelled || false;
-    normalized.cancelledBy = normalized.cancelledBy || '';
-    normalized.executed = normalized.executed || false;
-
-    return normalized as RemoteUpdatingEntry;
+    // All entries should already have new field names
+    return {
+        userToUpdate: entry.userToUpdate || "",
+        addedBy: entry.addedBy || "",
+        createdAt: entry.createdAt || 0,
+        updatedAt: entry.updatedAt || Date.now(),
+        cancelled: entry.cancelled || false,
+        cancelledBy: entry.cancelledBy || "",
+        executed: entry.executed || false,
+        clearEntry: entry.clearEntry,
+    };
 }
 
 export function normalizeSwapUserEntry(entry: any): ProjectSwapUserEntry {
     const normalized: any = { ...entry };
-    const cancelled = Boolean(normalized.cancelled ?? normalized.deleted ?? false);
+    const cancelled = Boolean(normalized.cancelled ?? false);
     const createdAt =
         typeof normalized.createdAt === "number"
             ? normalized.createdAt
@@ -98,8 +76,7 @@ export function normalizeSwapUserEntry(entry: any): ProjectSwapUserEntry {
                 ? normalized.createdAt
                 : Date.now();
     const executed = Boolean(normalized.executed) && !cancelled;
-    // Support legacy field name userToUpdate for backward compatibility
-    const userToSwap = normalized.userToSwap || normalized.userToUpdate || "";
+    const userToSwap = normalized.userToSwap || "";
 
     return {
         userToSwap,
@@ -366,7 +343,7 @@ export async function checkRemoteUpdatingRequired(
         }
 
         // Check if current user is in the updating list
-        // Normalize entries on read to convert legacy field names
+        // Normalize entries on read to ensure defaults/validation
         const rawList = remoteMetadata.meta?.initiateRemoteUpdatingFor || [];
         const updatingList = rawList.map(entry => normalizeUpdateEntry(entry));
 
@@ -714,7 +691,7 @@ export async function markUserAsUpdatedInRemoteList(
         }
 
         const localMetadata = readResult.metadata;
-        // Normalize entries on read to convert legacy field names
+        // Normalize entries on read to ensure defaults/validation
         const rawLocalList = localMetadata.meta?.initiateRemoteUpdatingFor || [];
         const localList = rawLocalList.map(entry => normalizeUpdateEntry(entry));
 

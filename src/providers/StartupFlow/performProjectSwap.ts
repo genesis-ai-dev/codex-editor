@@ -510,7 +510,7 @@ export async function performProjectSwap(
             // Ensure metadata integrity (projectName, scope, etc.)
             await validateAndFixProjectMetadata(vscode.Uri.file(newProjectPath));
 
-            // Ensure LFS source URL is carried over for healing on the new repo
+            // Ensure LFS source URL is carried over for updating on the new repo
             try {
                 const oldSettings = await readLocalProjectSettings(vscode.Uri.file(tmpPath));
                 let lfsSourceRemoteUrl = oldSettings.lfsSourceRemoteUrl;

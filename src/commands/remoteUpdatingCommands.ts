@@ -191,7 +191,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
             debug("Could not fetch remote update list; using local", e);
         }
 
-        // Normalize entries to convert legacy field names (deleted → cancelled, etc.)
+        // Normalize entries to ensure defaults/validation
         const updatingList: RemoteUpdatingEntry[] = rawList.map(entry => normalizeUpdateEntry(entry));
 
         // Get list of currently active (pending) update requests
@@ -424,8 +424,8 @@ export async function initiateRemoteUpdating(): Promise<void> {
                                 addedBy: currentUser,
                                 createdAt: now,
                                 updatedAt: now,
-                                deleted: false,
-                                deletedBy: "",
+                                cancelled: false,
+                                cancelledBy: "",
                                 executed: false
                             });
                         }
@@ -568,7 +568,7 @@ export async function viewRemoteUpdatingList(): Promise<void> {
             debug("Could not fetch remote update list for viewRemoteUpdatingList; using local", e);
         }
 
-        // Normalize entries to convert legacy field names (deleted → cancelled, etc.)
+        // Normalize entries to ensure defaults/validation
         const updatingList: RemoteUpdatingEntry[] = rawList.map(entry => normalizeUpdateEntry(entry));
 
         if (updatingList.length === 0) {

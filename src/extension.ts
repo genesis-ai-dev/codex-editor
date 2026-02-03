@@ -635,20 +635,6 @@ export async function activate(context: vscode.ExtensionContext) {
             if (hasCodexProject) {
                 const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-                // Migrate healing→updating terminology in metadata.json (0.13.0-0.16.0 only, remove in 0.17.0)
-                if (workspaceFolderPath) {
-                    console.log("🔄 [MIGRATION] Starting healing→updating migration...");
-                    console.log("🔄 [MIGRATION] Workspace path:", workspaceFolderPath);
-                    try {
-                        const { migration_healingToUpdating } = await import("./utils/migration_healingToUpdating");
-                        await migration_healingToUpdating(workspaceFolderPath);
-                        console.log("✅ [MIGRATION] Completed healing→updating terminology migration");
-                    } catch (error) {
-                        console.error("❌ [MIGRATION] Failed to run migration:", error);
-                    }
-                    debug("✅ [PRE-SYNC] Completed healing→updating terminology migration");
-                }
-
                 const { ensureGitDisabledInSettings, validateAndFixProjectMetadata } = await import("./projectManager/utils/projectUtils");
                 await ensureGitDisabledInSettings();
                 debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
@@ -687,14 +673,6 @@ export async function activate(context: vscode.ExtensionContext) {
                             typeof workspaceFolderPath === "string" &&
                             path.normalize(pendingUpdateSync.projectPath) === path.normalize(workspaceFolderPath);
 
-                        // Check if this is a heal workspace (legacy)
-                        const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
-                        const isHealWorkspace =
-                            !!pendingHealSync &&
-                            typeof pendingHealSync.projectPath === "string" &&
-                            typeof workspaceFolderPath === "string" &&
-                            path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
-
                         const syncManager = SyncManager.getInstance();
                         if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
                             await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false);
@@ -706,18 +684,6 @@ export async function activate(context: vscode.ExtensionContext) {
                                     backupFileName
                                         ? `Project "${projectName}" has been updated and synced successfully! Backup saved to: ${backupFileName}`
                                         : `Project "${projectName}" has been updated and synced successfully!`
-                                );
-                            }
-                        } else if (isHealWorkspace && pendingHealSync?.commitMessage) {
-                            await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
-                            await context.globalState.update("codex.pendingHealSync", undefined);
-                            if (pendingHealSync?.showSuccessMessage) {
-                                const projectName = pendingHealSync?.projectName || "Project";
-                                const backupFileName = pendingHealSync?.backupFileName;
-                                vscode.window.showInformationMessage(
-                                    backupFileName
-                                        ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
-                                        : `Project "${projectName}" has been healed and synced successfully!`
                                 );
                             }
                         } else {
@@ -1014,32 +980,6 @@ async function executeCommandsAfter(
             .update("workbench.editor.showTabs", "multiple", true);
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
-
-        // Sync has already run after migrations complete, so we don't need to run it again here
-        // Just handle heal workspace success message if needed (as a backup, in case the post-migration
-        // sync didn't show it for some reason)
-        const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
-        if (hasCodexProject) {
-            const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
-            if (pendingHealSync?.showSuccessMessage) {
-                const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                const isHealWorkspace =
-                    !!pendingHealSync &&
-                    typeof pendingHealSync.projectPath === "string" &&
-                    typeof workspaceFolderPath === "string" &&
-                    path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
-
-                if (isHealWorkspace) {
-                    const projectName = pendingHealSync?.projectName || "Project";
-                    const backupFileName = pendingHealSync?.backupFileName;
-                    vscode.window.showInformationMessage(
-                        backupFileName
-                            ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
-                            : `Project "${projectName}" has been healed and synced successfully!`
-                    );
-                }
-            }
-        }
 
         // Check if we need to show the welcome view after initialization
         await showWelcomeViewIfNeeded();
