@@ -259,8 +259,9 @@ export class FileSyncManager {
                 const fileName = filePath.split('/').pop() || '';
                 const bookName = fileName.replace(/\.(codex|source)$/i, '');
 
-                // Simple cell counter for labels
-                let cellNumber = 0;
+                // Track chapter (milestone) and position within chapter for labels
+                let currentChapter = 0; // Will be set to 1 when first milestone is encountered
+                let positionInChapter = 0; // Reset on each new chapter
 
                 // Process all cells in the file using sync operations
                 for (let cellIndex = 0; cellIndex < fileData.cells.length; cellIndex++) {
@@ -271,9 +272,11 @@ export class FileSyncManager {
                     const isStyle = cell.metadata?.type === CodexCellTypes.STYLE;
                     const hasContent = cell.value && cell.value.trim() !== "";
 
-                    // Skip milestone cells - don't index them
+                    // When we hit a milestone, increment chapter and reset position
                     if (isMilestone) {
-                        continue;
+                        currentChapter++;
+                        positionInChapter = 0;
+                        continue; // Don't index milestone cells themselves
                     }
 
                     // Skip non-content cells - don't index paratext or style cells
@@ -287,13 +290,14 @@ export class FileSyncManager {
                     // Calculate line number for database storage
                     let lineNumberForDB: number | null = null;
 
-                    // Compute cell label as "BOOK -> CellNum" (1-based for display)
+                    // Compute cell label as "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
                     // Only increment position for non-child cells
                     let cellLabel: string | null = null;
                     if (!isChildCell) {
-                        cellNumber++;
-                        cellLabel = `${bookName} → ${cellNumber}`;
-                        console.log(`[FileSyncManager] Computing label: cellId=${cellId}, cellLabel=${cellLabel}, bookName=${bookName}`);
+                        positionInChapter++;
+                        // Use chapter 1 if no milestone encountered yet
+                        const chapterNum = currentChapter > 0 ? currentChapter : 1;
+                        cellLabel = `${bookName} ${chapterNum}:${positionInChapter}`;
 
                         if (fileType === 'source') {
                             // Source cells: always store line numbers (they should always have content)

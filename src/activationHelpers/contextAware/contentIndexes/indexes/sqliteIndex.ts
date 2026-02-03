@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 14; // Simplified cell_label format to "BOOK → CellNum"
+export const CURRENT_SCHEMA_VERSION = 15; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -960,11 +960,6 @@ export class SQLiteIndexManager {
     ): { id: string; isNew: boolean; contentChanged: boolean; } {
         if (!this.db) throw new Error("Database not initialized");
 
-        // DEBUG: Log cell label being stored
-        if (cellLabel) {
-            console.log(`[SQLite upsertCellSync] Storing cellId=${cellId}, cellLabel=${cellLabel}`);
-        }
-
         // Use rawContent if provided, otherwise fall back to content
         const actualRawContent = rawContent || content;
 
@@ -1561,7 +1556,6 @@ export class SQLiteIndexManager {
                 };
 
                 // Return data based on requested cell type
-                console.log(`[SQLite getCellById] cellId=${row.cell_id}, cell_label from row=${row.cell_label}, typeof=${typeof row.cell_label}`);
                 if (cellType === "source" && row.s_content) {
                     return {
                         cellId: row.cell_id,
@@ -1626,8 +1620,6 @@ export class SQLiteIndexManager {
         const targetCell = await this.getCellById(cellId, "target");
 
         if (!sourceCell && !targetCell) return null;
-
-        console.log(`[SQLite getTranslationPair] cellId=${cellId}, sourceCell.cellLabel=${sourceCell?.cellLabel}, targetCell.cellLabel=${targetCell?.cellLabel}`);
 
         return {
             cellId,
@@ -3005,12 +2997,10 @@ export class SQLiteIndexManager {
         returnRawContent: boolean = false,
         searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search
     ): Promise<any[]> {
-        console.log(`[SQLite searchComplete] ENTRY: query="${query}", limit=${limit}`);
         if (!this.db) throw new Error("Database not initialized");
 
         // Handle empty query by returning recent complete pairs
         if (!query || query.trim() === '') {
-            console.log(`[SQLite searchComplete] Empty query - returning recent pairs`);
             const sql = `
                 SELECT
                     c.cell_id,
@@ -3041,7 +3031,6 @@ export class SQLiteIndexManager {
                 stmt.bind([limit]);
                 while (stmt.step()) {
                     const row = stmt.getAsObject();
-                    console.log(`[SQLite searchComplete EMPTY] cell_id=${row.cell_id}, cell_label=${row.cell_label}`);
 
                     results.push({
                         cellId: row.cell_id,
@@ -3056,7 +3045,6 @@ export class SQLiteIndexManager {
                         cell_type: 'source' // For compatibility
                     });
                 }
-                console.log(`[SQLite searchComplete EMPTY] Found ${results.length} results`);
             } finally {
                 stmt.free();
             }
@@ -3240,8 +3228,6 @@ export class SQLiteIndexManager {
                 const targetContent = row.target_content as string;
                 const rawTargetContent = row.raw_target_content as string;
 
-                console.log(`[SQLite searchComplete] cell_id=${row.cell_id}, cell_label=${row.cell_label}, typeof=${typeof row.cell_label}`);
-
                 // Both source and target content are guaranteed to exist due to the WHERE clause
                 results.push({
                     cellId: row.cell_id,
@@ -3256,7 +3242,6 @@ export class SQLiteIndexManager {
                     cell_type: 'source' // For compatibility
                 });
             }
-            console.log(`[SQLite searchComplete] Query finished, found ${results.length} results`);
         } catch (error) {
             console.error(`[searchCompleteTranslationPairs] FTS5 query failed: ${error}`);
             return [];
@@ -3264,7 +3249,6 @@ export class SQLiteIndexManager {
             stmt.free();
         }
 
-        console.log(`[SQLite searchComplete] Returning ${results.length} results`);
         return results;
     }
 
@@ -3283,10 +3267,8 @@ export class SQLiteIndexManager {
         onlyValidated: boolean = false,
         searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search when searchScope === "both"
     ): Promise<any[]> {
-        console.log(`[SQLite searchWithValidation] ENTRY: query="${query}", onlyValidated=${onlyValidated}`);
         // If validation filtering is not required, use the existing method
         if (!onlyValidated) {
-            console.log(`[SQLite searchWithValidation] Delegating to searchCompleteTranslationPairs`);
             return this.searchCompleteTranslationPairs(query, limit, returnRawContent, searchSourceOnly);
         }
 
@@ -3534,7 +3516,6 @@ export class SQLiteIndexManager {
                     }
 
                     if (targetContent) { // Only include if we found target content
-                        console.log(`[SQLite searchWithValidation] cell_id=${row.cell_id}, cell_label=${row.cell_label}, typeof=${typeof row.cell_label}`);
                         results.push({
                             cellId: row.cell_id,
                             cell_id: row.cell_id,

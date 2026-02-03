@@ -262,10 +262,6 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         }
                     );
                     if (results) {
-                        console.log(`[ParallelPassages] Sending ${results.length} results to webview`);
-                        if (results.length > 0) {
-                            console.log(`[ParallelPassages] First result: cellId=${results[0].cellId}, cellLabel=${results[0].cellLabel}`);
-                        }
                         safePostMessageToView(this._view, {
                             command: "searchResults",
                             data: results,
