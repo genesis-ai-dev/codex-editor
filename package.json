@@ -27,7 +27,18 @@
         "readFile"
     ],
     "contributes": {
-        "keybindings": [],
+        "keybindings": [
+            {
+                "key": "cmd+shift+s",
+                "command": "codex-editor.preventSaveAs",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "key": "ctrl+shift+s",
+                "command": "codex-editor.preventSaveAs",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            }
+        ],
         "views": {
             "codex-main-menu": [
                 {
@@ -145,6 +156,11 @@
             ]
         },
         "commands": [
+            {
+                "command": "codex-editor.preventSaveAs",
+                "title": "Prevent Save As for Codex Files",
+                "category": "Codex Editor"
+            },
             {
                 "command": "codex-editor-extension.submitProgressReport",
                 "title": "Submit Progress Report",
