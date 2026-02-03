@@ -118,6 +118,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 testName: abTestState.testName,
                 selectionTimeMs,
                 totalVariants: abTestState.variants?.length ?? 0,
+                variants: abTestState.variants,
             }
         } as unknown as EditorPostMessages);
 

@@ -1442,7 +1442,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, testId, testName, selectionTimeMs } = (typedEvent as any).content || {};
+        const { cellId, selectedIndex, testId, testName, selectionTimeMs, variants, names } = (typedEvent as any).content || {};
+        const variantNames: string[] | undefined = variants || names;
         const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 
         // Check if this was a pending attention check
@@ -1454,7 +1455,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             if (!isRecovery) {
                 // Record the result
                 const { recordVariantSelection, recordAttentionCheckResult } = await import("../../utils/abTestingUtils");
-                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, undefined, testName);
+                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, variantNames, testName);
                 await recordAttentionCheckResult({
                     testId,
                     cellId,
@@ -1491,7 +1492,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Regular A/B test
             if (!isRecovery) {
                 const { recordVariantSelection } = await import("../../utils/abTestingUtils");
-                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, undefined, testName);
+                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, variantNames, testName);
             }
         }
 

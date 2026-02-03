@@ -612,7 +612,7 @@ const CodexCellEditor: React.FC = () => {
         }
 
         // Casual confirmation with variant name if available
-        const variantName = (abTestState as any).names?.[selectedIndex];
+        const variantName = abTestState.variants?.[selectedIndex];
         if (variantName) {
             vscode.postMessage({
                 command: "showInfo",
@@ -695,7 +695,7 @@ const CodexCellEditor: React.FC = () => {
                     testId,
                     testName: testName || abTestState.testName,
                     selectionTimeMs: selectionTimeMs || 0,
-                    names: names || (abTestState as any).names,
+                    variants: names || abTestState.variants,
                 },
             } as unknown as EditorPostMessages);
         }
