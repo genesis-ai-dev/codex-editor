@@ -262,9 +262,7 @@ export class FileSyncManager {
                     const hasContent = cell.value && cell.value.trim() !== "";
 
                     // Check if this is a child cell (has parentId in metadata)
-                    // Legacy: also check ID format for backward compatibility during migration
-                    const isChildCell = cell.metadata?.parentId !== undefined ||
-                        (cellId && cellId.split(":").length > 2);
+                    const isChildCell = cell.metadata?.parentId !== undefined;
 
                     // Calculate line number for database storage
                     let lineNumberForDB: number | null = null;
