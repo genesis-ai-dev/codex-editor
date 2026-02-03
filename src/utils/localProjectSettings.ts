@@ -77,8 +77,8 @@ export interface LocalProjectSettings {
     /** Track project swap migration state */
     projectSwap?: import("../../types").LocalProjectSwap;
     /** 
-     * When true, the project should be closed after sync completes to finalize the swap.
-     * Set during project swap on the NEW project. Cleared after close or manual dismissal.
+     * @deprecated No longer used. Was previously used to trigger a "close project" modal after swap.
+     * Kept for backward compatibility with existing localProjectSettings.json files.
      */
     forceCloseAfterSuccessfulSwap?: boolean;
     // Legacy keys (read and mirrored for backward compatibility)

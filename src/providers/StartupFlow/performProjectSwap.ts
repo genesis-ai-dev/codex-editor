@@ -583,8 +583,6 @@ export async function performProjectSwap(
                 // Non-fatal - file might not exist
             }
 
-            // Note: forceCloseAfterSuccessfulSwap flag is already set by copyLocalProjectSettings
-
             // Step 10: Cleanup temp directory (the system temp used for cloning)
             await cleanupTempDirectory(tempDir);
 
@@ -867,8 +865,7 @@ async function mergeProjectFiles(
  * user's media strategy - no reconciliation needed.
  * 
  * Changes made:
- * - Remove `projectSwap` (old project's swap tracking info)
- * - Add `forceCloseAfterSuccessfulSwap: true` to trigger post-sync close modal
+ * - Remove `projectSwap` (old project's swap tracking info, not relevant for new project)
  */
 async function copyLocalProjectSettings(
     oldPath: string,
@@ -886,11 +883,9 @@ async function copyLocalProjectSettings(
 
         // Copy settings to new project, but:
         // - Remove projectSwap (old project's tracking, not relevant for new)
-        // - Add forceCloseAfterSuccessfulSwap to trigger close modal after sync
         const { projectSwap, ...settingsWithoutSwap } = oldSettings;
         const newSettings = {
             ...settingsWithoutSwap,
-            forceCloseAfterSuccessfulSwap: true,
         };
 
         debugLog(`Copying localProjectSettings from old to new project (strategy: ${oldSettings.currentMediaFilesStrategy || "auto-download"})`);
