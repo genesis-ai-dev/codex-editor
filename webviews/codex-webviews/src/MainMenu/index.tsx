@@ -1122,7 +1122,7 @@ function MainMenu() {
                 value={projectNameValue}
                 placeholder="Enter project name"
                 confirmButtonLabel="Save"
-                disabled={!projectNameValue.trim()}
+                disabled={!projectNameValue.trim() || projectNameValue.trim() === projectState.projectOverview?.projectName}
                 onClose={() => {
                     setIsRenameProjectModalOpen(false);
                     setProjectNameValue("");
