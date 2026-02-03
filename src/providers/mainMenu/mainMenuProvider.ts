@@ -857,6 +857,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await this.store.refreshState();
                 safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
                 break;
+            case "openCodexMigrationTool":
+                await vscode.commands.executeCommand("codex-editor.openCodexMigrationTool");
+                await this.store.refreshState();
+                safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
+                break;
             case "getProjectProgress": {
                 // Fetch and send progress data to the webview
                 try {
@@ -945,6 +950,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openCellLabelImporter":
                 await vscode.commands.executeCommand("codex-editor.openCellLabelImporter");
+                break;
+            case "openCodexMigrationTool":
+                await vscode.commands.executeCommand("codex-editor.openCodexMigrationTool");
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();

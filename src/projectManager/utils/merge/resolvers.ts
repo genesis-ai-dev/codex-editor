@@ -617,11 +617,14 @@ function resolveMetadataConflictsUsingEditHistory(
         if (edits.length === 0) continue;
 
         // Find the most recent edit for this path, ignoring preview-only edits
-        // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
+        // Tie-breaker: when timestamps are equal, prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
         const sorted = edits.sort((a, b) => {
             const timeDiff = b.timestamp - a.timestamp;
             if (timeDiff !== 0) return timeDiff;
-            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            // Same timestamp: prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
+            const aIsMigration = a.type === EditType.MIGRATION;
+            const bIsMigration = b.type === EditType.MIGRATION;
+            if (aIsMigration !== bIsMigration) return bIsMigration ? 1 : -1;
             const aIsUser = a.type === EditType.USER_EDIT;
             const bIsUser = b.type === EditType.USER_EDIT;
             const aIsInitial = a.type === EditType.INITIAL_IMPORT;
@@ -819,11 +822,14 @@ function resolveMetadataConflictsUsingEditHistoryForFile(
         if (edits.length === 0) continue;
 
         // Find the most recent edit for this path
-        // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
+        // Tie-breaker: when timestamps are equal, prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
         const sorted = edits.sort((a, b) => {
             const timeDiff = b.timestamp - a.timestamp;
             if (timeDiff !== 0) return timeDiff;
-            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            // Same timestamp: prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
+            const aIsMigration = a.type === EditType.MIGRATION;
+            const bIsMigration = b.type === EditType.MIGRATION;
+            if (aIsMigration !== bIsMigration) return bIsMigration ? 1 : -1;
             const aIsUser = a.type === EditType.USER_EDIT;
             const bIsUser = b.type === EditType.USER_EDIT;
             const aIsInitial = a.type === EditType.INITIAL_IMPORT;
@@ -1839,7 +1845,10 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 const sorted = edits.sort((a, b) => {
                     const timeDiff = b.timestamp - a.timestamp;
                     if (timeDiff !== 0) return timeDiff;
-                    // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+                    // Same timestamp: prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
+                    const aIsMigration = a.type === EditType.MIGRATION;
+                    const bIsMigration = b.type === EditType.MIGRATION;
+                    if (aIsMigration !== bIsMigration) return bIsMigration ? 1 : -1;
                     const aIsUser = a.type === EditType.USER_EDIT;
                     const bIsUser = b.type === EditType.USER_EDIT;
                     const aIsInitial = a.type === EditType.INITIAL_IMPORT;

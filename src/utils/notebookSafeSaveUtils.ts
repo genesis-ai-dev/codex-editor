@@ -97,7 +97,7 @@ function shouldRetryRenameWithoutOverwrite(error: unknown): boolean {
     }
 
     if (typeof error === "object" && error !== null && "message" in error) {
-        const message = String((error as { message?: unknown }).message ?? "");
+        const message = String((error as { message?: unknown; }).message ?? "");
         return message.includes("Unable to delete nonexistent file");
     }
 
@@ -121,28 +121,48 @@ export async function readExistingFileOrThrowWithFs(
     fs: NotebookFs,
     uri: vscode.Uri
 ): Promise<ReadExistingFileResult> {
-    try {
-        const content = await readUriTextWithFs(fs, uri);
-        // Defensive: if we read an empty/whitespace-only string from a file that is non-empty on disk,
-        // treat it as a transient read error and DO NOT allow overwrite.
-        // (This can happen during races / partial writes and is a common cause of "saved empty" bugs.)
-        if (content.trim().length === 0) {
-            const stat = await fs.stat(uri);
-            if (stat.size === 0) {
-                // Empty file on disk: allow caller to treat this as "missing" and do an initial write.
+    // Defensive retry: in some environments the atomic rename used by our save path can momentarily
+    // remove the target file, causing transient EntryNotFound errors. Retrying avoids flaky saves/tests.
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const content = await readUriTextWithFs(fs, uri);
+            // Defensive: if we read an empty/whitespace-only string from a file that is non-empty on disk,
+            // treat it as a transient read error and DO NOT allow overwrite.
+            // (This can happen during races / partial writes and is a common cause of "saved empty" bugs.)
+            if (content.trim().length === 0) {
+                const stat = await fs.stat(uri);
+                if (stat.size === 0) {
+                    // Empty file on disk: allow caller to treat this as "missing" and do an initial write.
+                    return { kind: "missing" };
+                }
+                throw new Error(`Read empty content from non-empty file: ${uri.fsPath}`);
+            }
+            return { kind: "readable", content };
+        } catch (error) {
+            // If file doesn't exist, treat as missing.
+            // If it exists, propagate the read error (except for a small set of transient-not-found races).
+            let exists = false;
+            try {
+                await fs.stat(uri);
+                exists = true;
+            } catch {
                 return { kind: "missing" };
             }
-            throw new Error(`Read empty content from non-empty file: ${uri.fsPath}`);
+
+            const isTransientNotFound =
+                error instanceof vscode.FileSystemError &&
+                (error.code === "EntryNotFound" || error.code === "FileNotFound");
+
+            if (exists && isTransientNotFound && attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, 25));
+                continue;
+            }
+
+            throw error;
         }
-        return { kind: "readable", content };
-    } catch (error) {
-        // If file doesn't exist, treat as missing. If it exists, propagate the read error.
-        try {
-            await fs.stat(uri);
-        } catch {
-            return { kind: "missing" };
-        }
-        throw error;
     }
+
+    return { kind: "missing" };
 }
 
