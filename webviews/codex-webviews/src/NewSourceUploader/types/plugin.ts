@@ -1,4 +1,5 @@
 import { NotebookPair, ProcessedNotebook } from './common';
+import type { CustomNotebookCellData } from 'types';
 import { WizardContext } from './wizard';
 import React from 'react';
 
@@ -46,8 +47,8 @@ export interface AlignedCell {
  * Custom alignment function for translation imports
  */
 export type CellAligner = (
-    targetCells: any[], // Existing target notebook cells
-    sourceCells: any[], // Source notebook cells for context
+    targetCells: CustomNotebookCellData[], // Existing target notebook cells
+    sourceCells: CustomNotebookCellData[], // Source notebook cells for context
     importedContent: ImportedContent[]
 ) => Promise<AlignedCell[]>;
 
@@ -56,51 +57,81 @@ export type CellAligner = (
  * Useful for content without meaningful IDs (like DOCX, Markdown, plain text)
  */
 export const sequentialCellAligner: CellAligner = async (
-    targetCells: any[],
-    sourceCells: any[],
+    targetCells: CustomNotebookCellData[],
+    sourceCells: CustomNotebookCellData[],
     importedContent: ImportedContent[]
 ): Promise<AlignedCell[]> => {
     const alignedCells: AlignedCell[] = [];
 
-    // Filter to only empty target cells (those without content)
-    const emptyCells = targetCells.filter(cell =>
-        !cell.value || cell.value.trim() === ''
-    );
-
-    let cellIndex = 0;
+    let importIndex = 0;
     let insertedCount = 0;
+    let paratextCount = 0;
 
-    for (const importedItem of importedContent) {
+    const nextImportedItem = (): ImportedContent | null => {
+        while (importIndex < importedContent.length) {
+            const candidate = importedContent[importIndex];
+            importIndex++;
+            if (candidate.content.trim()) {
+                return candidate;
+            }
+        }
+        return null;
+    };
+
+    targetCells.forEach((targetCell, targetIndex) => {
+        const existingContent = targetCell.value || "";
+        const hasContent = existingContent.trim() !== "";
+
+        if (!hasContent) {
+            const importedItem = nextImportedItem();
+            if (importedItem) {
+                alignedCells.push({
+                    notebookCell: targetCell,
+                    importedContent: importedItem,
+                    alignmentMethod: 'sequential',
+                    confidence: 0.8 // Medium confidence for sequential insertion
+                });
+                insertedCount++;
+                return;
+            }
+        }
+
+        const targetId = targetCell.metadata?.id || `target-${targetIndex}`;
+        alignedCells.push({
+            notebookCell: targetCell,
+            importedContent: {
+                id: targetId,
+                content: existingContent,
+                edits: targetCell.metadata?.edits,
+                cellLabel: targetCell.metadata?.cellLabel,
+                metadata: targetCell.metadata || {},
+                startTime: targetCell.metadata?.data?.startTime,
+                endTime: targetCell.metadata?.data?.endTime,
+            },
+            alignmentMethod: 'custom',
+            confidence: 1.0
+        });
+    });
+
+    for (let i = importIndex; i < importedContent.length; i++) {
+        const importedItem = importedContent[i];
         if (!importedItem.content.trim()) {
             continue; // Skip empty content
         }
-
-        if (cellIndex < emptyCells.length) {
-            // Insert into next available empty cell
-            alignedCells.push({
-                notebookCell: emptyCells[cellIndex],
-                importedContent: importedItem,
-                alignmentMethod: 'sequential',
-                confidence: 0.8 // Medium confidence for sequential insertion
-            });
-            cellIndex++;
-            insertedCount++;
-        } else {
-            // No more empty cells - add as paratext
-            alignedCells.push({
-                notebookCell: null,
-                importedContent: {
-                    ...importedItem,
-                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                },
-                isParatext: true,
-                alignmentMethod: 'sequential',
-                confidence: 0.3 // Low confidence for paratext
-            });
-        }
+        alignedCells.push({
+            notebookCell: null,
+            importedContent: {
+                ...importedItem,
+                id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            },
+            isParatext: true,
+            alignmentMethod: 'sequential',
+            confidence: 0.3 // Low confidence for paratext
+        });
+        paratextCount++;
     }
 
-    console.log(`Sequential aligner: ${insertedCount} items inserted sequentially, ${importedContent.length - insertedCount} as paratext`);
+    console.log(`Sequential aligner: ${insertedCount} items inserted sequentially, ${paratextCount} as paratext`);
 
     return alignedCells;
 };
@@ -117,25 +148,28 @@ export const defaultCellAligner: CellAligner = async (
     const alignedCells: AlignedCell[] = [];
     let totalMatches = 0;
 
-    // Create a map of target cells for quick lookup
-    const targetCellsMap = new Map<string, any>();
-    targetCells.forEach((cell) => {
-        if (cell.metadata?.id) {
-            targetCellsMap.set(cell.metadata.id, cell);
+    const importedById = new Map<string, Array<{ item: ImportedContent; index: number; }>>();
+    const usedImportedIndexes = new Set<number>();
+
+    importedContent.forEach((importedItem, index) => {
+        if (!importedItem.content.trim()) {
+            return;
         }
+        const list = importedById.get(importedItem.id) || [];
+        list.push({ item: importedItem, index });
+        importedById.set(importedItem.id, list);
     });
 
-    // Process each imported content item
-    for (const importedItem of importedContent) {
-        if (!importedItem.content.trim()) {
-            continue; // Skip empty content
-        }
+    targetCells.forEach((targetCell, targetIndex) => {
+        const targetId = targetCell.metadata?.id || `target-${targetIndex}`;
+        const matches = targetId ? importedById.get(targetId) : undefined;
+        const match = matches && matches.length > 0 ? matches.shift() : undefined;
+        const importedItem = match?.item;
 
-        // Look for exact ID match in target cells
-        const targetCell = targetCellsMap.get(importedItem.id);
-
-        if (targetCell) {
-            // Found matching cell - create aligned cell
+        if (importedItem) {
+            if (match) {
+                usedImportedIndexes.add(match.index);
+            }
             alignedCells.push({
                 notebookCell: targetCell,
                 importedContent: importedItem,
@@ -144,19 +178,39 @@ export const defaultCellAligner: CellAligner = async (
             });
             totalMatches++;
         } else {
-            // No matching cell found - treat as paratext
             alignedCells.push({
-                notebookCell: null,
+                notebookCell: targetCell,
                 importedContent: {
-                    ...importedItem,
-                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    id: targetId,
+                    content: targetCell.value || targetCell.content || "",
+                    edits: targetCell.metadata?.edits,
+                    cellLabel: targetCell.metadata?.cellLabel,
+                    metadata: targetCell.metadata || {},
+                    startTime: targetCell.metadata?.data?.startTime,
+                    endTime: targetCell.metadata?.data?.endTime,
                 },
-                isParatext: true,
-                alignmentMethod: 'exact-id',
-                confidence: 0.0 // No confidence for unmatched content
+                alignmentMethod: 'custom',
+                confidence: 1.0
             });
         }
-    }
+    });
+
+    importedContent.forEach((importedItem, index) => {
+        if (!importedItem.content.trim() || usedImportedIndexes.has(index)) {
+            return;
+        }
+
+        alignedCells.push({
+            notebookCell: null,
+            importedContent: {
+                ...importedItem,
+                id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            },
+            isParatext: true,
+            alignmentMethod: 'exact-id',
+            confidence: 0.0 // No confidence for unmatched content
+        });
+    });
 
     // Log matching statistics
     console.log(`Default aligner: ${totalMatches} exact matches found out of ${importedContent.length} imported items`);
@@ -423,7 +477,7 @@ export interface AudioFileSelectedMessage {
     sessionId: string;
     fileName: string;
     durationSec: number;
-    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    segments: Array<{ id: string; startSec: number; endSec: number; }>;
     waveformPeaks: number[];
     fullAudioUri?: string;
     thresholdDb?: number;
@@ -437,7 +491,7 @@ export interface AudioFilesSelectedMessage {
         sessionId: string;
         fileName: string;
         durationSec: number;
-        segments: Array<{ id: string; startSec: number; endSec: number }>;
+        segments: Array<{ id: string; startSec: number; endSec: number; }>;
         waveformPeaks: number[];
         fullAudioUri?: string;
     }>;
@@ -466,7 +520,7 @@ export interface FinalizeAudioImportMessage {
     sessionId: string;
     documentName: string;
     notebookPairs: NotebookPair[];
-    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }>;
+    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string; }>;
 }
 
 export interface AudioImportProgressMessage {
@@ -490,7 +544,7 @@ export interface AudioImportCompleteMessage {
 export interface UpdateAudioSegmentsMessage {
     command: 'updateAudioSegments';
     sessionId: string;
-    segments: Array<{ id: string; startSec: number; endSec: number }>;
+    segments: Array<{ id: string; startSec: number; endSec: number; }>;
 }
 
 export interface AudioSegmentsUpdatedMessage {
