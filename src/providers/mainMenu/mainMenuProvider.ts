@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, sanitizeProjectName } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -1750,8 +1750,8 @@ export class MainMenuProvider extends BaseWebviewProvider {
             return;
         }
 
-        // Sanitize the project name from user input
-        const sanitizedName = sanitizeProjectName(newProjectName?.trim() || "");
+        // Trim the project name from user input (but don't sanitize - display names can have spaces)
+        const trimmedName = newProjectName.trim();
 
         try {
             // Get current user name for edit tracking
@@ -1770,7 +1770,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             await config.update(
                 "projectName",
-                sanitizedName,
+                trimmedName,
                 vscode.ConfigurationTarget.Workspace
             );
 
@@ -1779,15 +1779,15 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 workspaceFolder,
                 (project: any) => {
                     const originalProjectName = project.projectName;
-                    project.projectName = sanitizedName;
+                    project.projectName = trimmedName;
 
                     // Track edit if projectName changed
-                    if (originalProjectName !== sanitizedName) {
+                    if (originalProjectName !== trimmedName) {
                         // Ensure edits array exists
                         if (!project.edits) {
                             project.edits = [];
                         }
-                        addProjectMetadataEdit(project, EditMapUtils.projectName(), sanitizedName, author);
+                        addProjectMetadataEdit(project, EditMapUtils.projectName(), trimmedName, author);
                     }
 
                     return project;
