@@ -123,7 +123,6 @@ export class SQLiteIndexManager {
     }
 
     async initialize(context: vscode.ExtensionContext): Promise<void> {
-        console.log("[SQLiteIndex] Starting initialization...");
         const initStart = globalThis.performance.now();
         let stepStart = initStart;
 
@@ -147,7 +146,6 @@ export class SQLiteIndexManager {
         // Load or create database
         await this.loadOrCreateDatabase();
 
-        console.log("[SQLiteIndex] Initialization complete");
         this.trackProgress("AI learning capabilities ready", initStart);
     }
 
@@ -501,7 +499,6 @@ export class SQLiteIndexManager {
             // Check current schema version
             stepStart = this.trackProgress("Check database schema version", stepStart);
             const currentVersion = this.getSchemaVersion();
-            console.log(`[SQLiteIndex] Current schema version: ${currentVersion}, expected: ${CURRENT_SCHEMA_VERSION}`);
             debug(`Current schema version: ${currentVersion}`);
 
 
@@ -523,7 +520,6 @@ export class SQLiteIndexManager {
             } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
                 // Scenario 2: ANY version mismatch (ahead, behind, or different) - ALWAYS recreate everything
                 // No partial migrations - we're senior database engineers who don't mess with bad/partial databases!
-                console.log(`[SQLiteIndex] Schema mismatch detected (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating database...`);
                 stepStart = this.trackProgress("Handle schema version mismatch", stepStart);
                 debug(`Database schema version ${currentVersion} does not match code version ${CURRENT_SCHEMA_VERSION}`);
                 debug("FULL RECREATION: No partial migrations - deleting and recreating database from scratch for maximum reliability");
@@ -539,7 +535,6 @@ export class SQLiteIndexManager {
                 await this.recreateDatabase();
 
                 this.trackProgress("Database complete recreation finished", stepStart);
-                console.log(`[SQLiteIndex] Database recreated successfully with schema version ${CURRENT_SCHEMA_VERSION}`);
                 debug(`Database completely recreated with schema version ${CURRENT_SCHEMA_VERSION} - no partial migrations used`);
             } else {
                 // Scenario 3: Correct version - load normally
