@@ -9,7 +9,7 @@ import {
     handleReprocessAudioFile,
     handleRequestAudioSegment,
 } from "../../../providers/NewSourceUploader/importers/audioSplitter";
-// Note: audioProcessor functions are tested in audioProcessor.test.ts
+// Note: audioProcessing functions are tested in audioProcessor.test.ts
 import {
     createMockExtensionContext,
     swallowDuplicateCommandRegistrations,
@@ -104,7 +104,7 @@ suite("Audio Import Test Suite", () => {
             // This test verifies the audioProcessor can access FFmpeg binaries
             // With on-demand download, FFmpeg is downloaded automatically or uses system FFmpeg
             // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const audioProcessor = require("../../../utils/audioProcessor");
+            const audioProcessor = require("../../../utils/audioProcessing");
             assert.ok(audioProcessor, "audioProcessor module should be importable");
             assert.ok(typeof audioProcessor.processAudioFile === "function", "Should export processAudioFile");
         });
@@ -112,7 +112,7 @@ suite("Audio Import Test Suite", () => {
         test("should retrieve FFprobe path (on-demand download or system)", () => {
             // With on-demand download, FFprobe is downloaded automatically or uses system FFprobe
             // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const audioProcessor = require("../../../utils/audioProcessor");
+            const audioProcessor = require("../../../utils/audioProcessing");
             assert.ok(audioProcessor, "audioProcessor module should be importable");
             assert.ok(typeof audioProcessor.detectSilence === "function", "Should export detectSilence");
         });
