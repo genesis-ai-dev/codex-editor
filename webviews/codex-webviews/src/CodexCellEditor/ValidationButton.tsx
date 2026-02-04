@@ -19,6 +19,7 @@ interface ValidationButtonProps {
     setShowSparkleButton?: Dispatch<SetStateAction<boolean>>;
     disabled?: boolean;
     disabledReason?: string;
+    health?: number; // Health score (0-1) for radial progress when unverified
 }
 
 const ValidationButton: React.FC<ValidationButtonProps> = ({
@@ -31,6 +32,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     setShowSparkleButton,
     disabled: externallyDisabled,
     disabledReason,
+    health,
 }) => {
     const [isValidated, setIsValidated] = useState(false);
     const [username, setUsername] = useState<string | null>(currentUsername ?? null);
@@ -380,6 +382,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     currentValidations={currentValidations}
                     requiredValidations={requiredValidations}
                     isValidatedByCurrentUser={isValidated}
+                    health={health}
+                    showHealthRadial={true} // Only show radial progress for text validation
+                    isPendingValidation={isPendingValidation}
                 />
             </VSCodeButton>
 
