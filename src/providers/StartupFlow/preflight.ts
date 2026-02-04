@@ -1,9 +1,8 @@
 import * as vscode from "vscode";
-import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
 import * as fs from "fs";
-import { getAuthApi } from "../../extension";
+import { getAuthApi, waitForAuthInit } from "../../extension";
 
 interface AuthState {
     isAuthenticated: boolean;
@@ -135,6 +134,8 @@ export class PreflightCheck {
         };
 
         try {
+            debugLog("Waiting for auth initialization to complete");
+            await waitForAuthInit();
             debugLog("Checking authentication state");
             const isAuthenticated = await this.checkAuthentication();
             state.authState.isAuthenticated = isAuthenticated;

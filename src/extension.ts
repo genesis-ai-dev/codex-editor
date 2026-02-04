@@ -79,6 +79,8 @@ let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
+let authInitPromise: Promise<void> | null = null;
+let authInitComplete = false;
 
 // Flag to prevent welcome view from showing during startup
 let isStartupInProgress = true;
@@ -209,8 +211,10 @@ async function initializeInBackground(
 
         // Run initialization tasks concurrently
         // Note: NotebookMetadataManager is already initialized in activate() before providers
+        // Store auth promise so other code can wait for it
+        authInitPromise = initializeAuth(statusBar);
         const initTasks: Promise<void>[] = [
-            initializeAuth(statusBar),
+            authInitPromise,
         ];
 
         // Add workspace-specific tasks only if we have a workspace
@@ -326,6 +330,8 @@ async function initializeAuth(statusBar: StartupStatusBar): Promise<void> {
         }
     } catch (error) {
         console.error("[Extension] Error initializing auth:", error);
+    } finally {
+        authInitComplete = true;
     }
 }
 
@@ -880,6 +886,21 @@ export function getAutoCompleteStatusBarItem(): StatusBarItem {
 
 export function getNotebookMetadataManager(): NotebookMetadataManager {
     return notebookMetadataManager;
+}
+
+/**
+ * Wait for auth initialization to complete.
+ * Call this before checking auth status to avoid race conditions.
+ */
+export function waitForAuthInit(): Promise<void> {
+    return authInitPromise ?? Promise.resolve();
+}
+
+/**
+ * Check if auth initialization has completed (regardless of whether auth was found).
+ */
+export function isAuthInitComplete(): boolean {
+    return authInitComplete;
 }
 
 export function getAuthApi(): FrontierAPI | undefined {
