@@ -568,6 +568,8 @@ export class CommentsMigrator {
             return false;
         }
 
+        console.log(`[CommentsMigrator] Checking ${comments.length} threads for migration needs`);
+
         const needsMigration = comments.some(thread => {
             // Check for old thread structure or missing new fields
             if (thread.version !== undefined ||
@@ -580,15 +582,16 @@ export class CommentsMigrator {
                 return true;
             }
 
-            // ===== ADD THIS CHECK FOR OLD CELL IDs =====
+            // ===== CHECK FOR OLD CELL IDs =====
             // Check if cellId is in old format (not UUID)
             if (thread.cellId?.cellId && typeof thread.cellId.cellId === 'string') {
                 // Quick check: UUIDs have dashes, old format like "LUK 1:1" has spaces
-                if (thread.cellId.cellId.includes(' ')) {// || !thread.cellId.cellId.includes('-')) {
+                if (thread.cellId.cellId.includes(' ')) {
+                    console.log(`[CommentsMigrator] Found old-format cell ID: "${thread.cellId.cellId}" in thread ${thread.id}`);
                     return true;
                 }
             }
-            // ===== END NEW CHECK =====
+            // ===== END CELL ID CHECK =====
 
 
             // Check for old comment structure
@@ -691,23 +694,22 @@ export class CommentsMigrator {
     }
 
     private static async migrateCellIdToUuid(thread: any): Promise<any> {
-        console.warn("Arried at the migrateCellIdToUuid function! OOOOOOOOOOOOOOOOOOOO");
-
         const { generateCellIdFromHash, isUuidFormat } = await import("./uuidUtils");
-        //return Promise.all(Comment.map(async thread => {
-        //}));
 
         const result = { ...thread };
+        
         if (Date.now() < COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.getTime()) {
-            //Migrate cell id to uuid
+            // Before cutoff - migrate if needed
             if (result.cellId?.cellId && !isUuidFormat(result.cellId.cellId)) {
                 const oldId = result.cellId.cellId;
-                const newUuid = await generateCellIdFromHash(result.cellId.cellId);
+                const newUuid = await generateCellIdFromHash(oldId);
+                
+                console.log(`[CommentsMigrator] Migrating cell ID: "${oldId}" → "${newUuid}"`);
+                
                 result.cellId = {
                     ...result.cellId,
                     cellId: newUuid,
                     globalReferences: result.cellId.globalReferences || [oldId]
-                    //not sure about this last one... the AI told me to do it.  ¯\_(ツ)_/¯
                 };
             }
         } else {
