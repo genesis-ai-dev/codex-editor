@@ -1616,7 +1616,7 @@ export class SQLiteIndexManager {
         try {
             stmt.bind(cellIds);
             while (stmt.step()) {
-                const row = stmt.getAsObject() as { cell_id: string; t_health: number | null };
+                const row = stmt.getAsObject() as { cell_id: string; t_health: number | null; };
                 const health = row.t_health ?? 0.3;
                 result.set(row.cell_id, health);
                 console.log(`[SQLiteIndex] getCellsHealth: ${row.cell_id} -> ${health} (raw: ${row.t_health})`);
@@ -3760,12 +3760,11 @@ export class SQLiteIndexManager {
         }
 
         // Extract health from metadata (if set)
+        // Health is optional - if not present, it will default to 0.3 when used
         if (typeof metadata.health === 'number') {
             result.health = metadata.health;
-            console.log(`[SQLiteIndex] Extracted health ${metadata.health} from metadata`);
-        } else {
-            console.log(`[SQLiteIndex] No health in metadata, keys:`, Object.keys(metadata || {}));
         }
+        // No need to log when health is missing - it's expected for cells without health scores
 
         return result;
     }
