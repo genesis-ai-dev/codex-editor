@@ -2,10 +2,15 @@ import * as vscode from "vscode";
 import initSqlJs, { Database, SqlJsStatic } from "fts5-sql-bundle";
 import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
-import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
-import { ActivationTiming } from "../../../../extension";
 import { debounce } from "lodash";
 import { EditMapUtils } from "../../../../utils/editMapUtils";
+
+// Progress timing interface for tracking initialization steps
+interface ProgressTiming {
+    step: string;
+    duration: number;
+    startTime: number;
+}
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
@@ -22,7 +27,7 @@ export class SQLiteIndexManager {
     private db: Database | null = null;
     private saveDebounceTimer: NodeJS.Timeout | null = null;
     private readonly SAVE_DEBOUNCE_MS = 0;
-    private progressTimings: ActivationTiming[] = [];
+    private progressTimings: ProgressTiming[] = [];
     private currentProgressTimer: NodeJS.Timeout | null = null;
     private currentProgressStartTime: number | null = null;
     private currentProgressName: string | null = null;
@@ -30,7 +35,7 @@ export class SQLiteIndexManager {
 
     private trackProgress(step: string, stepStartTime: number): number {
         const stepEndTime = globalThis.performance.now();
-        const duration = stepEndTime - stepStartTime; // Duration of THIS step only
+        const duration = stepEndTime - stepStartTime;
 
         this.progressTimings.push({ step, duration, startTime: stepStartTime });
         debug(`${step}: ${duration.toFixed(2)}ms`);
@@ -41,10 +46,7 @@ export class SQLiteIndexManager {
             this.currentProgressTimer = null;
         }
 
-        // Update splash screen with database creation progress
-        updateSplashScreenTimings(this.progressTimings);
-
-        return stepEndTime; // Return the END time for the next step to use as its start time
+        return stepEndTime;
     }
 
     private startRealtimeProgress(stepName: string): number {
@@ -60,7 +62,6 @@ export class SQLiteIndexManager {
 
         // Add initial timing entry
         this.progressTimings.push({ step: stepName, duration: 0, startTime });
-        updateSplashScreenTimings(this.progressTimings);
 
         // Start real-time updates only if enabled (to avoid performance issues)
         if (this.enableRealtimeProgress) {
@@ -72,8 +73,6 @@ export class SQLiteIndexManager {
                     const lastIndex = this.progressTimings.length - 1;
                     if (lastIndex >= 0 && this.progressTimings[lastIndex].step === this.currentProgressName) {
                         this.progressTimings[lastIndex].duration = currentDuration;
-                        // Only update splash screen every 500ms to avoid performance issues
-                        updateSplashScreenTimings(this.progressTimings);
                     }
                 }
             }, 500) as unknown as NodeJS.Timeout;
@@ -95,7 +94,6 @@ export class SQLiteIndexManager {
             const lastIndex = this.progressTimings.length - 1;
             if (lastIndex >= 0 && this.progressTimings[lastIndex].step === this.currentProgressName) {
                 this.progressTimings[lastIndex].duration = finalDuration;
-                updateSplashScreenTimings(this.progressTimings);
                 debug(`${this.currentProgressName}: ${finalDuration.toFixed(2)}ms`);
             }
         }
@@ -118,7 +116,6 @@ export class SQLiteIndexManager {
     // Public method to add progress entries from external functions
     public addProgressEntry(step: string, duration: number, startTime: number): void {
         this.progressTimings.push({ step, duration, startTime });
-        updateSplashScreenTimings(this.progressTimings);
         debug(`[Index] ${step}: ${duration.toFixed(2)}ms`);
     }
 

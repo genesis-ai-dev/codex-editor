@@ -36,7 +36,6 @@ import { readSourceAndTargetFiles } from "./fileReaders";
 import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
-import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;

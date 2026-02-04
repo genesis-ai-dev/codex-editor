@@ -1824,11 +1824,6 @@ export type WelcomeViewReceiveMessages =
     | { command: "startupFlowStateChanged"; isOpen: boolean; };
 
 
-export interface SplashScreenMessage {
-    command: "update" | "complete" | "animationComplete";
-    timings?: ActivationTiming[];
-}
-
 export interface CellLabelData {
     cellId: string;
     startTime: string;

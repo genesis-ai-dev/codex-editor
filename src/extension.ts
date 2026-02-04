@@ -12,8 +12,6 @@ import { registerProjectManager } from "./projectManager";
 import {
     temporaryMigrationScript_checkMatthewNotebook,
     migration_changeDraftFolderToFilesFolder,
-    migration_chatSystemMessageSetting,
-    migration_chatSystemMessageToMetadata,
     migration_lineNumbersSettings,
     migration_editHistoryFormat,
     migration_addMilestoneCells,
@@ -43,18 +41,10 @@ import {
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
 import { MetadataManager, registerMetadataCommands } from "./utils/metadataManager";
-import {
-    registerSplashScreenProvider,
-    showSplashScreen,
-    updateSplashScreenTimings,
-    updateSplashScreenSync,
-    closeSplashScreen,
-} from "./providers/SplashScreen/register";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
-import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
@@ -68,104 +58,15 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
-// markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
-import * as fs from "fs";
+import { createStartupStatusBar, StartupStatusBar } from "./utils/startupStatusBar";
 import * as os from "os";
 import * as path from "path";
 
 const DEBUG_MODE = false;
-function debug(...args: any[]): void {
+function debug(...args: unknown[]): void {
     if (DEBUG_MODE) {
         console.log("[Extension]", ...args);
     }
-}
-
-export interface ActivationTiming {
-    step: string;
-    duration: number;
-    startTime: number;
-}
-
-const activationTimings: ActivationTiming[] = [];
-let currentStepTimer: NodeJS.Timeout | null = null;
-let currentStepStartTime: number | null = null;
-let currentStepName: string | null = null;
-let lastStepEndTime: number | null = null;
-
-function trackTiming(step: string, stepStartTime: number): number {
-    const stepEndTime = globalThis.performance.now();
-    const duration = stepEndTime - stepStartTime; // Duration of THIS step only
-
-    activationTimings.push({ step, duration, startTime: stepStartTime });
-    debug(`[Activation] ${step}: ${duration.toFixed(2)}ms`);
-
-    // Stop any previous real-time timer
-    if (currentStepTimer) {
-        clearInterval(currentStepTimer);
-        currentStepTimer = null;
-    }
-
-    // Update splash screen with latest timing information
-    updateSplashScreenTimings(activationTimings);
-
-    lastStepEndTime = stepEndTime;
-    return stepEndTime; // Return the END time for the next step to use as its start time
-}
-
-function startRealtimeStep(stepName: string): number {
-    const startTime = globalThis.performance.now();
-
-    // Stop any previous timer
-    if (currentStepTimer) {
-        clearInterval(currentStepTimer);
-    }
-
-    currentStepName = stepName;
-    currentStepStartTime = startTime;
-
-    // Add initial timing entry
-    activationTimings.push({ step: stepName, duration: 0, startTime });
-    updateSplashScreenTimings(activationTimings);
-
-    // Start real-time updates every 100ms
-    currentStepTimer = setInterval(() => {
-        if (currentStepStartTime && currentStepName) {
-            const currentDuration = globalThis.performance.now() - currentStepStartTime;
-
-            // Update the last timing entry with current duration
-            const lastIndex = activationTimings.length - 1;
-            if (lastIndex >= 0 && activationTimings[lastIndex].step === currentStepName) {
-                activationTimings[lastIndex].duration = currentDuration;
-                updateSplashScreenTimings(activationTimings);
-            }
-        }
-    }, 100) as unknown as NodeJS.Timeout;
-
-    return startTime;
-}
-
-function finishRealtimeStep(): number {
-    if (currentStepTimer) {
-        clearInterval(currentStepTimer);
-        currentStepTimer = null;
-    }
-
-    if (currentStepStartTime && currentStepName) {
-        const finalDuration = globalThis.performance.now() - currentStepStartTime;
-
-        // Update the last timing entry with final duration
-        const lastIndex = activationTimings.length - 1;
-        if (lastIndex >= 0 && activationTimings[lastIndex].step === currentStepName) {
-            activationTimings[lastIndex].duration = finalDuration;
-            updateSplashScreenTimings(activationTimings);
-            debug(`[Activation] ${currentStepName}: ${finalDuration.toFixed(2)}ms`);
-        }
-    }
-
-    currentStepName = null;
-    currentStepStartTime = null;
-
-    return globalThis.performance.now();
 }
 
 declare global {
@@ -176,137 +77,28 @@ declare global {
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
-// let commitTimeout: any;
-// const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
-let savedTabLayout: any[] = [];
-const TAB_LAYOUT_KEY = "codexEditor.tabLayout";
 
-// Helper to save tab layout and persist to globalState
-async function saveTabLayout(context: vscode.ExtensionContext) {
-    const layout = vscode.window.tabGroups.all.map((group, groupIndex) => ({
-        isActive: group.isActive,
-        tabs: group.tabs.map((tab) => {
-            // Try to get URI and viewType for all tab types
-            let uri: string | undefined = undefined;
-            let viewType: string | undefined = undefined;
-            if ((tab as any).input) {
-                uri =
-                    (tab as any).input?.uri?.toString?.() ||
-                    (tab as any).input?.resource?.toString?.();
-                viewType = (tab as any).input?.viewType;
-            }
-            return {
-                label: tab.label,
-                uri,
-                viewType,
-                isActive: tab.isActive,
-                isPinned: tab.isPinned,
-                groupIndex,
-            };
-        }),
-    }));
-    savedTabLayout = layout;
-    await context.globalState.update(TAB_LAYOUT_KEY, layout);
+// Flag to prevent welcome view from showing during startup
+let isStartupInProgress = true;
+
+export function isStartingUp(): boolean {
+    return isStartupInProgress;
 }
 
-// Helper to restore tab layout from globalState
-async function restoreTabLayout(context: vscode.ExtensionContext) {
-    const layout = context.globalState.get<any[]>(TAB_LAYOUT_KEY) || [];
-    // Collect tabs: open non-codex editors first, then codex editors sequentially
-    const nonCodexOps: Array<() => Promise<void>> = [];
-    const codexTabs: Array<{ uri: string; groupIndex: number; viewType: string; }> = [];
-
-    for (const group of layout) {
-        for (const tab of group.tabs) {
-            if (!tab.uri) continue;
-            const uriStr = tab.uri as string;
-            const viewType = tab.viewType as string | undefined;
-            const groupIndex = tab.groupIndex as number;
-
-            if (viewType === "codex.cellEditor") {
-                codexTabs.push({ uri: uriStr, groupIndex, viewType });
-            } else {
-                nonCodexOps.push(async () => {
-                    try {
-                        const uri = vscode.Uri.parse(uriStr);
-                        // Check if file exists before trying to open
-                        if (!(await fileExists(uri))) {
-                            return; // Skip missing files
-                        }
-
-                        if (viewType && viewType !== "default") {
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                uri,
-                                viewType,
-                                { viewColumn: groupIndex + 1 }
-                            );
-                        } else {
-                            const doc = await vscode.workspace.openTextDocument(uri);
-                            await vscode.window.showTextDocument(doc, groupIndex + 1);
-                        }
-                    } catch {
-                        // Ignore missing files
-                    }
-                });
-            }
-        }
-    }
-
-    // Open all non-codex editors in parallel
-    for (const op of nonCodexOps) {
-        await op();
-    }
-
-    // Sort codex tabs so .source files open before .codex for the same basename
-    codexTabs.sort((a, b) => {
-        const aPath = a.uri.toLowerCase();
-        const bPath = b.uri.toLowerCase();
-        const aIsSource = aPath.endsWith(".source");
-        const bIsSource = bPath.endsWith(".source");
-        if (aIsSource !== bIsSource) return aIsSource ? -1 : 1;
-        return aPath.localeCompare(bPath);
-    });
-
-    // Sequentially open Codex editors and wait for readiness
-    const provider = CodexCellEditorProvider.getInstance();
-    for (const tab of codexTabs) {
-        try {
-            const uri = vscode.Uri.parse(tab.uri);
-
-            // Check if file exists before trying to open
-            if (!(await fileExists(uri))) {
-                continue; // Skip missing files
-            }
-
-            await vscode.commands.executeCommand(
-                "vscode.openWith",
-                uri,
-                tab.viewType,
-                { viewColumn: tab.groupIndex + 1 }
-            );
-
-            if (provider) {
-                // Wait for the specific webview to be ready (with timeout)
-                await provider.waitForWebviewReady(tab.uri, 4000);
-            }
-        } catch {
-            // Ignore missing files
-        }
-        // Yield to allow controllerchange to settle between openings
-        await new Promise((r) => setTimeout(r, 10));
-    }
-    // Optionally, focus the previously active tab/group
-    // Clear the saved layout after restore
-    await context.globalState.update(TAB_LAYOUT_KEY, undefined);
+export function setStartupComplete(): void {
+    isStartupInProgress = false;
 }
 
-export async function activate(context: vscode.ExtensionContext) {
-    const activationStart = globalThis.performance.now();
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    const activationStart = performance.now();
 
-    // Ensure OS temp directory exists in test/web environments (mock FS may not have /tmp)
+    // 1. Create status bar indicator (replaces splash screen)
+    const statusBar = createStartupStatusBar(context);
+    statusBar.show("Initializing...");
+
+    // Ensure OS temp directory exists in test/web environments
     try {
         const tmp = os.tmpdir();
         const tmpUri = vscode.Uri.file(tmp);
@@ -315,108 +107,37 @@ export async function activate(context: vscode.ExtensionContext) {
         console.warn("[Extension] Could not ensure temp directory exists:", e);
     }
 
-    // Save tab layout and close all editors before showing splash screen
-    try {
-        await saveTabLayout(context);
-        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
-    } catch (e) {
-        console.error("Error saving/closing tabs before splash screen:", e);
-    }
-
-    // Initialize audio processor for on-demand FFmpeg downloads
+    // Initialize audio processors (lightweight, synchronous setup)
     initializeAudioProcessor(context);
-    // Initialize audio merger for merging audio files
     initializeAudioMerger(context);
 
-    // Register and show splash screen immediately before anything else
+    // CRITICAL: Initialize NotebookMetadataManager BEFORE providers (they depend on it)
     try {
-        // Register splash screen as the very first action
-        const splashStart = activationStart;
-        registerSplashScreenProvider(context);
-        showSplashScreen(activationStart);
-        trackTiming("Initializing Splash Screen", splashStart);
-    } catch (error) {
-        console.error("Error showing splash screen:", error);
-        // Continue with activation even if splash screen fails
-    }
-
-    let stepStart = activationStart;
-
-    try {
-        // Configure editor layout
-        const layoutStart = globalThis.performance.now();
-        // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
-        // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
-        await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-        stepStart = trackTiming("Configuring Editor Layout", layoutStart);
-
-        // Setup pre-activation commands
-        const preCommandsStart = globalThis.performance.now();
-        await executeCommandsBefore(context);
-        stepStart = trackTiming("Setting up Pre-activation Commands", preCommandsStart);
-
-        // Initialize metadata manager
-        const metadataStart = globalThis.performance.now();
         notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         await notebookMetadataManager.initialize();
-        stepStart = trackTiming("Loading Project Metadata", metadataStart);
+    } catch (error) {
+        console.error("[Extension] Error initializing NotebookMetadataManager:", error);
+    }
 
-        // Migrate comments early during project startup
-        const migrationStart = globalThis.performance.now();
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-            try {
-                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+    // 2. Register ALL providers immediately (synchronous/fast operations)
+    try {
+        // Register project manager and welcome view first
+        await registerProjectManager(context);
+        registerWelcomeViewProvider(context);
 
-                // Also repair any existing corrupted data during startup
-                const commentsFilePath = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, ".project", "comments.json");
-                CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true).catch(() => {
-                    // Silent fallback - don't block startup if repair fails
-                });
-            } catch (error) {
-                console.error("[Extension] Error during startup comments migration:", error);
-                // Don't fail startup due to migration errors
-            }
-
-        }
-        stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
-
-        // Initialize Frontier API first - needed before startup flow
-        const authStart = globalThis.performance.now();
-        const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
-        if (extension?.isActive) {
-            authApi = extension.exports;
-        }
-        stepStart = trackTiming("Connecting Authentication Service", authStart);
-
-        // Update git configuration files after Frontier auth is connected
-        // This ensures .gitignore and .gitattributes are current when extension starts
-        const gitConfigStart = globalThis.performance.now();
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-            try {
-                // Import and run git config update (only if we have a workspace)
-                const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
-                await ensureGitConfigsAreUpToDate();
-                console.log("[Extension] Git configuration files updated on startup");
-            } catch (error) {
-                console.error("[Extension] Error updating git config files on startup:", error);
-                // Don't fail startup due to git config update errors
-            }
-
-        }
-        stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
-
-        // Run independent initialization steps in parallel (excluding auth which is needed by startup flow)
-        const parallelInitStart = globalThis.performance.now();
+        // Register all other providers
         await Promise.all([
-            // Register project manager first to ensure it's available
-            registerProjectManager(context),
-            // Register welcome view provider
-            registerWelcomeViewProvider(context),
+            registerSmartEditCommands(context),
+            registerProviders(context),
+            registerCommands(context),
+            initializeWebviews(context),
+            (async () => registerTestingCommands(context))(),
         ]);
-        stepStart = trackTiming("Setting up Basic Components", parallelInitStart);
 
-        // Register startup flow commands after auth is available
-        const startupStart = globalThis.performance.now();
+        // Register metadata commands for frontier-authentication to call
+        registerMetadataCommands(context);
+
+        // Register startup flow commands
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
 
@@ -428,97 +149,93 @@ export async function activate(context: vscode.ExtensionContext) {
         const { registerProjectSwapCommands } = await import("./commands/projectSwapCommands");
         registerProjectSwapCommands(context);
 
-        stepStart = trackTiming("Configuring Startup Workflow", startupStart);
+        // Initialize status bar for auto-complete
+        autoCompleteStatusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+            100
+        );
+        autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
+        autoCompleteStatusBarItem.hide();
+        context.subscriptions.push(autoCompleteStatusBarItem);
 
-        // Initialize SqlJs with real-time progress since it loads WASM files
-        // Only initialize database if we have a workspace (database is for project content)
+        // Initialize A/B testing registry
+        initializeABTesting();
+
+    } catch (error) {
+        console.error("Error registering providers:", error);
+    }
+
+    // Register additional commands
+    registerAdditionalCommands(context);
+
+    console.log(`[Activation] UI ready in ${(performance.now() - activationStart).toFixed(0)}ms`);
+
+    // 3. Fire-and-forget background initialization
+    void initializeInBackground(context, statusBar);
+}
+
+/**
+ * Background initialization - all heavy operations run concurrently
+ */
+async function initializeInBackground(
+    context: vscode.ExtensionContext,
+    statusBar: StartupStatusBar
+): Promise<void> {
+    const bgStart = performance.now();
+
+    try {
+        statusBar.update("Setting up workspace...");
+
+        // Execute pre-activation commands
+        await executeCommandsBefore(context);
+
+        // Check for untrusted workspace early
         const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0 && !vscode.workspace.isTrusted) {
+            statusBar.complete("Workspace needs trust");
+            vscode.window
+                .showWarningMessage(
+                    "This workspace needs to be trusted before Codex Editor can fully activate.",
+                    "Trust Workspace"
+                )
+                .then((selection) => {
+                    if (selection === "Trust Workspace") {
+                        vscode.commands.executeCommand("workbench.action.trustWorkspace");
+                    }
+                });
+            setTimeout(() => statusBar.hide(), 3000);
+            return;
+        }
 
-        // Check for pending swap downloads (after workspace is ready)
+        // Run initialization tasks concurrently
+        // Note: NotebookMetadataManager is already initialized in activate() before providers
+        const initTasks: Promise<void>[] = [
+            initializeAuth(statusBar),
+        ];
+
+        // Add workspace-specific tasks only if we have a workspace
         if (workspaceFolders && workspaceFolders.length > 0) {
+            initTasks.push(initializeDatabase(context, statusBar));
+            initTasks.push(migrateComments(statusBar));
+            initTasks.push(updateGitConfig(statusBar));
+
+            // Check for pending swap downloads (after workspace is ready)
             checkPendingSwapDownloads(workspaceFolders[0].uri).catch(err => {
                 console.error("[Extension] Error checking pending swap downloads:", err);
             });
         }
+
+        await Promise.allSettled(initTasks);
+
+        // Check for existing project and initialize extension
         if (workspaceFolders && workspaceFolders.length > 0) {
-            startRealtimeStep("AI preparing search capabilities");
-            try {
-                global.db = await initializeSqlJs(context);
-
-            } catch (error) {
-                console.error("Error initializing SqlJs:", error);
-            }
-            stepStart = finishRealtimeStep();
-            if (global.db) {
-                const importCommand = vscode.commands.registerCommand(
-                    "extension.importWiktionaryJSONL",
-                    () => global.db && importWiktionaryJSONL(global.db)
-                );
-                context.subscriptions.push(importCommand);
-                registerLookupWordCommand(global.db, context);
-                ingestJsonlDictionaryEntries(global.db);
-            }
-        } else {
-            // No workspace, skip database initialization
-            stepStart = trackTiming("AI search capabilities (skipped - no workspace)", globalThis.performance.now());
-        }
-
-        vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
-
-        // Initialize extension based on workspace state
-        const workspaceStart = globalThis.performance.now();
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            if (!vscode.workspace.isTrusted) {
-
-                vscode.window
-                    .showWarningMessage(
-                        "This workspace needs to be trusted before Codex Editor can fully activate.",
-                        "Trust Workspace"
-                    )
-                    .then((selection) => {
-                        if (selection === "Trust Workspace") {
-                            vscode.commands.executeCommand("workbench.action.trustWorkspace");
-                        }
-                    });
-                return;
-            }
-
-            // Check for pending project creation after reload
-            const pendingCreate = context.globalState.get("pendingProjectCreate");
-            if (pendingCreate) {
-                const pendingName = context.globalState.get<string>("pendingProjectCreateName");
-                const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
-                console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
-
-                // Clear flags
-                await context.globalState.update("pendingProjectCreate", undefined);
-                await context.globalState.update("pendingProjectCreateName", undefined);
-                await context.globalState.update("pendingProjectCreateId", undefined);
-
-                try {
-                    // We are in the new folder. Initialize it.
-                    const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
-                    await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
-                } catch (error) {
-                    console.error("Failed to resume project creation:", error);
-                    vscode.window.showErrorMessage("Failed to create project after reload.");
-                }
-            }
-
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
-
             let metadataExists = false;
             try {
-                // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
 
-                // Note: validateAndFixProjectId is now called AFTER migrations complete
-                // to ensure projectName updates aren't overwritten by migrations
-
                 // Ensure all installed extension versions are recorded in metadata
-                // This handles: 1) Adding missing versions (e.g., frontierAuthentication added after project creation)
-                //               2) Updating to newer versions (never downgrades)
                 try {
                     await MetadataManager.ensureExtensionVersionsRecorded(workspaceFolders[0].uri);
                 } catch (error) {
@@ -528,92 +245,221 @@ export async function activate(context: vscode.ExtensionContext) {
                 metadataExists = false;
             }
 
-            trackTiming("Initializing Workspace", workspaceStart);
+            // Check for pending project creation
+            await handlePendingProjectCreation(context);
 
-            // Always initialize extension to ensure language server is available before webviews
-            await initializeExtension(context, metadataExists);
-
-            // Ensure local project settings exist when a Codex project is open
-            try {
-                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                    // Only ensure settings once a repo is fully initialized (avoid during clone checkout)
-                    try {
-                        const projectUri = vscode.workspace.workspaceFolders[0].uri;
-                        const gitDir = vscode.Uri.joinPath(projectUri, ".git");
-                        await vscode.workspace.fs.stat(gitDir);
-                        const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
-                        await afterProjectDetectedEnsureLocalSettings(projectUri);
-                    } catch {
-                        // No .git yet; skip until project is fully initialized/opened
-                    }
-                }
-            } catch (e) {
-                console.warn("[Extension] Failed to ensure local project settings exist:", e);
+            // Initialize language server and indexing (depends on metadata)
+            if (metadataExists) {
+                statusBar.update("Starting language server...");
+                await initializeLanguageServerAndIndex(context, statusBar);
+            } else {
+                // Watch for project initialization
+                await watchForInitialization(context, metadataUri);
             }
 
-            if (!metadataExists) {
-                const watchStart = globalThis.performance.now();
-                await watchForInitialization(context, metadataUri);
-                trackTiming("Watching for Initialization", watchStart);
+            // Ensure local project settings exist
+            try {
+                const projectUri = workspaceFolders[0].uri;
+                const gitDir = vscode.Uri.joinPath(projectUri, ".git");
+                await vscode.workspace.fs.stat(gitDir);
+                const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
+                await afterProjectDetectedEnsureLocalSettings(projectUri);
+            } catch {
+                // No .git yet; skip
             }
         } else {
+            // No workspace - show project overview
             vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-            trackTiming("Initializing Workspace", workspaceStart);
         }
 
-        // Register remaining components in parallel
-        const coreComponentsStart = globalThis.performance.now();
+        // Run post-activation tasks
+        statusBar.update("Running migrations...");
+        await runMigrations(context);
 
-        await Promise.all([
-            registerSmartEditCommands(context),
-            registerProviders(context),
-            registerCommands(context),
-            initializeWebviews(context),
-            (async () => registerTestingCommands(context))(),
-        ]);
+        // Sync if authenticated and have a project
+        statusBar.update("Syncing...");
+        await runInitialSync(context);
 
-        // Register metadata commands for frontier-authentication to call
-        // This implements the "single writer" principle - only codex-editor writes to metadata.json
-        registerMetadataCommands(context);
-
-        // Initialize A/B testing registry (always-on)
-        initializeABTesting();
-
-        // Track total time for core components
-        stepStart = trackTiming("Loading Core Components", coreComponentsStart);
-
-        // Initialize status bar
-        const statusBarStart = globalThis.performance.now();
-        autoCompleteStatusBarItem = vscode.window.createStatusBarItem(
-            vscode.StatusBarAlignment.Right,
-            100
-        );
-        autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
-        autoCompleteStatusBarItem.hide();
-        context.subscriptions.push(autoCompleteStatusBarItem);
-        stepStart = trackTiming("Initializing Status Bar", statusBarStart);
-
-        // Show activation summary
-        const totalDuration = globalThis.performance.now() - activationStart;
-        // Don't add "Total Activation Time" to timings array since it's already calculated above
-        debug(`[Activation] Total Activation Time: ${totalDuration.toFixed(2)}ms`);
-
-        // Sort timings by duration (descending) and format the message
-        const sortedTimings = [...activationTimings].sort((a, b) => b.duration - a.duration);
-        const summaryMessage = [
-            `Codex Editor activated in ${totalDuration.toFixed(2)}ms`,
-            "",
-            "Top 5 longest steps:",
-            ...sortedTimings.slice(0, 5).map((t) => `${t.step}: ${t.duration.toFixed(2)}ms`),
-        ].join("\n");
-
-        console.info(summaryMessage);
-
-        // Execute post-activation tasks
-        const postActivationStart = globalThis.performance.now();
-
+        // Execute post-activation commands
         await executeCommandsAfter(context);
-        // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
+
+        // Mark startup as complete - welcome view can now show when all editors are closed
+        setStartupComplete();
+
+        // Show welcome view if no editors are open
+        await showWelcomeViewIfNeeded();
+
+        // Run preflight check now that auth and other services are initialized
+        // This ensures the startup flow only opens if actually needed
+        vscode.commands.executeCommand("codex-project-manager.preflight");
+
+        // Register update commands and check for updates
+        registerUpdateCommands(context);
+        checkForUpdatesOnStartup(context).catch(error => {
+            console.error('[Extension] Error during startup update check:', error);
+        });
+
+        const bgDuration = performance.now() - bgStart;
+        console.log(`[Activation] Background initialization completed in ${bgDuration.toFixed(0)}ms`);
+
+        statusBar.complete("Ready");
+        setTimeout(() => statusBar.hide(), 3000);
+
+    } catch (error) {
+        console.error("Error during background initialization:", error);
+        statusBar.complete("Ready (with errors)");
+        setTimeout(() => statusBar.hide(), 3000);
+        // Still mark startup complete even on error so welcome view can work
+        setStartupComplete();
+    }
+}
+
+/**
+ * Initialize authentication API
+ */
+async function initializeAuth(statusBar: StartupStatusBar): Promise<void> {
+    try {
+        statusBar.update("Connecting authentication...");
+        const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
+        if (extension?.isActive) {
+            authApi = extension.exports;
+        }
+    } catch (error) {
+        console.error("[Extension] Error initializing auth:", error);
+    }
+}
+
+/**
+ * Initialize SQLite database for dictionary/search
+ */
+async function initializeDatabase(context: vscode.ExtensionContext, statusBar: StartupStatusBar): Promise<void> {
+    try {
+        statusBar.update("Preparing search...");
+        global.db = await initializeSqlJs(context);
+
+        if (global.db) {
+            const importCommand = vscode.commands.registerCommand(
+                "extension.importWiktionaryJSONL",
+                () => global.db && importWiktionaryJSONL(global.db)
+            );
+            context.subscriptions.push(importCommand);
+            registerLookupWordCommand(global.db, context);
+            ingestJsonlDictionaryEntries(global.db);
+        }
+    } catch (error) {
+        console.error("[Extension] Error initializing database:", error);
+    }
+}
+
+/**
+ * Migrate comments early during startup
+ */
+async function migrateComments(statusBar: StartupStatusBar): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+    try {
+        statusBar.update("Migrating comments...");
+        await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
+
+        // Also repair any existing corrupted data
+        const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
+        CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true).catch(() => {
+            // Silent fallback
+        });
+    } catch (error) {
+        console.error("[Extension] Error during comments migration:", error);
+    }
+}
+
+/**
+ * Update git configuration files
+ */
+async function updateGitConfig(statusBar: StartupStatusBar): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+    try {
+        statusBar.update("Updating git config...");
+        const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+        await ensureGitConfigsAreUpToDate();
+        debug("[Extension] Git configuration files updated");
+    } catch (error) {
+        console.error("[Extension] Error updating git config:", error);
+    }
+}
+
+/**
+ * Initialize language server and content indexing
+ */
+async function initializeLanguageServerAndIndex(
+    context: vscode.ExtensionContext,
+    statusBar: StartupStatusBar
+): Promise<void> {
+    try {
+        // Start language server
+        statusBar.update("Starting language server...");
+        client = await registerLanguageServer(context);
+
+        // Register client commands
+        clientCommandsDisposable = registerClientCommands(context, client);
+        context.subscriptions.push(clientCommandsDisposable);
+
+        if (client && global.db) {
+            try {
+                await registerClientOnRequests(client, global.db);
+                await client.start();
+            } catch (error) {
+                console.error("Error starting language client:", error);
+            }
+        } else {
+            if (!client) {
+                console.warn("Language server failed to initialize - spellcheck will use fallback");
+            }
+            if (!global.db) {
+                console.info("[Database] Dictionary not available - dictionary features limited");
+            }
+        }
+
+        // Create content indexes
+        statusBar.update("Indexing content...");
+        await createIndexWithContext(context);
+
+    } catch (error) {
+        console.error("[Extension] Error initializing language server:", error);
+    }
+}
+
+/**
+ * Handle pending project creation after reload
+ */
+async function handlePendingProjectCreation(context: vscode.ExtensionContext): Promise<void> {
+    const pendingCreate = context.globalState.get("pendingProjectCreate");
+    if (!pendingCreate) return;
+
+    const pendingName = context.globalState.get<string>("pendingProjectCreateName");
+    const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
+    debug("[Extension] Resuming project creation for:", pendingName);
+
+    // Clear flags
+    await context.globalState.update("pendingProjectCreate", undefined);
+    await context.globalState.update("pendingProjectCreateName", undefined);
+    await context.globalState.update("pendingProjectCreateId", undefined);
+
+    try {
+        const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
+        await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
+    } catch (error) {
+        console.error("Failed to resume project creation:", error);
+        vscode.window.showErrorMessage("Failed to create project after reload.");
+    }
+}
+
+/**
+ * Run all migrations
+ */
+async function runMigrations(context: vscode.ExtensionContext): Promise<void> {
+    try {
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migration_lineNumbersSettings(context);
@@ -627,101 +473,171 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_addGlobalReferences(context);
         await migration_cellIdsToUuid(context);
         await migration_recoverTempFilesAndMergeDuplicates(context);
+    } catch (error) {
+        console.error("[Extension] Error running migrations:", error);
+    }
+}
 
-        // After migrations complete, trigger sync directly
-        // (All migrations have finished executing since they're awaited sequentially)
+/**
+ * Run initial sync after migrations
+ */
+async function runInitialSync(context: vscode.ExtensionContext): Promise<void> {
+    try {
+        const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+        if (!hasCodexProject) return;
+
+        const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+        // Disable VS Code Git before sync operations
+        const { ensureGitDisabledInSettings, validateAndFixProjectMetadata } = await import("./projectManager/utils/projectUtils");
+        await ensureGitDisabledInSettings();
+
+        // Auto-fix metadata structure (scope, name) on startup
         try {
-            const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
-            if (hasCodexProject) {
-                const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
-                const { ensureGitDisabledInSettings, validateAndFixProjectMetadata } = await import("./projectManager/utils/projectUtils");
-                await ensureGitDisabledInSettings();
-                debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
-
-                // Auto-fix metadata structure (scope, name) on startup
-                try {
-                    if (vscode.workspace.workspaceFolders?.[0]) {
-                        await validateAndFixProjectMetadata(vscode.workspace.workspaceFolders[0].uri);
-                        debug("✅ [PRE-SYNC] Validated and fixed project metadata structure");
-                    }
-                } catch (e) {
-                    console.error("Error validating metadata on startup:", e);
-                }
-
-                const authApi = getAuthApi();
-                if (authApi && typeof (authApi as any).getAuthStatus === "function") {
-                    const authStatus = authApi.getAuthStatus();
-                    if (authStatus.isAuthenticated) {
-                        // Validate and fix projectId/projectName AFTER migrations complete
-                        // This ensures projectName updates aren't overwritten by migrations
-                        const workspaceFolders = vscode.workspace.workspaceFolders;
-                        if (workspaceFolders && workspaceFolders.length > 0) {
-                            try {
-                                const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
-                                await validateAndFixProjectId(workspaceFolders[0].uri);
-                            } catch (validationError) {
-                                console.error("[Extension] Error validating projectId after migrations:", validationError);
-                            }
-                        }
-
-                        // Check if this is an update workspace
-                        const pendingUpdateSync = context.globalState.get<any>("codex.pendingUpdateSync");
-                        const isUpdateWorkspace =
-                            !!pendingUpdateSync &&
-                            typeof pendingUpdateSync.projectPath === "string" &&
-                            typeof workspaceFolderPath === "string" &&
-                            path.normalize(pendingUpdateSync.projectPath) === path.normalize(workspaceFolderPath);
-
-                        const syncManager = SyncManager.getInstance();
-                        if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
-                            await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false);
-                            await context.globalState.update("codex.pendingUpdateSync", undefined);
-                            if (pendingUpdateSync?.showSuccessMessage) {
-                                const projectName = pendingUpdateSync?.projectName || "Project";
-                                const backupFileName = pendingUpdateSync?.backupFileName;
-                                vscode.window.showInformationMessage(
-                                    backupFileName
-                                        ? `Project "${projectName}" has been updated and synced successfully! Backup saved to: ${backupFileName}`
-                                        : `Project "${projectName}" has been updated and synced successfully!`
-                                );
-                            }
-                        } else {
-                            await syncManager.executeSync("Initial workspace sync", true, context, false);
-                        }
-                    }
-                }
+            if (vscode.workspace.workspaceFolders?.[0]) {
+                await validateAndFixProjectMetadata(vscode.workspace.workspaceFolders[0].uri);
             }
-        } catch (error) {
-            console.error("❌ [POST-MIGRATIONS] Error triggering sync after migrations:", error);
+        } catch (e) {
+            console.error("Error validating metadata on startup:", e);
         }
 
-        trackTiming("Running Post-activation Tasks", postActivationStart);
+        const api = getAuthApi();
+        if (!api || typeof (api as { getAuthStatus?: () => { isAuthenticated: boolean } }).getAuthStatus !== "function") return;
 
-        // Register update commands and check for updates (non-blocking)
-        registerUpdateCommands(context);
+        const authStatus = (api as { getAuthStatus: () => { isAuthenticated: boolean } }).getAuthStatus();
+        if (!authStatus.isAuthenticated) return;
 
-        // Version checking removed from this extension
+        // Validate and fix projectId/projectName AFTER migrations complete
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            try {
+                const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
+                await validateAndFixProjectId(workspaceFolders[0].uri);
+            } catch (validationError) {
+                console.error("[Extension] Error validating projectId after migrations:", validationError);
+            }
+        }
 
-        // Don't close splash screen yet - we still have sync operations to show
-        // The splash screen will be closed after all operations complete
+        // Check if this is an update workspace
+        const pendingUpdateSync = context.globalState.get<{
+            projectPath?: string;
+            commitMessage?: string;
+            showSuccessMessage?: boolean;
+            projectName?: string;
+            backupFileName?: string;
+        }>("codex.pendingUpdateSync");
+        const isUpdateWorkspace =
+            !!pendingUpdateSync &&
+            typeof pendingUpdateSync.projectPath === "string" &&
+            typeof workspaceFolderPath === "string" &&
+            path.normalize(pendingUpdateSync.projectPath) === path.normalize(workspaceFolderPath);
+
+        const syncManager = SyncManager.getInstance();
+        if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
+            await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false);
+            await context.globalState.update("codex.pendingUpdateSync", undefined);
+            if (pendingUpdateSync?.showSuccessMessage) {
+                const projectName = pendingUpdateSync?.projectName || "Project";
+                const backupFileName = pendingUpdateSync?.backupFileName;
+                vscode.window.showInformationMessage(
+                    backupFileName
+                        ? `Project "${projectName}" has been updated and synced successfully! Backup saved to: ${backupFileName}`
+                        : `Project "${projectName}" has been updated and synced successfully!`
+                );
+            }
+        } else {
+            await syncManager.executeSync("Initial workspace sync", true, context, false);
+        }
     } catch (error) {
-        console.error("Error during extension activation:", error);
-        vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
+        console.error("[Extension] Error during initial sync:", error);
+    }
+}
+
+let watcher: vscode.FileSystemWatcher | undefined;
+
+async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri): Promise<void> {
+    watcher = vscode.workspace.createFileSystemWatcher("**/*");
+
+    const statusBar = createStartupStatusBar(context);
+
+    const checkInitialization = async (): Promise<void> => {
+        let metadataExists = false;
+        try {
+            await vscode.workspace.fs.stat(metadataUri);
+            metadataExists = true;
+        } catch {
+            metadataExists = false;
+        }
+
+        if (metadataExists) {
+            watcher?.dispose();
+            await initializeLanguageServerAndIndex(context, statusBar);
+        }
+    };
+
+    watcher.onDidCreate(checkInitialization);
+    watcher.onDidChange(checkInitialization);
+    watcher.onDidDelete(checkInitialization);
+
+    context.subscriptions.push(watcher);
+}
+
+async function executeCommandsBefore(context: vscode.ExtensionContext): Promise<void> {
+    // Start status bar command non-blocking
+    void vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
+
+    // Batch all config updates
+    const config = vscode.workspace.getConfiguration();
+    await Promise.all([
+        config.update("workbench.statusBar.visible", false, true),
+        config.update("breadcrumbs.filePath", "last", true),
+        config.update("breadcrumbs.enabled", false, true),
+        config.update("workbench.editor.editorActionsLocation", "hidden", true),
+        config.update("workbench.editor.showTabs", "multiple", true),
+        config.update("window.autoDetectColorScheme", true, true),
+        config.update("workbench.editor.revealIfOpen", true, true),
+        config.update("workbench.layoutControl.enabled", false, true),
+        config.update("workbench.tips.enabled", false, true),
+        config.update("workbench.editor.limit.perEditorGroup", false, true),
+        config.update("workbench.editor.limit.value", 10, true),
+        config.update("workbench.startupEditor", "none", true),
+    ]);
+
+    registerCommandsBefore(context);
+}
+
+async function executeCommandsAfter(context: vscode.ExtensionContext): Promise<void> {
+    // Set editor font - non-critical, silently skip if command not available
+    try {
+        await vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
+    } catch {
+        // Command may not be registered yet or font setting may fail - not critical
     }
 
+    // Configure auto-save
+    await vscode.workspace.getConfiguration().update("files.autoSave", "afterDelay", vscode.ConfigurationTarget.Global);
+    await vscode.workspace.getConfiguration().update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
+    await vscode.workspace.getConfiguration().update("codex-project-manager.spellcheckIsEnabled", false, vscode.ConfigurationTarget.Global);
+
+    await vscode.commands.executeCommand("workbench.action.evenEditorWidths");
+}
+
+/**
+ * Register additional commands that don't need to be in the critical path
+ */
+function registerAdditionalCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor.openCellLabelImporter", () =>
             openCellLabelImporter(context)
         )
     );
+
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor.openCodexMigrationTool", () =>
             openCodexMigrationTool(context)
         )
     );
 
-    // Command: Migrate validations for user edits across project
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.migrateValidationsForUserEdits",
@@ -731,46 +647,42 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Comments-related commands
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
             vscode.commands.executeCommand("comments-sidebar.focus");
         })
     );
 
-    // Ensure sync commands exist in all environments (including tests)
-    try {
-        const cmds = await vscode.commands.getCommands(true);
-        if (!cmds.includes("extension.scheduleSync")) {
-            const { SyncManager } = await import("./projectManager/syncManager");
-            context.subscriptions.push(
-                vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
-                    const syncManager = SyncManager.getInstance();
-                    syncManager.scheduleSyncOperation(message);
-                })
-            );
+    // Ensure sync commands exist
+    void (async () => {
+        try {
+            const cmds = await vscode.commands.getCommands(true);
+            if (!cmds.includes("extension.scheduleSync")) {
+                const { SyncManager } = await import("./projectManager/syncManager");
+                context.subscriptions.push(
+                    vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
+                        const syncManager = SyncManager.getInstance();
+                        syncManager.scheduleSyncOperation(message);
+                    })
+                );
+            }
+        } catch (err) {
+            console.warn("Failed to ensure scheduleSync registration", err);
         }
-    } catch (err) {
-        console.warn("Failed to ensure scheduleSync registration", err);
-    }
+    })();
 
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.navigateToCellInComments", (cellId: string) => {
-            // Get the comments provider and send reload message
-            const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as any;
-            if (commentsProvider && commentsProvider._view) {
-                // Send a reload message directly to the webview with the cellId
+            const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as { _view?: { webview: { postMessage: (msg: unknown) => void } } } | undefined;
+            if (commentsProvider?._view) {
                 commentsProvider._view.webview.postMessage({
                     command: "reload",
-                    data: {
-                        cellId: cellId,
-                    }
+                    data: { cellId },
                 });
             }
         })
     );
 
-    // Batch transcription command
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.generateTranscriptions", async () => {
             const countInput = await vscode.window.showInputBox({
@@ -787,210 +699,22 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            provider.postMessageToWebviews({ type: "startBatchTranscription", content: { count } } as any);
+            provider.postMessageToWebviews({ type: "startBatchTranscription", content: { count } } as { type: string; content: { count: number } });
             vscode.window.showInformationMessage(`Starting transcription for up to ${count} cells...`);
         })
     );
 
-    // Register the missing comments-sidebar.reload command
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-editor-extension.comments-sidebar.reload", (options: any) => {
-            // Get the comments provider and send reload message
-            const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as any;
-            if (commentsProvider && commentsProvider._view) {
-                // Send a reload message directly to the webview
+        vscode.commands.registerCommand("codex-editor-extension.comments-sidebar.reload", (options: unknown) => {
+            const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as { _view?: { webview: { postMessage: (msg: unknown) => void } } } | undefined;
+            if (commentsProvider?._view) {
                 commentsProvider._view.webview.postMessage({
                     command: "reload",
-                    data: options
+                    data: options,
                 });
             }
         })
     );
-
-
-
-
-}
-
-async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
-    const initStart = globalThis.performance.now();
-
-    debug("Initializing extension");
-
-    if (metadataExists) {
-        // Break down language server initialization
-        const totalLsStart = globalThis.performance.now();
-
-        startRealtimeStep("Initializing Language Server");
-        const lsStart = globalThis.performance.now();
-        client = await registerLanguageServer(context);
-        const lsDuration = globalThis.performance.now() - lsStart;
-        debug(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
-
-        // Always register client commands to prevent "command not found" errors
-        // If language server failed, commands will return appropriate fallbacks
-        const regServicesStart = globalThis.performance.now();
-        clientCommandsDisposable = registerClientCommands(context, client);
-        context.subscriptions.push(clientCommandsDisposable);
-        const regServicesDuration = globalThis.performance.now() - regServicesStart;
-        debug(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
-
-        if (client && global.db) {
-            const optimizeStart = globalThis.performance.now();
-            try {
-                await registerClientOnRequests(client, global.db);
-                await client.start();
-            } catch (error) {
-                console.error("Error registering client requests:", error);
-            }
-            const optimizeDuration = globalThis.performance.now() - optimizeStart;
-            debug(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
-        } else {
-            if (!client) {
-                console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
-            }
-            if (!global.db) {
-                console.info("[Database] Dictionary not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
-            }
-        }
-        finishRealtimeStep();
-        const totalLsDuration = globalThis.performance.now() - totalLsStart;
-        debug(`[Activation] Language Server Ready: ${totalLsDuration.toFixed(2)}ms`);
-
-        // Break down index creation  
-        const totalIndexStart = globalThis.performance.now();
-
-        const verseRefsStart = globalThis.performance.now();
-        // Index verse refs would go here, but it seems to be missing from this section
-        const verseRefsDuration = globalThis.performance.now() - verseRefsStart;
-        debug(`[Activation]  Index Verse Refs: ${verseRefsDuration.toFixed(2)}ms`);
-
-        // Use real-time progress for context index setup since it can take a while
-        // Note: SQLiteIndexManager handles its own detailed progress tracking
-        startRealtimeStep("AI learning your project structure");
-        await createIndexWithContext(context);
-        finishRealtimeStep();
-
-        // Don't track "Total Index Creation" since it would show cumulative time
-        // The individual steps above already show the breakdown
-        const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
-        debug(`[AI Learning] Total AI learning preparation: ${totalIndexDuration.toFixed(2)}ms`);
-
-        // Skip version check during splash screen - will be performed before sync
-        updateSplashScreenSync(50, "Finalizing initialization...");
-
-        // Skip sync during splash screen - will be performed after workspace loads
-        updateSplashScreenSync(100, "Initialization complete");
-        debug("✅ [SPLASH SCREEN PHASE] Extension initialization complete, sync will run after workspace loads");
-    }
-
-    // Calculate and log total initialize extension time but don't add to main timing array
-    // since it's a summary of the sub-steps already tracked
-    const totalInitDuration = globalThis.performance.now() - initStart;
-    debug(`[Activation] Total Initialize Extension: ${totalInitDuration.toFixed(2)}ms`);
-}
-
-let watcher: vscode.FileSystemWatcher | undefined;
-
-async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
-    watcher = vscode.workspace.createFileSystemWatcher("**/*");
-
-    const checkInitialization = async () => {
-        let metadataExists = false;
-        try {
-            await vscode.workspace.fs.stat(metadataUri);
-            metadataExists = true;
-        } catch {
-            metadataExists = false;
-        }
-
-        if (metadataExists) {
-            watcher?.dispose();
-            await initializeExtension(context, metadataExists);
-        }
-    };
-
-    watcher.onDidCreate(checkInitialization);
-    watcher.onDidChange(checkInitialization);
-    watcher.onDidDelete(checkInitialization);
-
-    context.subscriptions.push(watcher);
-}
-
-async function executeCommandsBefore(context: vscode.ExtensionContext) {
-    // Start status bar command non-blocking
-    void vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
-
-    // Batch all config updates with Promise.all instead of sequential awaits
-    const config = vscode.workspace.getConfiguration();
-    await Promise.all([
-        config.update("workbench.statusBar.visible", false, true),
-        config.update("breadcrumbs.filePath", "last", true),
-        config.update("breadcrumbs.enabled", false, true), // hide breadcrumbs for now... it shows the file name which cannot be localized
-        config.update("workbench.editor.editorActionsLocation", "hidden", true),
-        config.update("workbench.editor.showTabs", "none", true), // Hide tabs during splash screen
-        config.update("window.autoDetectColorScheme", true, true),
-        config.update("workbench.editor.revealIfOpen", true, true),
-        config.update("workbench.layoutControl.enabled", false, true),
-        config.update("workbench.tips.enabled", false, true),
-        config.update("workbench.editor.limit.perEditorGroup", false, true),
-        config.update("workbench.editor.limit.value", 4, true),
-    ]);
-
-    registerCommandsBefore(context);
-}
-
-async function executeCommandsAfter(
-    context: vscode.ExtensionContext
-) {
-    try {
-        // Update splash screen for post-activation tasks
-        updateSplashScreenSync(90, "Configuring editor settings...");
-
-        await vscode.commands.executeCommand(
-            "codex-editor-extension.setEditorFontToTargetLanguage"
-        );
-    } catch (error) {
-        console.warn("Failed to set editor font, possibly due to network issues:", error);
-    }
-
-    // Configure auto-save in settings
-    await vscode.workspace
-        .getConfiguration()
-        .update("files.autoSave", "afterDelay", vscode.ConfigurationTarget.Global);
-    await vscode.workspace
-        .getConfiguration()
-        .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
-
-    await vscode.workspace
-        .getConfiguration()
-        .update("codex-project-manager.spellcheckIsEnabled", false, vscode.ConfigurationTarget.Global);
-
-    // Final splash screen update and close
-    updateSplashScreenSync(100, "Finalizing setup...");
-
-    // Close splash screen and then check if we need to show the welcome view
-    closeSplashScreen(async () => {
-        debug(
-            "[Extension] Splash screen closed, checking if welcome view needs to be shown"
-        );
-        // Show tabs again after splash screen closes
-        await vscode.workspace
-            .getConfiguration()
-            .update("workbench.editor.showTabs", "multiple", true);
-        // Restore tab layout after splash screen closes
-        await restoreTabLayout(context);
-
-        // Check if we need to show the welcome view after initialization
-        await showWelcomeViewIfNeeded();
-    });
-
-    await vscode.commands.executeCommand("workbench.action.evenEditorWidths");
-
-    // Check for updates in the background after everything else is ready
-    checkForUpdatesOnStartup(context).catch(error => {
-        console.error('[Extension] Error during startup update check:', error);
-    });
 }
 
 /**
@@ -999,7 +723,7 @@ async function executeCommandsAfter(
  */
 async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> {
     try {
-        const { getSwapPendingState, checkPendingDownloadsComplete, clearSwapPendingState, downloadPendingSwapFiles, saveSwapPendingState, performProjectSwap } =
+        const { getSwapPendingState, checkPendingDownloadsComplete, downloadPendingSwapFiles, performProjectSwap } =
             await import("./providers/StartupFlow/performProjectSwap");
 
         const pendingState = await getSwapPendingState(projectUri.fsPath);
@@ -1011,15 +735,13 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
         console.log("[Extension] Found pending swap downloads, starting automatic download...");
 
         // Check if downloads are already complete
-        const { complete: alreadyComplete, remaining } = await checkPendingDownloadsComplete(projectUri.fsPath);
+        const { complete: alreadyComplete } = await checkPendingDownloadsComplete(projectUri.fsPath);
 
         if (alreadyComplete) {
-            // Already done - show continue modal
             await promptContinueSwap(projectUri, pendingState);
             return;
         }
 
-        // Show progress and automatically download the files
         const totalFiles = pendingState.filesNeedingDownload.length;
 
         await vscode.window.withProgress({
@@ -1027,9 +749,7 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
             title: "Downloading media for swap...",
             cancellable: true
         }, async (progress, token) => {
-            // Show initial count in message
             progress.report({ message: `0/${totalFiles} files` });
-            // Set up cancellation handler
             let cancelled = false;
             token.onCancellationRequested(() => {
                 cancelled = true;
@@ -1047,7 +767,6 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
             console.log(`[Extension] Download complete: ${result.downloaded}/${result.total}, failed: ${result.failed.length}`);
 
             if (result.failed.length > 0) {
-                // Some downloads failed - show warning and let user decide
                 const action = await vscode.window.showWarningMessage(
                     `Downloaded ${result.downloaded}/${result.total} files. ${result.failed.length} file(s) failed to download. Continue with swap anyway?`,
                     { modal: true },
@@ -1057,7 +776,6 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
                 );
 
                 if (action === "Retry") {
-                    // Reopen to retry
                     vscode.commands.executeCommand("workbench.action.reloadWindow");
                 } else if (action === "Continue Swap") {
                     await promptContinueSwap(projectUri, pendingState);
@@ -1065,7 +783,6 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
                     await cancelSwap(projectUri, pendingState);
                 }
             } else {
-                // All downloads successful
                 await promptContinueSwap(projectUri, pendingState);
             }
         });
@@ -1078,8 +795,9 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
 /**
  * Show modal to continue or cancel swap after downloads complete
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
-    const { saveSwapPendingState, performProjectSwap, clearSwapPendingState } =
+    const { saveSwapPendingState, performProjectSwap } =
         await import("./providers/StartupFlow/performProjectSwap");
 
     const newProjectName = pendingState.newProjectUrl.split('/').pop()?.replace('.git', '') || 'new project';
@@ -1091,13 +809,11 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
     );
 
     if (action === "Continue Swap") {
-        // Mark as ready and trigger swap
         await saveSwapPendingState(projectUri.fsPath, {
             ...pendingState,
             swapState: "ready_to_swap"
         });
 
-        // Perform the swap
         const projectName = projectUri.fsPath.split(/[\\/]/).pop() || "project";
 
         await vscode.window.withProgress({
@@ -1117,35 +833,27 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
             );
 
             progress.report({ message: "Opening swapped project..." });
-            const { MetadataManager } = await import("./utils/metadataManager");
             await MetadataManager.safeOpenFolder(
                 vscode.Uri.file(newPath),
                 projectUri
             );
         });
     } else {
-        // User clicked Cancel or closed the modal
         await cancelSwap(projectUri, pendingState);
     }
 }
 
 /**
  * Cancel a pending swap.
- * Since we no longer change media strategy during swap, just clear the pending state.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function cancelSwap(projectUri: vscode.Uri, _pendingState: any): Promise<void> {
     const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
     await clearSwapPendingState(projectUri.fsPath);
     vscode.window.showInformationMessage("Project swap cancelled.");
 }
 
-export function deactivate() {
-    // Clean up real-time progress timer
-    if (currentStepTimer) {
-        clearInterval(currentStepTimer);
-        currentStepTimer = null;
-    }
-
+export function deactivate(): Thenable<void> | undefined {
     if (clientCommandsDisposable) {
         clientCommandsDisposable.dispose();
     }
@@ -1162,6 +870,8 @@ export function deactivate() {
             clearSQLiteIndexManager();
         }
     ).catch(console.error);
+
+    return undefined;
 }
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {
@@ -1176,10 +886,9 @@ export function getAuthApi(): FrontierAPI | undefined {
     if (!authApi) {
         const extension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         if (extension?.isActive) {
-            const exports = extension.exports as any;
-            // Defensive: only treat as auth API if it has expected surface area
+            const exports = extension.exports as { getAuthStatus?: () => unknown };
             if (exports && typeof exports.getAuthStatus === "function") {
-                authApi = exports;
+                authApi = exports as FrontierAPI;
             }
         }
     }
