@@ -31,6 +31,7 @@ import { IntentSelection } from "./components/IntentSelection";
 import { SourceFileSelection } from "./components/SourceFileSelection";
 import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
+import { SystemMessageStep } from "../StartupFlow/components/SystemMessageStep";
 import { createDownloadHelper } from "./utils/downloadHelper";
 import "./App.css";
 import "../tailwind.css";
@@ -57,6 +58,7 @@ const NewSourceUploader: React.FC = () => {
     });
 
     const [isDirty, setIsDirty] = useState(false);
+    const [systemMessage, setSystemMessage] = useState<string>("");
 
     // State for managing alignment requests
     const [alignmentRequests, setAlignmentRequests] = useState<
@@ -193,6 +195,9 @@ const NewSourceUploader: React.FC = () => {
                     completedRequests.forEach((key) => newMap.delete(key));
                     return newMap;
                 });
+            } else if (message.command === "systemMessage.generated") {
+                // Handle generated system message
+                setSystemMessage(message.message || "");
             } else if (message.command === "targetFileError") {
                 // Handle target file error
                 const response = message as TargetFileErrorMessage;
@@ -426,6 +431,23 @@ const NewSourceUploader: React.FC = () => {
     }, []);
 
     const handleStartTranslating = useCallback(() => {
+        // Navigate to system message step
+        // SystemMessageStep will auto-generate on mount if message is empty
+        setWizardState((prev) => ({
+            ...prev,
+            currentStep: "system-message",
+        }));
+    }, []);
+
+    const handleSystemMessageContinue = useCallback(() => {
+        // After system message is saved, actually start translating
+        vscode.postMessage({
+            command: "startTranslating",
+        });
+    }, []);
+
+    const handleSystemMessageSkip = useCallback(() => {
+        // Skip system message and start translating
         vscode.postMessage({
             command: "startTranslating",
         });
@@ -596,6 +618,24 @@ const NewSourceUploader: React.FC = () => {
                     onSelectPlugin={handleSelectPlugin}
                     onBack={handleBack}
                 />
+            );
+
+        case "system-message":
+            return (
+                <div style={{
+                    display: "flex",
+                    width: "100%",
+                    height: "100vh",
+                    alignItems: "center",
+                    justifyContent: "center",
+                }}>
+                    <SystemMessageStep
+                        vscode={vscode}
+                        initialMessage={systemMessage}
+                        onContinue={handleSystemMessageContinue}
+                        onSkip={handleSystemMessageSkip}
+                    />
+                </div>
             );
 
         default:

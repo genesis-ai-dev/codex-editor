@@ -497,7 +497,7 @@ function MainMenu() {
                                                 }
                                                 className="flex-1 min-w-0"
                                                 minFontSize={9}
-                                                maxFontSize={16}
+                                                maxFontSize={18}
                                             />
                                         </div>
                                         <Button
