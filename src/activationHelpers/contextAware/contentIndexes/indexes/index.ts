@@ -139,9 +139,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     // Initialize SQLite index manager
+    console.log("[Index] Creating SQLiteIndexManager...");
     const indexManager = new SQLiteIndexManager();
 
     await indexManager.initialize(context);
+    console.log("[Index] SQLiteIndexManager initialized");
 
     // Register the index manager globally for immediate access
     const { setSQLiteIndexManager } = await import("./sqliteIndexManager");
@@ -156,8 +158,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
     let filesIndex: Map<string, FileInfo> = new Map<string, FileInfo>();
 
+    console.log("[Index] Initializing metadata manager...");
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
+    console.log("[Index] Metadata loaded");
 
     /**
      * Check if rebuild is allowed based on cooldown and consecutive rebuild limits
@@ -243,6 +247,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
      * Smart rebuild using file-level synchronization
      */
     async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
+        console.log(`[Index] smartRebuildIndexes called: ${reason} (forced: ${isForced})`);
         debug(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
 
         // Check consecutive rebuilds protection
@@ -263,28 +268,34 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             statusBarHandler.setIndexingActive();
 
             // Create sync manager
+            console.log("[Index] Creating FileSyncManager...");
             const fileSyncManager = new FileSyncManager(translationPairsIndex);
 
             // For forced rebuilds, clear everything first
             if (isForced) {
+                console.log("[Index] Forced rebuild - clearing existing indexes...");
                 debug("[Index] Forced rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
                 wordsIndex.clear();
                 filesIndex.clear();
+                console.log("[Index] Indexes cleared");
             }
 
             // Perform intelligent file synchronization
+            console.log("[Index] Starting file sync...");
             debug("[Index] Starting file-level synchronization...");
 
             const syncResult: FileSyncResult = await fileSyncManager.syncFiles({
                 forceSync: isForced,
                 progressCallback: (message, progress) => {
+                    console.log(`[Index] Sync: ${message} (${progress}%)`);
                     debug(`[Index] Sync progress: ${message} (${progress}%)`);
                     // Use existing status bar methods for progress tracking
                 }
             });
 
+            console.log(`[Index] Sync done: ${syncResult.syncedFiles}/${syncResult.totalFiles} files`);
             debug(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
 
             if (syncResult.errors.length > 0) {
@@ -394,8 +405,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     // Check database health and determine if rebuild is needed
+    console.log("[Index] Running health check...");
     const currentDocCount = translationPairsIndex.documentCount;
     const healthCheck = await validateIndexHealthConservatively();
+    console.log(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL'} - docs: ${currentDocCount}`);
 
     debug(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
 
@@ -408,7 +421,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     } else {
         // Health check passed - database is structurally sound
         // Check for file changes to determine if sync is needed
+        console.log("[Index] Checking if files need sync...");
         const changeCheck = await checkIfRebuildNeeded();
+        console.log(`[Index] Files need sync: ${changeCheck.needsRebuild}`);
         if (changeCheck.needsRebuild) {
             needsRebuild = true;
             rebuildReason = changeCheck.reason;
@@ -416,6 +431,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     if (needsRebuild) {
+        console.log(`[Index] Starting rebuild: ${rebuildReason}`);
         debug(`[Index] Rebuild needed: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically

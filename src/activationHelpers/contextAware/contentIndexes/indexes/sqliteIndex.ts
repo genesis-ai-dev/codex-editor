@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index column for O(1) milestone lookup
+export const CURRENT_SCHEMA_VERSION = 14; // Fix FTS5 trigger to DELETE before INSERT (prevents unbounded growth)
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -123,6 +123,7 @@ export class SQLiteIndexManager {
     }
 
     async initialize(context: vscode.ExtensionContext): Promise<void> {
+        console.log("[SQLiteIndex] Starting initialization...");
         const initStart = globalThis.performance.now();
         let stepStart = initStart;
 
@@ -146,6 +147,7 @@ export class SQLiteIndexManager {
         // Load or create database
         await this.loadOrCreateDatabase();
 
+        console.log("[SQLiteIndex] Initialization complete");
         this.trackProgress("AI learning capabilities ready", initStart);
     }
 
@@ -406,21 +408,23 @@ export class SQLiteIndexManager {
             `);
 
             this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_source_update 
+                CREATE TRIGGER IF NOT EXISTS cells_fts_source_update
                 AFTER UPDATE OF s_content, s_raw_content ON cells
                 WHEN NEW.s_content IS NOT NULL
                 BEGIN
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'source';
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
                 END
             `);
 
             this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_target_update 
+                CREATE TRIGGER IF NOT EXISTS cells_fts_target_update
                 AFTER UPDATE OF t_content, t_raw_content ON cells
                 WHEN NEW.t_content IS NOT NULL
                 BEGIN
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'target';
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
                 END
             `);
@@ -497,6 +501,7 @@ export class SQLiteIndexManager {
             // Check current schema version
             stepStart = this.trackProgress("Check database schema version", stepStart);
             const currentVersion = this.getSchemaVersion();
+            console.log(`[SQLiteIndex] Current schema version: ${currentVersion}, expected: ${CURRENT_SCHEMA_VERSION}`);
             debug(`Current schema version: ${currentVersion}`);
 
 
@@ -518,6 +523,7 @@ export class SQLiteIndexManager {
             } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
                 // Scenario 2: ANY version mismatch (ahead, behind, or different) - ALWAYS recreate everything
                 // No partial migrations - we're senior database engineers who don't mess with bad/partial databases!
+                console.log(`[SQLiteIndex] Schema mismatch detected (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating database...`);
                 stepStart = this.trackProgress("Handle schema version mismatch", stepStart);
                 debug(`Database schema version ${currentVersion} does not match code version ${CURRENT_SCHEMA_VERSION}`);
                 debug("FULL RECREATION: No partial migrations - deleting and recreating database from scratch for maximum reliability");
@@ -533,6 +539,7 @@ export class SQLiteIndexManager {
                 await this.recreateDatabase();
 
                 this.trackProgress("Database complete recreation finished", stepStart);
+                console.log(`[SQLiteIndex] Database recreated successfully with schema version ${CURRENT_SCHEMA_VERSION}`);
                 debug(`Database completely recreated with schema version ${CURRENT_SCHEMA_VERSION} - no partial migrations used`);
             } else {
                 // Scenario 3: Correct version - load normally
@@ -2413,8 +2420,10 @@ export class SQLiteIndexManager {
 
                 // Manually sync this specific cell to FTS if triggers didn't work
                 // Use sanitized content for the content field (for searching) and raw content for raw_content field
+                // FTS5 INSERT OR REPLACE doesn't work without explicit rowid, so DELETE first then INSERT
+                this.db!.run(`DELETE FROM cells_fts WHERE cell_id = ? AND content_type = ?`, [cellId, cellType]);
                 this.db!.run(`
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     VALUES (?, ?, ?, ?)
                 `, [cellId, sanitizedContent, actualRawContent, cellType]);
             } catch (error) {
