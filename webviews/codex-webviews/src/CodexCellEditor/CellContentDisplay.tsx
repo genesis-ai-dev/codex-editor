@@ -1212,6 +1212,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         : undefined;
                                                 })()}
                                                 health={cell.metadata?.health}
+                                                showHealthIndicators={showHealthIndicators}
                                             />
                                         </div>
                                     )}

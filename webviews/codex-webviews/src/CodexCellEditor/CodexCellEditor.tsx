@@ -1174,6 +1174,20 @@ const CodexCellEditor: React.FC = () => {
         (event: MessageEvent) => {
             const message = event.data;
 
+            // Debug: log ALL messages with providerUpdatesValidationState type
+            if (message.type === "providerUpdatesValidationState") {
+                console.log(
+                    "[CodexCellEditor] ✅ Handler received providerUpdatesValidationState:",
+                    {
+                        type: message.type,
+                        cellId: message.content?.cellId,
+                        health: message.content?.health,
+                        validatedByCount: message.content?.validatedBy?.length || 0,
+                        fullMessage: message,
+                    }
+                );
+            }
+
             // Listen for batch validation completion
             if (message.type === "validationsApplied") {
                 // Refresh progress for current milestone after batch validations are applied
@@ -1196,6 +1210,16 @@ const CodexCellEditor: React.FC = () => {
                 // Update cell health AND validatedBy in translationUnits when validation state changes
                 if (message.content?.cellId) {
                     setTranslationUnits((prevUnits) => {
+                        // Check if cell exists in current units
+                        const cellExists = prevUnits.some(
+                            (u) => u.cellMarkers[0] === message.content.cellId
+                        );
+                        console.log("[CodexCellEditor] Updating translationUnits:", {
+                            cellId: message.content.cellId,
+                            translationUnitsCount: prevUnits.length,
+                            cellExists,
+                        });
+
                         const updated = prevUnits.map((unit) => {
                             if (unit.cellMarkers[0] === message.content.cellId) {
                                 console.log(
