@@ -251,35 +251,6 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         } as DictionaryReceiveMessages);
     }
 
-    // private async repairDictionaryIfNeeded(dictionaryUri: vscode.Uri) {
-    //     try {
-    //         const dictionary = await readDictionaryClient(dictionaryUri);
-    //         const newContent = serializeDictionaryEntries(
-    //             dictionary.entries.map(ensureCompleteEntry)
-    //         );
-    //         await saveDictionaryClient(dictionaryUri, {
-    //             ...dictionary,
-    //             entries: deserializeDictionaryEntries(newContent),
-    //         });
-    //         console.log("Dictionary repaired and saved.");
-    //     } catch (error) {
-    //         console.error("Error repairing dictionary:", error);
-    //     }
-    // }
-
-    private isValidDictionaryEntry(entry: any): entry is DictionaryEntry {
-        return typeof entry === "object" && entry !== null && "headWord" in entry;
-    }
-
-    private ensureCompleteEntry(entry: Partial<DictionaryEntry>): DictionaryEntry {
-        return {
-            id: entry.id || "",
-            headWord: entry.headWord || "",
-            definition: entry.definition || "",
-            isUserEntry: entry.isUserEntry || false,
-            authorId: entry.authorId || "",
-        };
-    }
 
     private async refreshEditor(webviewPanel: vscode.WebviewPanel) {
         if (this.document) {
@@ -298,15 +269,6 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                         data: updatedContent,
                     } as DictionaryReceiveMessages);
 
-                    // this.onDidChangeCustomDocument.fire({
-                    //     document: this.document,
-                    //     undo: () => {
-                    //         // Implement undo logic if needed
-                    //     },
-                    //     redo: () => {
-                    //         // Implement redo logic if needed
-                    //     },
-                    // });
                 }
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to refresh dictionary: ${error}`);
@@ -386,16 +348,6 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
 
         const { entries, total } = getPagedWords({ db, page, pageSize, searchQuery });
-        // const entries: DictionaryEntry[] = words.map((word) => {
-        //     const definitions = getDefinitions(db, word);
-        //     return {
-        //         id: word,
-        //         headWord: word,
-        //         definition: definitions.join("\n"),
-        //         isUserEntry: false,
-        //         authorId: "",
-        //     };
-        // });
 
         return {
             entries,

@@ -72,27 +72,6 @@ async function getHtmlForCellLabelImporterView(
         "CellLabelImporterView"
     );
 
-    // Option 1: Look for a pre-built index.html (if Vite generates one with hashed assets)
-    // This is more robust to asset hash changes.
-    // For this to work, ensure CellLabelImporterView build output includes an index.html in its root.
-    // const indexPath = vscode.Uri.joinPath(distPath, 'index.html');
-    // try {
-    //     const indexContentBytes = await vscode.workspace.fs.readFile(indexPath);
-    //     let indexContent = new TextDecoder().decode(indexContentBytes);
-    //     // Replace asset paths with webview URIs
-    //     indexContent = indexContent.replace(/(href|src)=\"/g, `$1="${webview.asWebviewUri(distPath)}/`);
-    //     // Add nonce to script tags if needed by your CSP and how Vite injects scripts
-    //     // This part can be tricky and depends on Vite's output structure.
-    //     return indexContent;
-    // } catch (e) {
-    //     console.warn("Could not read pre-built index.html for CellLabelImporterView, falling back to explicit asset paths.", e);
-    // }
-
-    // Option 2: Explicitly link to known (potentially unhashed or predictably named) assets.
-    // This is simpler if Vite's output names are predictable and don't include hashes, or if you handle hashes manually.
-    // The `package.json` uses `vite build`, which often produces hashed assets. We might need to adjust build or use a manifest.
-    // For now, let's assume a common output `index.js` (or main.js/bundle.js) and potentially `index.css`.
-    // This might need adjustment based on actual Vite output for `CellLabelImporterView`.
 
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distPath, "index.js")); // Adjust if filename is different
     // const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distPath, "index.css")); // Adjust if CSS is separate and named differently
