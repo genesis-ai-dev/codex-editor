@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Button } from "../components/ui/button";
 import { Switch } from "../components/ui/switch";
 
@@ -20,7 +20,7 @@ interface ProjectStandard {
 
 interface StandardCardProps {
     standard: ProjectStandard;
-    violationCount: number;
+    violationCount: number | null; // null = not scanned yet
     focusModeEnabled: boolean;
     onToggle: (standardId: string, enabled: boolean) => void;
     onEdit?: (standard: ProjectStandard) => void;
@@ -39,196 +39,173 @@ export const StandardCard: React.FC<StandardCardProps> = ({
     onViewViolations,
     isOrgStandard = false,
 }) => {
-    const isSupported = standard.standardType === "regex-pattern";
+    const [isExpanded, setIsExpanded] = useState(false);
     const isEffectivelyDisabled = focusModeEnabled || !standard.enabled;
+    const hasBeenScanned = violationCount !== null;
+    const hasViolations = !isEffectivelyDisabled && hasBeenScanned && violationCount > 0;
 
-    // Determine violation badge color
-    const getViolationBadge = () => {
-        if (focusModeEnabled || !standard.enabled) {
-            return (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    —
-                </span>
-            );
-        }
-
-        if (!isSupported) {
-            return (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    N/A
-                </span>
-            );
-        }
-
-        if (violationCount === 0) {
-            return (
-                <button
-                    className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400 hover:bg-green-500/30 transition-colors"
-                    onClick={() => onViewViolations(standard.id)}
-                >
-                    🟢 0
-                </button>
-            );
-        }
-
-        if (violationCount < 10) {
-            return (
-                <button
-                    className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors"
-                    onClick={() => onViewViolations(standard.id)}
-                >
-                    🟡 {violationCount}
-                </button>
-            );
-        }
-
-        return (
-            <button
-                className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-600 dark:text-red-400 hover:bg-red-500/30 transition-colors"
-                onClick={() => onViewViolations(standard.id)}
-            >
-                🔴 {violationCount}
-            </button>
-        );
-    };
-
-    // Get source badge
-    const getSourceBadge = () => {
+    // Get source label
+    const getSourceLabel = () => {
         switch (standard.source) {
             case "org":
-                return (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                        Org
-                    </span>
-                );
+                return "Org";
             case "imported":
-                return (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400">
-                        Imported
-                    </span>
-                );
+                return "Imported";
             case "auto-detected":
-                return (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-600 dark:text-purple-400">
-                        Auto
-                    </span>
-                );
+                return "Auto";
             default:
-                return (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-                        Manual
-                    </span>
-                );
+                return "Project";
         }
     };
 
-    // Get type badge
-    const getTypeBadge = () => {
-        if (standard.standardType === "regex-pattern") {
-            return (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-                    Regex
-                </span>
-            );
+    // Handle card click to expand/collapse
+    const handleCardClick = (e: React.MouseEvent) => {
+        // Don't expand if clicking on interactive elements
+        if ((e.target as HTMLElement).closest("button, [role='switch'], a")) {
+            return;
         }
+        setIsExpanded(!isExpanded);
+    };
 
-        return (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-dashed">
-                {standard.standardType.replace(/-/g, " ")}
-                <span className="ml-1 text-[10px]">(Phase 2+)</span>
-            </span>
-        );
+    // Handle view violations click
+    const handleViewViolations = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onViewViolations(standard.id);
+    };
+
+    // Get card border/background classes based on violation state
+    const getCardClasses = () => {
+        if (isEffectivelyDisabled) {
+            return "opacity-60 bg-muted/30 border";
+        }
+        if (hasViolations) {
+            return violationCount >= 10
+                ? "border-2 border-red-500/50 bg-red-500/5"
+                : "border-2 border-amber-500/50 bg-amber-500/5";
+        }
+        return "border bg-card hover:shadow-sm";
     };
 
     return (
-        <div
-            className={`border rounded-lg p-3 transition-all ${
-                isEffectivelyDisabled ? "opacity-60 bg-muted/30" : "bg-card hover:shadow-sm"
-            }`}
-        >
-            <div className="flex items-start justify-between gap-3">
-                {/* Main content */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+        <div className={`rounded-lg transition-all ${getCardClasses()}`}>
+            {/* Main card content - always visible */}
+            <div className="p-3 cursor-pointer" onClick={handleCardClick}>
+                <div className="flex items-center justify-between gap-3">
+                    {/* Left side: description and metadata */}
+                    <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{standard.description}</p>
+                        <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+                            <span>{getSourceLabel()}</span>
+                            {isEffectivelyDisabled ? (
+                                <>
+                                    <span>•</span>
+                                    <span className="italic">paused</span>
+                                </>
+                            ) : null}
+                        </div>
                     </div>
 
-                    {/* Badges row */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                        {getSourceBadge()}
-                        {getTypeBadge()}
-                        {standard.citation && (
-                            <span
-                                className="text-xs text-muted-foreground truncate max-w-[150px]"
-                                title={standard.citation}
+                    {/* Right side: violation badge + toggle */}
+                    <div className="flex items-center gap-3 shrink-0">
+                        {/* Violation badge - only show when scanned */}
+                        {!isEffectivelyDisabled && hasBeenScanned && (
+                            <button
+                                onClick={handleViewViolations}
+                                className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                                    violationCount === 0
+                                        ? "bg-green-500/20 text-green-700 dark:text-green-400 hover:bg-green-500/30"
+                                        : violationCount < 10
+                                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-500/30"
+                                        : "bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-500/30"
+                                }`}
                             >
-                                📖 {standard.citation}
+                                {violationCount}
+                            </button>
+                        )}
+                        {/* Show dash when not scanned yet */}
+                        {!isEffectivelyDisabled && !hasBeenScanned && (
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+                                —
                             </span>
                         )}
+                        <Switch
+                            checked={standard.enabled}
+                            onCheckedChange={(enabled) => {
+                                onToggle(standard.id, enabled);
+                            }}
+                            disabled={focusModeEnabled}
+                        />
                     </div>
-
-                    {/* Regex pattern preview (collapsed) */}
-                    {standard.regexPattern && isSupported && (
-                        <div className="mt-2">
-                            <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground truncate block max-w-full">
-                                /{standard.regexPattern}/gi
-                            </code>
-                        </div>
-                    )}
-
-                    {/* Not supported message */}
-                    {!isSupported && (
-                        <div className="mt-2 text-xs text-muted-foreground italic">
-                            This standard type is not supported in Phase 1
-                        </div>
-                    )}
-                </div>
-
-                {/* Actions column */}
-                <div className="flex items-center gap-2 shrink-0">
-                    {/* Violation count */}
-                    {getViolationBadge()}
-
-                    {/* Toggle switch */}
-                    <Switch
-                        checked={standard.enabled}
-                        onCheckedChange={(enabled) => onToggle(standard.id, enabled)}
-                        disabled={focusModeEnabled}
-                    />
-
-                    {/* Edit/Delete buttons (only for non-org standards) */}
-                    {!isOrgStandard && (
-                        <div className="flex items-center gap-1">
-                            {onEdit && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0"
-                                    onClick={() => onEdit(standard)}
-                                    title="Edit standard"
-                                >
-                                    <i className="codicon codicon-edit" />
-                                </Button>
-                            )}
-                            {onDelete && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                    onClick={() => {
-                                        if (confirm(`Delete standard "${standard.description}"?`)) {
-                                            onDelete(standard.id);
-                                        }
-                                    }}
-                                    title="Delete standard"
-                                >
-                                    <i className="codicon codicon-trash" />
-                                </Button>
-                            )}
-                        </div>
-                    )}
                 </div>
             </div>
+
+            {/* Expandable details section */}
+            {isExpanded && (
+                <div className="px-3 pb-3 pt-0 border-t mt-0">
+                    <div className="pt-3 space-y-3">
+                        {/* Regex pattern */}
+                        {standard.regexPattern && (
+                            <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                    Pattern
+                                </p>
+                                <code className="text-xs bg-muted px-2 py-1 rounded font-mono block overflow-x-auto">
+                                    /{standard.regexPattern}/gi
+                                </code>
+                            </div>
+                        )}
+
+                        {/* Citation */}
+                        {standard.citation && (
+                            <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                    Citation
+                                </p>
+                                <p className="text-sm">{standard.citation}</p>
+                            </div>
+                        )}
+
+                        {/* Actions */}
+                        {!isOrgStandard && (onEdit || onDelete) && (
+                            <div className="flex items-center gap-2 pt-2">
+                                {onEdit && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEdit(standard);
+                                        }}
+                                    >
+                                        <i className="codicon codicon-edit mr-1" />
+                                        Edit
+                                    </Button>
+                                )}
+                                {onDelete && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-destructive hover:text-destructive"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (
+                                                confirm(
+                                                    `Delete standard "${standard.description}"?`
+                                                )
+                                            ) {
+                                                onDelete(standard.id);
+                                            }
+                                        }}
+                                    >
+                                        <i className="codicon codicon-trash mr-1" />
+                                        Delete
+                                    </Button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

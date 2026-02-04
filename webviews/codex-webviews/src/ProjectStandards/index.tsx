@@ -194,9 +194,65 @@ function ProjectStandardsApp() {
         ? standards.find((s) => s.id === selectedStandardForViolations)
         : null;
 
+    // Calculate total violations
+    const totalViolations = Object.values(violationCounts).reduce((sum, count) => sum + count, 0);
+    const standardsWithViolations = Object.values(violationCounts).filter(
+        (count) => count > 0
+    ).length;
+    const enabledStandards = standards.filter((s) => s.enabled).length;
+    const hasBeenScanned = Object.keys(violationCounts).length > 0;
+
     return (
-        <div className="p-4">
+        <div className="p-4 max-w-2xl mx-auto">
             <WebviewHeader title="Project Standards" />
+
+            {/* Violation Summary Banner - only show after scan */}
+            {!focusModeEnabled && enabledStandards > 0 && hasBeenScanned && (
+                <div
+                    className={`mb-4 p-4 rounded-lg border-2 ${
+                        totalViolations === 0
+                            ? "bg-green-500/10 border-green-500/30"
+                            : totalViolations < 10
+                            ? "bg-amber-500/10 border-amber-500/30"
+                            : "bg-red-500/10 border-red-500/30"
+                    }`}
+                >
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <span className="text-3xl font-bold tabular-nums">
+                                {totalViolations}
+                            </span>
+                            <div>
+                                <p className="text-sm font-medium">
+                                    {totalViolations === 1 ? "violation" : "violations"} found
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    across {standardsWithViolations} of {enabledStandards} active{" "}
+                                    {enabledStandards === 1 ? "standard" : "standards"}
+                                </p>
+                            </div>
+                        </div>
+                        {totalViolations === 0 && <span className="text-2xl">✓</span>}
+                    </div>
+                </div>
+            )}
+
+            {/* Not scanned yet prompt */}
+            {!focusModeEnabled && enabledStandards > 0 && !hasBeenScanned && (
+                <div className="mb-4 p-4 rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/20">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <span className="text-2xl text-muted-foreground">?</span>
+                            <div>
+                                <p className="text-sm font-medium">Not scanned yet</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Click "Scan All" to check for violations
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Quick Actions Bar */}
             <div className="flex items-center justify-between mb-4 p-3 bg-secondary/30 rounded-lg">
@@ -265,7 +321,7 @@ function ProjectStandardsApp() {
                             <StandardCard
                                 key={standard.id}
                                 standard={standard}
-                                violationCount={violationCounts[standard.id] ?? 0}
+                                violationCount={violationCounts[standard.id] ?? null}
                                 focusModeEnabled={focusModeEnabled}
                                 onToggle={handleToggleStandard}
                                 onViewViolations={handleViewViolations}
@@ -300,7 +356,7 @@ function ProjectStandardsApp() {
                             <StandardCard
                                 key={standard.id}
                                 standard={standard}
-                                violationCount={violationCounts[standard.id] ?? 0}
+                                violationCount={violationCounts[standard.id] ?? null}
                                 focusModeEnabled={focusModeEnabled}
                                 onToggle={handleToggleStandard}
                                 onEdit={(s) => setEditingStandard(s)}

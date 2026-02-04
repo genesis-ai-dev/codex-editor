@@ -286,14 +286,26 @@ export async function scanForViolations(
 
     // Use cleaned pattern for matching
     const standardWithCleanedPattern = { ...standard, regexPattern: cleanedPattern };
+    console.log(`[StandardsEngine] Scanning standard "${standard.description}" against ${cells.length} cells`);
     const violations: StandardViolation[] = [];
     const total = cells.length;
+
+    // Track processed cells to avoid duplicates
+    const processedCellIds = new Set<string>();
 
     // Process cells in chunks to avoid blocking
     for (let i = 0; i < cells.length; i += CHUNK_SIZE) {
         const chunk = cells.slice(i, i + CHUNK_SIZE);
 
         for (const cell of chunk) {
+            const cellId = cell.cellId || cell.cell_id;
+
+            // Skip if we've already processed this cell
+            if (processedCellIds.has(cellId)) {
+                continue;
+            }
+
+            processedCellIds.add(cellId);
             const cellViolations = checkCellForViolations(standardWithCleanedPattern, cell);
             violations.push(...cellViolations);
         }
@@ -307,14 +319,24 @@ export async function scanForViolations(
         await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
+    // Deduplicate violations by cellId and matchText
+    const violationMap = new Map<string, StandardViolation>();
+    for (const violation of violations) {
+        const key = `${violation.cellId}:${violation.matchText}`;
+        if (!violationMap.has(key)) {
+            violationMap.set(key, violation);
+        }
+    }
+    const deduplicatedViolations = Array.from(violationMap.values());
+
     // Update cache
     violationCache.set(standard.id, {
-        violations,
+        violations: deduplicatedViolations,
         scannedAt: Date.now(),
         regexPattern: standard.regexPattern,
     });
 
-    return violations;
+    return deduplicatedViolations;
 }
 
 /**
@@ -434,11 +456,30 @@ async function scanStandardAgainstCells(
     // Use cleaned pattern for matching
     const standardWithCleanedPattern = { ...standard, regexPattern: cleanedPattern };
     const violations: StandardViolation[] = [];
+    const processedCellIds = new Set<string>();
 
     for (const cell of cells) {
+        const cellId = cell.cellId || cell.cell_id;
+
+        // Skip if we've already processed this cell
+        if (processedCellIds.has(cellId)) {
+            continue;
+        }
+
+        processedCellIds.add(cellId);
         const cellViolations = checkCellForViolations(standardWithCleanedPattern, cell);
         violations.push(...cellViolations);
     }
+
+    // Deduplicate violations by cellId and matchText
+    const violationMap = new Map<string, StandardViolation>();
+    for (const violation of violations) {
+        const key = `${violation.cellId}:${violation.matchText}`;
+        if (!violationMap.has(key)) {
+            violationMap.set(key, violation);
+        }
+    }
+    const deduplicatedViolations = Array.from(violationMap.values());
 
     // Update cache
     violationCache.set(standard.id, {
