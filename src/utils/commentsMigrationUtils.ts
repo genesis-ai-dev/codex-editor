@@ -697,15 +697,15 @@ export class CommentsMigrator {
         const { generateCellIdFromHash, isUuidFormat } = await import("./uuidUtils");
 
         const result = { ...thread };
-        
+
         if (Date.now() < COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.getTime()) {
             // Before cutoff - migrate if needed
             if (result.cellId?.cellId && !isUuidFormat(result.cellId.cellId)) {
                 const oldId = result.cellId.cellId;
                 const newUuid = await generateCellIdFromHash(oldId);
-                
-                console.log(`[CommentsMigrator] Migrating cell ID: "${oldId}" → "${newUuid}"`);
-                
+
+                debug(`Migrating cell ID: "${oldId}" → "${newUuid}"`);
+
                 result.cellId = {
                     ...result.cellId,
                     cellId: newUuid,
