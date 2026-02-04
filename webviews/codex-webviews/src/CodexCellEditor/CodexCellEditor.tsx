@@ -936,7 +936,8 @@ const CodexCellEditor: React.FC = () => {
             // If not Bible book format, don't filter by chapter - search all cells
 
             // Check if this is a new highlight (different chapter than last highlighted)
-            const isNewHighlight = shouldFilterByChapter && newChapterNumber !== lastHighlightedChapter;
+            const isNewHighlight =
+                shouldFilterByChapter && newChapterNumber !== lastHighlightedChapter;
 
             if (isNewHighlight) {
                 // Reset the manual navigation flag for new highlights
@@ -989,12 +990,12 @@ const CodexCellEditor: React.FC = () => {
 
                 // Find the index of the highlighted cell within the cells to search
                 // Prioritize cellId matching
-                    const cellIndexInSearchSet = cellsToSearch.findIndex(
-                        (verse) =>
-                            highlightedCellId &&
-                            verse.cellMarkers &&
-                            verse.cellMarkers.includes(highlightedCellId)
-                    );
+                const cellIndexInSearchSet = cellsToSearch.findIndex(
+                    (verse) =>
+                        highlightedCellId &&
+                        verse.cellMarkers &&
+                        verse.cellMarkers.includes(highlightedCellId)
+                );
 
                 // Calculate which subsection this cell belongs to
                 let targetSubsectionIndex = 0;
@@ -1036,11 +1037,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Track manual navigation away from highlighted chapter in source files
     useEffect(() => {
-        if (
-            isSourceText &&
-            Boolean(highlightedCellId) &&
-            lastHighlightedChapter !== null
-        ) {
+        if (isSourceText && Boolean(highlightedCellId) && lastHighlightedChapter !== null) {
             // If current chapter is different from the highlighted chapter, user navigated manually
             if (chapterNumber !== lastHighlightedChapter) {
                 setHasManuallyNavigatedAway(true);
