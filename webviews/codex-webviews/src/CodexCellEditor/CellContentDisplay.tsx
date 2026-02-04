@@ -21,7 +21,6 @@ import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell displ
 import "./TranslationAnimations.css"; // Import the animation CSS
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
-import HealthIndicator from "./HealthIndicator";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import ReactMarkdown from "react-markdown";
 import {
@@ -1144,26 +1143,30 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         </div>
                                     )}
                                     {/* Audio Validation Button - show only when audio exists */}
-                                    {!isSourceText && SHOW_VALIDATION_BUTTON &&
-                                        audioState !== "none" && audioState !== "deletedOnly" && (
-                                        <div className="flex items-center justify-center gap-x-px">
-                                            <AudioValidationButton
-                                                cellId={cellIds[0]}
-                                                cell={cell}
-                                                vscode={vscode}
-                                                isSourceText={isSourceText}
-                                                currentUsername={currentUsername}
-                                                requiredAudioValidations={requiredAudioValidations}
-                                                setShowSparkleButton={setShowSparkleButton}
-                                                disabled={isInTranslationProcess}
-                                                disabledReason={
-                                                    isInTranslationProcess
-                                                        ? "Translation in progress"
-                                                        : undefined
-                                                }
-                                            />
-                                        </div>
-                                    )}
+                                    {!isSourceText &&
+                                        SHOW_VALIDATION_BUTTON &&
+                                        audioState !== "none" &&
+                                        audioState !== "deletedOnly" && (
+                                            <div className="flex items-center justify-center gap-x-px">
+                                                <AudioValidationButton
+                                                    cellId={cellIds[0]}
+                                                    cell={cell}
+                                                    vscode={vscode}
+                                                    isSourceText={isSourceText}
+                                                    currentUsername={currentUsername}
+                                                    requiredAudioValidations={
+                                                        requiredAudioValidations
+                                                    }
+                                                    setShowSparkleButton={setShowSparkleButton}
+                                                    disabled={isInTranslationProcess}
+                                                    disabledReason={
+                                                        isInTranslationProcess
+                                                            ? "Translation in progress"
+                                                            : undefined
+                                                    }
+                                                />
+                                            </div>
+                                        )}
                                     {/* Audio Play Button - show for both source and non-source text */}
                                     {audioAttachments &&
                                         audioAttachments[cellIds[0]] !== undefined &&
@@ -1226,6 +1229,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         ? "Validation disabled: no text"
                                                         : undefined;
                                                 })()}
+                                                health={cell.metadata?.health}
                                             />
                                         </div>
                                     )}
@@ -1289,11 +1293,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                     )}
                                 </div>
                                 {getAlertDot()}
-                                {/* Health Indicator - positioned below the inline action buttons */}
-                                {/* Only show health indicator for non-empty cells when feature is enabled */}
-                                {!isSourceText && cell.cellContent && cell.cellContent.trim() !== "" && (
-                                    <HealthIndicator health={cell.metadata?.health} show={showHealthIndicators} />
-                                )}
                             </div>
                         )}
                     </div>
