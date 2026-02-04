@@ -35,7 +35,15 @@ export class CommentsMigrator {
                 canReply: thread.canReply,
                 cellId: {
                     cellId: thread.cellId.cellId,
-                    uri: thread.cellId.uri
+                    uri: thread.cellId.uri,
+                    ...(thread.cellId.globalReferences && thread.cellId.globalReferences.length > 0 
+                        ? { globalReferences: thread.cellId.globalReferences } 
+                        : {}),
+                    // NOTE: Display fields (fileDisplayName, milestoneValue, cellLineNumber) are calculated at runtime
+                    // and NOT persisted to JSON to keep files clean and ensure fresh data on each load.
+                    // ...(thread.cellId.fileDisplayName ? { fileDisplayName: thread.cellId.fileDisplayName } : {}),
+                    // ...(thread.cellId.milestoneValue ? { milestoneValue: thread.cellId.milestoneValue } : {}),
+                    // ...(thread.cellId.cellLineNumber ? { cellLineNumber: thread.cellId.cellLineNumber } : {})
                 },
                 collapsibleState: thread.collapsibleState,
                 threadTitle: thread.threadTitle
