@@ -3,10 +3,10 @@ import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import bibleData from "../assets/bible-books-lookup.json";
-import { DualRingProgress } from "../components/ui/circular-progress";
+import { ExpandableProgress } from "../components/ui/expandable-progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Languages } from "lucide-react";
+import { Languages, Mic } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
 
 // Declare the acquireVsCodeApi function
@@ -728,35 +728,25 @@ function NavigationView() {
                             {displayLabel}
                         </span>
 
-                        {/* Progress indicators in pill containers */}
+                        {/* Progress indicators - expand on hover */}
                         {hasProgress && (
                             <div className="flex items-center gap-1.5 flex-shrink-0">
-                                {/* Text progress pill */}
-                                <div
-                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 border border-primary/20"
-                                    title={`Text: ${Math.floor(progressValues.textCompletion)}% complete, ${Math.floor(progressValues.textValidation)}% validated`}
-                                >
-                                    <Languages className="h-3 w-3 opacity-70" />
-                                    <DualRingProgress
-                                        completionValue={progressValues.textCompletion}
-                                        validationValue={progressValues.textValidation}
-                                        size={24}
-                                    />
-                                </div>
-                                {/* Audio progress pill - only show if there's audio data */}
+                                {/* Text progress */}
+                                <ExpandableProgress
+                                    completionValue={progressValues.textCompletion}
+                                    validationValue={progressValues.textValidation}
+                                    icon={<Languages className="h-3 w-3" />}
+                                    label="Text"
+                                />
+                                {/* Audio progress - only show if there's audio data */}
                                 {(progressValues.audioCompletion > 0 ||
                                     progressValues.audioValidation > 0) && (
-                                    <div
-                                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 border border-primary/20"
-                                        title={`Audio: ${Math.floor(progressValues.audioCompletion)}% complete, ${Math.floor(progressValues.audioValidation)}% validated`}
-                                    >
-                                        <i className="codicon codicon-mic text-xs opacity-70" />
-                                        <DualRingProgress
-                                            completionValue={progressValues.audioCompletion}
-                                            validationValue={progressValues.audioValidation}
-                                            size={24}
-                                        />
-                                    </div>
+                                    <ExpandableProgress
+                                        completionValue={progressValues.audioCompletion}
+                                        validationValue={progressValues.audioValidation}
+                                        icon={<Mic className="h-3 w-3" />}
+                                        label="Audio"
+                                    />
                                 )}
                             </div>
                         )}
