@@ -776,8 +776,31 @@ export async function initiateProjectSwap(): Promise<void> {
                     ? normalizeProjectSwapInfo(meta.meta.projectSwap)
                     : { swapEntries: [] };
 
+                // If this is the first-ever swap for this project, add an origin marker entry.
+                // This marks the origin project as an OLD project with no predecessor.
+                // It is cancelled so it never blocks swap detection.
+                const updatedEntries = [...(existingSwap.swapEntries || [])];
+                if (updatedEntries.length === 0) {
+                    updatedEntries.push({
+                        swapUUID: `origin-${generateProjectId()}`,
+                        swapInitiatedAt: now,
+                        swapModifiedAt: now,
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                        oldProjectUrl: "",
+                        oldProjectName: "",
+                        newProjectUrl: sanitizeGitUrl(currentGitUrl),
+                        newProjectName: oldProjectName,
+                        swapInitiatedBy: currentUserInfo.username,
+                        swapReason: "Origin project (no prior swap history)",
+                        swappedUsers: [],
+                        cancelledBy: currentUserInfo.username,
+                        cancelledAt: now,
+                    });
+                }
+
                 // Add new entry to the array (preserving history)
-                const updatedEntries = [...(existingSwap.swapEntries || []), newEntry];
+                updatedEntries.push(newEntry);
 
                 meta.meta.projectSwap = {
                     swapEntries: updatedEntries,

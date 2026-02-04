@@ -1397,12 +1397,17 @@ async function updateSwapMetadata(
                 ? normalizeProjectSwapInfo(meta.meta.projectSwap)
                 : { swapEntries: [] };
 
-            // For NEW projects (isOldProject: false), we only keep entries for the CURRENT swap.
-            // This prevents old swap history from propagating through chained swaps.
-            // OLD projects preserve history so users can see the swap chain.
-            let entries = isOldProject
-                ? (existingSwap.swapEntries || [])
-                : (existingSwap.swapEntries || []).filter(e => e.swapUUID === swapUUID);
+            // Preserve full swap history for BOTH old and new projects.
+            // This allows chain swaps (A→B→C) to be traced end-to-end.
+            let entries = existingSwap.swapEntries || [];
+
+            // When updating the NEW project, mark historical entries as old-project
+            // to avoid carrying forward "new-project" flags from earlier swaps.
+            if (!isOldProject) {
+                entries = entries.map((entry) =>
+                    entry.swapUUID === swapUUID ? entry : { ...entry, isOldProject: true }
+                );
+            }
 
             const swapInitiatedAt = options.swapInitiatedAt || now;
             let targetEntry = entries.find(e => e.swapUUID === swapUUID);
@@ -1460,8 +1465,28 @@ async function updateSwapMetadata(
                 targetEntry.swapModifiedAt = now;
             }
 
-            // Update entries array
-            meta.meta.projectSwap = { swapEntries: entries };
+            // Update entries array with stable ordering to avoid unnecessary sync churn.
+            // Order: active swaps first (newest), then by swapInitiatedAt (newest), then swapModifiedAt,
+            // then swapUUID for deterministic ties.
+            const sortedEntries = entries.slice().sort((a, b) => {
+                const aActive = a.swapStatus === "active" ? 1 : 0;
+                const bActive = b.swapStatus === "active" ? 1 : 0;
+                if (aActive !== bActive) return bActive - aActive;
+
+                if (a.swapInitiatedAt !== b.swapInitiatedAt) {
+                    return b.swapInitiatedAt - a.swapInitiatedAt;
+                }
+
+                const aModified = a.swapModifiedAt ?? a.swapInitiatedAt;
+                const bModified = b.swapModifiedAt ?? b.swapInitiatedAt;
+                if (aModified !== bModified) {
+                    return bModified - aModified;
+                }
+
+                return a.swapUUID.localeCompare(b.swapUUID);
+            });
+
+            meta.meta.projectSwap = { swapEntries: sortedEntries };
             return meta;
         }
     );

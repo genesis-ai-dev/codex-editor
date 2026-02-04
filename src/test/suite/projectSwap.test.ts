@@ -404,10 +404,8 @@ suite("Project Swap Tests", () => {
             assert.notStrictEqual(aToBEntry.swapUUID, bToCEntry.swapUUID);
         });
 
-        test("NEW project does NOT preserve history from prior swaps", () => {
-            // When B swaps to C, C only gets the B→C entry, not A→B history
-            // This is the filter logic from updateSwapMetadata
-
+        test("NEW project preserves history from prior swaps", () => {
+            // When B swaps to C, C keeps the full swap history (A→B and B→C)
             const uuidAB = "swap-ab-uuid";
             const uuidBC = "swap-bc-uuid";
 
@@ -421,14 +419,15 @@ suite("Project Swap Tests", () => {
                 createSwapEntry({ swapUUID: uuidBC, isOldProject: true, oldProjectName: "B", newProjectName: "C" })
             );
 
-            // When user swaps to C, C only keeps entries matching the CURRENT swap UUID
-            const currentSwapUUID = uuidBC;
-            const entriesForC = entriesInB.filter(e => e.swapUUID === currentSwapUUID);
+            // When user swaps to C, C keeps all entries and marks historical entries as old-project
+            const entriesForC = entriesInB.map((entry) =>
+                entry.swapUUID === uuidBC ? entry : { ...entry, isOldProject: true }
+            );
 
-            // C only has B→C entry, NOT A→B history
-            assert.strictEqual(entriesForC.length, 1);
-            assert.strictEqual(entriesForC[0].swapUUID, uuidBC);
-            assert.strictEqual(entriesForC[0].oldProjectName, "B");
+            assert.strictEqual(entriesForC.length, 2);
+            assert.ok(entriesForC.some(e => e.swapUUID === uuidAB));
+            assert.ok(entriesForC.some(e => e.swapUUID === uuidBC));
+            assert.strictEqual(entriesForC.find(e => e.swapUUID === uuidAB)?.isOldProject, true);
         });
 
         test("OLD project preserves its own swap history", () => {
