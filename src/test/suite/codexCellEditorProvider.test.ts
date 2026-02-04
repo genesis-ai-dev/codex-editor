@@ -13,7 +13,7 @@ import { CodexNotebookAsJSONData, QuillCellContent, Timestamps, FileEditHistory,
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { MetadataManager } from "../../utils/metadataManager";
-import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/pathUtils";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep, createMockWebviewPanel } from "../testUtils";
 
 suite("CodexCellEditorProvider Test Suite", () => {
@@ -4708,7 +4708,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 names: ["variant-a", "variant-b"]
             };
 
-            const { recordVariantSelection } = await import("../../utils/abTestingUtils");
+            const { recordVariantSelection } = await import("../../utils/abTesting");
 
             // Don't pass testName to avoid sending test data to production analytics
             // This tests that the function handles missing testName gracefully

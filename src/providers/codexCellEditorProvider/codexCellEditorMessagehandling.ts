@@ -19,10 +19,9 @@ import { getAuthApi } from "@/extension";
 // Use VS Code FS API for all file operations (supports remote and virtual workspaces)
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
-import { toPosixPath } from "../../utils/pathUtils";
+import { toPosixPath, getAttachmentDocumentSegmentFromUri } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
-import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -1424,7 +1423,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};
 
         // Import and call the A/B testing feedback function
-        const { recordVariantSelection } = await import("../../utils/abTestingUtils");
+        const { recordVariantSelection } = await import("../../utils/abTesting");
         await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
 
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
@@ -1501,7 +1500,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Record A/B test result if a button was clicked
         if (buttonChoice && testId && cellId) {
             try {
-                const { recordAbResult } = await import("../../utils/abTestingAnalytics");
+                const { recordAbResult } = await import("../../utils/abTesting");
                 await recordAbResult({
                     category: "Frequency Preference",
                     options: ["See more", "See less"],

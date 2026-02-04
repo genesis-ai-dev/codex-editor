@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { WebPathUtils } from './webPathUtils';
+import { WebPathUtils } from './pathUtils';
 import { FileType } from '../../types';
 
 export type FileTypeMap = {

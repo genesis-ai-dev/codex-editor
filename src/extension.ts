@@ -52,7 +52,7 @@ import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
-import { initializeABTesting } from "./utils/abTestingSetup";
+import { initializeABTesting } from "./utils/abTesting";
 import {
     migration_addValidationsForUserEdits,
     migration_moveTimestampsToMetadataData,

@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { FileHandler } from "../../../../providers/dictionaryTable/utilities/FileHandler";
-import { cleanWord } from "../../../../utils/cleaningUtils";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { getWorkSpaceUri } from "../../../../utils";
 import { tokenizeText } from "../../../../utils/nlpUtils";
@@ -9,6 +8,26 @@ import { FileData } from "./fileReaders";
 
 // HTML tag regex for stripping HTML
 const HTML_TAG_REGEX = /<\/?[^>]+(>|$)/g;
+
+/**
+ * Cleans a word for spellchecking by removing non-letter characters
+ */
+function cleanWord(word: string | undefined | null): string {
+    if (word === undefined || word === null) {
+        return "";
+    }
+    return (
+        word
+            // Remove non-letter/number/mark characters from start and end
+            .replace(/^[^\p{L}\p{M}\p{N}']+|[^\p{L}\p{M}\p{N}']+$/gu, "")
+            // Replace multiple apostrophes with a single one
+            .replace(/''+/g, "'")
+            // Remove apostrophes at the start or end of words
+            .replace(/(?<!\S)'|'(?!\S)/gu, "")
+            // Remove other characters that are not letters, marks, numbers, apostrophes, or whitespace
+            .replace(/[^\p{L}\p{M}\p{N}'\s]/gu, "")
+    );
+}
 
 /**
  * Strips HTML tags from text

@@ -292,4 +292,4 @@ const testRunnerConfig = {
     devtool: "nosources-source-map",
 };
 
-module.exports = [extensionConfig, serverConfig, testConfig, testRunnerConfig];
+module.exports = [extensionConfig, testConfig, testRunnerConfig];

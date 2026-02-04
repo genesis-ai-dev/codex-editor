@@ -10,7 +10,7 @@ import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
 import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
-import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
+import { generateCellIdFromHash, isUuidFormat } from "../../utils/idUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";

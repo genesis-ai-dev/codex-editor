@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { CodexContentSerializer } from "../serializer";
-import { generateUniqueId, clearIdCache } from "./idGenerator";
+import { generateUniqueId, clearIdCache } from "./idUtils";
 import { NavigationCell, getCorrespondingSourceUri, getCorrespondingCodexUri } from "./codexNotebookUtils";
 // import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
 import {
