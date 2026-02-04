@@ -1109,10 +1109,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         },
                     };
 
+                    console.log("[CodexCellEditorProvider] 📤 Sending providerUpdatesValidationState:", {
+                        cellId: validationUpdate.content.cellId,
+                        validatedByCount: validationUpdate.content.validatedBy?.length || 0,
+                        health: validationUpdate.content.health,
+                        validatedBy: validationUpdate.content.validatedBy,
+                    });
+
                     // Send to all webviews that have this document open
                     this.webviewPanels.forEach((panel, docUri) => {
                         if (docUri === document.uri.toString()) {
-                            safePostMessageToPanel(panel, validationUpdate);
+                            const sent = safePostMessageToPanel(panel, validationUpdate);
+                            console.log("[CodexCellEditorProvider] Message sent:", sent, "to panel:", docUri);
                         }
                     });
 

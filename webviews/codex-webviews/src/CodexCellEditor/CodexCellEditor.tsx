@@ -1185,21 +1185,149 @@ const CodexCellEditor: React.FC = () => {
 
             // Listen for individual validation state updates to refresh progress
             if (message.type === "providerUpdatesValidationState") {
-                // Update cell health in translationUnits when validation includes health
-                if (message.content?.cellId && message.content?.health !== undefined) {
-                    setTranslationUnits((prevUnits) =>
-                        prevUnits.map((unit) =>
-                            unit.cellMarkers[0] === message.content.cellId
-                                ? {
-                                      ...unit,
-                                      metadata: {
-                                          ...unit.metadata,
-                                          health: message.content.health,
-                                      },
-                                  }
-                                : unit
-                        )
-                    );
+                console.log("[CodexCellEditor] 📥 Received providerUpdatesValidationState:", {
+                    cellId: message.content?.cellId,
+                    validatedByCount: message.content?.validatedBy?.length || 0,
+                    health: message.content?.health,
+                    validatedBy: message.content?.validatedBy,
+                    hasEdits: message.content?.validatedBy ? true : false,
+                });
+
+                // Update cell health AND validatedBy in translationUnits when validation state changes
+                if (message.content?.cellId) {
+                    setTranslationUnits((prevUnits) => {
+                        const updated = prevUnits.map((unit) => {
+                            if (unit.cellMarkers[0] === message.content.cellId) {
+                                console.log(
+                                    "[CodexCellEditor] Updating unit for cell:",
+                                    message.content.cellId,
+                                    {
+                                        hasMetadata: !!unit.metadata,
+                                        hasEdits: !!unit.metadata?.edits,
+                                        editsLength: unit.metadata?.edits?.length || 0,
+                                    }
+                                );
+
+                                // Log health update if provided
+                                const oldHealth = unit.metadata?.health;
+                                if (message.content.health !== undefined) {
+                                    console.log("[CodexCellEditor] Updating health:", {
+                                        cellId: message.content.cellId,
+                                        oldHealth,
+                                        newHealth: message.content.health,
+                                    });
+                                }
+
+                                // Build updated editHistory if validatedBy is provided
+                                let updatedEditHistory = unit.editHistory || [];
+                                if (Array.isArray(message.content.validatedBy)) {
+                                    const editHistory = [...(unit.editHistory || [])].reverse();
+                                    const latestEditIndex = editHistory.findIndex((edit) => {
+                                        const isValueEdit =
+                                            Array.isArray(edit.editMap) &&
+                                            edit.editMap.length === 1 &&
+                                            edit.editMap[0] === "value";
+                                        return isValueEdit && edit.value === unit.cellContent;
+                                    });
+
+                                    if (latestEditIndex !== -1) {
+                                        // Found matching edit - create new array with updated edit
+                                        const actualIndex =
+                                            editHistory.length - 1 - latestEditIndex;
+                                        updatedEditHistory = (unit.editHistory || []).map(
+                                            (edit, idx) => {
+                                                if (idx === actualIndex) {
+                                                    console.log(
+                                                        "[CodexCellEditor] Updating edit validatedBy:",
+                                                        {
+                                                            oldValidatedByCount:
+                                                                edit.validatedBy?.length || 0,
+                                                            newValidatedByCount:
+                                                                message.content.validatedBy.length,
+                                                        }
+                                                    );
+                                                    return {
+                                                        ...edit,
+                                                        validatedBy: message.content.validatedBy,
+                                                    };
+                                                }
+                                                return edit;
+                                            }
+                                        );
+                                    } else {
+                                        // No matching edit found - create one
+                                        console.log(
+                                            "[CodexCellEditor] Creating new edit entry for validatedBy"
+                                        );
+                                        updatedEditHistory = [
+                                            ...(unit.editHistory || []),
+                                            {
+                                                editMap: ["value"], // EditMapUtils.value() returns ["value"]
+                                                value: unit.cellContent,
+                                                timestamp: Date.now(),
+                                                type: "user-edit",
+                                                validatedBy: message.content.validatedBy,
+                                            },
+                                        ];
+                                    }
+                                } else if (message.content.validatedBy !== undefined) {
+                                    console.warn(
+                                        "[CodexCellEditor] Cannot update validatedBy - not an array:",
+                                        {
+                                            validatedByValue: message.content.validatedBy,
+                                        }
+                                    );
+                                }
+
+                                // Create a completely new unit object with all updates in one pass
+                                // This ensures React detects the change properly
+                                const updatedUnit: typeof unit = {
+                                    ...unit,
+                                    // Create new metadata object with updated health
+                                    metadata: {
+                                        ...unit.metadata,
+                                        ...(message.content.health !== undefined && {
+                                            health: message.content.health,
+                                        }),
+                                    },
+                                    // Create new editHistory array with updated validatedBy
+                                    editHistory: updatedEditHistory,
+                                };
+
+                                // Log final state to verify updates
+                                console.log("[CodexCellEditor] Final updated unit:", {
+                                    cellId: message.content.cellId,
+                                    hasMetadata: !!updatedUnit.metadata,
+                                    health: updatedUnit.metadata?.health,
+                                    editHistoryLength: updatedUnit.editHistory?.length || 0,
+                                    validatedByInLastEdit:
+                                        updatedUnit.editHistory?.[
+                                            updatedUnit.editHistory.length - 1
+                                        ]?.validatedBy?.length || 0,
+                                });
+
+                                return updatedUnit;
+                            }
+                            return unit;
+                        });
+                        console.log(
+                            "[CodexCellEditor] Updated translationUnits, found matching cell:",
+                            updated.some((u) => u.cellMarkers[0] === message.content.cellId)
+                        );
+                        // Verify the health is in the returned array
+                        const updatedCell = updated.find(
+                            (u) => u.cellMarkers[0] === message.content.cellId
+                        );
+                        if (updatedCell && message.content.health !== undefined) {
+                            console.log("[CodexCellEditor] Verified health in returned array:", {
+                                cellId: message.content.cellId,
+                                expectedHealth: message.content.health,
+                                actualHealth: updatedCell.metadata?.health,
+                                match: updatedCell.metadata?.health === message.content.health,
+                            });
+                        }
+                        return updated;
+                    });
                 }
                 // Refresh progress for current milestone after text validation completes
                 const milestoneIdx = currentMilestoneIndexRef.current;

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useTooltip } from "./contextProviders/TooltipContext";
 
 export interface ValidationStatusIconProps {
     isValidationInProgress: boolean;
@@ -31,13 +30,26 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
     showHealthRadial = false, // Default to false - only show for text validation
     isPendingValidation = false,
 }) => {
-    // Only use tooltip if we have health data and radial progress is enabled
-    const shouldUseTooltip =
-        showHealthRadial && health !== undefined && health !== null && currentValidations === 0;
-    const { showTooltip, hideTooltip } = useTooltip();
-    const [isHovered, setIsHovered] = useState(false);
     const [animatedHealth, setAnimatedHealth] = useState<number | null>(null);
-    const tooltipTimeoutRef = useRef<number | null>(null);
+    const [showOptimisticCheckmark, setShowOptimisticCheckmark] = useState(false);
+
+    // Debug logging for health prop changes
+    useEffect(() => {
+        console.log("[ValidationStatusIcon] Props update:", {
+            health,
+            currentValidations,
+            isValidatedByCurrentUser,
+            showHealthRadial,
+            isPendingValidation,
+            isUnverified: currentValidations === 0,
+        });
+    }, [
+        health,
+        currentValidations,
+        isValidatedByCurrentUser,
+        showHealthRadial,
+        isPendingValidation,
+    ]);
     const radialProgressRef = useRef<HTMLDivElement>(null);
     const animationFrameRef = useRef<number | null>(null);
     const animationStartTimeRef = useRef<number | null>(null);
@@ -76,10 +88,13 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
                 if (progress < 1) {
                     animationFrameRef.current = requestAnimationFrame(animate);
                 } else {
-                    // Animation complete - set to 1.0 and clear after a brief moment to allow transition to checkmark
+                    // Animation complete - set to 1.0 and show optimistic checkmark after brief delay
                     setAnimatedHealth(1.0);
                     setTimeout(() => {
                         setAnimatedHealth(null);
+                        // Show optimistic checkmark immediately after animation completes
+                        // Backend will catch up, but UI should be responsive
+                        setShowOptimisticCheckmark(true);
                     }, 150);
                 }
             };
@@ -93,6 +108,7 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
             }
             animationStartTimeRef.current = null;
             setAnimatedHealth(null);
+            setShowOptimisticCheckmark(false);
         }
 
         return () => {
@@ -102,66 +118,13 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
         };
     }, [isPendingValidation, isValidatedByCurrentUser, showHealthRadial, health, animatedHealth]);
 
-    // Handle tooltip with 750ms delay when hovering over radial progress
+    // Clear optimistic checkmark when backend confirms validation
     useEffect(() => {
-        // Only show tooltip for unverified cells with health data and radial progress enabled
-        if (!shouldUseTooltip) {
-            return;
+        if (isValidatedByCurrentUser && showOptimisticCheckmark) {
+            setShowOptimisticCheckmark(false);
         }
+    }, [isValidatedByCurrentUser, showOptimisticCheckmark]);
 
-        const shouldShowTooltip = isHovered;
-
-        if (shouldShowTooltip) {
-            tooltipTimeoutRef.current = window.setTimeout(() => {
-                // Double-check conditions before showing tooltip
-                if (!radialProgressRef.current || !isHovered) {
-                    return;
-                }
-
-                const normalizedHealth = Math.max(0, Math.min(1, health!));
-                const healthPercentage = Math.round(normalizedHealth * 100);
-                const getHealthLabel = (h: number): string => {
-                    if (h >= 1.0) return "Validated";
-                    if (h >= 0.7) return "High confidence";
-                    if (h >= 0.3) return "Medium confidence";
-                    return "Unverified";
-                };
-                const label = getHealthLabel(normalizedHealth);
-
-                // Get element position for tooltip
-                const rect = radialProgressRef.current.getBoundingClientRect();
-                const x = rect.left + rect.width / 2;
-                const y = rect.top - 5; // Position slightly above the icon
-
-                showTooltip(
-                    <div style={{ fontSize: "11px", padding: "2px 4px", whiteSpace: "nowrap" }}>
-                        {healthPercentage}% - {label}
-                    </div>,
-                    x,
-                    y
-                );
-            }, 750);
-        } else {
-            // Clear timeout and hide tooltip when not hovering
-            if (tooltipTimeoutRef.current) {
-                clearTimeout(tooltipTimeoutRef.current);
-                tooltipTimeoutRef.current = null;
-            }
-            if (!isHovered) {
-                hideTooltip();
-            }
-        }
-
-        return () => {
-            if (tooltipTimeoutRef.current) {
-                clearTimeout(tooltipTimeoutRef.current);
-                tooltipTimeoutRef.current = null;
-            }
-            if (!isHovered) {
-                hideTooltip();
-            }
-        };
-    }, [isHovered, shouldUseTooltip, health, showTooltip, hideTooltip]);
     if (isValidationInProgress) {
         return (
             <i
@@ -179,7 +142,8 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
 
     // Show radial progress only when unverified (currentValidations === 0) OR during validation animation
     // Once validated (currentValidations > 0) and animation complete, show checkmark instead
-    const isUnverified = currentValidations === 0;
+    // Also show optimistic checkmark after animation completes, even before backend confirms
+    const isUnverified = currentValidations === 0 && !showOptimisticCheckmark;
     const showRadialDuringAnimation = animatedHealth !== null; // Show during entire animation including when it reaches 1.0
 
     if (isUnverified || showRadialDuringAnimation) {
@@ -211,21 +175,6 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
                         ref={radialProgressRef}
                         className="relative inline-flex items-center justify-center"
                         style={{ width: containerSize, height: containerSize }}
-                        onMouseEnter={(e) => {
-                            e.stopPropagation();
-                            setIsHovered(true);
-                        }}
-                        onMouseLeave={(e) => {
-                            e.stopPropagation();
-                            // Small delay to prevent parent handlers from interfering
-                            setTimeout(() => {
-                                setIsHovered(false);
-                            }, 10);
-                        }}
-                        onMouseMove={(e) => {
-                            // Keep tooltip alive while mouse is moving over the element
-                            e.stopPropagation();
-                        }}
                     >
                         {/* Radial progress circle */}
                         <svg
@@ -294,8 +243,12 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
 
     const isFullyValidated = currentValidations >= requiredValidations;
 
+    // Show optimistic checkmark if animation completed and we're waiting for backend confirmation
+    // When optimistic, show single checkmark (not check-all) since we don't know if it's fully validated yet
+    const shouldShowCheckmark = isValidatedByCurrentUser || showOptimisticCheckmark;
+
     if (isFullyValidated) {
-        if (isValidatedByCurrentUser) {
+        if (shouldShowCheckmark) {
             return (
                 <div className="flex items-center justify-center text-sm font-light">
                     <i
@@ -331,7 +284,7 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
         );
     }
 
-    if (isValidatedByCurrentUser) {
+    if (shouldShowCheckmark) {
         return (
             <div className="flex items-center justify-center text-sm font-light">
                 <i
