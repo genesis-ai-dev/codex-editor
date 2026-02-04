@@ -921,8 +921,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             // Enrich comments with display information calculated at runtime
             const enrichedComments = await this.enrichCommentsWithDisplayInfo(this._inMemoryComments);
             
-            // Send enriched comments to webview
-            const content = CommentsMigrator.formatCommentsForStorage(enrichedComments);
+            // Use JSON.stringify directly to preserve all fields (including ephemeral display info)
+            // Note: formatCommentsForStorage is only for disk writes, not webview transmission
+            const content = JSON.stringify(enrichedComments, null, 2);
 
             safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
