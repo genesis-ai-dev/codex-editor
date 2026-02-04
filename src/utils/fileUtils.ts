@@ -1,6 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/naming-convention
 import * as vscode from "vscode";
-import * as path from "path";
 import { ChatMessageThread, NotebookCommentThread } from "../../types";
 import { getWorkSpaceUri } from "./index";
 
