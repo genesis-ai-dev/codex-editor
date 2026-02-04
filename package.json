@@ -162,6 +162,11 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-editor.openProjectStandards",
+                "title": "Open Project Standards",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor-extension.submitProgressReport",
                 "title": "Submit Progress Report",
                 "category": "Codex Editor"

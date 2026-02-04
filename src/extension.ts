@@ -52,6 +52,7 @@ import {
 } from "./providers/SplashScreen/register";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool";
+import { showProjectStandardsPanel, disposeProjectStandardsProvider } from "./ProjectStandards/provider/ProjectStandardsProvider";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { fileExists } from "./utils/webviewUtils";
@@ -677,6 +678,13 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor.openCodexMigrationTool", () =>
             openCodexMigrationTool(context)
+        )
+    );
+
+    // Project Standards command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openProjectStandards", () =>
+            showProjectStandardsPanel(context.extensionUri, context)
         )
     );
 

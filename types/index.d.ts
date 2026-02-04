@@ -1819,6 +1819,10 @@ type EditorReceiveMessages =
         };
     }
     | {
+        type: "updateShowHealthIndicators",
+        showHealthIndicators: boolean,
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
@@ -2241,3 +2245,97 @@ type EditorReceiveMessages =
             validatedBy: ValidationEntry[];
         };
     };
+
+// ============================================
+// Project Standards Types (Retroactive QA)
+// ============================================
+
+/**
+ * Standard types based on detection complexity.
+ * Phase 1: Only 'regex-pattern' is functional.
+ */
+type StandardType =
+    | "regex-pattern" // Phase 1: Simple regex matching (terminology, formatting, etc.)
+    | "key-term-consistency" // Phase 2: Source word → target mapping consistency
+    | "context-aware" // Phase 2: Requires sentence/context understanding
+    | "semantic" // Phase 3+: Requires LLM comprehension
+    | "back-translation"; // Phase 3+: Back-translation validation
+
+/**
+ * Source of the standard - determines editability and UI treatment.
+ */
+type StandardSource = "org" | "project" | "imported" | "manual" | "auto-detected";
+
+/**
+ * A quality standard that can detect violations in translation cells.
+ */
+interface ProjectStandard {
+    id: string;
+    description: string; // Human-readable rule description
+    regexPattern: string; // For regex-pattern type (Phase 1)
+    standardType: StandardType;
+    source: StandardSource;
+    enabled: boolean;
+    violationCount?: number; // Cached, updated on scan
+    lastScannedAt?: number;
+
+    // Phase 1: Regex-friendly examples
+    examples?: string[]; // Example violations for AI regex generation
+
+    // Phase 2+: Additional metadata for complex standards
+    sourceWord?: string; // For key-term-consistency type
+    targetLanguage?: string;
+    contextRules?: string[]; // For context-aware type
+
+    // Metadata
+    createdAt: number;
+    updatedAt: number;
+    createdBy?: string;
+    citation?: string; // For imported standards (e.g., "Wycliffe Style Guide p.4")
+}
+
+/**
+ * A violation detected by a ProjectStandard.
+ */
+interface StandardViolation {
+    cellId: string;
+    fileUri: string;
+    cellValue: string;
+    matchText: string; // The matched portion (for regex) or flagged text
+    lineNumber?: number;
+    globalReferences?: string[];
+
+    // Additional context for complex violations
+    sourceWord?: string; // Original source language word
+    suggestedFix?: string; // For future: AI-suggested correction
+    confidence?: number; // For future: Detection confidence score
+}
+
+/**
+ * Messages sent from Project Standards webview to provider.
+ */
+type ProjectStandardsWebviewMessage =
+    | { command: "scanStandards"; }
+    | { command: "getViolations"; standardId: string; }
+    | { command: "createStandard"; standard: Omit<ProjectStandard, "id" | "createdAt" | "updatedAt">; }
+    | { command: "updateStandard"; standard: ProjectStandard; }
+    | { command: "deleteStandard"; standardId: string; }
+    | { command: "toggleStandard"; standardId: string; enabled: boolean; }
+    | { command: "toggleFocusMode"; enabled: boolean; }
+    | { command: "jumpToCell"; violation: StandardViolation; }
+    | { command: "generateRegex"; description: string; examples: string[]; }
+    | { command: "testRegex"; pattern: string; }
+    | { command: "getStandards"; };
+
+/**
+ * Messages sent from provider to Project Standards webview.
+ */
+type ProjectStandardsProviderMessage =
+    | { type: "standardsLoaded"; standards: ProjectStandard[]; }
+    | { type: "violationsLoaded"; standardId: string; violations: StandardViolation[]; }
+    | { type: "scanProgress"; progress: number; total: number; }
+    | { type: "scanComplete"; violationCounts: Record<string, number>; }
+    | { type: "regexGenerated"; pattern: string; error?: string; }
+    | { type: "regexTestResult"; matches: string[]; matchCount: number; }
+    | { type: "error"; message: string; }
+    | { type: "focusModeChanged"; enabled: boolean; };
