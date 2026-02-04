@@ -132,7 +132,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),
-            (async () => registerTestingCommands(context))(),
         ]);
 
         // Register metadata commands for frontier-authentication to call
@@ -852,6 +851,7 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
                         const { sortSwapEntries, orderEntryFields } = await import("./utils/projectSwapManager");
                         await MetadataManager.safeUpdateMetadata(
                             projectUri,
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (meta: any) => {
                                 if (!meta.meta) { meta.meta = {}; }
                                 const sorted = sortSwapEntries(recheck.swapInfo!.swapEntries || []);
