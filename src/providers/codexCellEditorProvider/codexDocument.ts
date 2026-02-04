@@ -1019,7 +1019,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             insertIndex = direction === "above" ? indexOfReferenceCell : indexOfReferenceCell + 1;
         }
 
-        // For paratext cells, ensure parentId is set in metadata so they can be associated with their parent cell
+        // For child cells, ensure parentId is set in metadata so they can be associated with their parent cell
         const cellMetadata: CustomCellMetaData = {
             id: newCellId,
             type: cellType,
@@ -1028,7 +1028,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             data: data,
         };
 
-        if (cellType === CodexCellTypes.PARATEXT && referenceCellId) {
+        if (referenceCellId) {
             cellMetadata.parentId = referenceCellId;
         }
 
@@ -1483,24 +1483,43 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
 
             if (cellIndex >= startCellIndex && cellIndex < endCellIndex) {
-                // Count content cells (excluding milestones and paratext) from the start of this milestone
-                // up to and including the clicked cell. This matches the logic in getCellsForMilestone.
-                let contentCellCount = 0;
-                for (let j = startCellIndex; j <= cellIndex; j++) {
-                    const cell = cells[j];
-                    // Skip milestone cells and paratext cells (matching getCellsForMilestone logic)
-                    if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                        cell.metadata?.type !== CodexCellTypes.PARATEXT) {
-                        contentCellCount++;
+                // Build root index for each content cell in this milestone (matches getCellsForMilestone root-based pagination)
+                const cellIdToRootIndex = new Map<string, number>();
+                let rootIndex = 0;
+                for (let j = startCellIndex; j < endCellIndex; j++) {
+                    const c = cells[j];
+                    if (
+                        c.metadata?.type !== CodexCellTypes.MILESTONE &&
+                        c.metadata?.type !== CodexCellTypes.PARATEXT
+                    ) {
+                        const id = c.metadata?.id;
+                        const parentId = c.metadata?.parentId ?? (c.metadata?.data as { parentId?: string; } | undefined)?.parentId;
+                        if (id) {
+                            if (!parentId) {
+                                cellIdToRootIndex.set(id, rootIndex);
+                                rootIndex++;
+                            } else {
+                                const parentRootIndex = cellIdToRootIndex.get(parentId);
+                                if (parentRootIndex !== undefined) {
+                                    cellIdToRootIndex.set(id, parentRootIndex);
+                                }
+                            }
+                        }
                     }
                 }
 
-                // Calculate subsection index (0-based)
-                // In getCellsForMilestone: startContentIndex = validSubsectionIndex * cellsPerPage
-                // So if a cell is at position N (1-indexed), it's in subsection floor((N-1) / cellsPerPage)
-                // Since contentCellCount is 1-indexed (count of cells including this one),
-                // we subtract 1 to get 0-indexed position, then divide by cellsPerPage
-                const subsectionIndex = Math.max(0, Math.floor((contentCellCount - 1) / cellsPerPage));
+                const cell = cells[cellIndex];
+                const cellId = cell.metadata?.id;
+                // Paratext cells use their parent's root index; content cells use their own
+                let cellRootIndex: number | undefined = cellId != null ? cellIdToRootIndex.get(cellId) : undefined;
+                if (cellRootIndex === undefined && cell.metadata?.type === CodexCellTypes.PARATEXT) {
+                    const parentId = cell.metadata?.parentId ?? (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
+                    cellRootIndex = parentId != null ? cellIdToRootIndex.get(parentId) : undefined;
+                }
+                const subsectionIndex =
+                    cellRootIndex !== undefined
+                        ? Math.max(0, Math.floor(cellRootIndex / cellsPerPage))
+                        : 0;
 
                 return { milestoneIndex: i, subsectionIndex };
             }
@@ -1700,14 +1719,43 @@ export class CodexCellDocument implements vscode.CustomDocument {
             contentCells.push(quillContent);
         }
 
-        // Calculate number of subsections
-        const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
+        // Use root-based subsections to match getCellsForMilestone pagination
+        const getContentCellParentId = (c: QuillCellContent) =>
+            (c.metadata?.parentId as string | undefined) ?? (c.data?.parentId as string | undefined);
+        const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
+        const totalSubsections = Math.ceil(rootContentCells.length / cellsPerPage);
 
         // Calculate progress for each subsection
         for (let subsectionIdx = 0; subsectionIdx < totalSubsections; subsectionIdx++) {
-            const startContentIndex = subsectionIdx * cellsPerPage;
-            const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
-            const subsectionCells = contentCells.slice(startContentIndex, endContentIndex);
+            const startRootIndex = subsectionIdx * cellsPerPage;
+            const endRootIndex = Math.min(
+                startRootIndex + cellsPerPage,
+                rootContentCells.length
+            );
+            const rootsOnSubsection = rootContentCells.slice(startRootIndex, endRootIndex);
+            const contentCellIdsForSubsection = new Set(
+                rootsOnSubsection.map((c) => c.cellMarkers[0])
+            );
+            let addedDescendant: boolean;
+            do {
+                addedDescendant = false;
+                for (const contentCell of contentCells) {
+                    const parentId = getContentCellParentId(contentCell);
+                    const cellId = contentCell.cellMarkers[0];
+                    if (
+                        parentId &&
+                        contentCellIdsForSubsection.has(parentId) &&
+                        cellId &&
+                        !contentCellIdsForSubsection.has(cellId)
+                    ) {
+                        contentCellIdsForSubsection.add(cellId);
+                        addedDescendant = true;
+                    }
+                }
+            } while (addedDescendant);
+            const subsectionCells = contentCells.filter((c) =>
+                contentCellIdsForSubsection.has(c.cellMarkers[0])
+            );
 
             const totalCells = subsectionCells.length;
             if (totalCells === 0) {
@@ -1809,9 +1857,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
     /**
      * Gets cells for a specific milestone and optional subsection.
      * Used for lazy loading cells on-demand.
-     * 
-     * This method ensures that paratext cells appear on the same page as their
-     * associated content cell, whether the paratext is above or below the content cell.
+     *
+     * Pagination is by root content cells only (cells without parentId). Each page shows
+     * N roots plus all their descendant content cells and paratext, so adding a child
+     * (e.g. to cell 44) does not bump the last root (e.g. cell 50) to the next page.
+     * Paratext cells appear on the same page as their associated content cell (including
+     * paratext on child content cells).
      * 
      * @param milestoneIndex The index of the milestone (0-based)
      * @param subsectionIndex Optional subsection index for sub-pagination within milestone
@@ -1864,21 +1915,48 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
         }
 
-        // Calculate which content cells belong to the current page
-        const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
+        // Helper: get parentId from a content cell (QuillCellContent)
+        const getContentCellParentId = (cell: QuillCellContent): string | undefined =>
+            (cell.metadata?.parentId as string | undefined) ??
+            (cell.data?.parentId as string | undefined);
+
+        // Paginate by root content cells only, so adding a child (e.g. to cell 44) does not bump
+        // the last root (e.g. cell 50) to the next page. Each page shows N roots + all their descendants.
+        const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
+        const totalSubsections = Math.ceil(rootContentCells.length / cellsPerPage);
         const validSubsectionIndex = Math.min(
             Math.max(0, subsectionIndex),
             Math.max(0, totalSubsections - 1)
         );
 
-        const startContentIndex = validSubsectionIndex * cellsPerPage;
-        const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
-
-        // Get content cells for this page
-        const contentCellsForPage = contentCells.slice(startContentIndex, endContentIndex);
-        const contentCellIdsForPage = new Set(
-            contentCellsForPage.map(cell => cell.cellMarkers[0])
+        const startRootIndex = validSubsectionIndex * cellsPerPage;
+        const endRootIndex = Math.min(
+            startRootIndex + cellsPerPage,
+            rootContentCells.length
         );
+        const rootsOnPage = rootContentCells.slice(startRootIndex, endRootIndex);
+
+        // Include roots on this page and all their descendant content cells (children, grandchildren, etc.)
+        const contentCellIdsForPage = new Set(
+            rootsOnPage.map((cell) => cell.cellMarkers[0])
+        );
+        let addedDescendant: boolean;
+        do {
+            addedDescendant = false;
+            for (const contentCell of contentCells) {
+                const parentId = getContentCellParentId(contentCell);
+                const cellId = contentCell.cellMarkers[0];
+                if (
+                    parentId &&
+                    contentCellIdsForPage.has(parentId) &&
+                    cellId &&
+                    !contentCellIdsForPage.has(cellId)
+                ) {
+                    contentCellIdsForPage.add(cellId);
+                    addedDescendant = true;
+                }
+            }
+        } while (addedDescendant);
 
         // Build a map of parent cell ID -> paratext cells
         const paratextCellsByParent = new Map<string, QuillCellContent[]>();
@@ -1912,6 +1990,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const cellsToInclude = new Set<string>(contentCellIdsForPage);
 
         // Add paratext cells associated with content cells on the current page
+        // (contentCellIdsForPage includes roots + descendants, so paratext of child cells is included)
         for (const contentCellId of contentCellIdsForPage) {
             const associatedParatextCells = paratextCellsByParent.get(contentCellId) || [];
             for (const paratextCell of associatedParatextCells) {
@@ -1920,7 +1999,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Filter allCellsInMilestone to only include cells that should be on this page
-        // This maintains the original order while ensuring paratext cells appear with their content cells
+        // This maintains the original order while ensuring paratext cells and child content cells appear with their parent
         const result = allCellsInMilestone.filter(cell =>
             cellsToInclude.has(cell.cellMarkers[0])
         );
@@ -1972,12 +2051,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     /**
      * Gets the total number of subsections for a milestone.
-     * 
+     * Uses root content cell count (excluding child content cells) so page count matches
+     * root-based pagination in getCellsForMilestone.
+     *
      * @param milestoneIndex The index of the milestone (0-based)
      * @param cellsPerPage Number of cells per page
      * @returns Number of subsections (pages) for this milestone
      */
     public getSubsectionCountForMilestone(milestoneIndex: number, cellsPerPage: number = 50): number {
+        const cells = this._documentData.cells || [];
         const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
 
         if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
@@ -1985,7 +2067,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const milestone = milestoneInfo.milestones[milestoneIndex];
-        return Math.ceil(milestone.cellCount / cellsPerPage) || 1;
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+        let rootContentCount = 0;
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+            if (
+                cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                cell.metadata?.type !== CodexCellTypes.PARATEXT
+            ) {
+                const parentId = cell.metadata?.parentId ?? (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
+                if (!parentId) {
+                    rootContentCount++;
+                }
+            }
+        }
+        return Math.ceil(rootContentCount / cellsPerPage) || 1;
     }
 
     public updateCellLabel(cellId: string, newLabel: string) {

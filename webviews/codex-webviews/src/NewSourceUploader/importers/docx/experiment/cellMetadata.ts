@@ -62,3 +62,46 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
         metadata: cellMetadata
     };
 }
+
+export interface DocxTableCellMetadataParams {
+    /** Paragraph indices inside this table cell (global within <w:body>). */
+    paragraphIndices: number[];
+    /** Concatenated text content of the table cell. */
+    originalContent: string;
+}
+
+/**
+ * Creates metadata for a DOCX table cell.
+ *
+ * IMPORTANT: For round-trip export we only need to map back to document.xml paragraph indices.
+ * For table cells, that can be multiple paragraphs; we store the list as `paragraphIndices`.
+ */
+export function createDocxTableCellMetadata(
+    params: DocxTableCellMetadataParams
+): { metadata: any; cellId: string } {
+    const { paragraphIndices, originalContent } = params;
+
+    const cellId = uuidv4();
+    const firstParagraphIndex = paragraphIndices[0] ?? -1;
+
+    const cellMetadata = {
+        id: cellId,
+        type: CodexCellTypes.TEXT,
+        edits: [],
+
+        // Keep `paragraphIndex` for backward compatibility and simple exporters,
+        // but prefer `paragraphIndices` when present.
+        paragraphIndex: firstParagraphIndex,
+        paragraphIndices,
+
+        data: {
+            originalText: originalContent,
+            globalReferences: [],
+        },
+
+        cellLabel:
+            firstParagraphIndex >= 0 ? `T¶${firstParagraphIndex + 1}` : 'TableCell',
+    };
+
+    return { cellId, metadata: cellMetadata };
+}
