@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as fs from "fs";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
@@ -20,12 +19,11 @@ import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplayName } from "../../utils/bookNameUtils";
 import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
-import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
-import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/pathUtils";
 // import { parseRtfWithPandoc as parseRtfNode } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -659,7 +657,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // 3) Persist audio attachments (extract from video if needed)
 
         // Import audio extraction utility
-        const { processMediaAttachment } = await import("../../utils/audioExtractor");
+        const { processMediaAttachment } = await import("../../utils/audioProcessing");
 
         // Show progress with VS Code information message
         const totalAttachments = message.attachments.length;
@@ -811,7 +809,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             }
 
                             // Process the media (extract audio if from video, or use pre-segmented audio)
-                            audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
+                            audioBuffer = await processMediaAttachment(
+                                { dataBase64, startTime: attachment.startTime, endTime: attachment.endTime },
+                                isFromVideo || false
+                            );
 
                             // Write the audio file
                             const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);

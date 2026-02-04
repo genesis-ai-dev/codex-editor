@@ -93,7 +93,7 @@ class AudioSplitter {
                 return;
             }
 
-            const { processAudioFile } = await import("../../../utils/audioProcessor");
+            const { processAudioFile } = await import("../../../utils/audioProcessing");
             const thresholdDb = message.thresholdDb ?? -40;
             const minDuration = message.minDuration ?? 0.5;
 
@@ -200,7 +200,7 @@ class AudioSplitter {
                 throw new Error("Session not found");
             }
 
-            const { processAudioFile } = await import("../../../utils/audioProcessor");
+            const { processAudioFile } = await import("../../../utils/audioProcessing");
             const metadata = await processAudioFile(session.filePath, 30, message.thresholdDb, message.minDuration);
 
             const segments = metadata.segments.map((seg, index) => ({
@@ -260,7 +260,7 @@ class AudioSplitter {
             const outputFileName = `${message.segmentId}.wav`;
             const outputPath = path.join(session.tempDir, outputFileName);
 
-            const { extractSegment } = await import("../../../utils/audioProcessor");
+            const { extractSegment } = await import("../../../utils/audioProcessing");
             await extractSegment(session.filePath, outputPath, message.startSec, message.endSec);
 
             // Convert to data URL for CSP compliance (webview only allows blob: and data: for media)
@@ -435,7 +435,7 @@ class AudioSplitter {
                 const filesPath = path.join(filesDir.fsPath, mapping.fileName);
                 const pointersPath = path.join(pointersDir.fsPath, mapping.fileName);
 
-                const { extractSegment } = await import("../../../utils/audioProcessor");
+                const { extractSegment } = await import("../../../utils/audioProcessing");
                 await extractSegment(session.filePath, filesPath, segment.startSec, segment.endSec);
 
                 fs.copyFileSync(filesPath, pointersPath);

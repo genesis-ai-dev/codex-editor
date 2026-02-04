@@ -25,6 +25,3 @@ declare module '../../backtranslation' {
     export function setBacktranslation(): any;
 }
 
-declare module '../../actions/suggestions/rejectEditSuggestion' {
-    export function rejectEditSuggestion(): any;
-} 

@@ -6,7 +6,7 @@ import {
     ImportedContent,
     defaultCellAligner,
 } from "../../types/plugin";
-import { ImportProgress, ProcessedNotebook, NotebookPair } from "../../types/common";
+import { ImportProgress, NotebookPair } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
@@ -67,8 +67,6 @@ import { AlignmentPreview } from "../../components/AlignmentPreview";
 // Import the translations.csv file
 import translationsCSV from "./translations.csv?raw";
 
-// Use the real parser functions from the eBible Corpus importer
-const { validateFile, parseFile } = ebibleCorpusImporter;
 
 export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const {

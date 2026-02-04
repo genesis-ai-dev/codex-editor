@@ -25,7 +25,6 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
 
     // Special JSON merges - merge based on timestamps
     [ConflictResolutionStrategy.SPECIAL]: [
-        "files/smart_edits.json",
         "metadata.json"
     ],
 

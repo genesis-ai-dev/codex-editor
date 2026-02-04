@@ -18,7 +18,7 @@ import { registerSyncCommands } from "../../projectManager/syncManager";
 import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
 import { getSQLiteIndexManager } from "./contentIndexes/indexes/sqliteIndexManager";
 import { testProjectLoadingPerformance } from "../../test-project-loading";
-import { migrateXM4aFiles, showMigrationResults } from "../../utils/audioMigration";
+import { migrateXM4aFiles, showMigrationResults } from "../../utils/migrations/audioMigration";
 
 export async function registerCommands(context: vscode.ExtensionContext) {
     // Register the centralized sync commands

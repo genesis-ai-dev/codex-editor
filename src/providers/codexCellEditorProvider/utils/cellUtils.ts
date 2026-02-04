@@ -1,6 +1,6 @@
 import { QuillCellContent, CustomNotebookCellData } from "../../../../types";
 import { CodexCellTypes } from "../../../../types/enums";
-import { generateCellIdFromHash } from "../../../utils/uuidUtils";
+import { generateCellIdFromHash } from "../../../utils/idUtils";
 
 /**
  * Generates a child cell ID using UUID format.

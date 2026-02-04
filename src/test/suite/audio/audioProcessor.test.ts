@@ -10,7 +10,7 @@ import {
     extractSegment,
     extractSegments,
     initializeAudioProcessor,
-} from "../../../utils/audioProcessor";
+} from "../../../utils/audioProcessing";
 import {
     createMockExtensionContext,
     swallowDuplicateCommandRegistrations,
@@ -51,7 +51,7 @@ suite("Audio Processor Test Suite", () => {
             // With the new on-demand download, FFmpeg will be downloaded automatically if not available
             try {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
-                const audioProcessor = require("../../../utils/audioProcessor");
+                const audioProcessor = require("../../../utils/audioProcessing");
 
                 // Verify the module exports the expected functions
                 assert.ok(audioProcessor, "audioProcessor module should be importable");

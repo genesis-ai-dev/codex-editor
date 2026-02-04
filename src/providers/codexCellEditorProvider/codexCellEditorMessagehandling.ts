@@ -19,10 +19,9 @@ import { getAuthApi } from "@/extension";
 // Use VS Code FS API for all file operations (supports remote and virtual workspaces)
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
-import { toPosixPath } from "../../utils/pathUtils";
+import { toPosixPath, getAttachmentDocumentSegmentFromUri } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
-import { mergeAudioFiles } from "../../utils/audioMerger";
-import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
+import { mergeAudioFiles } from "../../utils/audioProcessing";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -755,13 +754,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
 
         if (oldText !== newText) {
-            if (!isSourceText) {
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.recordIceEdit",
-                    oldText,
-                    newText
-                );
-            }
             provider.updateFileStatus("dirty");
         }
 
@@ -1260,16 +1252,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    supplyRecentEditHistory: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
-        debug("supplyRecentEditHistory message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.supplyRecentEditHistory",
-            typedEvent.content.cellId,
-            typedEvent.content.editHistory
-        );
-    },
-
     exportFile: async ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile"; }>;
         const notebookName = path.parse(document.uri.fsPath).name;
@@ -1391,14 +1373,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    rejectEditSuggestion: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion"; }>;
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.rejectEditSuggestion",
-            typedEvent.content
-        );
-    },
-
     webviewFocused: ({ event, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "webviewFocused"; }>;
         if (provider.currentDocument && typedEvent.content?.uri) {
@@ -1424,7 +1398,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};
 
         // Import and call the A/B testing feedback function
-        const { recordVariantSelection } = await import("../../utils/abTestingUtils");
+        const { recordVariantSelection } = await import("../../utils/abTesting");
         await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
 
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
@@ -1501,7 +1475,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Record A/B test result if a button was clicked
         if (buttonChoice && testId && cellId) {
             try {
-                const { recordAbResult } = await import("../../utils/abTestingAnalytics");
+                const { recordAbResult } = await import("../../utils/abTesting");
                 await recordAbResult({
                     category: "Frequency Preference",
                     options: ["See more", "See less"],

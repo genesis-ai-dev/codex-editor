@@ -7,7 +7,7 @@ import { SQLiteIndexManager } from "../../activationHelpers/contextAware/content
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { createMockExtensionContext, createTempCodexFile, deleteIfExists } from "../testUtils";
-import { initializeABTesting } from "../../utils/abTestingSetup";
+import { initializeABTesting } from "../../utils/abTesting";
 
 suite("Validated-only examples behavior", () => {
     test("getTranslationPairsFromSourceCellQuery forwards onlyValidated and maps results", async () => {

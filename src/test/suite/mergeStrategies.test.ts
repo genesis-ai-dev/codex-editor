@@ -38,9 +38,9 @@ suite("Merge Strategies Test Suite", () => {
         const strategy3 = determineStrategy(dictionaryFile);
         assert.strictEqual(strategy3, ConflictResolutionStrategy.JSONL);
 
-        // Test SPECIAL strategy
-        const smartEditsFile = "files/smart_edits.json";
-        const strategy4 = determineStrategy(smartEditsFile);
+        // Test SPECIAL strategy (metadata.json uses special merge logic)
+        const specialMetadataFile = "metadata.json";
+        const strategy4 = determineStrategy(specialMetadataFile);
         assert.strictEqual(strategy4, ConflictResolutionStrategy.SPECIAL);
 
         // Test IGNORE strategy

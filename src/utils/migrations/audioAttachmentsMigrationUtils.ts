@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
-import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
-import { setMissingFlagOnAttachmentObject } from './audioMissingUtils';
+import { toPosixPath, normalizeAttachmentUrl } from '../pathUtils';
+import { setMissingFlagOnAttachmentObject } from '../audioMissingUtils';
 
 const DEBUG_MODE = false;
 const debug = (message: string) => {

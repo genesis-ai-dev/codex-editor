@@ -2,16 +2,13 @@ import * as vscode from "vscode";
 import { stageAndCommitAllAndSync, SyncResult } from "./utils/merge";
 import { getAuthApi } from "../extension";
 import { createIndexWithContext } from "../activationHelpers/contextAware/contentIndexes/indexes";
-import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
-import * as path from "path";
 import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
-import http from "isomorphic-git/http/web";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
-import { CommentsMigrator } from "../utils/commentsMigrationUtils";
+import { CommentsMigrator } from "../utils/migrations/commentsMigrationUtils";
 
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {

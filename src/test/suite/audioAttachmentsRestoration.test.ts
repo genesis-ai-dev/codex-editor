@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 
-import { migrateAudioAttachments } from '../../utils/audioAttachmentsMigrationUtils';
+import { migrateAudioAttachments } from '../../utils/migrations/audioAttachmentsMigrationUtils';
 
 suite('Audio Attachments Restoration', () => {
     function makeWorkspace() {
