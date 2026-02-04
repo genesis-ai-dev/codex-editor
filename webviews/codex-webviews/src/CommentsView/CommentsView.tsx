@@ -3,6 +3,8 @@ import {
     MessageSquare,
     Plus,
     ChevronLeft,
+    ChevronDown,
+    ChevronRight,
     Check,
     X,
     Trash2,
@@ -70,11 +72,12 @@ function App() {
     const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "", globalReferences: [] });
     const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>([]);
     const [messageText, setMessageText] = useState("");
-    const [viewMode, setViewMode] = useState<"all" | "cell">("cell");
     const [selectedThread, setSelectedThread] = useState<string | null>(null);
     const [pendingResolveThreads, setPendingResolveThreads] = useState<Set<string>>(new Set());
-    const [showNewThreadForm, setShowNewThreadForm] = useState(false);
     const [newThreadText, setNewThreadText] = useState("");
+    const [currentSectionExpanded, setCurrentSectionExpanded] = useState(true);
+    const [allSectionExpanded, setAllSectionExpanded] = useState(false);
+    const newThreadRef = useRef<HTMLTextAreaElement>(null);
     const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -238,28 +241,33 @@ function App() {
         return plainText.length > 50 ? plainText.slice(0, 47) + "..." : plainText || "Empty thread";
     };
 
-    // Filter and sort threads: unresolved first, then resolved at bottom
-    const filteredThreads = useMemo(() => {
-        const nonDeleted = commentThreadArray.filter((t) => !isThreadDeleted(t));
-        const filtered = nonDeleted.filter((t) => {
-            if (viewMode === "cell" && cellId.cellId) {
-                return t.cellId.cellId === cellId.cellId;
-            }
-            return true;
-        });
+    // Sort function for threads
+    const byLatestActivity = (a: NotebookCommentThread, b: NotebookCommentThread) => {
+        const aTime = Math.max(...a.comments.map((c) => c.timestamp));
+        const bTime = Math.max(...b.comments.map((c) => c.timestamp));
+        return bTime - aTime;
+    };
 
-        // Sort: unresolved first (by latest activity), then resolved
-        const unresolved = filtered.filter((t) => !isThreadResolved(t));
-        const resolved = filtered.filter((t) => isThreadResolved(t));
-
-        const byLatestActivity = (a: NotebookCommentThread, b: NotebookCommentThread) => {
-            const aTime = Math.max(...a.comments.map((c) => c.timestamp));
-            const bTime = Math.max(...b.comments.map((c) => c.timestamp));
-            return bTime - aTime;
-        };
-
+    // Sort threads: unresolved first, then resolved
+    const sortThreads = (threads: NotebookCommentThread[]) => {
+        const unresolved = threads.filter((t) => !isThreadResolved(t));
+        const resolved = threads.filter((t) => isThreadResolved(t));
         return [...unresolved.sort(byLatestActivity), ...resolved.sort(byLatestActivity)];
-    }, [commentThreadArray, viewMode, cellId.cellId, isThreadDeleted, isThreadResolved]);
+    };
+
+    // Threads for current cell
+    const currentCellThreads = useMemo(() => {
+        const nonDeleted = commentThreadArray.filter((t) => !isThreadDeleted(t));
+        const filtered = nonDeleted.filter((t) => cellId.cellId && t.cellId.cellId === cellId.cellId);
+        return sortThreads(filtered);
+    }, [commentThreadArray, cellId.cellId, isThreadDeleted, isThreadResolved]);
+
+    // All threads (excluding current cell to avoid duplicates)
+    const allOtherThreads = useMemo(() => {
+        const nonDeleted = commentThreadArray.filter((t) => !isThreadDeleted(t));
+        const filtered = nonDeleted.filter((t) => !cellId.cellId || t.cellId.cellId !== cellId.cellId);
+        return sortThreads(filtered);
+    }, [commentThreadArray, cellId.cellId, isThreadDeleted, isThreadResolved]);
 
     const currentThread = selectedThread
         ? commentThreadArray.find((t) => t.id === selectedThread)
@@ -318,7 +326,6 @@ function App() {
 
         vscode.postMessage({ command: "updateCommentThread", commentThread: newThread });
         setNewThreadText("");
-        setShowNewThreadForm(false);
         setSelectedThread(newThread.id);
     };
 
@@ -356,121 +363,146 @@ function App() {
         ));
     };
 
-    // Thread list view
+    // Render a thread item
+    const renderThreadItem = (thread: NotebookCommentThread) => {
+        const resolved = isThreadResolved(thread);
+        const latestComment = thread.comments[thread.comments.length - 1];
+        const time = formatTimestamp(latestComment?.timestamp || 0);
+
+        return (
+            <div
+                key={thread.id}
+                onClick={() => setSelectedThread(thread.id)}
+                className={`px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors border-l-2 ${
+                    resolved
+                        ? "border-transparent opacity-60"
+                        : "border-transparent hover:border-primary"
+                }`}
+            >
+                <div className="flex items-center gap-2">
+                    <Hash className={`h-4 w-4 flex-shrink-0 ${resolved ? "text-muted-foreground" : "text-primary"}`} />
+                    <span className={`text-sm truncate flex-1 ${resolved ? "text-muted-foreground" : "font-medium"}`}>
+                        {getThreadPreview(thread)}
+                    </span>
+                    {resolved && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                            <Check className="h-2.5 w-2.5" />
+                        </Badge>
+                    )}
+                </div>
+                <div className="flex items-center gap-2 mt-1 ml-6 text-xs text-muted-foreground">
+                    <span>{thread.comments.length} {thread.comments.length === 1 ? "message" : "messages"}</span>
+                    <span>•</span>
+                    <span>{time.display}</span>
+                </div>
+            </div>
+        );
+    };
+
+    // Thread list view with collapsible sections
     const ThreadList = () => (
         <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="p-3 border-b border-border">
-                <div className="flex gap-2 mb-3">
-                    <Button
-                        variant={viewMode === "all" ? "default" : "ghost"}
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => setViewMode("all")}
-                    >
-                        All
-                    </Button>
-                    <Button
-                        variant={viewMode === "cell" ? "default" : "ghost"}
-                        size="sm"
-                        className="flex-1 truncate"
-                        onClick={() => setViewMode("cell")}
-                    >
-                        {cellId.cellId ? getCellLabel(cellId) : "Current"}
-                    </Button>
-                </div>
-
-                {currentUser.isAuthenticated && cellId.cellId && (
-                    <Button
-                        className="w-full"
-                        size="sm"
-                        onClick={() => setShowNewThreadForm(true)}
-                    >
-                        <Plus className="h-4 w-4 mr-2" />
-                        New Thread
-                    </Button>
-                )}
-            </div>
-
-            {/* New thread form */}
-            {showNewThreadForm && (
-                <div className="p-3 border-b border-border bg-muted/30">
-                    <div className="text-xs text-muted-foreground mb-2">
-                        Starting thread on {getCellLabel(cellId)}
-                    </div>
-                    <textarea
-                        autoFocus
-                        placeholder="What's on your mind?"
-                        value={newThreadText}
-                        onChange={(e) => setNewThreadText(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                e.preventDefault();
-                                handleCreateThread();
-                            } else if (e.key === "Escape") {
-                                setShowNewThreadForm(false);
-                                setNewThreadText("");
-                            }
-                        }}
-                        className="w-full resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-1 focus:ring-ring min-h-[60px] mb-2"
-                    />
-                    <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => { setShowNewThreadForm(false); setNewThreadText(""); }}>
-                            Cancel
-                        </Button>
-                        <Button size="sm" onClick={handleCreateThread} disabled={!newThreadText.trim()}>
-                            Create
-                        </Button>
-                    </div>
-                </div>
-            )}
-
-            {/* Thread list */}
             <div className="flex-1 overflow-y-auto">
-                {filteredThreads.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8 text-center">
-                        <MessageSquare className="h-8 w-8 mb-3 opacity-50" />
-                        <div className="text-sm">No threads yet</div>
-                        <div className="text-xs mt-1">Start a conversation</div>
-                    </div>
-                ) : (
-                    <div className="py-1">
-                        {filteredThreads.map((thread) => {
-                            const resolved = isThreadResolved(thread);
-                            const latestComment = thread.comments[thread.comments.length - 1];
-                            const time = formatTimestamp(latestComment?.timestamp || 0);
+                {/* Current Cell Section */}
+                <div className="border-b border-border">
+                    {/* Section header */}
+                    <button
+                        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/30 transition-colors text-left"
+                        onClick={() => setCurrentSectionExpanded(!currentSectionExpanded)}
+                    >
+                        {currentSectionExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="font-medium text-sm">
+                            {cellId.cellId ? getCellLabel(cellId) : "Current Cell"}
+                        </span>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                            {currentCellThreads.length} {currentCellThreads.length === 1 ? "thread" : "threads"}
+                        </span>
+                    </button>
 
-                            return (
-                                <div
-                                    key={thread.id}
-                                    onClick={() => setSelectedThread(thread.id)}
-                                    className={`px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors border-l-2 ${
-                                        resolved
-                                            ? "border-transparent opacity-60"
-                                            : "border-transparent hover:border-primary"
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Hash className={`h-4 w-4 flex-shrink-0 ${resolved ? "text-muted-foreground" : "text-primary"}`} />
-                                        <span className={`text-sm truncate flex-1 ${resolved ? "text-muted-foreground" : "font-medium"}`}>
-                                            {getThreadPreview(thread)}
-                                        </span>
-                                        {resolved && (
-                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                                <Check className="h-2.5 w-2.5" />
-                                            </Badge>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-1 ml-6 text-xs text-muted-foreground">
-                                        <span>{thread.comments.length} {thread.comments.length === 1 ? "message" : "messages"}</span>
-                                        <span>•</span>
-                                        <span>{time.display}</span>
+                    {/* Section content */}
+                    {currentSectionExpanded && (
+                        <div className="pb-2">
+                            {/* Inline new thread input */}
+                            {currentUser.isAuthenticated && cellId.cellId && (
+                                <div className="px-3 py-2">
+                                    <div className="relative w-full">
+                                        <textarea
+                                            ref={newThreadRef}
+                                            placeholder="Start a new thread..."
+                                            value={newThreadText}
+                                            onChange={(e) => setNewThreadText(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                                    e.preventDefault();
+                                                    handleCreateThread();
+                                                } else if (e.key === "Escape") {
+                                                    setNewThreadText("");
+                                                    newThreadRef.current?.blur();
+                                                }
+                                            }}
+                                            className="w-full resize-none border border-border rounded-md pl-3 pr-10 py-2 text-sm bg-background focus:outline-none focus:ring-1 focus:ring-ring min-h-[40px]"
+                                            rows={1}
+                                        />
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="absolute right-1 top-1 h-7 w-7 p-0 hover:bg-transparent"
+                                            onClick={handleCreateThread}
+                                            disabled={!newThreadText.trim()}
+                                        >
+                                            <Plus className="h-4 w-4 text-primary" />
+                                        </Button>
                                     </div>
                                 </div>
-                            );
-                        })}
-                    </div>
-                )}
+                            )}
+
+                            {/* Thread list for current cell */}
+                            {currentCellThreads.length === 0 ? (
+                                <div className="px-3 py-4 text-center text-muted-foreground text-sm">
+                                    No threads on this cell yet
+                                </div>
+                            ) : (
+                                currentCellThreads.map(renderThreadItem)
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* All Threads Section */}
+                <div>
+                    {/* Section header */}
+                    <button
+                        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/30 transition-colors text-left"
+                        onClick={() => setAllSectionExpanded(!allSectionExpanded)}
+                    >
+                        {allSectionExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="font-medium text-sm">All Other Threads</span>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                            {allOtherThreads.length} {allOtherThreads.length === 1 ? "thread" : "threads"}
+                        </span>
+                    </button>
+
+                    {/* Section content */}
+                    {allSectionExpanded && (
+                        <div className="pb-2">
+                            {allOtherThreads.length === 0 ? (
+                                <div className="px-3 py-4 text-center text-muted-foreground text-sm">
+                                    No other threads
+                                </div>
+                            ) : (
+                                allOtherThreads.map(renderThreadItem)
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

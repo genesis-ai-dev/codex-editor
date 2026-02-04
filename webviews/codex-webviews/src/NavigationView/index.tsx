@@ -711,7 +711,7 @@ function NavigationView() {
                         }
                     }}
                 >
-                    <div className="p-2 px-3 flex items-center gap-2 w-full min-h-8">
+                    <div className="py-2.5 px-3 flex items-center gap-2 w-full min-h-[38px]">
                         {isGroup && (
                             <i
                                 className={`codicon ${
@@ -799,7 +799,7 @@ function NavigationView() {
                     </div>
                 </div>
                 {isGroup && isExpanded && item.children && (
-                    <div className="ml-4 mt-1.5 flex flex-col">
+                    <div className="ml-4 mt-1 flex flex-col gap-0.5">
                         {item.children.sort(sortItems).map(renderItem)}
                     </div>
                 )}
@@ -910,7 +910,7 @@ function NavigationView() {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-auto flex flex-col gap-2">
+            <div className="flex-1 overflow-auto flex flex-col gap-1.5">
                 {(() => {
                     if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
                         return (

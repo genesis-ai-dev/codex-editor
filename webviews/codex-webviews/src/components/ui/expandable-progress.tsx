@@ -24,21 +24,21 @@ function ExpandableProgress({
 
     return (
         <div
-            className={`relative flex items-center h-7 ${className}`}
+            className={`relative flex items-center h-8 ${className}`}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
             {/* Container that morphs between compact and expanded */}
             <div
-                className={`flex items-center h-7 border transition-all duration-300 ease-in-out ${
+                className={`flex items-center h-8 border transition-all duration-300 ease-in-out ${
                     isHovered
                         ? "w-[140px] px-2 gap-2 bg-card border-border rounded-md shadow-sm"
-                        : "w-[52px] px-1.5 gap-1 bg-primary/10 border-primary/20 rounded-full"
+                        : "w-[56px] px-1.5 gap-1 bg-primary/10 border-primary/20 rounded-full"
                 }`}
                 title={`${label}: ${Math.floor(clampedCompletion)}% complete, ${Math.floor(clampedValidation)}% validated`}
             >
                 {/* Icon */}
-                <div className="h-3 w-3 flex items-center justify-center opacity-70 flex-shrink-0">
+                <div className="h-3.5 w-3.5 flex items-center justify-center opacity-70 flex-shrink-0">
                     {icon}
                 </div>
 
@@ -53,7 +53,7 @@ function ExpandableProgress({
                         <DualRingProgress
                             completionValue={clampedCompletion}
                             validationValue={clampedValidation}
-                            size={24}
+                            size={26}
                         />
                     </div>
 
