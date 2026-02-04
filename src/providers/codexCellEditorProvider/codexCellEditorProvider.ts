@@ -9,17 +9,13 @@ import {
     EditorPostMessages,
     EditorReceiveMessages,
     GlobalMessage,
-    GlobalContentType,
     CellIdGlobalState,
-    CustomNotebookCellData,
     CodexNotebookAsJSONData,
-    MilestoneIndex,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import {
     handleGlobalMessage,
     handleMessages,
-    performLLMCompletion,
 } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { initializeStateStore } from "../../stateStore";
