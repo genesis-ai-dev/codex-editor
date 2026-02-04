@@ -11,13 +11,6 @@ export enum ConflictResolutionStrategy {
     JSON_MERGE_3WAY = "json-merge-3way", // 3-way merge for JSON settings with chatSystemMessage tie-breaker
 }
 
-export interface SmartEdit {
-    cellId: string;
-    lastCellValue: string;
-    suggestions: Array<{ oldString: string; newString: string; }>;
-    lastUpdatedDate: string;
-}
-
 export interface ConflictFile {
     filepath: string;
     ours: string; // The actual content, not a path

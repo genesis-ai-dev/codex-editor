@@ -754,13 +754,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
 
         if (oldText !== newText) {
-            if (!isSourceText) {
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.recordIceEdit",
-                    oldText,
-                    newText
-                );
-            }
             provider.updateFileStatus("dirty");
         }
 
@@ -1259,16 +1252,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    supplyRecentEditHistory: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
-        debug("supplyRecentEditHistory message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.supplyRecentEditHistory",
-            typedEvent.content.cellId,
-            typedEvent.content.editHistory
-        );
-    },
-
     exportFile: async ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile"; }>;
         const notebookName = path.parse(document.uri.fsPath).name;
@@ -1388,14 +1371,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerConfirmsBacktranslationSet",
             content: backtranslation,
         });
-    },
-
-    rejectEditSuggestion: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion"; }>;
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.rejectEditSuggestion",
-            typedEvent.content
-        );
     },
 
     webviewFocused: ({ event, provider }) => {
