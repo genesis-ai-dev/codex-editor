@@ -739,9 +739,9 @@ export async function initiateProjectSwap(): Promise<void> {
             return;
         }
 
-        // Generate swapUUID - this ID links all projects in the swap chain.
-        // It propagates to each new project, creating a traceable lineage:
-        // ProjectA -> ProjectB -> ProjectC all share the same swapUUID.
+        // Generate swapUUID - this ID links the OLD and NEW project counterparts for THIS swap.
+        // Each new swap operation generates a fresh UUID.
+        // Example: A→B share UUID-1, B→C share UUID-2 (different UUIDs for different swaps).
         const swapUUID = generateProjectId();
         const now = Date.now();
         const oldProjectName = extractProjectNameFromUrl(currentGitUrl);

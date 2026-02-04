@@ -420,7 +420,7 @@ export async function downloadPendingSwapFiles(
  * @param projectName - Name of the project
  * @param oldProjectPath - Path to the old project
  * @param newProjectUrl - Git URL of the new project
- * @param swapUUID - Chain identifier linking all projects in swap lineage (original -> swapped -> re-swapped)
+ * @param swapUUID - Identifier linking OLD and NEW project counterparts for THIS swap (each new swap gets a fresh UUID)
  * @param swapInitiatedAt - Timestamp from OLD project's active entry (for matching entries in NEW project)
  * @returns Promise resolving to new project path
  */
