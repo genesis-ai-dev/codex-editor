@@ -3,10 +3,9 @@ import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import bibleData from "../assets/bible-books-lookup.json";
-import { Progress } from "../components/ui/progress";
+import { DualRingProgress } from "../components/ui/circular-progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Languages } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
 
@@ -189,10 +188,6 @@ function NavigationView() {
             newName: "",
         },
     });
-
-    const [expandedValidationTicks, setExpandedValidationTicks] = useState<Record<string, boolean>>(
-        {}
-    );
 
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
@@ -583,126 +578,41 @@ function NavigationView() {
             .filter((item): item is CodexItem => item !== null);
     };
 
-    const toggleTextValidationLevelTicks =
-        (itemKey: string) => (e: React.MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation();
-            e.preventDefault();
-            const key = `${itemKey}-text`;
-            setExpandedValidationTicks((prev) => ({ ...prev, [key]: !prev[key] }));
-        };
-
-    const toggleAudioValidationLevelTicks =
-        (itemKey: string) => (e: React.MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation();
-            e.preventDefault();
-            const key = `${itemKey}-audio`;
-            setExpandedValidationTicks((prev) => ({ ...prev, [key]: !prev[key] }));
-        };
-
-    const renderProgressSection = (
-        itemKey: string,
-        progress?: {
-            percentTranslationsCompleted?: number;
-            percentFullyValidatedTranslations?: number;
-            percentTextValidatedTranslations?: number;
-            percentAudioTranslationsCompleted?: number;
-            percentAudioValidatedTranslations?: number;
-            textValidationLevels?: number[];
-            audioValidationLevels?: number[];
-            requiredTextValidations?: number;
-            requiredAudioValidations?: number;
+    const getProgressValues = (progress?: {
+        percentTranslationsCompleted?: number;
+        percentTextValidatedTranslations?: number;
+        percentFullyValidatedTranslations?: number;
+        percentAudioTranslationsCompleted?: number;
+        percentAudioValidatedTranslations?: number;
+    }) => {
+        if (typeof progress !== "object") {
+            return {
+                textCompletion: 0,
+                textValidation: 0,
+                audioCompletion: 0,
+                audioValidation: 0,
+            };
         }
-    ) => {
-        if (typeof progress !== "object") return null;
-        const textCompleted = Math.max(
-            0,
-            Math.min(100, progress.percentTranslationsCompleted ?? 0)
-        );
-        const textValidated = Math.max(
-            0,
-            Math.min(
-                100,
-                progress.percentTextValidatedTranslations ??
-                    progress.percentFullyValidatedTranslations ??
-                    0
-            )
-        );
-        const audioCompleted = Math.max(
-            0,
-            Math.min(100, progress.percentAudioTranslationsCompleted ?? 0)
-        );
-        const audioValidated = Math.max(
-            0,
-            Math.min(100, progress.percentAudioValidatedTranslations ?? 0)
-        );
-
-        const textLevels = Array.isArray(progress.textValidationLevels)
-            ? progress.textValidationLevels
-            : [textValidated];
-        const audioLevels = Array.isArray(progress.audioValidationLevels)
-            ? progress.audioValidationLevels
-            : [audioValidated];
-        const requiredText = progress.requiredTextValidations;
-        const requiredAudio = progress.requiredAudioValidations;
-
-        return (
-            <div className="flex flex-col gap-y-4 pl-7">
-                <div className="flex gap-x-1">
-                    <span className="opacity-70 font-light">
-                        <Languages className="h-[14px] w-[14px]" />
-                    </span>
-                    <div className="mt-[2px] w-full">
-                        <Progress
-                            value={textCompleted}
-                            validationValues={textLevels}
-                            requiredValidations={requiredText}
-                            showPercentage
-                            showValidationLevelTicks={!!expandedValidationTicks[`${itemKey}-text`]}
-                        />
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="items-start -mt-[3px] h-6 w-6"
-                        onClick={toggleTextValidationLevelTicks(itemKey)}
-                    >
-                        {expandedValidationTicks[`${itemKey}-text`] ? (
-                            <i className="codicon codicon-chevron-up" />
-                        ) : (
-                            <i className="codicon codicon-chevron-down" />
-                        )}
-                    </Button>
-                </div>
-                <div className="flex gap-x-1">
-                    <span className="opacity-70">
-                        <i className="codicon codicon-mic" />
-                    </span>
-                    <div className="mt-[2px] w-full">
-                        <Progress
-                            value={audioCompleted}
-                            validationValues={audioLevels}
-                            requiredValidations={requiredAudio}
-                            showPercentage
-                            showValidationLevelTicks={!!expandedValidationTicks[`${itemKey}-audio`]}
-                        />
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="items-start -mt-[3px] h-6 w-6"
-                        onClick={toggleAudioValidationLevelTicks(itemKey)}
-                    >
-                        <span className="hover:text-vscode-foreground">
-                            {expandedValidationTicks[`${itemKey}-audio`] ? (
-                                <i className="codicon codicon-chevron-up" />
-                            ) : (
-                                <i className="codicon codicon-chevron-down" />
-                            )}
-                        </span>
-                    </Button>
-                </div>
-            </div>
-        );
+        return {
+            textCompletion: Math.max(0, Math.min(100, progress.percentTranslationsCompleted ?? 0)),
+            textValidation: Math.max(
+                0,
+                Math.min(
+                    100,
+                    progress.percentTextValidatedTranslations ??
+                        progress.percentFullyValidatedTranslations ??
+                        0
+                )
+            ),
+            audioCompletion: Math.max(
+                0,
+                Math.min(100, progress.percentAudioTranslationsCompleted ?? 0)
+            ),
+            audioValidation: Math.max(
+                0,
+                Math.min(100, progress.percentAudioValidatedTranslations ?? 0)
+            ),
+        };
     };
 
     const renderItem = (item: CodexItem) => {
@@ -781,6 +691,9 @@ function NavigationView() {
             );
         }
 
+        const progressValues = getProgressValues(item.progress);
+        const hasProgress = item.progress && typeof item.progress === "object";
+
         return (
             <div key={item.label + item.uri}>
                 <div
@@ -798,82 +711,102 @@ function NavigationView() {
                         }
                     }}
                 >
-                    <div className="p-3 flex flex-col gap-1.5">
-                        <div className="flex items-center gap-3 w-full min-h-6">
-                            {isGroup && (
-                                <i
-                                    className={`codicon ${
-                                        isExpanded
-                                            ? "codicon-chevron-down"
-                                            : "codicon-chevron-right"
-                                    } text-base text-vscode-foreground w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-70 transition-transform duration-200`}
-                                />
-                            )}
+                    <div className="p-2 px-3 flex items-center gap-2 w-full min-h-8">
+                        {isGroup && (
                             <i
-                                className={`codicon codicon-${icon} text-base text-vscode-symbolIcon-fileForeground w-4 h-4 flex items-center justify-center flex-shrink-0`}
+                                className={`codicon ${
+                                    isExpanded
+                                        ? "codicon-chevron-down"
+                                        : "codicon-chevron-right"
+                                } text-base text-vscode-foreground w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-70 transition-transform duration-200`}
                             />
-                            <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-sm font-medium text-vscode-foreground leading-normal">
-                                {displayLabel}
-                            </span>
-                        </div>
-                        {renderProgressSection(itemId, item.progress)}
-                    </div>
+                        )}
+                        <i
+                            className={`codicon codicon-${icon} text-base text-vscode-symbolIcon-fileForeground w-4 h-4 flex items-center justify-center flex-shrink-0`}
+                        />
+                        <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-sm font-medium text-vscode-foreground leading-normal">
+                            {displayLabel}
+                        </span>
 
-                    {/* Menu button positioned absolutely */}
-                    {(!isGroup || item.type === "corpus") && (
-                        <>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="menu-button absolute top-2 right-2 w-6 h-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        title="More options"
+                        {/* Progress indicators in pill containers */}
+                        {hasProgress && (
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {/* Text progress pill */}
+                                <div
+                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 border border-primary/20"
+                                    title={`Text: ${Math.floor(progressValues.textCompletion)}% complete, ${Math.floor(progressValues.textValidation)}% validated`}
+                                >
+                                    <Languages className="h-3 w-3 opacity-70" />
+                                    <DualRingProgress
+                                        completionValue={progressValues.textCompletion}
+                                        validationValue={progressValues.textValidation}
+                                        size={24}
+                                    />
+                                </div>
+                                {/* Audio progress pill - only show if there's audio data */}
+                                {(progressValues.audioCompletion > 0 ||
+                                    progressValues.audioValidation > 0) && (
+                                    <div
+                                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-primary/10 border border-primary/20"
+                                        title={`Audio: ${Math.floor(progressValues.audioCompletion)}% complete, ${Math.floor(progressValues.audioValidation)}% validated`}
                                     >
-                                        <i className="codicon codicon-kebab-vertical" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-36 p-1" align="end" side="right">
-                                    {item.type === "codexDocument" && (
-                                        <div
-                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEditBookName(item);
-                                            }}
-                                        >
-                                            <i className="codicon codicon-edit" />
-                                            Edit Book Name
-                                        </div>
-                                    )}
-                                    {item.type === "corpus" && (
-                                        <div
-                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEditCorpusMarker(item);
-                                            }}
-                                        >
-                                            <i className="codicon codicon-edit" />
-                                            Rename Group
-                                        </div>
-                                    )}
-                                    {!isGroup && (
-                                        <div
-                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDelete(item);
-                                            }}
-                                        >
-                                            <i className="codicon codicon-trash" />
-                                            Delete
-                                        </div>
-                                    )}
-                                </PopoverContent>
-                            </Popover>
-                        </>
-                    )}
+                                        <i className="codicon codicon-mic text-xs opacity-70" />
+                                        <DualRingProgress
+                                            completionValue={progressValues.audioCompletion}
+                                            validationValue={progressValues.audioValidation}
+                                            size={24}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Direct action buttons - visible on hover */}
+                        <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {item.type === "codexDocument" && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="menu-button w-6 h-6"
+                                    title="Edit Book Name"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditBookName(item);
+                                    }}
+                                >
+                                    <i className="codicon codicon-edit text-xs" />
+                                </Button>
+                            )}
+                            {item.type === "corpus" && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="menu-button w-6 h-6"
+                                    title="Rename Group"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditCorpusMarker(item);
+                                    }}
+                                >
+                                    <i className="codicon codicon-edit text-xs" />
+                                </Button>
+                            )}
+                            {!isGroup && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="menu-button w-6 h-6"
+                                    title="Delete"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDelete(item);
+                                    }}
+                                >
+                                    <i className="codicon codicon-trash text-xs" />
+                                </Button>
+                            )}
+                        </div>
+                    </div>
                 </div>
                 {isGroup && isExpanded && item.children && (
                     <div className="ml-4 mt-1.5 flex flex-col">
@@ -972,6 +905,21 @@ function NavigationView() {
                 </Button>
             </div>
 
+            {/* Progress legend */}
+            <div className="mb-3 flex items-center justify-end gap-3 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-primary" />
+                    <span>Complete</span>
+                </div>
+                <div className="flex items-center gap-1">
+                    <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
+                    />
+                    <span>Validated</span>
+                </div>
+            </div>
+
             <div className="flex-1 overflow-auto flex flex-col gap-2">
                 {(() => {
                     if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
@@ -1000,28 +948,27 @@ function NavigationView() {
             </div>
 
             <div className="mt-auto pt-4 flex flex-col gap-3 bg-vscode-sideBar-background relative">
-                {/* Add Files Button */}
-                <Button
-                    variant="default"
-                    onClick={handleAddFiles}
-                    title="Add files to translate"
-                    className="w-full py-4 px-5 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2.5"
-                >
-                    <i className="codicon codicon-add text-base" />
-                    <i className="codicon codicon-file-text text-base" />
-                    Add Files
-                </Button>
-
-                {/* Export Files Button */}
-                <Button
-                    variant="secondary"
-                    onClick={handleOpenExport}
-                    title="Export files"
-                    className="w-full py-3 px-5 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2.5"
-                >
-                    <i className="codicon codicon-cloud-upload" />
-                    Export Files
-                </Button>
+                {/* Action Buttons - Side by Side */}
+                <div className="flex gap-2">
+                    <Button
+                        variant="default"
+                        onClick={handleAddFiles}
+                        title="Add files to translate"
+                        className="flex-1 py-2.5 px-3 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2"
+                    >
+                        <i className="codicon codicon-add" />
+                        Add Files
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        onClick={handleOpenExport}
+                        title="Export files"
+                        className="flex-1 py-2.5 px-3 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2"
+                    >
+                        <i className="codicon codicon-cloud-upload" />
+                        Export
+                    </Button>
+                </div>
 
                 {/* Project Dictionary */}
                 {projectDictionary && renderItem(projectDictionary)}
