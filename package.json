@@ -1006,16 +1006,6 @@
                     }
                 ],
                 "priority": "default"
-            },
-            {
-                "viewType": "codex.dictionaryEditor",
-                "displayName": "Dictionary Editor",
-                "selector": [
-                    {
-                        "filenamePattern": "*.dictionary"
-                    }
-                ],
-                "priority": "default"
             }
         ]
     },

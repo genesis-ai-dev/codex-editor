@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { FileHandler } from "../../../../providers/dictionaryTable/utilities/FileHandler";
+import { FileHandler } from "../../../../utils/fileHandler";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { getWorkSpaceUri } from "../../../../utils";
 import { tokenizeText } from "../../../../utils/nlpUtils";
