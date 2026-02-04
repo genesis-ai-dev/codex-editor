@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { NotebookCommentThread, NotebookComment } from "../../types";
-import { writeSerializedData } from "./fileUtils";
+import { NotebookCommentThread, NotebookComment } from "../../../types";
+import { writeSerializedData } from "../fileUtils";
 
 const DEBUG_COMMENTS_MIGRATION = false;
 function debug(message: string, ...args: any[]): void {

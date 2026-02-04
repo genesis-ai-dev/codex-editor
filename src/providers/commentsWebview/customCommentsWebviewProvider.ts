@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread, NotebookComment } from "../../../types";
 import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
-import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
+import { CommentsMigrator } from "../../utils/migrations/commentsMigrationUtils";
 import { Uri, window, workspace } from "vscode";
 import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";

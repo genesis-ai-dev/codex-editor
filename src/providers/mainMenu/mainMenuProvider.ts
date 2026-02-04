@@ -19,7 +19,7 @@ import * as fs from "fs";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
-import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
+import { CommentsMigrator } from "../../utils/migrations/commentsMigrationUtils";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
 const DEBUG_MODE = false; // Set to true to enable debug logging

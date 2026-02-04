@@ -5,7 +5,7 @@ import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
-import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
+import { CommentsMigrator } from "../../../utils/migrations/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";

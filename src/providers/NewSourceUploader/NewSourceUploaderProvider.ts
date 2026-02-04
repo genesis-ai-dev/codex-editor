@@ -657,7 +657,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         // 3) Persist audio attachments (extract from video if needed)
 
         // Import audio extraction utility
-        const { processMediaAttachment } = await import("../../utils/audioExtractor");
+        const { processMediaAttachment } = await import("../../utils/audioProcessing");
 
         // Show progress with VS Code information message
         const totalAttachments = message.attachments.length;
@@ -809,7 +809,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             }
 
                             // Process the media (extract audio if from video, or use pre-segmented audio)
-                            audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
+                            audioBuffer = await processMediaAttachment(
+                                { dataBase64, startTime: attachment.startTime, endTime: attachment.endTime },
+                                isFromVideo || false
+                            );
 
                             // Write the audio file
                             const filesPath = vscode.Uri.joinPath(filesDir, effectiveFileName);

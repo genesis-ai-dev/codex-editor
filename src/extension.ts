@@ -50,7 +50,7 @@ import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/cod
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
-import { CommentsMigrator } from "./utils/commentsMigrationUtils";
+import { CommentsMigrator } from "./utils/migrations/commentsMigrationUtils";
 import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTesting";
 import {
@@ -60,8 +60,7 @@ import {
     migration_addImporterTypeToMetadata,
     migration_hoistDocumentContextToNotebookMetadata,
 } from "./projectManager/utils/migrationUtils";
-import { initializeAudioProcessor } from "./utils/audioProcessor";
-import { initializeAudioMerger } from "./utils/audioMerger";
+import { initializeAudioProcessing } from "./utils/audioProcessing";
 import * as os from "os";
 import * as path from "path";
 
@@ -313,10 +312,8 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error saving/closing tabs before splash screen:", e);
     }
 
-    // Initialize audio processor for on-demand FFmpeg downloads
-    initializeAudioProcessor(context);
-    // Initialize audio merger for merging audio files
-    initializeAudioMerger(context);
+    // Initialize audio processing for on-demand FFmpeg downloads
+    initializeAudioProcessing(context);
 
     // Register and show splash screen immediately before anything else
     try {

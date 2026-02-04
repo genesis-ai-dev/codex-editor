@@ -10,7 +10,7 @@ import {
     extractSegment,
     extractSegments,
     initializeAudioProcessor,
-} from "../../../utils/audioProcessor";
+} from "../../../utils/audioProcessing";
 import {
     createMockExtensionContext,
     swallowDuplicateCommandRegistrations,

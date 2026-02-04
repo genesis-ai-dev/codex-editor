@@ -21,7 +21,7 @@ import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath, getAttachmentDocumentSegmentFromUri } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
-import { mergeAudioFiles } from "../../utils/audioMerger";
+import { mergeAudioFiles } from "../../utils/audioProcessing";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";

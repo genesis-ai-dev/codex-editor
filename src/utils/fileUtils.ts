@@ -109,7 +109,7 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
         const rawComments = JSON.parse(fileContent);
 
         // Check if structural migration is needed and trigger it
-        const { CommentsMigrator } = await import("./commentsMigrationUtils");
+        const { CommentsMigrator } = await import("./migrations/commentsMigrationUtils");
         const needsStructuralMigration = CommentsMigrator.needsStructuralMigration(rawComments);
 
         if (needsStructuralMigration) {

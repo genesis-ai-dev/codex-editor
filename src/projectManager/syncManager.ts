@@ -11,7 +11,7 @@ import http from "isomorphic-git/http/web";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
-import { CommentsMigrator } from "../utils/commentsMigrationUtils";
+import { CommentsMigrator } from "../utils/migrations/commentsMigrationUtils";
 
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
