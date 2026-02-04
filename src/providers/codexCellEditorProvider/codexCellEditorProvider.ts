@@ -294,6 +294,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     });
                 });
             }
+
+            if (e.affectsConfiguration("codex-project-manager.showHealthIndicators")) {
+                // Send updated health indicators setting to all webviews
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const showHealthIndicators = config.get<boolean>("showHealthIndicators", false);
+                this.webviewPanels.forEach((panel) => {
+                    this.postMessageToWebview(panel, {
+                        type: "updateShowHealthIndicators",
+                        showHealthIndicators: showHealthIndicators,
+                    });
+                });
+            }
         });
 
         this.context.subscriptions.push(configurationChangeDisposable);
@@ -1081,6 +1093,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 debug("Document changed for VS Code and webview");
                 const docUri = document.uri.toString();
                 const rev = this.bumpDocumentRevision(docUri);
+
+                // Debug: log all document change events to see what's happening
+                if (e.edits && e.edits.length > 0) {
+                    console.log("[CodexCellEditorProvider] Document change event:", {
+                        editType: e.edits[0].type,
+                        cellId: e.edits[0].cellId,
+                        hasHealth: "health" in e.edits[0],
+                        health: (e.edits[0] as any).health,
+                    });
+                }
 
                 // Check if this is a validation update
                 if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {

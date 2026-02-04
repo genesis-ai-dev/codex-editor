@@ -315,6 +315,13 @@ export const useVSCodeMessageHandler = ({
                     }
                     break;
 
+                case "updateShowHealthIndicators":
+                    // Update health indicators setting
+                    if (setShowHealthIndicators && typeof message.showHealthIndicators === 'boolean') {
+                        setShowHealthIndicators(message.showHealthIndicators);
+                    }
+                    break;
+
                 case "providerSendsInitialContentPaginated":
                     if (typeof (message as any).rev === "number") {
                         const msgRev = (message as any).rev as number;

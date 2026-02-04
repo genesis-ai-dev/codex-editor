@@ -570,13 +570,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 });
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
-        }, [
-            cellIds,
-            checkShouldHighlight,
-            highlightedCellId,
-            isSourceText,
-            scrollSyncEnabled,
-        ]);
+        }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {
@@ -1218,6 +1212,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         : undefined;
                                                 })()}
                                                 health={cell.metadata?.health}
+                                                showHealthIndicators={showHealthIndicators}
                                             />
                                         </div>
                                     )}

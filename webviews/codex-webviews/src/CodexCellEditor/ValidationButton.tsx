@@ -19,6 +19,7 @@ interface ValidationButtonProps {
     disabled?: boolean;
     disabledReason?: string;
     health?: number; // Health score (0-1) for radial progress when unverified
+    showHealthIndicators?: boolean; // Whether to show health indicators
 }
 
 /**
@@ -42,6 +43,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     disabled: externallyDisabled,
     disabledReason,
     health,
+    showHealthIndicators = false,
 }) => {
     // UI-specific local state only
     const [showPopover, setShowPopover] = useState(false);
@@ -74,17 +76,22 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     useEffect(() => {
         console.log("[ValidationButton] State update:", {
             cellId,
-            health,
+            healthProp: health,
+            healthFromCell: cell.metadata?.health,
+            healthMatch: health === cell.metadata?.health,
             currentValidations,
             isValidatedByCurrentUser,
             validatorsCount: uniqueValidationUsers.length,
+            showHealthIndicators,
         });
     }, [
         cellId,
         health,
+        cell.metadata?.health,
         currentValidations,
         isValidatedByCurrentUser,
         uniqueValidationUsers.length,
+        showHealthIndicators,
     ]);
 
     // Use prop directly with fallback - no local state needed
@@ -318,7 +325,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     requiredValidations={requiredValidations}
                     isValidatedByCurrentUser={isValidatedByCurrentUser}
                     health={health}
-                    showHealthRadial={true}
+                    showHealthRadial={showHealthIndicators}
                     isPendingValidation={isPendingValidation}
                 />
             </VSCodeButton>
@@ -365,7 +372,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     title="Validators"
                     popoverTracker={textPopoverTracker}
                     health={currentValidations > 0 ? 1.0 : health}
-                    showHealthWhenNoValidators={true}
+                    showHealthWhenNoValidators={showHealthIndicators}
                     isPendingValidation={isPendingValidation}
                     currentValidations={currentValidations}
                 />

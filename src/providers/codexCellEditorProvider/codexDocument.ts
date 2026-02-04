@@ -2368,6 +2368,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             if (activeValidations.length === 0) {
                 // No validations remain, reset health to baseline
                 cellToUpdate.metadata.health = 0.3;
+            } else {
+                // Still have validations, health should remain at 1.0
+                // Explicitly set it to ensure it's updated in the event
+                cellToUpdate.metadata.health = 1.0;
             }
         }
 
