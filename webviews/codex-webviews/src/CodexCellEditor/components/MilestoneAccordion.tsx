@@ -10,7 +10,7 @@ import {
 import { ProgressDots } from "./ProgressDots";
 import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import { Languages } from "lucide-react";
+import { Languages, Check, RotateCcw } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
@@ -45,7 +45,7 @@ interface MilestoneAccordionProps {
         requiredAudioValidations?: number;
     };
     requestSubsectionProgress?: (milestoneIdx: number) => void;
-    handleEditMilestoneModalOpen: () => void;
+    vscode: any;
 }
 
 export function MilestoneAccordion({
@@ -62,7 +62,7 @@ export function MilestoneAccordion({
     anchorRef,
     calculateSubsectionProgress,
     requestSubsectionProgress,
-    handleEditMilestoneModalOpen,
+    vscode,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -85,6 +85,12 @@ export function MilestoneAccordion({
     const [expandedMilestone, setExpandedMilestone] = useState<string | null>(
         currentMilestoneIndex.toString()
     );
+    const [isEditingMilestone, setIsEditingMilestone] = useState(false);
+    const [editedMilestoneValue, setEditedMilestoneValue] = useState("");
+    const [originalMilestoneValue, setOriginalMilestoneValue] = useState("");
+    const inputRef = useRef<HTMLInputElement>(null);
+    // Local cache of edited milestone values to show changes immediately before webview refresh
+    const [localMilestoneValues, setLocalMilestoneValues] = useState<Record<number, string>>({});
 
     // Calculate position and dimensions
     const calculatePositionAndDimensions = () => {
@@ -203,6 +209,57 @@ export function MilestoneAccordion({
             setExpandedMilestone(currentMilestoneIndex.toString());
         }
     }, [isOpen, currentMilestoneIndex]);
+
+    // Reset editing state when accordion closes
+    useEffect(() => {
+        if (!isOpen) {
+            setIsEditingMilestone(false);
+        }
+    }, [isOpen]);
+
+    // Clear local cache when milestoneIndex prop changes (after webview refresh)
+    useEffect(() => {
+        if (milestoneIndex && Object.keys(localMilestoneValues).length > 0) {
+            // Verify if cached values match the prop values (meaning refresh happened)
+            let allMatch = true;
+            for (const [indexStr, cachedValue] of Object.entries(localMilestoneValues)) {
+                const index = parseInt(indexStr);
+                if (milestoneIndex.milestones[index]?.value !== cachedValue) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch) {
+                // Values match, clear cache as refresh has completed
+                setLocalMilestoneValues({});
+            }
+        }
+    }, [milestoneIndex, localMilestoneValues]);
+
+    // Update displayed milestone value when it changes externally (e.g., after successful update)
+    useEffect(() => {
+        if (isOpen && !isEditingMilestone && milestoneIndex) {
+            const displayedIndex =
+                expandedMilestone !== null && milestoneIndex.milestones[parseInt(expandedMilestone)]
+                    ? parseInt(expandedMilestone)
+                    : currentMilestoneIndex;
+            // Use cached value if available, otherwise use prop value
+            const cachedValue = localMilestoneValues[displayedIndex];
+            const milestone = milestoneIndex.milestones[displayedIndex];
+            const displayValue = cachedValue || milestone?.value || "";
+            if (displayValue) {
+                setOriginalMilestoneValue(displayValue);
+                setEditedMilestoneValue(displayValue);
+            }
+        }
+    }, [
+        expandedMilestone,
+        currentMilestoneIndex,
+        milestoneIndex,
+        isOpen,
+        isEditingMilestone,
+        localMilestoneValues,
+    ]);
 
     // Request progress when milestone is expanded
     useEffect(() => {
@@ -406,12 +463,145 @@ export function MilestoneAccordion({
         }
     };
 
-    const handleEditMilestoneModalOpenClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // Get the milestone index that is currently displayed in the header
+    const getDisplayedMilestoneIndex = (): number => {
+        if (expandedMilestone !== null) {
+            const parsed = parseInt(expandedMilestone);
+            if (!isNaN(parsed) && milestoneIndex?.milestones[parsed]) {
+                return parsed;
+            }
+        }
+        return currentMilestoneIndex;
+    };
+
+    // Get the milestone that is currently displayed in the header
+    const getDisplayedMilestone = (): MilestoneInfo | null => {
+        const displayedIndex = getDisplayedMilestoneIndex();
+        const milestone = milestoneIndex?.milestones[displayedIndex];
+        if (!milestone) return null;
+
+        // Use local cached value if available (for immediate display before webview refresh)
+        if (localMilestoneValues[displayedIndex]) {
+            return {
+                ...milestone,
+                value: localMilestoneValues[displayedIndex],
+            };
+        }
+
+        return milestone;
+    };
+
+    // Get the displayed milestone value (with local cache)
+    const getDisplayedMilestoneValue = (): string => {
+        const displayedIndex = getDisplayedMilestoneIndex();
+        if (localMilestoneValues[displayedIndex]) {
+            return localMilestoneValues[displayedIndex];
+        }
+        const milestone = milestoneIndex?.milestones[displayedIndex];
+        return milestone?.value || "";
+    };
+
+    const handleEditMilestoneClick = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
-        if (currentMilestone && handleEditMilestoneModalOpen) {
-            onClose();
-            handleEditMilestoneModalOpen();
+        const displayedMilestone = getDisplayedMilestone();
+        if (displayedMilestone) {
+            setOriginalMilestoneValue(displayedMilestone.value);
+            setEditedMilestoneValue(displayedMilestone.value);
+            setIsEditingMilestone(true);
+            // Focus the input after state update
+            setTimeout(() => {
+                inputRef.current?.focus();
+                inputRef.current?.select();
+            }, 0);
+        }
+    };
+
+    const handleSaveMilestone = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        const displayedIndex = getDisplayedMilestoneIndex();
+        const trimmedValue = editedMilestoneValue.trim();
+        const displayedMilestone = getDisplayedMilestone();
+
+        if (
+            displayedMilestone &&
+            trimmedValue !== "" &&
+            trimmedValue !== displayedMilestone.value
+        ) {
+            // Validate that the milestone index is still valid before sending
+            if (displayedIndex < 0 || displayedIndex >= (milestoneIndex?.milestones.length || 0)) {
+                console.error(
+                    `[handleSaveMilestone] Invalid milestone index: ${displayedIndex}, total milestones: ${
+                        milestoneIndex?.milestones.length || 0
+                    }`
+                );
+                return;
+            }
+
+            // Send message to update milestone value; provider pushes updated data to webview immediately
+            vscode.postMessage({
+                command: "updateMilestoneValue",
+                content: {
+                    milestoneIndex: displayedIndex,
+                    newValue: trimmedValue,
+                },
+            });
+
+            // Update the original value to the new saved value so the checkmark state is correct
+            setOriginalMilestoneValue(trimmedValue);
+
+            // Update local cache immediately so the accordion shows the change before webview refresh
+            setLocalMilestoneValues((prev) => ({
+                ...prev,
+                [displayedIndex]: trimmedValue,
+            }));
+        }
+        // Keep the accordion open and exit edit mode to show the saved result
+        setIsEditingMilestone(false);
+    };
+
+    const handleRevertMilestone = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        // Revert the value and close the edit field
+        setEditedMilestoneValue(originalMilestoneValue);
+        setIsEditingMilestone(false);
+    };
+
+    const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            handleSaveMilestone(e as any);
+        } else if (e.key === "Escape") {
+            e.preventDefault();
+            // Escape should exit edit mode and revert
+            setEditedMilestoneValue(originalMilestoneValue);
+            setIsEditingMilestone(false);
+        }
+    };
+
+    // Handle milestone expansion - if editing, switch to editing the new milestone
+    const handleMilestoneExpansion = (value: string | null) => {
+        // Update expanded milestone first
+        setExpandedMilestone(value);
+
+        if (isEditingMilestone && value !== null) {
+            // User clicked on another milestone while editing - switch to editing that milestone
+            const newMilestoneIndex = parseInt(value);
+            if (!isNaN(newMilestoneIndex) && milestoneIndex?.milestones[newMilestoneIndex]) {
+                // Use getDisplayedMilestone to get the value (which includes local cache)
+                const displayedIndex = newMilestoneIndex;
+                const milestone = milestoneIndex.milestones[displayedIndex];
+                if (milestone) {
+                    // Use cached value if available, otherwise use prop value
+                    const displayValue = localMilestoneValues[displayedIndex] || milestone.value;
+                    setOriginalMilestoneValue(displayValue);
+                    setEditedMilestoneValue(displayValue);
+                    // Keep edit mode open and focus the input
+                    setTimeout(() => {
+                        inputRef.current?.focus();
+                        inputRef.current?.select();
+                    }, 0);
+                }
+            }
         }
     };
 
@@ -440,31 +630,66 @@ export function MilestoneAccordion({
             }}
         >
             <div className="flex items-center justify-between px-4 pt-4 pb-2 mb-2 border-b border-[var(--vscode-widget-border)] flex-shrink-0">
-                <h2 className="text-lg font-semibold m-0">
-                    {expandedMilestone !== null &&
-                    milestoneIndex.milestones[parseInt(expandedMilestone)]
-                        ? milestoneIndex.milestones[parseInt(expandedMilestone)].value
-                        : milestoneIndex.milestones[currentMilestoneIndex]?.value}
-                </h2>
-                <div className="flex gap-2">
-                    {!isSourceText && (
-                        <div className="flex items-center justify-center -ml-2">
+                {isEditingMilestone ? (
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={editedMilestoneValue}
+                        onChange={(e) => setEditedMilestoneValue(e.target.value)}
+                        onKeyDown={handleInputKeyDown}
+                        className="text-lg font-semibold m-0 bg-transparent border border-[var(--vscode-input-border)] rounded px-2 py-1 flex-1 mr-2 focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)]"
+                        style={{
+                            color: "var(--vscode-input-foreground)",
+                        }}
+                    />
+                ) : (
+                    <h2 className="text-lg font-semibold m-0">{getDisplayedMilestoneValue()}</h2>
+                )}
+                <div className="flex gap-y-2">
+                    <div className="flex items-center justify-center gap-x-1">
+                        {isEditingMilestone ? (
+                            <>
+                                <VSCodeButton
+                                    aria-label="Save Milestone"
+                                    appearance="icon"
+                                    title="Save Milestone"
+                                    onClick={handleSaveMilestone}
+                                    disabled={
+                                        !editedMilestoneValue.trim() ||
+                                        editedMilestoneValue.trim() === originalMilestoneValue
+                                    }
+                                >
+                                    <Check className="h-4 w-4" />
+                                </VSCodeButton>
+                                <VSCodeButton
+                                    aria-label="Revert Changes"
+                                    appearance="icon"
+                                    title="Revert Changes"
+                                    onClick={handleRevertMilestone}
+                                >
+                                    <RotateCcw className="h-4 w-4" />
+                                </VSCodeButton>
+                            </>
+                        ) : (
                             <VSCodeButton
                                 aria-label="Edit Milestone"
                                 appearance="icon"
                                 title="Edit Milestone"
-                                onClick={handleEditMilestoneModalOpenClick}
+                                onClick={handleEditMilestoneClick}
+                                disabled={false}
                             >
                                 <i className="codicon codicon-edit"></i>
                             </VSCodeButton>
-                        </div>
-                    )}
-                    <div
-                        className="flex items-center cursor-pointer hover:bg-secondary rounded-md p-1"
+                        )}
+                    </div>
+                    <VSCodeButton
+                        aria-label="Close Milestone"
+                        appearance="icon"
+                        title="Close Milestones"
                         onClick={onClose}
                     >
                         <i className="codicon codicon-close" />
-                    </div>
+                    </VSCodeButton>
                 </div>
             </div>
             <div
@@ -477,11 +702,14 @@ export function MilestoneAccordion({
                     type="single"
                     collapsible
                     value={expandedMilestone ?? undefined}
-                    onValueChange={(value) => setExpandedMilestone(value ?? null)}
+                    onValueChange={handleMilestoneExpansion}
                     className="w-full"
                 >
                     {milestoneIndex.milestones.map(
                         (milestone: MilestoneInfo, milestoneIdx: number) => {
+                            // Use local cached value if available for immediate display
+                            const displayValue =
+                                localMilestoneValues[milestoneIdx] || milestone.value;
                             const subsections = getSubsectionsForMilestone(milestoneIdx);
                             const milestoneProgress = getMilestoneProgress(milestoneIdx);
                             const isCurrentMilestone = currentMilestoneIndex === milestoneIdx;
@@ -554,7 +782,7 @@ export function MilestoneAccordion({
                                             <div className="flex items-center justify-between w-full">
                                                 <div className="flex justify-between items-center gap-3 flex-1 min-w-0">
                                                     <span className="font-medium truncate hover:underline milestone-navigate">
-                                                        {milestone.value}
+                                                        {displayValue}
                                                     </span>
                                                     <div className="flex items-center gap-2 flex-shrink-0">
                                                         <div

@@ -41,8 +41,7 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     alertColorCode: number | undefined;
-    highlightedGlobalReferences?: string[];
-    highlightedCellId?: string | null; // Optional cellId for fallback matching when globalReferences is empty
+    highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
     lineNumber: string;
     label?: string;
@@ -108,24 +107,24 @@ const AudioPlayButton: React.FC<{
 
         // Do not pre-load on mount; we will request on first click to avoid spinner churn
 
-    // Listen for audio data messages
-    useMessageHandler(
-        "cellContentDisplay-audioData",
-        async (event: MessageEvent) => {
-            const message = event.data;
+        // Listen for audio data messages
+        useMessageHandler(
+            "cellContentDisplay-audioData",
+            async (event: MessageEvent) => {
+                const message = event.data;
 
-            // Handle audio attachments updates - clear current url and cache; fetch on next click
-            if (message.type === "providerSendsAudioAttachments") {
-                // Clear cached audio data since selected audio might have changed
-                const { clearCachedAudio } = await import("../lib/audioCache");
-                clearCachedAudio(cellId);
+                // Handle audio attachments updates - clear current url and cache; fetch on next click
+                if (message.type === "providerSendsAudioAttachments") {
+                    // Clear cached audio data since selected audio might have changed
+                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    clearCachedAudio(cellId);
 
-                if (audioUrl && audioUrl.startsWith("blob:")) {
-                    URL.revokeObjectURL(audioUrl);
+                    if (audioUrl && audioUrl.startsWith("blob:")) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    setAudioUrl(null);
+                    setIsLoading(false);
                 }
-                setAudioUrl(null);
-                setIsLoading(false);
-            }
 
                 if (
                     message.type === "providerSendsAudioData" &&
@@ -446,7 +445,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isSourceText,
         hasDuplicateId,
         alertColorCode,
-        highlightedGlobalReferences,
         highlightedCellId,
         scrollSyncEnabled,
         lineNumber,
@@ -543,28 +541,18 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
         // Helper function to check if this cell should be highlighted
-        // Prioritizes cellId matching, with fallback to globalReferences
         const checkShouldHighlight = useCallback((): boolean => {
-            // Prioritize cellId matching
             if (highlightedCellId && cellIds && cellIds.length > 0) {
                 // Check if the highlighted cellId matches any of this cell's markers
                 return cellIds.includes(highlightedCellId);
             }
 
-            // Fallback to globalReferences matching
-            if (highlightedGlobalReferences && highlightedGlobalReferences.length > 0) {
-                // Get globalReferences from this cell
-                const cellGlobalRefs = cell.data?.globalReferences || [];
-                // Check if any highlighted reference matches this cell's references
-                return highlightedGlobalReferences.some((ref) => cellGlobalRefs.includes(ref));
-            }
-
             return false;
-        }, [cell, highlightedGlobalReferences, highlightedCellId, cellIds]);
+        }, [highlightedCellId, cellIds]);
 
         useEffect(() => {
-            debug("Before Scrolling to content highlightedGlobalReferences", {
-                highlightedGlobalReferences,
+            debug("Before Scrolling to content highlightedCellId", {
+                highlightedCellId,
                 cellIds,
                 isSourceText,
                 scrollSyncEnabled,
@@ -573,8 +561,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             const shouldHighlight = checkShouldHighlight();
 
             if (shouldHighlight && cellRef.current && isSourceText && scrollSyncEnabled) {
-                debug("Scrolling to content highlightedGlobalReferences", {
-                    highlightedGlobalReferences,
+                debug("Scrolling to content highlightedCellId", {
+                    highlightedCellId,
                     cellIds,
                     isSourceText,
                 });
@@ -583,7 +571,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         }, [
             cellIds,
             checkShouldHighlight,
-            highlightedGlobalReferences,
+            highlightedCellId,
             isSourceText,
             scrollSyncEnabled,
         ]);

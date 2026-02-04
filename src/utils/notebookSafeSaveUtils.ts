@@ -4,7 +4,7 @@ import path from "path";
 
 export type NotebookFs = Pick<
     typeof vscode.workspace.fs,
-    "stat" | "readFile" | "writeFile" | "rename"
+    "stat" | "readFile" | "writeFile" | "rename" | "delete"
 >;
 
 /**
@@ -16,6 +16,27 @@ export async function uriExists(uri: vscode.Uri): Promise<boolean> {
         return true;
     } catch {
         return false;
+    }
+}
+
+export async function uriExistsWithFs(fs: NotebookFs, uri: vscode.Uri): Promise<boolean> {
+    try {
+        await fs.stat(uri);
+        return true;
+    } catch (error) {
+        if (error instanceof vscode.FileSystemError) {
+            if (error.code === "FileNotFound" || error.code === "EntryNotFound") {
+                return false;
+            }
+            throw error;
+        }
+        if (typeof error === "object" && error !== null && "message" in error) {
+            const message = String((error as { message?: unknown; }).message ?? "");
+            if (message.includes("FileNotFound") || message.includes("EntryNotFound")) {
+                return false;
+            }
+        }
+        throw error;
     }
 }
 
@@ -46,14 +67,70 @@ export async function atomicWriteUriTextWithFs(
     text: string
 ): Promise<void> {
     const encoder = new TextEncoder();
+    const targetExists = await uriExistsWithFs(fs, uri);
+
+    if (targetExists) {
+        await fs.writeFile(uri, encoder.encode(text));
+        return;
+    }
+
     const dirPath = uri.path.slice(0, Math.max(0, uri.path.lastIndexOf("/")));
     const dirUri = uri.with({ path: dirPath || "/" });
     const baseName = path.posix.basename(uri.path);
     const tmpName = `${baseName}.tmp-${Date.now()}-${randomUUID()}`;
     const tmpUri = vscode.Uri.joinPath(dirUri, tmpName);
+    let tempFileCreated = false;
 
-    await fs.writeFile(tmpUri, encoder.encode(text));
-    await fs.rename(tmpUri, uri, { overwrite: true });
+
+    try {
+        // Write to temp file first
+        await fs.writeFile(tmpUri, encoder.encode(text));
+        tempFileCreated = true;
+
+        // Atomically rename temp file over target
+        await fs.rename(tmpUri, uri, { overwrite: true });
+    } catch (error) {
+        if (shouldRetryRenameWithoutOverwrite(error)) {
+            try {
+                await fs.rename(tmpUri, uri, { overwrite: false });
+                return;
+            } catch (retryError) {
+                throw new Error(`Failed to rename temp file over target: ${retryError}`);
+            }
+        }
+
+        if (tempFileCreated) {
+            // If rename failed but temp file was created, clean it up.
+            // Best-effort delete: ignore if temp file is already gone.
+            try {
+                await fs.delete(tmpUri);
+            } catch (deleteErr) {
+                console.log(
+                    `Temp file ${tmpUri.fsPath} did not exist after write failure:`,
+                    deleteErr
+                );
+            }
+        }
+
+
+        // Re-throw the original error so callers know the write failed
+        // Note: If writeFile failed, tempFileCreated is false, so no cleanup needed
+        // If rename failed, the original file is still intact (data preserved)
+        throw error;
+    }
+}
+
+function shouldRetryRenameWithoutOverwrite(error: unknown): boolean {
+    if (error instanceof vscode.FileSystemError) {
+        return error.code === "FileNotFound" || error.code === "EntryNotFound";
+    }
+
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const message = String((error as { message?: unknown; }).message ?? "");
+        return message.includes("Unable to delete nonexistent file");
+    }
+
+    return false;
 }
 
 export type ReadExistingFileResult =
@@ -73,28 +150,48 @@ export async function readExistingFileOrThrowWithFs(
     fs: NotebookFs,
     uri: vscode.Uri
 ): Promise<ReadExistingFileResult> {
-    try {
-        const content = await readUriTextWithFs(fs, uri);
-        // Defensive: if we read an empty/whitespace-only string from a file that is non-empty on disk,
-        // treat it as a transient read error and DO NOT allow overwrite.
-        // (This can happen during races / partial writes and is a common cause of "saved empty" bugs.)
-        if (content.trim().length === 0) {
-            const stat = await fs.stat(uri);
-            if (stat.size === 0) {
-                // Empty file on disk: allow caller to treat this as "missing" and do an initial write.
+    // Defensive retry: in some environments the atomic rename used by our save path can momentarily
+    // remove the target file, causing transient EntryNotFound errors. Retrying avoids flaky saves/tests.
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const content = await readUriTextWithFs(fs, uri);
+            // Defensive: if we read an empty/whitespace-only string from a file that is non-empty on disk,
+            // treat it as a transient read error and DO NOT allow overwrite.
+            // (This can happen during races / partial writes and is a common cause of "saved empty" bugs.)
+            if (content.trim().length === 0) {
+                const stat = await fs.stat(uri);
+                if (stat.size === 0) {
+                    // Empty file on disk: allow caller to treat this as "missing" and do an initial write.
+                    return { kind: "missing" };
+                }
+                throw new Error(`Read empty content from non-empty file: ${uri.fsPath}`);
+            }
+            return { kind: "readable", content };
+        } catch (error) {
+            // If file doesn't exist, treat as missing.
+            // If it exists, propagate the read error (except for a small set of transient-not-found races).
+            let exists = false;
+            try {
+                await fs.stat(uri);
+                exists = true;
+            } catch {
                 return { kind: "missing" };
             }
-            throw new Error(`Read empty content from non-empty file: ${uri.fsPath}`);
+
+            const isTransientNotFound =
+                error instanceof vscode.FileSystemError &&
+                (error.code === "EntryNotFound" || error.code === "FileNotFound");
+
+            if (exists && isTransientNotFound && attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, 25));
+                continue;
+            }
+
+            throw error;
         }
-        return { kind: "readable", content };
-    } catch (error) {
-        // If file doesn't exist, treat as missing. If it exists, propagate the read error.
-        try {
-            await fs.stat(uri);
-        } catch {
-            return { kind: "missing" };
-        }
-        throw error;
     }
+
+    return { kind: "missing" };
 }
 

@@ -66,6 +66,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _cachedFileId: number | null = null;
     private _indexManager = getSQLiteIndexManager();
 
+    // Cache for milestone index to avoid rebuilding on every call
+    private _cachedMilestoneIndex: MilestoneIndex | null = null;
+    private _cachedMilestoneIndexCellsPerPage: number | null = null;
+    private _cachedMilestoneIndexCellCount: number = 0;
+    private _lastUpdatedMilestoneIndexCellCount: number = 0;
+
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
 
@@ -289,6 +295,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Update milestone value in cache if updating a milestone cell value
+        // Only invalidate cache if structure actually changed (e.g., milestone deleted/added)
+        if (cellToUpdate.metadata?.type === CodexCellTypes.MILESTONE && shouldUpdateValue) {
+            // Try to update the cached milestone value directly (more efficient)
+            const updated = this.updateMilestoneValueInCache(indexOfCellToUpdate, newContent);
+            if (!updated) {
+                // Cache doesn't exist or milestone not found - invalidate to force rebuild
+                this.invalidateMilestoneIndexCache();
+            }
+            // If updated successfully, cache remains valid with updated value
+        }
 
         // Block updates to locked cells (except for system operations like unlocking)
         // Allow LLM_GENERATION previews (shouldUpdateValue=false) but block actual content updates
@@ -630,6 +648,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             });
         }
 
+        // Invalidate milestone index cache since cells have been removed
+        // (addCell will also invalidate, but we do it here too for clarity)
+        this.invalidateMilestoneIndexCache();
+
         this.addCell(
             targetCellId,
             cellMarkerOfCellBeforeNewCell,
@@ -704,6 +726,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);
         this._documentData = JSON.parse(diskContent.toString());
+        // Invalidate milestone index cache since document was reverted from disk
+        this.invalidateMilestoneIndexCache();
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
         this._onDidChangeForWebview.fire({
@@ -901,6 +925,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Set deleted flag
         (cellToSoftDelete.metadata.data).deleted = true;
 
+        // Invalidate milestone index cache if this is a milestone cell or if cells structure changed
+        if (cellToSoftDelete.metadata.type === CodexCellTypes.MILESTONE) {
+            this.invalidateMilestoneIndexCache();
+        }
+
         // Ensure edits array exists and record a deletion edit for merge/audit trails
         if (!cellToSoftDelete.metadata.edits) {
             cellToSoftDelete.metadata.edits = [];
@@ -959,7 +988,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             insertIndex = direction === "above" ? indexOfReferenceCell : indexOfReferenceCell + 1;
         }
 
-        // For paratext cells, ensure parentId is set in metadata so they can be associated with their parent cell
+        // For child cells, ensure parentId is set in metadata so they can be associated with their parent cell
         const cellMetadata: CustomCellMetaData = {
             id: newCellId,
             type: cellType,
@@ -968,7 +997,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             data: data,
         };
 
-        if (cellType === CodexCellTypes.PARATEXT && referenceCellId) {
+        if (referenceCellId) {
             cellMetadata.parentId = referenceCellId;
         }
 
@@ -979,6 +1008,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             kind: vscode.NotebookCellKind.Code,
             metadata: cellMetadata,
         });
+
+        // Invalidate milestone index cache since cells have changed
+        this.invalidateMilestoneIndexCache();
 
         // Record the edit
         this._edits.push({
@@ -1108,140 +1140,282 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return this._documentData.metadata;
     }
 
-    // FIXME: Make this more efficient by mapping the milestone cells and allowing the map to be
-    // reused by other methods such as findMilestoneIndexForCell and findMilestoneAndSubsectionForCell.
+    /**
+     * Invalidates the cached milestone index when cells are modified.
+     * Call this whenever cells are added, removed, or their types/metadata change.
+     */
+    private invalidateMilestoneIndexCache(): void {
+        this._cachedMilestoneIndex = null;
+        this._cachedMilestoneIndexCellsPerPage = null;
+        this._cachedMilestoneIndexCellCount = 0;
+        this._lastUpdatedMilestoneIndexCellCount = 0;
+    }
+
+    /**
+     * Updates a milestone value in the cached milestone index without rebuilding.
+     * This is more efficient than invalidating and rebuilding when only the value changes.
+     * 
+     * @param cellIndex The index of the milestone cell in the cells array
+     * @param newValue The new milestone value
+     * @returns true if the milestone was found and updated, false otherwise
+     */
+    private updateMilestoneValueInCache(cellIndex: number, newValue: string): boolean {
+        if (!this._cachedMilestoneIndex || !this._cachedMilestoneIndex.milestones) {
+            return false;
+        }
+
+        // Find the milestone that matches this cellIndex
+        const milestone = this._cachedMilestoneIndex.milestones.find(
+            (m) => m.cellIndex === cellIndex
+        );
+
+        if (milestone) {
+            milestone.value = newValue;
+            return true;
+        }
+
+        return false;
+    }
 
     /**
      * Builds a milestone index from the document cells.
-     * This index is used for milestone-based pagination.
+     * This index is cached and reused until cells are modified.
      * 
      * @param cellsPerPage Number of cells per page for sub-pagination within milestones
      * @returns MilestoneIndex containing milestone information and pagination settings
      */
     public buildMilestoneIndex(cellsPerPage: number = 50): MilestoneIndex {
-        const milestones: MilestoneInfo[] = [];
         const cells = this._documentData.cells || [];
+        const currentCellCount = cells.length;
 
-        // Find all milestone cells and their positions (excluding deleted ones)
-        const milestoneCellIndices: { cellIndex: number; value: string; }[] = [];
+        // Check if we can use the cached index
+        if (
+            this._cachedMilestoneIndex !== null &&
+            this._cachedMilestoneIndexCellsPerPage === cellsPerPage &&
+            this._cachedMilestoneIndexCellCount === currentCellCount
+        ) {
+            return this._cachedMilestoneIndex;
+        }
 
+        // Build the milestone index
+        const milestones: MilestoneInfo[] = [];
+        let totalContentCells = 0;
+        let currentMilestoneIndex = -1; // Track which milestone we're currently in
+        let currentMilestoneCellCount = 0; // Count cells for current milestone
+
+        // Single pass: find milestones, count content cells, assign milestoneIndex, and build milestone info
         for (let i = 0; i < cells.length; i++) {
             const cell = cells[i];
-            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
-                // Skip deleted milestone cells
-                if (cell.metadata?.data?.deleted === true) {
-                    continue;
+            const cellType = cell.metadata?.type;
+
+            // Track milestone cells (excluding deleted ones)
+            if (cellType === CodexCellTypes.MILESTONE) {
+                if (cell.metadata?.data?.deleted !== true) {
+                    // If we have a previous milestone, finalize it before starting a new one
+                    if (currentMilestoneIndex >= 0) {
+                        milestones[currentMilestoneIndex].cellCount = currentMilestoneCellCount;
+                    }
+
+                    // Start a new milestone
+                    currentMilestoneIndex++;
+                    currentMilestoneCellCount = 0;
+                    milestones.push({
+                        index: currentMilestoneIndex,
+                        cellIndex: i,
+                        value: cell.value || String(currentMilestoneIndex + 1),
+                        cellCount: 0, // Will be set when we finalize this milestone
+                    });
                 }
-                milestoneCellIndices.push({
-                    cellIndex: i,
-                    value: cell.value || String(milestoneCellIndices.length + 1),
-                });
+            }
+
+            // Process content cells (excluding milestones and paratext)
+            if (cellType !== CodexCellTypes.MILESTONE && cellType !== "paratext") {
+                totalContentCells++;
+
+                // Only assign milestoneIndex if we've encountered at least one milestone
+                if (currentMilestoneIndex >= 0) {
+                    // Assign milestoneIndex to this cell
+                    // Ensure data object exists
+                    if (!cell.metadata) {
+                        cell.metadata = {} as CustomCellMetaData;
+                    }
+                    if (!cell.metadata.data) {
+                        cell.metadata.data = {} as any;
+                    }
+                    (cell.metadata.data as any).milestoneIndex = currentMilestoneIndex;
+                    currentMilestoneCellCount++;
+                }
+            }
+
+            // Assign milestoneIndex to Paratext cells for footnote numbering (but don't count them)
+            // Paratext cells need milestoneIndex to maintain sequential footnote numbering across cell types
+            if (cellType === "paratext") {
+                // Only assign milestoneIndex if we've encountered at least one milestone
+                if (currentMilestoneIndex >= 0) {
+                    // Assign milestoneIndex to this Paratext cell
+                    // Ensure data object exists
+                    if (!cell.metadata) {
+                        cell.metadata = {} as CustomCellMetaData;
+                    }
+                    if (!cell.metadata.data) {
+                        cell.metadata.data = {} as any;
+                    }
+                    (cell.metadata.data as any).milestoneIndex = currentMilestoneIndex;
+                }
             }
         }
 
-        // Count total content cells (excluding milestones and paratext)
-        let totalContentCells = 0;
-        for (const cell of cells) {
-            if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                cell.metadata?.type !== "paratext") {
-                totalContentCells++;
-            }
+        // Finalize the last milestone's cell count
+        if (currentMilestoneIndex >= 0) {
+            milestones[currentMilestoneIndex].cellCount = currentMilestoneCellCount;
         }
 
         // Edge case: No milestone cells found - create a virtual milestone at index 0
-        if (milestoneCellIndices.length === 0) {
-            milestones.push({
-                index: 0,
-                cellIndex: 0,
-                value: "1",
-                cellCount: totalContentCells,
-            });
-
-            return {
-                milestones,
-                totalCells: totalContentCells,
-                cellsPerPage,
-            };
-        }
-
-        // Build milestone info for each milestone
-        for (let i = 0; i < milestoneCellIndices.length; i++) {
-            const currentMilestone = milestoneCellIndices[i];
-            const nextMilestone = milestoneCellIndices[i + 1];
-
-            // Count content cells from this milestone to the next (or end of document)
-            const startIndex = currentMilestone.cellIndex;
-            const endIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
-
-            let cellCount = 0;
-            for (let j = startIndex; j < endIndex; j++) {
-                const cell = cells[j];
-                // Count only non-milestone, non-paratext cells
-                if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                    cell.metadata?.type !== "paratext") {
-                    cellCount++;
+        if (milestones.length === 0) {
+            // Assign milestoneIndex 0 to all non-milestone cells (including paratext for footnote numbering)
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                if (cell.metadata?.type !== CodexCellTypes.MILESTONE) {
+                    // Ensure data object exists
+                    if (!cell.metadata) {
+                        cell.metadata = {} as CustomCellMetaData;
+                    }
+                    if (!cell.metadata.data) {
+                        cell.metadata.data = {} as any;
+                    }
+                    (cell.metadata.data as any).milestoneIndex = 0;
                 }
             }
 
-            milestones.push({
-                index: i,
-                cellIndex: currentMilestone.cellIndex,
-                value: currentMilestone.value,
-                cellCount,
-            });
+            const result: MilestoneIndex = {
+                milestones: [{
+                    index: 0,
+                    cellIndex: 0,
+                    value: "1",
+                    cellCount: totalContentCells,
+                }],
+                totalCells: totalContentCells,
+                cellsPerPage,
+            };
+
+            // Cache the result
+            this._cachedMilestoneIndex = result;
+            this._cachedMilestoneIndexCellsPerPage = cellsPerPage;
+            this._cachedMilestoneIndexCellCount = currentCellCount;
+
+            return result;
         }
 
-        return {
+        const result: MilestoneIndex = {
             milestones,
             totalCells: totalContentCells,
             cellsPerPage,
         };
+
+        // Cache the result
+        this._cachedMilestoneIndex = result;
+        this._cachedMilestoneIndexCellsPerPage = cellsPerPage;
+        this._cachedMilestoneIndexCellCount = currentCellCount;
+
+        return result;
+    }
+
+    /**
+     * Updates the database with milestone indices for all cells.
+     * This should be called after buildMilestoneIndex() to persist the milestone indices.
+     */
+    public async updateCellMilestoneIndices(): Promise<void> {
+        if (!this._indexManager) {
+            this._indexManager = getSQLiteIndexManager();
+            if (!this._indexManager) {
+                console.warn(`[CodexDocument] Index manager not available for milestone index update`);
+                return;
+            }
+        }
+
+        const cells = this._documentData.cells || [];
+        const currentCellCount = cells.length;
+
+        // Optimization: Skip update if milestone indices haven't changed
+        // If cache is valid and cell count matches last update, indices haven't changed
+        if (
+            this._cachedMilestoneIndex !== null &&
+            this._cachedMilestoneIndexCellCount === currentCellCount &&
+            this._lastUpdatedMilestoneIndexCellCount === currentCellCount
+        ) {
+            // Milestone indices haven't changed, skip database update
+            return;
+        }
+
+        const contentType = this.getContentType();
+
+        // Get file ID
+        let fileId = this._cachedFileId;
+        if (!fileId) {
+            fileId = await this._indexManager.upsertFile(
+                this.uri.toString(),
+                contentType === "source" ? "source" : "codex",
+                Date.now()
+            );
+            this._cachedFileId = fileId;
+        }
+
+        // Use targeted UPDATE statement instead of full upserts
+        const db = this._indexManager.database;
+        if (!db) {
+            console.warn(`[CodexDocument] Database not available for milestone index update`);
+            return;
+        }
+
+        await this._indexManager.runInTransaction(() => {
+            // Prepare UPDATE statement once, reuse for all cells
+            const updateStatement = db.prepare(`
+                UPDATE cells 
+                SET milestone_index = ?
+                WHERE cell_id = ?
+            `);
+
+            try {
+                for (const cell of cells) {
+                    const cellId = cell.metadata?.id;
+                    if (!cellId) continue;
+
+                    const milestoneIndex = cell.metadata?.data?.milestoneIndex;
+
+                    // Execute UPDATE statement
+                    updateStatement.bind([
+                        milestoneIndex !== undefined ? milestoneIndex : null,
+                        cellId
+                    ]);
+                    updateStatement.step();
+                    updateStatement.reset();
+                }
+            } finally {
+                updateStatement.free();
+            }
+        });
+
+        // Track that we've updated for this cell count
+        this._lastUpdatedMilestoneIndexCellCount = currentCellCount;
     }
 
     /**
      * Finds the milestone index that a given cell belongs to.
+     * Uses O(1) lookup from cell.data.milestoneIndex.
      * @param cellId The ID of the cell to find the milestone for
      * @returns The milestone index (0-based), or null if not found
      */
     public findMilestoneIndexForCell(cellId: string): number | null {
         const cells = this._documentData.cells || [];
 
-        // Find the index of the cell in the cells array
-        const cellIndex = cells.findIndex((cell) => cell.metadata?.id === cellId);
-        if (cellIndex === -1) {
+        // Find the cell by ID
+        const cell = cells.find((cell) => cell.metadata?.id === cellId);
+        if (!cell) {
             return null;
         }
 
-        // Find all milestone cells and their positions
-        const milestoneCellIndices: number[] = [];
-        for (let i = 0; i < cells.length; i++) {
-            const cell = cells[i];
-            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
-                // Skip deleted milestone cells
-                if (cell.metadata?.data?.deleted === true) {
-                    continue;
-                }
-                milestoneCellIndices.push(i);
-            }
-        }
-
-        // If no milestones found, return 0 (virtual milestone)
-        if (milestoneCellIndices.length === 0) {
-            return 0;
-        }
-
-        // Find which milestone this cell belongs to
-        // A cell belongs to the last milestone that appears before it
-        let milestoneIndex = 0;
-        for (let i = 0; i < milestoneCellIndices.length; i++) {
-            if (milestoneCellIndices[i] <= cellIndex) {
-                milestoneIndex = i;
-            } else {
-                break;
-            }
-        }
-
-        return milestoneIndex;
+        // Return milestoneIndex from cell data (O(1) lookup)
+        return cell.metadata?.data?.milestoneIndex ?? null;
     }
 
     /**
@@ -1278,24 +1452,43 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
 
             if (cellIndex >= startCellIndex && cellIndex < endCellIndex) {
-                // Count content cells (excluding milestones and paratext) from the start of this milestone
-                // up to and including the clicked cell. This matches the logic in getCellsForMilestone.
-                let contentCellCount = 0;
-                for (let j = startCellIndex; j <= cellIndex; j++) {
-                    const cell = cells[j];
-                    // Skip milestone cells and paratext cells (matching getCellsForMilestone logic)
-                    if (cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                        cell.metadata?.type !== CodexCellTypes.PARATEXT) {
-                        contentCellCount++;
+                // Build root index for each content cell in this milestone (matches getCellsForMilestone root-based pagination)
+                const cellIdToRootIndex = new Map<string, number>();
+                let rootIndex = 0;
+                for (let j = startCellIndex; j < endCellIndex; j++) {
+                    const c = cells[j];
+                    if (
+                        c.metadata?.type !== CodexCellTypes.MILESTONE &&
+                        c.metadata?.type !== CodexCellTypes.PARATEXT
+                    ) {
+                        const id = c.metadata?.id;
+                        const parentId = c.metadata?.parentId ?? (c.metadata?.data as { parentId?: string; } | undefined)?.parentId;
+                        if (id) {
+                            if (!parentId) {
+                                cellIdToRootIndex.set(id, rootIndex);
+                                rootIndex++;
+                            } else {
+                                const parentRootIndex = cellIdToRootIndex.get(parentId);
+                                if (parentRootIndex !== undefined) {
+                                    cellIdToRootIndex.set(id, parentRootIndex);
+                                }
+                            }
+                        }
                     }
                 }
 
-                // Calculate subsection index (0-based)
-                // In getCellsForMilestone: startContentIndex = validSubsectionIndex * cellsPerPage
-                // So if a cell is at position N (1-indexed), it's in subsection floor((N-1) / cellsPerPage)
-                // Since contentCellCount is 1-indexed (count of cells including this one),
-                // we subtract 1 to get 0-indexed position, then divide by cellsPerPage
-                const subsectionIndex = Math.max(0, Math.floor((contentCellCount - 1) / cellsPerPage));
+                const cell = cells[cellIndex];
+                const cellId = cell.metadata?.id;
+                // Paratext cells use their parent's root index; content cells use their own
+                let cellRootIndex: number | undefined = cellId != null ? cellIdToRootIndex.get(cellId) : undefined;
+                if (cellRootIndex === undefined && cell.metadata?.type === CodexCellTypes.PARATEXT) {
+                    const parentId = cell.metadata?.parentId ?? (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
+                    cellRootIndex = parentId != null ? cellIdToRootIndex.get(parentId) : undefined;
+                }
+                const subsectionIndex =
+                    cellRootIndex !== undefined
+                        ? Math.max(0, Math.floor(cellRootIndex / cellsPerPage))
+                        : 0;
 
                 return { milestoneIndex: i, subsectionIndex };
             }
@@ -1493,14 +1686,43 @@ export class CodexCellDocument implements vscode.CustomDocument {
             contentCells.push(quillContent);
         }
 
-        // Calculate number of subsections
-        const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
+        // Use root-based subsections to match getCellsForMilestone pagination
+        const getContentCellParentId = (c: QuillCellContent) =>
+            (c.metadata?.parentId as string | undefined) ?? (c.data?.parentId as string | undefined);
+        const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
+        const totalSubsections = Math.ceil(rootContentCells.length / cellsPerPage);
 
         // Calculate progress for each subsection
         for (let subsectionIdx = 0; subsectionIdx < totalSubsections; subsectionIdx++) {
-            const startContentIndex = subsectionIdx * cellsPerPage;
-            const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
-            const subsectionCells = contentCells.slice(startContentIndex, endContentIndex);
+            const startRootIndex = subsectionIdx * cellsPerPage;
+            const endRootIndex = Math.min(
+                startRootIndex + cellsPerPage,
+                rootContentCells.length
+            );
+            const rootsOnSubsection = rootContentCells.slice(startRootIndex, endRootIndex);
+            const contentCellIdsForSubsection = new Set(
+                rootsOnSubsection.map((c) => c.cellMarkers[0])
+            );
+            let addedDescendant: boolean;
+            do {
+                addedDescendant = false;
+                for (const contentCell of contentCells) {
+                    const parentId = getContentCellParentId(contentCell);
+                    const cellId = contentCell.cellMarkers[0];
+                    if (
+                        parentId &&
+                        contentCellIdsForSubsection.has(parentId) &&
+                        cellId &&
+                        !contentCellIdsForSubsection.has(cellId)
+                    ) {
+                        contentCellIdsForSubsection.add(cellId);
+                        addedDescendant = true;
+                    }
+                }
+            } while (addedDescendant);
+            const subsectionCells = contentCells.filter((c) =>
+                contentCellIdsForSubsection.has(c.cellMarkers[0])
+            );
 
             const totalCells = subsectionCells.length;
             if (totalCells === 0) {
@@ -1587,9 +1809,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
     /**
      * Gets cells for a specific milestone and optional subsection.
      * Used for lazy loading cells on-demand.
-     * 
-     * This method ensures that paratext cells appear on the same page as their
-     * associated content cell, whether the paratext is above or below the content cell.
+     *
+     * Pagination is by root content cells only (cells without parentId). Each page shows
+     * N roots plus all their descendant content cells and paratext, so adding a child
+     * (e.g. to cell 44) does not bump the last root (e.g. cell 50) to the next page.
+     * Paratext cells appear on the same page as their associated content cell (including
+     * paratext on child content cells).
      * 
      * @param milestoneIndex The index of the milestone (0-based)
      * @param subsectionIndex Optional subsection index for sub-pagination within milestone
@@ -1642,21 +1867,48 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
         }
 
-        // Calculate which content cells belong to the current page
-        const totalSubsections = Math.ceil(contentCells.length / cellsPerPage);
+        // Helper: get parentId from a content cell (QuillCellContent)
+        const getContentCellParentId = (cell: QuillCellContent): string | undefined =>
+            (cell.metadata?.parentId as string | undefined) ??
+            (cell.data?.parentId as string | undefined);
+
+        // Paginate by root content cells only, so adding a child (e.g. to cell 44) does not bump
+        // the last root (e.g. cell 50) to the next page. Each page shows N roots + all their descendants.
+        const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
+        const totalSubsections = Math.ceil(rootContentCells.length / cellsPerPage);
         const validSubsectionIndex = Math.min(
             Math.max(0, subsectionIndex),
             Math.max(0, totalSubsections - 1)
         );
 
-        const startContentIndex = validSubsectionIndex * cellsPerPage;
-        const endContentIndex = Math.min(startContentIndex + cellsPerPage, contentCells.length);
-
-        // Get content cells for this page
-        const contentCellsForPage = contentCells.slice(startContentIndex, endContentIndex);
-        const contentCellIdsForPage = new Set(
-            contentCellsForPage.map(cell => cell.cellMarkers[0])
+        const startRootIndex = validSubsectionIndex * cellsPerPage;
+        const endRootIndex = Math.min(
+            startRootIndex + cellsPerPage,
+            rootContentCells.length
         );
+        const rootsOnPage = rootContentCells.slice(startRootIndex, endRootIndex);
+
+        // Include roots on this page and all their descendant content cells (children, grandchildren, etc.)
+        const contentCellIdsForPage = new Set(
+            rootsOnPage.map((cell) => cell.cellMarkers[0])
+        );
+        let addedDescendant: boolean;
+        do {
+            addedDescendant = false;
+            for (const contentCell of contentCells) {
+                const parentId = getContentCellParentId(contentCell);
+                const cellId = contentCell.cellMarkers[0];
+                if (
+                    parentId &&
+                    contentCellIdsForPage.has(parentId) &&
+                    cellId &&
+                    !contentCellIdsForPage.has(cellId)
+                ) {
+                    contentCellIdsForPage.add(cellId);
+                    addedDescendant = true;
+                }
+            }
+        } while (addedDescendant);
 
         // Build a map of parent cell ID -> paratext cells
         const paratextCellsByParent = new Map<string, QuillCellContent[]>();
@@ -1690,6 +1942,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const cellsToInclude = new Set<string>(contentCellIdsForPage);
 
         // Add paratext cells associated with content cells on the current page
+        // (contentCellIdsForPage includes roots + descendants, so paratext of child cells is included)
         for (const contentCellId of contentCellIdsForPage) {
             const associatedParatextCells = paratextCellsByParent.get(contentCellId) || [];
             for (const paratextCell of associatedParatextCells) {
@@ -1698,7 +1951,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Filter allCellsInMilestone to only include cells that should be on this page
-        // This maintains the original order while ensuring paratext cells appear with their content cells
+        // This maintains the original order while ensuring paratext cells and child content cells appear with their parent
         const result = allCellsInMilestone.filter(cell =>
             cellsToInclude.has(cell.cellMarkers[0])
         );
@@ -1707,13 +1960,58 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
-     * Gets the total number of subsections for a milestone.
+     * Gets all cells in a milestone (without pagination).
+     * Used for calculating footnote offsets across pages.
      * 
+     * @param milestoneIndex The index of the milestone (0-based)
+     * @returns Array of all cells in the milestone
+     */
+    public getAllCellsForMilestone(milestoneIndex: number): QuillCellContent[] {
+        const cells = this._documentData.cells || [];
+        const milestoneInfo = this.buildMilestoneIndex(50); // Use default cellsPerPage for milestone info
+
+        // Validate milestone index
+        if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
+            console.warn(`Invalid milestone index: ${milestoneIndex}`);
+            return [];
+        }
+
+        const milestone = milestoneInfo.milestones[milestoneIndex];
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+
+        // Get all cells in this milestone section
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+        // Convert all cells in milestone range to QuillCellContent format
+        const allCellsInMilestone: QuillCellContent[] = [];
+
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+
+            // Skip milestone cells - they're not displayed
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
+                continue;
+            }
+
+            const quillContent = convertCellToQuillContent(cell);
+            allCellsInMilestone.push(quillContent);
+        }
+
+        return allCellsInMilestone;
+    }
+
+    /**
+     * Gets the total number of subsections for a milestone.
+     * Uses root content cell count (excluding child content cells) so page count matches
+     * root-based pagination in getCellsForMilestone.
+     *
      * @param milestoneIndex The index of the milestone (0-based)
      * @param cellsPerPage Number of cells per page
      * @returns Number of subsections (pages) for this milestone
      */
     public getSubsectionCountForMilestone(milestoneIndex: number, cellsPerPage: number = 50): number {
+        const cells = this._documentData.cells || [];
         const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
 
         if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
@@ -1721,7 +2019,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const milestone = milestoneInfo.milestones[milestoneIndex];
-        return Math.ceil(milestone.cellCount / cellsPerPage) || 1;
+        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
+        const startCellIndex = milestone.cellIndex;
+        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+        let rootContentCount = 0;
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+            if (
+                cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                cell.metadata?.type !== CodexCellTypes.PARATEXT
+            ) {
+                const parentId = cell.metadata?.parentId ?? (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
+                if (!parentId) {
+                    rootContentCount++;
+                }
+            }
+        }
+        return Math.ceil(rootContentCount / cellsPerPage) || 1;
     }
 
     public updateCellLabel(cellId: string, newLabel: string) {
@@ -1988,6 +2303,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
         latestEdit.validatedBy = latestEdit.validatedBy.filter((entry) =>
             this.isValidValidationEntry(entry)
         );
+
+        // Invalidate milestone index cache since validation changes affect progress calculations
+        // The milestone structure doesn't change, but progress needs to be recalculated
+        this.invalidateMilestoneIndexCache();
 
         // Mark document as dirty
         this._isDirty = true;
@@ -2449,6 +2768,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return;
         }
 
+        // Check if this is a milestone cell and if we're modifying data that affects milestone index
+        const isMilestoneCell = cellToUpdate.metadata?.type === CodexCellTypes.MILESTONE;
+        const isModifyingDeletedFlag = 'deleted' in newData;
+        const shouldInvalidateCache = isMilestoneCell && isModifyingDeletedFlag;
+
         // Ensure metadata exists
         if (!this._documentData.cells[indexOfCellToUpdate].metadata) {
             this._documentData.cells[indexOfCellToUpdate].metadata = {
@@ -2469,6 +2793,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ...this._documentData.cells[indexOfCellToUpdate].metadata.data,
             ...newData,
         };
+
+        // Invalidate milestone index cache if milestone cell's deleted flag was modified
+        if (shouldInvalidateCache) {
+            this.invalidateMilestoneIndexCache();
+        }
 
         this._isDirty = true;
 
@@ -3000,7 +3329,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         attachments: cell.metadata?.attachments || {},
                         selectedAudioId: cell.metadata?.selectedAudioId,
                         selectionTimestamp: cell.metadata?.selectionTimestamp,
-                        type: "ai_learning",
+                        type: cell.metadata?.type || null,
                         lastUpdated: Date.now(),
                     };
 

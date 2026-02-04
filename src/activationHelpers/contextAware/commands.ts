@@ -24,6 +24,16 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     // Register the centralized sync commands
     registerSyncCommands(context);
 
+    // Prevent Save As for .codex and .source files to avoid creating duplicates
+    const preventSaveAsCommand = vscode.commands.registerCommand(
+        "codex-editor.preventSaveAs",
+        () => {
+            vscode.window.showInformationMessage(
+                "Save As is disabled for .codex and .source files to prevent creating duplicates."
+            );
+        }
+    );
+
     // Performance testing command for project loading
     const testProjectLoadingPerformanceCommand = vscode.commands.registerCommand(
         "codex-editor.testProjectLoadingPerformance",
@@ -359,6 +369,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
+        preventSaveAsCommand,
         notebookSerializer,
         codexKernel,
         openChapterCommand,

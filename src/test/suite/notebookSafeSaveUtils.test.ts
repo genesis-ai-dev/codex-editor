@@ -19,6 +19,7 @@ suite("notebookSafeSaveUtils", () => {
             stat: sinon.stub().rejects(new Error("ENOENT")),
             writeFile: sinon.stub().resolves(),
             rename: sinon.stub().resolves(),
+            delete: sinon.stub().resolves(),
         };
 
         const result = await readExistingFileOrThrowWithFs(fs, uri);
@@ -32,6 +33,7 @@ suite("notebookSafeSaveUtils", () => {
             stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 10 }),
             writeFile: sinon.stub().resolves(),
             rename: sinon.stub().resolves(),
+            delete: sinon.stub().resolves(),
         };
 
         await assert.rejects(async () => readExistingFileOrThrowWithFs(fs, uri));
@@ -44,6 +46,7 @@ suite("notebookSafeSaveUtils", () => {
             stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 10 }),
             writeFile: sinon.stub().resolves(),
             rename: sinon.stub().resolves(),
+            delete: sinon.stub().resolves(),
         };
 
         await assert.rejects(async () => readExistingFileOrThrowWithFs(fs, uri));
@@ -56,6 +59,7 @@ suite("notebookSafeSaveUtils", () => {
             stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 0 }),
             writeFile: sinon.stub().resolves(),
             rename: sinon.stub().resolves(),
+            delete: sinon.stub().resolves(),
         };
 
         const result = await readExistingFileOrThrowWithFs(fs, uri);
@@ -66,23 +70,101 @@ suite("notebookSafeSaveUtils", () => {
         const uri = vscode.Uri.file("/tmp/atomic-write-target.codex");
         const writeStub = sinon.stub().resolves();
         const renameStub = sinon.stub().resolves();
+        const deleteStub = sinon.stub().resolves();
         const fs: NotebookFs = {
             readFile: sinon.stub().rejects(new Error("unused")),
-            stat: sinon.stub().rejects(new Error("unused")),
+            stat: sinon.stub().rejects(vscode.FileSystemError.FileNotFound(uri)),
             writeFile: writeStub,
             rename: renameStub,
+            delete: deleteStub,
         };
 
         await atomicWriteUriTextWithFs(fs, uri, "{\n  \"cells\": []\n}\n");
 
         assert.strictEqual(writeStub.callCount, 1);
         assert.strictEqual(renameStub.callCount, 1);
+        assert.strictEqual(deleteStub.callCount, 0, "delete should not be called on success");
         const [tmpUriArg] = writeStub.firstCall.args;
         const [fromUriArg, toUriArg, optsArg] = renameStub.firstCall.args;
         assert.ok(tmpUriArg.toString().includes(".tmp-"), "temp uri should include .tmp-");
         assert.strictEqual(fromUriArg.toString(), tmpUriArg.toString(), "rename source should be temp uri");
         assert.strictEqual(toUriArg.toString(), uri.toString(), "rename target should be original uri");
         assert.deepStrictEqual(optsArg, { overwrite: true });
+    });
+
+    test("atomicWriteUriText cleans up temp file when rename fails", async () => {
+        const uri = vscode.Uri.file("/tmp/atomic-write-fail.codex");
+        const writeStub = sinon.stub().resolves();
+        const renameStub = sinon.stub().rejects(new Error("Rename failed"));
+        const deleteStub = sinon.stub().resolves();
+        const fs: NotebookFs = {
+            readFile: sinon.stub().rejects(new Error("unused")),
+            stat: sinon.stub().rejects(vscode.FileSystemError.FileNotFound(uri)),
+            writeFile: writeStub,
+            rename: renameStub,
+            delete: deleteStub,
+        };
+
+        await assert.rejects(
+            async () => await atomicWriteUriTextWithFs(fs, uri, "test content"),
+            /Rename failed/
+        );
+
+        assert.strictEqual(writeStub.callCount, 1, "writeFile should be called");
+        assert.strictEqual(renameStub.callCount, 1, "rename should be called");
+        assert.strictEqual(deleteStub.callCount, 1, "delete should be called to clean up temp file");
+        const [tmpUriArg] = writeStub.firstCall.args;
+        const [deletedUriArg] = deleteStub.firstCall.args;
+        assert.strictEqual(
+            deletedUriArg.toString(),
+            tmpUriArg.toString(),
+            "delete should be called with the temp file URI"
+        );
+    });
+
+    test("atomicWriteUriText does not clean up when writeFile fails", async () => {
+        const uri = vscode.Uri.file("/tmp/atomic-write-fail.codex");
+        const writeStub = sinon.stub().rejects(new Error("Write failed"));
+        const renameStub = sinon.stub().resolves();
+        const deleteStub = sinon.stub().resolves();
+        const fs: NotebookFs = {
+            readFile: sinon.stub().rejects(new Error("unused")),
+            stat: sinon.stub().rejects(vscode.FileSystemError.FileNotFound(uri)),
+            writeFile: writeStub,
+            rename: renameStub,
+            delete: deleteStub,
+        };
+
+        await assert.rejects(
+            async () => await atomicWriteUriTextWithFs(fs, uri, "test content"),
+            /Write failed/
+        );
+
+        assert.strictEqual(writeStub.callCount, 1, "writeFile should be called");
+        assert.strictEqual(renameStub.callCount, 0, "rename should not be called if write fails");
+        assert.strictEqual(deleteStub.callCount, 0, "delete should not be called if write fails (no temp file created)");
+    });
+
+    test("atomicWriteUriText writes directly when target exists", async () => {
+        const uri = vscode.Uri.file("/tmp/existing-target.codex");
+        const writeStub = sinon.stub().resolves();
+        const renameStub = sinon.stub().resolves();
+        const deleteStub = sinon.stub().resolves();
+        const fs: NotebookFs = {
+            readFile: sinon.stub().rejects(new Error("unused")),
+            stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 10 }),
+            writeFile: writeStub,
+            rename: renameStub,
+            delete: deleteStub,
+        };
+
+        await atomicWriteUriTextWithFs(fs, uri, "existing content");
+
+        assert.strictEqual(writeStub.callCount, 1);
+        assert.strictEqual(renameStub.callCount, 0, "rename should not be called when file exists");
+        assert.strictEqual(deleteStub.callCount, 0, "delete should not be called on direct write");
+        const [writeUriArg] = writeStub.firstCall.args;
+        assert.strictEqual(writeUriArg.toString(), uri.toString(), "writeFile should target original uri");
     });
 });
 
