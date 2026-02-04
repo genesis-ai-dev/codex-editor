@@ -3,17 +3,11 @@ import { registerProviders } from "./providers/registerProviders";
 import { GlobalProvider } from "./globalProvider";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { registerLanguageServer } from "./tsServer/registerLanguageServer";
-import { registerClientCommands } from "./tsServer/registerClientCommands";
-import registerClientOnRequests from "./tsServer/registerClientOnRequests";
 import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
-import { LanguageClient } from "vscode-languageclient/node";
 import { registerProjectManager } from "./projectManager";
 import {
     temporaryMigrationScript_checkMatthewNotebook,
     migration_changeDraftFolderToFilesFolder,
-    migration_chatSystemMessageSetting,
-    migration_chatSystemMessageToMetadata,
     migration_lineNumbersSettings,
     migration_editHistoryFormat,
     migration_addMilestoneCells,
@@ -68,7 +62,6 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
-import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
@@ -172,8 +165,6 @@ declare global {
     var db: Database | undefined;
 }
 
-let client: LanguageClient | undefined;
-let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 // let commitTimeout: any;
 // const COMMIT_DELAY = 5000; // Delay in milliseconds
@@ -782,36 +773,14 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         startRealtimeStep("Initializing Language Server");
         const lsStart = globalThis.performance.now();
-        client = await registerLanguageServer(context);
         const lsDuration = globalThis.performance.now() - lsStart;
         debug(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
 
-        // Always register client commands to prevent "command not found" errors
         // If language server failed, commands will return appropriate fallbacks
         const regServicesStart = globalThis.performance.now();
-        clientCommandsDisposable = registerClientCommands(context, client);
-        context.subscriptions.push(clientCommandsDisposable);
         const regServicesDuration = globalThis.performance.now() - regServicesStart;
         debug(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
 
-        if (client && global.db) {
-            const optimizeStart = globalThis.performance.now();
-            try {
-                await registerClientOnRequests(client, global.db);
-                await client.start();
-            } catch (error) {
-                console.error("Error registering client requests:", error);
-            }
-            const optimizeDuration = globalThis.performance.now() - optimizeStart;
-            debug(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
-        } else {
-            if (!client) {
-                console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
-            }
-            if (!global.db) {
-                console.info("[Database] Dictionary not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
-            }
-        }
         finishRealtimeStep();
         const totalLsDuration = globalThis.performance.now() - totalLsStart;
         debug(`[Activation] Language Server Ready: ${totalLsDuration.toFixed(2)}ms`);
@@ -984,17 +953,6 @@ export function deactivate() {
         clearInterval(currentStepTimer);
         currentStepTimer = null;
     }
-
-    if (clientCommandsDisposable) {
-        clientCommandsDisposable.dispose();
-    }
-    if (client) {
-        return client.stop();
-    }
-    if (global.db) {
-        global.db.close();
-    }
-
     // Clean up the global index manager
     import("./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager").then(
         ({ clearSQLiteIndexManager }) => {
