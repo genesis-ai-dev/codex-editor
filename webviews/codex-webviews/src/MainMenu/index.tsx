@@ -56,7 +56,6 @@ interface State {
     syncDelayMinutes: number;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
-    progressData: any;
 }
 
 function MainMenu() {
@@ -85,7 +84,6 @@ function MainMenu() {
         syncDelayMinutes: 5,
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
-        progressData: null,
     });
 
     const network = useNetworkState();
@@ -123,12 +121,6 @@ function MainMenu() {
                             message.data.isFrontierExtensionEnabled ??
                             prevState.isFrontierExtensionEnabled,
                         isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
-                    }));
-                    break;
-                case "progressData":
-                    setState((prevState) => ({
-                        ...prevState,
-                        progressData: message.data,
                     }));
                     break;
                 case "updateStateChanged":
@@ -179,9 +171,6 @@ function MainMenu() {
             vscode.postMessage({ command: "webviewReady" });
             // Request sync settings
             vscode.postMessage({ command: "getSyncSettings" });
-            // Request progress data
-            vscode.postMessage({ command: "getProjectProgress" });
-            // Speech-to-text settings moved to Copilot Settings panel
         } catch (error) {
             console.error("Could not send webviewReady message:", error);
         }
@@ -883,6 +872,29 @@ function MainMenu() {
                                         <Button
                                             variant="outline"
                                             size="default"
+                                            onClick={() => executeCommand("openCodexMigrationTool")}
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
+                                        >
+                                            <i
+                                                className="codicon codicon-replace-all mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
+                                                    Migration Tool
+                                                </div>
+                                                <div
+                                                    className="text-xs hidden sm:block"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Migrate codex content
+                                                </div>
+                                            </div>
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="default"
                                             onClick={() => handleProjectAction("openAISettings")}
                                             className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
@@ -1099,7 +1111,7 @@ function MainMenu() {
                 value={projectNameValue}
                 placeholder="Enter project name"
                 confirmButtonLabel="Save"
-                disabled={!projectNameValue.trim()}
+                disabled={!projectNameValue.trim() || projectNameValue.trim() === projectState.projectOverview?.projectName}
                 onClose={() => {
                     setIsRenameProjectModalOpen(false);
                     setProjectNameValue("");

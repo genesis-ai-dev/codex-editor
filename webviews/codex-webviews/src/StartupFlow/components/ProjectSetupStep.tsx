@@ -33,10 +33,16 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
     const [isLoading, setIsLoading] = useState(true);
-    const [progressData, setProgressData] = useState<any>(null);
-    const [isLoadingProgress, setIsLoadingProgress] = useState(false);
     const [isAnyApplying, setIsAnyApplying] = useState(false);
+    const [disableAllActions, setDisableAllActions] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [swapCloneWarning, setSwapCloneWarning] = useState<{
+        message: string;
+        repoUrl?: string;
+        newProjectName?: string;
+    } | null>(null);
+    const [isCloningDeprecated, setIsCloningDeprecated] = useState(false);
+    const [currentUsername, setCurrentUsername] = useState<string | undefined>(undefined);
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -57,13 +63,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
         setIsLoading(true);
-    };
-
-    const fetchProgressData = () => {
-        setIsLoadingProgress(true);
-        vscode.postMessage({
-            command: "getAggregatedProgress",
-        } as MessagesToStartupFlowProvider);
     };
 
     const fetchSyncStatus = () => {
@@ -90,16 +89,16 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
 
-        const progressTimer = setTimeout(() => {
-            fetchProgressData();
-        }, 500);
+        // const progressTimer = setTimeout(() => {
+        //     fetchProgressData();
+        // }, 500);
 
         const syncTimer = setTimeout(() => {
             fetchSyncStatus();
         }, 1000);
 
         return () => {
-            clearTimeout(progressTimer);
+            // clearTimeout(progressTimer);
             clearTimeout(syncTimer);
         };
     }, []);
@@ -109,6 +108,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             const message = event.data;
             if (message.command === "projectsListFromGitLab") {
                 setProjectsList(message.projects);
+                setCurrentUsername((message as any).currentUsername);
                 setIsLoading(false);
             } else if (message.command === "project.deleteResponse") {
                 if (message.success) {
@@ -123,18 +123,12 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     }
                     // No need to set loading false since we never set it true for cancelled deletions
                 }
-            } else if (
-                message.command === "aggregatedProgressData" ||
-                message.command === "progressData"
-            ) {
-                setProgressData(message.data);
-                setIsLoadingProgress(false);
             } else if (message.command === "projectsSyncStatus") {
                 setSyncStatus(message.status);
             } else if ((message as any).command === "project.mediaStrategyApplying") {
                 setIsAnyApplying(!!(message as any).applying);
-            } else if ((message as any).command === "project.healingInProgress") {
-                setIsAnyApplying(!!(message as any).healing);
+            } else if ((message as any).command === "project.updatingInProgress") {
+                setIsAnyApplying(!!(message as any).updating);
             } else if ((message as any).command === "project.cloningInProgress") {
                 setIsAnyApplying(!!(message as any).cloning);
             } else if ((message as any).command === "project.openingInProgress") {
@@ -143,6 +137,20 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setIsAnyApplying(!!(message as any).zipping);
             } else if ((message as any).command === "project.cleaningInProgress") {
                 setIsAnyApplying(!!(message as any).cleaning);
+            } else if ((message as any).command === "project.swapCloneWarning") {
+                const warning = message as any;
+                if (warning?.isOldProject) {
+                    setSwapCloneWarning({
+                        message: warning.message || "This project has been deprecated. Please use the newer project.",
+                        repoUrl: warning.repoUrl,
+                        newProjectName: warning.newProjectName,
+                    });
+                    setDisableAllActions(true);
+                } else {
+                    setSwapCloneWarning(null);
+                    setDisableAllActions(false);
+                    setIsCloningDeprecated(false);
+                }
             } else if ((message as any).command === "project.setMediaStrategyResult") {
                 // Update the project's media strategy in the projects list when it changes
                 const result = message as any;
@@ -200,6 +208,60 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     </span>
                 </div>
             )}
+            {swapCloneWarning && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "1rem",
+                        padding: "8px 12px",
+                        backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                        border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                        borderRadius: "4px",
+                        width: "100%",
+                        boxSizing: "border-box",
+                    }}
+                >
+                    <i className="codicon codicon-warning"></i>
+                    <span style={{ flex: 1 }}>
+                        <div className="flex flex-col">
+                            <span>{swapCloneWarning.message}</span>
+                            {swapCloneWarning.newProjectName && (
+                                <span>Recommended project: {swapCloneWarning.newProjectName}</span>
+                            )}
+                        </div>
+                    </span>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                        <VSCodeButton
+                            appearance="secondary"
+                            disabled={isCloningDeprecated}
+                            onClick={() => {
+                                setSwapCloneWarning(null);
+                                setDisableAllActions(false);
+                                setIsCloningDeprecated(false);
+                            }}
+                        >
+                            Cancel
+                        </VSCodeButton>
+                        {swapCloneWarning.repoUrl && (
+                            <VSCodeButton
+                                appearance="primary"
+                                disabled={isCloningDeprecated}
+                                onClick={() => {
+                                    setIsCloningDeprecated(true);
+                                    vscode.postMessage({
+                                        command: "project.cloneDeprecated",
+                                        repoUrl: swapCloneWarning.repoUrl,
+                                    } as MessagesToStartupFlowProvider);
+                                }}
+                            >
+                                {isCloningDeprecated ? "Cloning..." : "Clone Deprecated Project"}
+                            </VSCodeButton>
+                        )}
+                    </div>
+                </div>
+            )}
             {!isAuthenticated && (
                 <div>
                     <VSCodeButton
@@ -246,7 +308,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         appearance="secondary"
                         onClick={fetchProjectList}
                         title="Refresh Projects List"
-                        className={`refresh-button ${isAnyApplying ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        disabled={disableAllActions}
+                        className={`refresh-button ${isAnyApplying || disableAllActions ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
                         <i className="codicon codicon-refresh"></i>
                         Refresh
@@ -256,7 +319,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         appearance="primary"
                         onClick={onCreateEmpty}
                         title="Create New Project from Scratch"
-                        className={`create-button ${isAnyApplying ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        disabled={disableAllActions}
+                        className={`create-button ${isAnyApplying || disableAllActions ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
                         <i className="codicon codicon-plus"></i>
                         Create New Project
@@ -287,7 +351,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     }
                 }}
                 vscode={vscode}
-                progressData={progressData}
+                disableAllActions={disableAllActions}
+                currentUsername={currentUsername}
             />
         </div>
     );

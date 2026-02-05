@@ -21,7 +21,7 @@ suite('SyncManager Webview Refresh Tests', () => {
     setup(async () => {
         context = createMockExtensionContext();
         provider = new CodexCellEditorProvider(context);
-        
+
         // Register provider with GlobalProvider
         GlobalProvider.getInstance().registerProvider('codex-cell-editor', provider);
 
@@ -51,7 +51,7 @@ suite('SyncManager Webview Refresh Tests', () => {
         );
 
         const { panel, lastPostedMessageRef } = createMockWebviewPanel();
-        
+
         // Register webview panel with provider
         await provider.resolveCustomEditor(
             document,
@@ -96,11 +96,6 @@ suite('SyncManager Webview Refresh Tests', () => {
             installedVersion: '0.4.18',
             requiredVersion: '0.4.18'
         });
-
-        // Stub other background operations
-        const progressModule = await import('../../progressReporting/progressReportingService');
-        const progressService = progressModule.ProgressReportingService.getInstance();
-        sinon.stub(progressService, 'scheduleProgressReport').resolves();
 
         // Execute sync (this will call executeSyncInBackground internally)
         try {

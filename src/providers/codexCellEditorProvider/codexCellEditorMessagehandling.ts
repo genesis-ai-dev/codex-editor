@@ -1850,6 +1850,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         // ========== LFS STREAMING LOGIC ==========
                         // Import LFS helpers
                         const { isPointerFile, parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                        const { getCachedLfsBytes, setCachedLfsBytes } = await import("../../utils/mediaCache");
                         const { getMediaFilesStrategy: getStrategy } = await import("../../utils/localProjectSettings");
 
                         // Check if file is an LFS pointer
@@ -1887,16 +1888,30 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 throw new Error("Frontier authentication extension not available. Please ensure it's installed and active.");
                             }
 
-                            // Download from LFS
-                            debug(`Downloading LFS file: OID=${pointer.oid.substring(0, 8)}..., size=${pointer.size}`);
-                            const lfsData = await frontierApi.downloadLFSFile(
-                                workspaceFolder.uri.fsPath,
-                                pointer.oid,
-                                pointer.size
-                            );
+                            // Download from LFS (with in-memory cache for stream-only)
+                            let cachedData: Uint8Array | undefined;
+                            if (mediaStrategy === "stream-only") {
+                                cachedData = getCachedLfsBytes(pointer.oid);
+                                if (cachedData) {
+                                    debug("Using cached LFS bytes for stream-only audio");
+                                }
+                            }
 
-                            fileData = lfsData;
-                            debug("Successfully streamed file from LFS");
+                            if (cachedData) {
+                                fileData = cachedData;
+                            } else {
+                                debug(`Downloading LFS file: OID=${pointer.oid.substring(0, 8)}..., size=${pointer.size}`);
+                                const lfsData = await frontierApi.downloadLFSFile(
+                                    workspaceFolder.uri.fsPath,
+                                    pointer.oid,
+                                    pointer.size
+                                );
+                                fileData = lfsData;
+                                if (mediaStrategy === "stream-only") {
+                                    setCachedLfsBytes(pointer.oid, lfsData);
+                                }
+                                debug("Successfully streamed file from LFS");
+                            }
 
                             // If strategy is "stream-and-save", replace pointer with actual file
                             if (mediaStrategy === "stream-and-save") {
@@ -1981,6 +1996,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                             // Parse pointer
                             const { parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                            const { getCachedLfsBytes, setCachedLfsBytes } = await import("../../utils/mediaCache");
                             const pointer = await parsePointerFile(pointerFullPath);
                             if (!pointer) {
                                 throw new Error("Invalid LFS pointer file format (fallback)");
@@ -1997,11 +2013,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 throw new Error("Frontier authentication extension not available");
                             }
 
-                            const lfsData = await frontierApi.downloadLFSFile(
-                                workspaceFolder.uri.fsPath,
-                                pointer.oid,
-                                pointer.size
-                            );
+                            let lfsData: Uint8Array;
+                            if (mediaStrategy === "stream-only") {
+                                const cachedData = getCachedLfsBytes(pointer.oid);
+                                if (cachedData) {
+                                    lfsData = cachedData;
+                                    debug("Using cached LFS bytes for stream-only audio (fallback)");
+                                } else {
+                                    lfsData = await frontierApi.downloadLFSFile(
+                                        workspaceFolder.uri.fsPath,
+                                        pointer.oid,
+                                        pointer.size
+                                    );
+                                    setCachedLfsBytes(pointer.oid, lfsData);
+                                }
+                            } else {
+                                lfsData = await frontierApi.downloadLFSFile(
+                                    workspaceFolder.uri.fsPath,
+                                    pointer.oid,
+                                    pointer.size
+                                );
+                            }
 
                             // If stream-and-save, write file bytes to files path
                             if (mediaStrategy === "stream-and-save") {
