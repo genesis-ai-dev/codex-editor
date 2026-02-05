@@ -1752,7 +1752,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 projectPath,
                                                 newProjectUrl,
                                                 swapUUID,
-                                                activeEntry.swapInitiatedAt
+                                                activeEntry.swapInitiatedAt,
+                                                activeEntry.swapInitiatedBy,
+                                                activeEntry.swapReason
                                             );
 
                                             debugLog("Project swap completed successfully");
@@ -3646,6 +3648,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             newProjectUrl,
                             swapUUID,
                             swapInitiatedAt: activeEntry.swapInitiatedAt,
+                            swapInitiatedBy: activeEntry.swapInitiatedBy,
+                            swapReason: activeEntry.swapReason,
                             createdAt: Date.now()
                         });
 
@@ -3707,7 +3711,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             projectPath,
                             newProjectUrl,
                             swapUUID,
-                            activeEntry.swapInitiatedAt
+                            activeEntry.swapInitiatedAt,
+                            activeEntry.swapInitiatedBy,
+                            activeEntry.swapReason
                         );
 
                         progress.report({ message: "Opening swapped project..." });

@@ -2715,6 +2715,96 @@ suite("Project Swap Tests", () => {
             assert.ok(urls.includes("https://gitlab.com/org/project-c.git"), "project-c must be deprecated");
         });
     });
+
+    suite("Entry Data Integrity - No Fallbacks", () => {
+        test("swapInitiatedBy should never be 'unknown' in properly created entries", () => {
+            // This test documents that "unknown" is an invalid state that indicates a bug
+            const validEntry = createSwapEntry({
+                swapInitiatedBy: "admin-user",
+            });
+
+            assert.notStrictEqual(validEntry.swapInitiatedBy, "unknown", 
+                "swapInitiatedBy should have actual username, not 'unknown'");
+            assert.ok(validEntry.swapInitiatedBy && validEntry.swapInitiatedBy.length > 0,
+                "swapInitiatedBy must be a non-empty string");
+        });
+
+        test("entry fields are preserved through sortSwapEntries", () => {
+            const entries = [
+                createSwapEntry({
+                    swapUUID: "test-uuid",
+                    swapInitiatedBy: "original-user",
+                    swapReason: "Original reason for swap",
+                    swapStatus: "active",
+                }),
+            ];
+
+            const sorted = sortSwapEntries(entries);
+            const entry = sorted[0];
+
+            assert.strictEqual(entry.swapInitiatedBy, "original-user",
+                "swapInitiatedBy must be preserved through sorting");
+            assert.strictEqual(entry.swapReason, "Original reason for swap",
+                "swapReason must be preserved through sorting");
+        });
+
+        test("entry fields are preserved through orderEntryFields", () => {
+            const original = createSwapEntry({
+                swapInitiatedBy: "important-admin",
+                swapReason: "Critical migration reason",
+            });
+
+            const ordered = orderEntryFields(original);
+
+            assert.strictEqual(ordered.swapInitiatedBy, "important-admin",
+                "swapInitiatedBy must be preserved through field ordering");
+            assert.strictEqual(ordered.swapReason, "Critical migration reason",
+                "swapReason must be preserved through field ordering");
+        });
+
+        test("SwapPendingDownloads interface supports swapInitiatedBy and swapReason", () => {
+            // This test verifies the type structure includes the fields we need
+            const pendingState: SwapPendingDownloads = {
+                swapState: "pending_downloads",
+                filesNeedingDownload: ["file1.mp3"],
+                newProjectUrl: "https://gitlab.com/org/new.git",
+                swapUUID: "pending-uuid",
+                swapInitiatedAt: Date.now(),
+                swapInitiatedBy: "admin-who-initiated", // Should be preserved
+                swapReason: "Test migration reason", // Should be preserved  
+                createdAt: Date.now(),
+            };
+
+            assert.strictEqual(pendingState.swapInitiatedBy, "admin-who-initiated",
+                "SwapPendingDownloads must support swapInitiatedBy field");
+            assert.strictEqual(pendingState.swapReason, "Test migration reason",
+                "SwapPendingDownloads must support swapReason field");
+        });
+
+        test("all required entry fields have proper values (regression prevention)", () => {
+            // Document what a valid entry looks like - any deviation from this is a bug
+            const validEntry = createSwapEntry({
+                swapUUID: "valid-uuid-12345",
+                swapInitiatedAt: 1700000000000,
+                swapModifiedAt: 1700000001000,
+                swapStatus: "active",
+                isOldProject: true,
+                oldProjectUrl: "https://gitlab.com/org/old-project.git",
+                oldProjectName: "old-project",
+                newProjectUrl: "https://gitlab.com/org/new-project.git",
+                newProjectName: "new-project",
+                swapInitiatedBy: "admin@company.com",
+                swapReason: "Repository restructuring",
+            });
+
+            // None of these should ever be "unknown" or empty fallback values
+            assert.notStrictEqual(validEntry.swapUUID, "unknown");
+            assert.notStrictEqual(validEntry.swapInitiatedBy, "unknown");
+            assert.ok(validEntry.swapInitiatedAt > 0, "swapInitiatedAt must be a valid timestamp");
+            assert.ok(validEntry.oldProjectUrl.startsWith("https://"), "oldProjectUrl must be a valid URL");
+            assert.ok(validEntry.newProjectUrl.startsWith("https://"), "newProjectUrl must be a valid URL");
+        });
+    });
 });
 
 // ============ Helper Functions ============

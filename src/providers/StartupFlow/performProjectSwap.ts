@@ -43,6 +43,10 @@ export interface SwapPendingDownloads {
     swapUUID: string;
     /** Swap initiated timestamp for resuming */
     swapInitiatedAt: number;
+    /** Username of who initiated the swap */
+    swapInitiatedBy?: string;
+    /** Reason for the swap */
+    swapReason?: string;
     /** Timestamp when this state was created */
     createdAt: number;
 }
@@ -422,6 +426,8 @@ export async function downloadPendingSwapFiles(
  * @param newProjectUrl - Git URL of the new project
  * @param swapUUID - Identifier linking OLD and NEW project counterparts for THIS swap (each new swap gets a fresh UUID)
  * @param swapInitiatedAt - Timestamp from OLD project's active entry (for matching entries in NEW project)
+ * @param swapInitiatedBy - Username of who initiated the swap (from OLD project's active entry)
+ * @param swapReason - Reason for the swap (from OLD project's active entry)
  * @returns Promise resolving to new project path
  */
 export async function performProjectSwap(
@@ -430,9 +436,11 @@ export async function performProjectSwap(
     oldProjectPath: string,
     newProjectUrl: string,
     swapUUID: string,
-    swapInitiatedAt: number
+    swapInitiatedAt: number,
+    swapInitiatedBy?: string,
+    swapReason?: string
 ): Promise<string> {
-    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID, swapInitiatedAt });
+    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID, swapInitiatedAt, swapInitiatedBy });
     const targetFolderName = extractProjectNameFromUrl(newProjectUrl) || projectName;
     const targetProjectPath = path.join(path.dirname(oldProjectPath), targetFolderName);
 
@@ -505,6 +513,8 @@ export async function performProjectSwap(
                 oldProjectUrl: oldOriginUrl ? sanitizeGitUrl(oldOriginUrl) : undefined,
                 oldProjectName: projectName,
                 swapInitiatedAt, // Pass the timestamp from OLD project for entry matching
+                swapInitiatedBy, // Pass the initiator from OLD project
+                swapReason, // Pass the reason from OLD project
             });
 
             // Ensure metadata integrity (projectName, scope, etc.)

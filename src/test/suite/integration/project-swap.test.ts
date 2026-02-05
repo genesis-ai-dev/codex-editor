@@ -5,7 +5,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import * as git from "isomorphic-git";
 import { ProjectMetadata, ProjectSwapEntry, ProjectSwapInfo, ProjectSwapUserEntry } from "../../../../types";
-import { sortSwapEntries } from "../../../utils/projectSwapManager";
+import { sortSwapEntries, normalizeProjectSwapInfo } from "../../../utils/projectSwapManager";
 
 suite("Integration: Project Swap Flow", () => {
     let tempDir: string;
@@ -1077,6 +1077,112 @@ suite("Integration: Project Swap Flow", () => {
 
             assert.strictEqual(readSuccessfully, false, "Should not read corrupted JSON");
             assert.strictEqual(fallbackUsed, true, "Should use fallback for corrupted cache");
+        });
+    });
+
+    // ============ Entry Data Integrity Integration ============
+    suite("Entry Data Integrity - No Fallbacks", () => {
+        test("swapInitiatedBy must not be 'unknown' after entry creation", async () => {
+            // Create entry with proper initiator
+            const swapEntry = createSwapEntry({
+                swapUUID: "integrity-test-uuid",
+                swapInitiatedBy: "admin@company.com",
+                swapReason: "Repository migration",
+                isOldProject: true,
+            });
+
+            // Write to metadata
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(oldProjectDir, "metadata.json"), "utf-8"
+            ));
+            metadata.meta = metadata.meta || {};
+            metadata.meta.projectSwap = { swapEntries: [swapEntry] };
+            fs.writeFileSync(
+                path.join(oldProjectDir, "metadata.json"),
+                JSON.stringify(metadata, null, 2)
+            );
+
+            // Read back and verify
+            const readMetadata = JSON.parse(fs.readFileSync(
+                path.join(oldProjectDir, "metadata.json"), "utf-8"
+            ));
+            const readEntry = readMetadata.meta.projectSwap.swapEntries[0];
+
+            assert.strictEqual(readEntry.swapInitiatedBy, "admin@company.com",
+                "swapInitiatedBy must be preserved, not 'unknown'");
+            assert.notStrictEqual(readEntry.swapInitiatedBy, "unknown",
+                "swapInitiatedBy should NEVER be 'unknown' - this indicates a data flow bug");
+        });
+
+        test("swapReason must not be lost through write/read cycle", async () => {
+            const swapEntry = createSwapEntry({
+                swapUUID: "reason-test-uuid",
+                swapReason: "Critical migration: consolidating repositories",
+            });
+
+            // Write to metadata
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(oldProjectDir, "metadata.json"), "utf-8"
+            ));
+            metadata.meta = metadata.meta || {};
+            metadata.meta.projectSwap = { swapEntries: [swapEntry] };
+            fs.writeFileSync(
+                path.join(oldProjectDir, "metadata.json"),
+                JSON.stringify(metadata, null, 2)
+            );
+
+            // Read back and verify
+            const readMetadata = JSON.parse(fs.readFileSync(
+                path.join(oldProjectDir, "metadata.json"), "utf-8"
+            ));
+            const readEntry = readMetadata.meta.projectSwap.swapEntries[0];
+
+            assert.strictEqual(readEntry.swapReason, "Critical migration: consolidating repositories",
+                "swapReason must be preserved through write/read");
+        });
+
+        test("SwapPendingDownloads preserves initiator info for resumption", async () => {
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+
+            // Simulate saving pending state with initiator info
+            const pendingState = {
+                swapPendingDownloads: {
+                    swapState: "pending_downloads",
+                    filesNeedingDownload: ["GEN/1_1.mp3"],
+                    newProjectUrl: "https://gitlab.com/org/new-project.git",
+                    swapUUID: "pending-with-initiator",
+                    swapInitiatedAt: Date.now(),
+                    swapInitiatedBy: "original-initiator", // MUST be preserved
+                    swapReason: "Original reason for migration", // MUST be preserved
+                    createdAt: Date.now(),
+                },
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(pendingState, null, 2));
+
+            // Read back - simulating app restart
+            const recovered = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+
+            assert.strictEqual(recovered.swapPendingDownloads.swapInitiatedBy, "original-initiator",
+                "swapInitiatedBy must survive app restart/recovery");
+            assert.strictEqual(recovered.swapPendingDownloads.swapReason, "Original reason for migration",
+                "swapReason must survive app restart/recovery");
+            assert.notStrictEqual(recovered.swapPendingDownloads.swapInitiatedBy, "unknown",
+                "Recovered swapInitiatedBy should NEVER be 'unknown'");
+        });
+
+        test("entry data preserved through normalizeProjectSwapInfo", async () => {
+            const originalEntry = createSwapEntry({
+                swapInitiatedBy: "preserve-me",
+                swapReason: "preserve-this-reason",
+            });
+
+            const normalized = normalizeProjectSwapInfo({
+                swapEntries: [originalEntry],
+            });
+
+            assert.ok(normalized.swapEntries, "swapEntries should exist after normalization");
+            assert.strictEqual(normalized.swapEntries![0].swapInitiatedBy, "preserve-me");
+            assert.strictEqual(normalized.swapEntries![0].swapReason, "preserve-this-reason");
         });
     });
 });

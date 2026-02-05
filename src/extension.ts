@@ -1111,7 +1111,9 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
                 projectUri.fsPath,
                 pendingState.newProjectUrl,
                 pendingState.swapUUID,
-                pendingState.swapInitiatedAt
+                pendingState.swapInitiatedAt,
+                pendingState.swapInitiatedBy,
+                pendingState.swapReason
             );
 
             progress.report({ message: "Opening swapped project..." });
