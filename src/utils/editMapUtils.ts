@@ -29,6 +29,7 @@ type LanguagesEditMap = ["languages"];
 type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
 
 import { EditType } from "../../types/enums";
+import { generateEditId } from "./editHistoryId";
 
 // Utility functions for working with editMaps
 export const EditMapUtils = {
@@ -292,6 +293,7 @@ export function addMetadataEdit(
 
     // Create the new edit entry
     const newEdit = {
+        id: generateEditId(value, currentTimestamp, author),
         editMap,
         value,
         timestamp: currentTimestamp,
@@ -324,6 +326,7 @@ export function addProjectMetadataEdit(
 
     // Create the new edit entry
     const newEdit = {
+        id: generateEditId(value, currentTimestamp, author),
         editMap,
         value,
         timestamp: currentTimestamp,

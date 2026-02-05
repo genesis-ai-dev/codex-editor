@@ -10,6 +10,7 @@ import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
+import { generateEditId } from "../../../utils/editHistoryId";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
 import {
@@ -759,6 +760,18 @@ function migrateEditHistoryInContent(content: string): string {
     }
 }
 
+/**
+ * Ensures all edits in an array have IDs. Adds deterministic IDs to any edits missing them
+ * (handles pre-migration data during merges).
+ */
+function ensureEditHistoryIds(edits: any[]): void {
+    for (const edit of edits) {
+        if (!edit.id && edit.editMap && edit.timestamp != null && edit.author) {
+            edit.id = generateEditId(edit.value, edit.timestamp, edit.author);
+        }
+    }
+}
+
 function mergeTwoCellsUsingResolverLogic(
     ourCell: CustomNotebookCellData,
     theirCell: CustomNotebookCellData
@@ -773,6 +786,9 @@ function mergeTwoCellsUsingResolverLogic(
         ...(ourCell.metadata?.edits || []),
         ...(theirCell.metadata?.edits || [])
     ].sort((a, b) => a.timestamp - b.timestamp);
+
+    // Ensure all edits have IDs before dedup (handles pre-migration data)
+    ensureEditHistoryIds(allEdits);
 
     // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
     const editMap = new Map<string, any>();
@@ -799,6 +815,15 @@ function mergeTwoCellsUsingResolverLogic(
         };
     }
     mergedCell.metadata.edits = uniqueEdits;
+
+    // Set activeEditId on merged cell: find the latest value edit matching the winning cell value
+    const latestValueEdit = uniqueEdits
+        .slice()
+        .reverse()
+        .find((e: any) => EditMapUtils.isValue(e.editMap) && e.value === mergedCell.value);
+    if (latestValueEdit?.id) {
+        mergedCell.metadata.activeEditId = latestValueEdit.id;
+    }
 
     // Merge attachments intelligently
     const mergedAttachments = mergeAttachments(
@@ -921,11 +946,13 @@ export async function resolveCodexCustomMerge(
     const mergedMetadata = resolveMetadataConflictsUsingEditHistoryForFile(ourMetadata, theirMetadata);
 
     // Combine all metadata edits from both branches and deduplicate
-    // Similar to cell-level edits deduplication, remove duplicates based on timestamp, editMap and value
     const allMetadataEdits = [
         ...(ourMetadata.edits || []),
         ...(theirMetadata.edits || [])
     ];
+
+    // Ensure IDs exist on all edits before dedup (handles pre-migration data)
+    ensureEditHistoryIds(allMetadataEdits);
 
     // Deduplicate edits using the same logic as cell-level edits
     mergedMetadata.edits = deduplicateFileMetadataEdits(allMetadataEdits);
@@ -1674,6 +1701,9 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
 
                 debugLog(`Applied most recent edit for ${pathKey}: ${JSON.stringify(mostRecentEdit.value)}`);
             }
+
+            // Ensure IDs exist on all edits before dedup
+            ensureEditHistoryIds(allEdits);
 
             // Combine edits arrays and deduplicate
             resolvedMetadata.edits = deduplicateFileMetadataEdits(allEdits);

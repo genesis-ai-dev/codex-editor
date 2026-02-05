@@ -2157,6 +2157,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             initialValue={editorContent}
                             spellCheckResponse={spellCheckResponse}
                             editHistory={editHistory}
+                            activeEditId={cell?.activeEditId}
                             onChange={({ html }) => {
                                 // Clean spell check markup before processing
                                 const cleanedHtml = getCleanedHtml(html);

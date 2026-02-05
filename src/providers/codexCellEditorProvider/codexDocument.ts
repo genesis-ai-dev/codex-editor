@@ -17,6 +17,7 @@ import {
     CustomCellMetaData,
 } from "../../../types";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
+import { generateEditId } from "../../utils/editHistoryId";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
@@ -328,6 +329,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const currentTimestamp = Date.now();
 
             const previewEdit = {
+                id: generateEditId(newContent, currentTimestamp, this._author),
                 editMap: EditMapUtils.value(),
                 value: newContent,
                 timestamp: currentTimestamp,
@@ -364,14 +366,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // If editing a source file's value for the first time, ensure an INITIAL_IMPORT exists
         if (cellToUpdate.metadata.edits.length === 0 && !!previousValue) {
 
-            cellToUpdate.metadata.edits.push({
+            const initialImportTimestamp = currentTimestamp - 1000;
+            const initialImportEdit = {
+                id: generateEditId(previousValue, initialImportTimestamp, this._author),
                 editMap: EditMapUtils.value(),
                 value: previousValue,
-                timestamp: currentTimestamp - 1000,
+                timestamp: initialImportTimestamp,
                 type: EditType.INITIAL_IMPORT,
                 author: this._author,
                 validatedBy: [],
-            });
+            };
+            cellToUpdate.metadata.edits.push(initialImportEdit);
         }
 
         // Update cell content and metadata in memory
@@ -385,18 +390,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (editType === EditType.USER_EDIT) {
             if (retainValidations) {
                 // Retain validations from only the current user if they exist (for search/replace operations)
-                // Find the edit corresponding to the previous value (same pattern as validateCellContent)
+                // Find the edit corresponding to the previous value: prefer activeEditId, fall back to value scan
                 const previousEdits = cellToUpdate.metadata.edits || [];
                 let targetEdit: any = null;
-                for (let i = previousEdits.length - 1; i >= 0; i--) {
-                    const e = previousEdits[i];
-                    // Identify value edits using EditMapUtils and also match the exact value
-                    const isValueEdit = EditMapUtils.isValue
-                        ? EditMapUtils.isValue(e.editMap)
-                        : EditMapUtils.equals(e.editMap, EditMapUtils.value());
-                    if (isValueEdit && e.value === previousValue) {
-                        targetEdit = e;
-                        break;
+                const prevActiveId = cellToUpdate.metadata.activeEditId;
+                if (prevActiveId) {
+                    targetEdit = previousEdits.find((e) => e.id === prevActiveId) ?? null;
+                }
+                if (!targetEdit) {
+                    for (let i = previousEdits.length - 1; i >= 0; i--) {
+                        const e = previousEdits[i];
+                        const isValueEdit = EditMapUtils.isValue
+                            ? EditMapUtils.isValue(e.editMap)
+                            : EditMapUtils.equals(e.editMap, EditMapUtils.value());
+                        if (isValueEdit && e.value === previousValue) {
+                            targetEdit = e;
+                            break;
+                        }
                     }
                 }
 
@@ -439,7 +449,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
         }
 
+        const valueEditId = generateEditId(newContent, currentTimestamp, this._author);
         cellToUpdate.metadata.edits.push({
+            id: valueEditId,
             editMap: EditMapUtils.value(),
             value: newContent, // TypeScript infers: string
             timestamp: currentTimestamp,
@@ -447,8 +459,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             author: this._author,
             validatedBy,
         });
+        cellToUpdate.metadata.activeEditId = valueEditId;
 
-        // Record the edit 
+        // Record the edit
         // not being used ???
         this._edits.push({
             type: "updateCellContent",
@@ -809,6 +822,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             );
             if (!hasInitialStart && previousStartTime !== undefined) {
                 cellToUpdate.metadata.edits.push({
+                    id: generateEditId(previousStartTime, currentTimestamp - 1000, this._author),
                     editMap: EditMapUtils.dataStartTime(),
                     value: previousStartTime,
                     timestamp: currentTimestamp - 1000,
@@ -819,6 +833,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
             const startTimeEditMap = EditMapUtils.dataStartTime();
             cellToUpdate.metadata.edits.push({
+                id: generateEditId(timestamps.startTime, currentTimestamp, this._author),
                 editMap: startTimeEditMap,
                 value: timestamps.startTime,
                 timestamp: currentTimestamp,
@@ -843,6 +858,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             );
             if (!hasInitialEnd && previousEndTime !== undefined) {
                 cellToUpdate.metadata.edits.push({
+                    id: generateEditId(previousEndTime, currentTimestamp - 1000, this._author),
                     editMap: EditMapUtils.dataEndTime(),
                     value: previousEndTime,
                     timestamp: currentTimestamp - 1000,
@@ -853,6 +869,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
             const endTimeEditMap = EditMapUtils.dataEndTime();
             cellToUpdate.metadata.edits.push({
+                id: generateEditId(timestamps.endTime, currentTimestamp, this._author),
                 editMap: endTimeEditMap,
                 value: timestamps.endTime,
                 timestamp: currentTimestamp,
@@ -936,6 +953,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         const currentTimestamp = Date.now();
         cellToSoftDelete.metadata.edits.push({
+            id: generateEditId(true, currentTimestamp, this._author),
             editMap: EditMapUtils.dataDeleted(),
             value: true,
             timestamp: currentTimestamp,
@@ -1104,6 +1122,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             // Add edit history entry with new structure
             this._documentData.metadata.edits.push({
+                id: generateEditId(newValue, currentTimestamp, this._author),
                 editMap,
                 value: newValue,
                 timestamp: currentTimestamp,
@@ -2065,6 +2084,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         const currentTimestamp = Date.now();
         cellToUpdate.metadata.edits.push({
+            id: generateEditId(newLabel, currentTimestamp, this._author),
             editMap: EditMapUtils.cellLabel(),
             value: newLabel, // TypeScript infers: string
             timestamp: currentTimestamp,
@@ -2144,6 +2164,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         const currentTimestamp = Date.now();
         cellToUpdate.metadata.edits.push({
+            id: generateEditId(isLocked, currentTimestamp, this._author),
             editMap: lockEditMap,
             value: isLocked, // TypeScript infers: boolean
             timestamp: currentTimestamp,
@@ -2200,8 +2221,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             console.warn("No edits found for cell to validate");
             // repair the edit history by adding an llm generation with author unknown, and then a user edit with validation
             const currentTimestamp = Date.now();
+            const repairEditId = generateEditId(cellToUpdate.value, currentTimestamp, this._author);
             cellToUpdate.metadata.edits = [
                 {
+                    id: generateEditId(cellToUpdate.value, currentTimestamp, "unknown"),
                     editMap: EditMapUtils.value(),
                     value: cellToUpdate.value,
                     timestamp: currentTimestamp,
@@ -2210,6 +2233,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     validatedBy: [],
                 },
                 {
+                    id: repairEditId,
                     editMap: EditMapUtils.value(),
                     value: cellToUpdate.value,
                     timestamp: currentTimestamp,
@@ -2218,28 +2242,38 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     validatedBy: [],
                 },
             ];
+            cellToUpdate.metadata.activeEditId = repairEditId;
         }
 
-        // Find the correct edit corresponding to the CURRENT VALUE of the cell
-        // We must NOT validate metadata-only edits (e.g., label/timestamp). Validate the value edit
-        // whose value matches the current cell value.
+        // Find the correct edit corresponding to the CURRENT VALUE of the cell.
+        // Prefer activeEditId lookup, fall back to value-matching for backward compat.
         let targetEditIndex = -1;
-        for (let i = cellToUpdate.metadata.edits.length - 1; i >= 0; i--) {
-            const e = cellToUpdate.metadata.edits[i];
-            // Identify value edits using EditMapUtils and also match the exact value
-            const isValueEdit = EditMapUtils.isValue
-                ? EditMapUtils.isValue(e.editMap)
-                : EditMapUtils.equals(e.editMap, EditMapUtils.value());
-            if (isValueEdit && e.value === cellToUpdate.value) {
-                targetEditIndex = i;
-                break;
+        const activeId = cellToUpdate.metadata.activeEditId;
+        if (activeId) {
+            targetEditIndex = cellToUpdate.metadata.edits.findIndex(
+                (e) => e.id === activeId
+            );
+        }
+        if (targetEditIndex === -1) {
+            // Fallback: scan for value edit matching cell value
+            for (let i = cellToUpdate.metadata.edits.length - 1; i >= 0; i--) {
+                const e = cellToUpdate.metadata.edits[i];
+                const isValueEdit = EditMapUtils.isValue
+                    ? EditMapUtils.isValue(e.editMap)
+                    : EditMapUtils.equals(e.editMap, EditMapUtils.value());
+                if (isValueEdit && e.value === cellToUpdate.value) {
+                    targetEditIndex = i;
+                    break;
+                }
             }
         }
 
         // If we didn't find a value edit that matches current value, create one so validation history is consistent
         if (targetEditIndex === -1) {
             const currentTimestamp = Date.now();
+            const fallbackEditId = generateEditId(cellToUpdate.value, currentTimestamp, this._author);
             cellToUpdate.metadata.edits.push({
+                id: fallbackEditId,
                 editMap: EditMapUtils.value(),
                 value: cellToUpdate.value,
                 timestamp: currentTimestamp,
@@ -2248,6 +2282,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 validatedBy: [],
             } as any);
             targetEditIndex = cellToUpdate.metadata.edits.length - 1;
+            cellToUpdate.metadata.activeEditId = fallbackEditId;
         }
 
         const latestEdit = cellToUpdate.metadata.edits[targetEditIndex];
