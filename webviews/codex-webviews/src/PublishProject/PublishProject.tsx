@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { Button } from "../components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "../lib/utils";
 
 const vscode = acquireVsCodeApi();
 
@@ -10,36 +13,69 @@ export interface GroupList {
     path: string;
 }
 
+interface PersistedState {
+    groups: GroupList[];
+    selectedGroupId: number | undefined;
+    name: string;
+    description: string;
+    projectId: string | undefined;
+}
+
+// Get persisted state from VS Code webview API
+const getPersistedState = (): PersistedState | undefined => {
+    try {
+        return vscode.getState() as PersistedState | undefined;
+    } catch {
+        return undefined;
+    }
+};
+
+const persistedState = getPersistedState();
+
 export default function PublishProject() {
-    const [name, setName] = useState("");
-    const [description, setDescription] = useState("");
-    const [groups, setGroups] = useState<GroupList[]>([]);
-    const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
+    const [name, setName] = useState(persistedState?.name ?? "");
+    const [description, setDescription] = useState(persistedState?.description ?? "");
+    const [groups, setGroups] = useState<GroupList[]>(persistedState?.groups ?? []);
+    const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(persistedState?.selectedGroupId);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
-    const [projectId, setProjectId] = useState<string | undefined>(undefined);
-    const [groupFilter, setGroupFilter] = useState("");
-    const [loadingGroups, setLoadingGroups] = useState(true);
+    const [projectId, setProjectId] = useState<string | undefined>(persistedState?.projectId);
+    // Only show loading if we don't have persisted groups
+    const [loadingGroups, setLoadingGroups] = useState(!persistedState?.groups?.length);
+    const [groupSearch, setGroupSearch] = useState("");
+    const [comboboxOpen, setComboboxOpen] = useState(false);
 
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
     
-    // Filter groups based on search input
+    // Filter groups based on search
     const filteredGroups = useMemo(() => {
-        if (!groupFilter.trim()) return groups;
-        const lowerFilter = groupFilter.toLowerCase();
+        if (!groupSearch.trim()) return groups;
+        const lowerSearch = groupSearch.toLowerCase();
         return groups.filter(
             (g) =>
-                g.name.toLowerCase().includes(lowerFilter) ||
-                g.path.toLowerCase().includes(lowerFilter)
+                g.name.toLowerCase().includes(lowerSearch) ||
+                g.path.toLowerCase().includes(lowerSearch)
         );
-    }, [groups, groupFilter]);
-
+    }, [groups, groupSearch]);
+    
     // Get the selected group for display
     const selectedGroup = useMemo(
         () => groups.find((g) => g.id === selectedGroupId),
         [groups, selectedGroupId]
     );
+
     const canCreate = isValidName && !busy;
+    
+    // Persist state whenever important values change
+    useEffect(() => {
+        vscode.setState({
+            groups,
+            selectedGroupId,
+            name,
+            description,
+            projectId,
+        } as PersistedState);
+    }, [groups, selectedGroupId, name, description, projectId]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -61,7 +97,7 @@ export default function PublishProject() {
                 const list: GroupList[] = Array.isArray(m.groups) ? m.groups : [];
                 setGroups(list);
                 setLoadingGroups(false);
-                // Auto-select first group when available
+                // Auto-select first group when available and none selected
                 if (list.length > 0 && selectedGroupId === undefined) {
                     setSelectedGroupId(list[0].id);
                 }
@@ -70,8 +106,12 @@ export default function PublishProject() {
 
         window.addEventListener("message", handleMessage);
         vscode.postMessage({ command: "init" });
-        // Immediately fetch groups when webview opens
-        vscode.postMessage({ command: "fetchGroups" });
+        
+        // Only fetch groups if we don't have persisted groups
+        if (!persistedState?.groups?.length) {
+            vscode.postMessage({ command: "fetchGroups" });
+        }
+        
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
@@ -161,7 +201,7 @@ export default function PublishProject() {
                         <div className="flex items-center justify-between">
                             <label
                                 className="text-sm text-[var(--vscode-descriptionForeground)]"
-                                htmlFor="groupFilter"
+                                htmlFor="group"
                             >
                                 Group
                             </label>
@@ -173,46 +213,75 @@ export default function PublishProject() {
                                 {loadingGroups ? "Loading..." : "Refresh"}
                             </Button>
                         </div>
-                        <input
-                            id="groupFilter"
-                            type="text"
-                            value={groupFilter}
-                            onChange={(e) => setGroupFilter(e.target.value)}
-                            placeholder="Search groups..."
-                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
-                        />
-                        {selectedGroup && (
-                            <div className="text-xs text-[var(--vscode-descriptionForeground)]">
-                                Selected: <span className="font-medium">{selectedGroup.name}</span>
-                            </div>
-                        )}
-                        <div className="border border-[var(--vscode-input-border)] rounded-md max-h-40 overflow-y-auto bg-[var(--vscode-input-background)]">
-                            {loadingGroups ? (
-                                <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
-                                    Loading groups...
+                        <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+                            <PopoverTrigger asChild>
+                                <button
+                                    type="button"
+                                    role="combobox"
+                                    aria-expanded={comboboxOpen}
+                                    disabled={loadingGroups || groups.length === 0}
+                                    className="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    <span className={cn(!selectedGroup && "text-[var(--vscode-descriptionForeground)]")}>
+                                        {loadingGroups 
+                                            ? "Loading groups..." 
+                                            : groups.length === 0 
+                                                ? "No groups available" 
+                                                : selectedGroup 
+                                                    ? selectedGroup.name 
+                                                    : "Select a group..."}
+                                    </span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent 
+                                className="w-[var(--radix-popover-trigger-width)] p-0 border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)]"
+                                align="start"
+                            >
+                                <div className="p-2 border-b border-[var(--vscode-input-border)]">
+                                    <input
+                                        type="text"
+                                        placeholder="Search groups..."
+                                        value={groupSearch}
+                                        onChange={(e) => setGroupSearch(e.target.value)}
+                                        className="w-full px-2 py-1 text-sm outline-none border border-[var(--vscode-input-border)] rounded bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+                                        autoFocus
+                                    />
                                 </div>
-                            ) : filteredGroups.length === 0 ? (
-                                <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
-                                    {groups.length === 0
-                                        ? "No groups available"
-                                        : "No groups match your search"}
+                                <div className="max-h-60 overflow-y-auto">
+                                    {filteredGroups.length === 0 ? (
+                                        <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
+                                            No groups found
+                                        </div>
+                                    ) : (
+                                        filteredGroups.map((g) => (
+                                            <div
+                                                key={g.id}
+                                                onClick={() => {
+                                                    setSelectedGroupId(g.id);
+                                                    setComboboxOpen(false);
+                                                    setGroupSearch("");
+                                                }}
+                                                className={cn(
+                                                    "flex items-center px-3 py-1.5 text-sm cursor-pointer transition-colors",
+                                                    selectedGroupId === g.id
+                                                        ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
+                                                        : "hover:bg-[var(--vscode-list-hoverBackground)]"
+                                                )}
+                                            >
+                                                <Check
+                                                    className={cn(
+                                                        "mr-2 h-4 w-4",
+                                                        selectedGroupId === g.id ? "opacity-100" : "opacity-0"
+                                                    )}
+                                                />
+                                                {g.name}
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
-                            ) : (
-                                filteredGroups.map((g) => (
-                                    <div
-                                        key={g.id}
-                                        onClick={() => setSelectedGroupId(g.id)}
-                                        className={`px-3 py-1.5 text-sm cursor-pointer transition-colors ${
-                                            selectedGroupId === g.id
-                                                ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
-                                                : "hover:bg-[var(--vscode-list-hoverBackground)]"
-                                        }`}
-                                    >
-                                        {g.name}
-                                    </div>
-                                ))
-                            )}
-                        </div>
+                            </PopoverContent>
+                        </Popover>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
