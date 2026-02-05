@@ -715,3 +715,88 @@ export function extractProjectNameFromUrl(gitUrl: string): string {
         return "unknown-project";
     }
 }
+
+/**
+ * Information about a deprecated (old) project that should be hidden.
+ */
+export interface DeprecatedProjectInfo {
+    url: string;
+    name: string;
+    /** The swap entry that deprecated this project */
+    deprecatedBySwapUUID: string;
+    /** When the swap was initiated that deprecated this project */
+    deprecatedAt: number;
+}
+
+/**
+ * Extract all deprecated (old) project URLs from the swap history chain.
+ * 
+ * This function analyzes the swap history to identify all projects that have been
+ * superseded by newer projects in the chain. These projects should be hidden
+ * from the project list since users should use the newer project instead.
+ * 
+ * Example chain: A → B → C
+ * - Entry 1 (isOldProject: false): B → C swap (from C's perspective)
+ * - Entry 2 (isOldProject: true): A → B swap (from B's perspective, now old)
+ * - Entry 3 (origin marker): A is origin
+ * 
+ * From this, we extract: A (from entries 2 & 3) and B (from entry 1) as deprecated.
+ * 
+ * @param swapInfo - ProjectSwapInfo containing the swap history
+ * @returns Array of deprecated project info (URLs and names to hide)
+ */
+export function getDeprecatedProjectsFromHistory(swapInfo: ProjectSwapInfo | undefined): DeprecatedProjectInfo[] {
+    if (!swapInfo?.swapEntries?.length) {
+        return [];
+    }
+
+    const deprecatedMap = new Map<string, DeprecatedProjectInfo>();
+
+    for (const entry of swapInfo.swapEntries) {
+        // Skip entries without old project URL (shouldn't happen, but be safe)
+        if (!entry.oldProjectUrl) {
+            continue;
+        }
+
+        // Every entry's oldProjectUrl represents a deprecated project
+        // (regardless of isOldProject flag - the oldProjectUrl is always the "from" project)
+        const normalizedUrl = entry.oldProjectUrl.toLowerCase();
+        
+        // Only add if not already present, or if this entry is newer
+        const existing = deprecatedMap.get(normalizedUrl);
+        if (!existing || entry.swapInitiatedAt > existing.deprecatedAt) {
+            deprecatedMap.set(normalizedUrl, {
+                url: entry.oldProjectUrl,
+                name: entry.oldProjectName,
+                deprecatedBySwapUUID: entry.swapUUID,
+                deprecatedAt: entry.swapInitiatedAt,
+            });
+        }
+    }
+
+    return Array.from(deprecatedMap.values());
+}
+
+/**
+ * Check if a project URL is deprecated (should be hidden) based on swap history.
+ * 
+ * @param projectUrl - The project URL to check
+ * @param swapInfo - ProjectSwapInfo containing the swap history
+ * @returns True if the project is deprecated and should be hidden
+ */
+export function isProjectDeprecated(projectUrl: string, swapInfo: ProjectSwapInfo | undefined): boolean {
+    const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+    const normalizedUrl = projectUrl.toLowerCase();
+    return deprecated.some(d => d.url.toLowerCase() === normalizedUrl);
+}
+
+/**
+ * Get the set of deprecated project URLs for efficient lookup.
+ * 
+ * @param swapInfo - ProjectSwapInfo containing the swap history
+ * @returns Set of lowercase project URLs that are deprecated
+ */
+export function getDeprecatedProjectUrls(swapInfo: ProjectSwapInfo | undefined): Set<string> {
+    const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+    return new Set(deprecated.map(d => d.url.toLowerCase()));
+}

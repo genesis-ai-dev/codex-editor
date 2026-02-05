@@ -18,6 +18,9 @@ import {
     sanitizeGitUrl,
     getGitOriginUrl,
     mergeSwappedUsers,
+    getDeprecatedProjectsFromHistory,
+    isProjectDeprecated,
+    getDeprecatedProjectUrls,
 } from "../../utils/projectSwapManager";
 import {
     checkSwapPrerequisites,
@@ -1204,6 +1207,170 @@ suite("Project Swap Tests", () => {
             // When initiating a new swap, we should NOT add origin marker
             const shouldAddOriginMarker = existingEntries.length === 0;
             assert.strictEqual(shouldAddOriginMarker, false, "Should not add origin marker when history exists");
+        });
+    });
+
+    // ========================================================================
+    // DEPRECATED PROJECTS FROM HISTORY
+    // ========================================================================
+    suite("Deprecated Projects From History", () => {
+        test("extracts deprecated projects from chain swap history", () => {
+            // Chain: swaptest1 → swaptest2 → swaptest3 (current)
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    // Entry 1: swaptest2 → swaptest3 (from swaptest3's perspective)
+                    createSwapEntry({
+                        swapUUID: "swap-2-to-3",
+                        swapStatus: "active",
+                        isOldProject: false, // This is the NEW project (swaptest3)
+                        oldProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        oldProjectName: "swaptest2",
+                        newProjectUrl: "https://gitlab.com/org/swaptest3.git",
+                        newProjectName: "swaptest3",
+                        swapInitiatedAt: 3000,
+                    }),
+                    // Entry 2: swaptest1 → swaptest2 (from swaptest2's perspective, now old)
+                    createSwapEntry({
+                        swapUUID: "swap-1-to-2",
+                        swapStatus: "cancelled",
+                        isOldProject: true, // This is an OLD project entry
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                        oldProjectName: "swaptest1",
+                        newProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        newProjectName: "swaptest2",
+                        swapInitiatedAt: 2000,
+                    }),
+                    // Entry 3: origin marker for swaptest1
+                    createSwapEntry({
+                        swapUUID: "origin-swaptest1",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                        oldProjectName: "swaptest1",
+                        newProjectUrl: "",
+                        newProjectName: "",
+                        swapInitiatedAt: 1000,
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            // Should find swaptest1 and swaptest2 as deprecated
+            assert.strictEqual(deprecated.length, 2, "Should find 2 deprecated projects");
+
+            const deprecatedUrls = deprecated.map(d => d.url);
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/swaptest1.git"), "swaptest1 should be deprecated");
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/swaptest2.git"), "swaptest2 should be deprecated");
+        });
+
+        test("returns empty array for no swap history", () => {
+            const deprecated = getDeprecatedProjectsFromHistory(undefined);
+            assert.strictEqual(deprecated.length, 0);
+
+            const deprecated2 = getDeprecatedProjectsFromHistory({ swapEntries: [] });
+            assert.strictEqual(deprecated2.length, 0);
+        });
+
+        test("isProjectDeprecated returns true for old projects", () => {
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "swap-a-to-b",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                        oldProjectName: "project-a",
+                        newProjectUrl: "https://gitlab.com/org/project-b.git",
+                        newProjectName: "project-b",
+                    }),
+                ],
+            };
+
+            assert.strictEqual(
+                isProjectDeprecated("https://gitlab.com/org/project-a.git", swapInfo),
+                true,
+                "project-a should be deprecated"
+            );
+            assert.strictEqual(
+                isProjectDeprecated("https://gitlab.com/org/project-b.git", swapInfo),
+                false,
+                "project-b (current) should NOT be deprecated"
+            );
+        });
+
+        test("isProjectDeprecated is case-insensitive", () => {
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "swap-1",
+                        oldProjectUrl: "https://GitLab.com/Org/Project-A.git",
+                        oldProjectName: "Project-A",
+                        newProjectUrl: "https://gitlab.com/org/project-b.git",
+                        newProjectName: "project-b",
+                    }),
+                ],
+            };
+
+            // Should match regardless of case
+            assert.strictEqual(
+                isProjectDeprecated("https://gitlab.com/org/project-a.git", swapInfo),
+                true
+            );
+            assert.strictEqual(
+                isProjectDeprecated("https://GITLAB.COM/ORG/PROJECT-A.GIT", swapInfo),
+                true
+            );
+        });
+
+        test("getDeprecatedProjectUrls returns set for efficient lookup", () => {
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "swap-1",
+                        oldProjectUrl: "https://gitlab.com/org/old-1.git",
+                        oldProjectName: "old-1",
+                    }),
+                    createSwapEntry({
+                        swapUUID: "swap-2",
+                        oldProjectUrl: "https://gitlab.com/org/old-2.git",
+                        oldProjectName: "old-2",
+                    }),
+                ],
+            };
+
+            const urlSet = getDeprecatedProjectUrls(swapInfo);
+
+            assert.ok(urlSet instanceof Set, "Should return a Set");
+            assert.strictEqual(urlSet.size, 2);
+            assert.ok(urlSet.has("https://gitlab.com/org/old-1.git"));
+            assert.ok(urlSet.has("https://gitlab.com/org/old-2.git"));
+        });
+
+        test("handles duplicate URLs in history (keeps most recent)", () => {
+            // Same project appears in multiple entries
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "swap-newer",
+                        swapInitiatedAt: 2000,
+                        oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                        oldProjectName: "project-a-renamed",
+                    }),
+                    createSwapEntry({
+                        swapUUID: "swap-older",
+                        swapInitiatedAt: 1000,
+                        oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                        oldProjectName: "project-a-original",
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            // Should only have one entry for project-a (the newer one)
+            assert.strictEqual(deprecated.length, 1);
+            assert.strictEqual(deprecated[0].name, "project-a-renamed", "Should keep the more recent name");
+            assert.strictEqual(deprecated[0].deprecatedAt, 2000, "Should keep the more recent timestamp");
         });
     });
 

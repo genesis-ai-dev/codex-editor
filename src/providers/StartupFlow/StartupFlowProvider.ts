@@ -5145,6 +5145,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const oldProjectUrlsToHide = new Set<string>();
             const newProjectUrlsToHide = new Set<string>();
 
+            // Import the function to get ALL deprecated projects from chain history
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo, getActiveSwapEntry } = 
+                await import("../../utils/projectSwapManager");
+
             for (const project of projectList) {
                 // Skip remote-only projects for building hide lists
                 // (we only look at local projects to determine what to hide)
@@ -5152,15 +5156,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     continue;
                 }
 
-                // Skip if no swap info or swap is not active
-                if (!project.projectSwap || project.projectSwap.swapStatus !== "active") {
+                // Skip if no swap info
+                if (!project.projectSwap) {
+                    continue;
+                }
+
+                const swapInfo = normalizeProjectSwapInfo(project.projectSwap);
+                const activeEntry = getActiveSwapEntry(swapInfo);
+
+                // Skip if no active swap
+                if (!activeEntry) {
                     continue;
                 }
 
                 // RULE 1: LOCAL OLD project with ACTIVE swap → hide NEW remote
                 // isOldProject must be explicitly true (not undefined or false)
-                if (project.projectSwap.isOldProject === true && project.projectSwap.newProjectUrl) {
-                    const newProjectNormalized = normalizeUrl(project.projectSwap.newProjectUrl);
+                if (activeEntry.isOldProject === true && activeEntry.newProjectUrl) {
+                    const newProjectNormalized = normalizeUrl(activeEntry.newProjectUrl);
                     if (newProjectNormalized) {
                         newProjectUrlsToHide.add(newProjectNormalized);
                         debugLog(`Swap filter: hiding NEW remote ${newProjectNormalized} (OLD local ${project.name} has active swap)`);
@@ -5168,7 +5180,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     // Also check: if NEW project is already local, hide OLD remote too
                     if (localDownloadedUrls.has(newProjectNormalized)) {
-                        const oldProjectNormalized = normalizeUrl(project.projectSwap.oldProjectUrl);
+                        const oldProjectNormalized = normalizeUrl(activeEntry.oldProjectUrl);
                         if (oldProjectNormalized) {
                             oldProjectUrlsToHide.add(oldProjectNormalized);
                             debugLog(`Swap filter: hiding OLD remote ${oldProjectNormalized} (NEW is already local)`);
@@ -5176,13 +5188,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
                 }
 
-                // RULE 2: LOCAL NEW project with ACTIVE swap → hide OLD remote
+                // RULE 2: LOCAL NEW project with ACTIVE swap → hide ALL OLD remotes in chain
                 // isOldProject must be explicitly false (not undefined or true)
-                if (project.projectSwap.isOldProject === false && project.projectSwap.oldProjectUrl) {
-                    const oldProjectNormalized = normalizeUrl(project.projectSwap.oldProjectUrl);
-                    if (oldProjectNormalized) {
-                        oldProjectUrlsToHide.add(oldProjectNormalized);
-                        debugLog(`Swap filter: hiding OLD remote ${oldProjectNormalized} (NEW local ${project.name} has active swap)`);
+                // Use getDeprecatedProjectsFromHistory to get the ENTIRE chain, not just immediate old
+                if (activeEntry.isOldProject === false) {
+                    // Get ALL deprecated projects from the chain history
+                    const deprecatedProjects = getDeprecatedProjectsFromHistory(swapInfo);
+                    for (const dep of deprecatedProjects) {
+                        if (dep.url) {
+                            const oldProjectNormalized = normalizeUrl(dep.url);
+                            if (oldProjectNormalized) {
+                                oldProjectUrlsToHide.add(oldProjectNormalized);
+                                debugLog(`Swap filter: hiding OLD remote ${dep.name} (${oldProjectNormalized}) from chain history`);
+                            }
+                        }
                     }
                 }
             }

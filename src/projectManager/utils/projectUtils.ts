@@ -1268,13 +1268,85 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
  * Filter out old projects and handle swap status
  * 
  * Rules:
- * - Cancelled swap: Project appears normal (not deprecated) - clear projectSwap field
- * - Active swap: Show project with swap info intact (swap banner will show)
+ * - Project URL found in deprecated set (from a current project's history): HIDE
+ * - Active swap on OLD project: SHOW with swap banner (user needs to swap)
+ * - Active swap on NEW project: SHOW normally
+ * - Cancelled swap: SHOW as normal project (clear projectSwap so no banner)
  */
 async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalProject[]> {
-    const filtered: LocalProject[] = [];
-    const { getActiveSwapEntry, normalizeProjectSwapInfo, mergeSwappedUsers } = await import("../../utils/projectSwapManager");
+    const { 
+        getActiveSwapEntry, 
+        normalizeProjectSwapInfo, 
+        mergeSwappedUsers,
+        getDeprecatedProjectsFromHistory 
+    } = await import("../../utils/projectSwapManager");
     const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+
+    // Helper to merge swap entries from multiple sources
+    const mergeSwapEntries = (
+        metadataSwapInfo: ProjectSwapInfo | undefined,
+        localSwapFileInfo: ProjectSwapInfo | undefined
+    ): ProjectSwapInfo | undefined => {
+        const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
+        const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+
+        if (metadataEntries.length === 0 && localSwapEntries.length === 0) {
+            return undefined;
+        }
+
+        const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+        const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+        const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+            const key = getEntryKey(entry);
+            const existing = mergedEntriesMap.get(key);
+            if (!existing) {
+                mergedEntriesMap.set(key, entry);
+            } else {
+                const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
+                const existingUsersModified = existing.swappedUsersModifiedAt ?? 0;
+                const newUsersModified = entry.swappedUsersModifiedAt ?? 0;
+                const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified) || undefined;
+                const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                const baseEntry = newModified > existingModified ? entry : existing;
+
+                const eitherCancelled = existing.swapStatus === "cancelled" || entry.swapStatus === "cancelled";
+                if (eitherCancelled) {
+                    const cancelledEntry = existing.swapStatus === "cancelled" ? existing : entry;
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                        swapStatus: "cancelled",
+                        cancelledBy: cancelledEntry.cancelledBy,
+                        cancelledAt: cancelledEntry.cancelledAt,
+                    });
+                } else {
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                    });
+                }
+            }
+        };
+
+        for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
+        for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
+
+        const mergedEntries = Array.from(mergedEntriesMap.values());
+        return mergedEntries.length > 0 ? { swapEntries: mergedEntries } : undefined;
+    };
+
+    // Process all projects: collect data and deprecated URLs/names in one pass
+    const deprecatedUrls = new Set<string>();
+    const deprecatedNames = new Set<string>(); // Also track by name for remote-only projects
+    const processedProjects: Array<{
+        project: LocalProject;
+        swapInfo: ProjectSwapInfo | undefined;
+        gitUrl: string | undefined;
+    }> = [];
 
     for (const project of projects) {
         try {
@@ -1289,7 +1361,7 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
                 // metadata.json might not exist
             }
 
-            // Gather swap info from all sources and MERGE by swapUUID
+            const gitUrl = project.gitOriginUrl?.toLowerCase();
             const metadataSwapInfo = metadata?.meta?.projectSwap;
             let localSwapFileInfo: ProjectSwapInfo | undefined;
 
@@ -1299,115 +1371,66 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
                     localSwapFileInfo = localSwapFile.remoteSwapInfo;
                 }
             } catch {
-                // Non-fatal - localProjectSwap.json might not exist
+                // Non-fatal
             }
 
-            // MERGE entries from all sources
-            // Entry key: swapUUID + swapInitiatedAt (uniquely identifies a swap event)
-            // swapModifiedAt: for entry-level changes (status, cancellation, URLs)
-            // swappedUsersModifiedAt: for user completion changes
-            const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
-            const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+            const mergedSwapInfo = mergeSwapEntries(metadataSwapInfo, localSwapFileInfo);
 
-            const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
-            const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
-
-            const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-                const key = getEntryKey(entry);
-                const existing = mergedEntriesMap.get(key);
-                if (!existing) {
-                    mergedEntriesMap.set(key, entry);
-                } else {
-                    // ALWAYS merge swappedUsers arrays (users matched by userToSwap + createdAt)
-                    const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
-
-                    // Compute new swappedUsersModifiedAt as max of both entries
-                    const existingUsersModified = existing.swappedUsersModifiedAt ?? 0;
-                    const newUsersModified = entry.swappedUsersModifiedAt ?? 0;
-                    const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified) || undefined;
-
-                    // Use swapModifiedAt for entry-level changes (status, cancellation, URLs)
-                    const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
-                    const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
-                    const baseEntry = newModified > existingModified ? entry : existing;
-
-                    // Cancelled status is sticky
-                    const eitherCancelled = existing.swapStatus === "cancelled" || entry.swapStatus === "cancelled";
-                    if (eitherCancelled) {
-                        const cancelledEntry = existing.swapStatus === "cancelled" ? existing : entry;
-                        mergedEntriesMap.set(key, {
-                            ...baseEntry,
-                            swappedUsers: mergedUsers,
-                            swappedUsersModifiedAt: mergedUsersModifiedAt,
-                            swapStatus: "cancelled",
-                            cancelledBy: cancelledEntry.cancelledBy,
-                            cancelledAt: cancelledEntry.cancelledAt,
-                        });
-                    } else {
-                        mergedEntriesMap.set(key, {
-                            ...baseEntry,
-                            swappedUsers: mergedUsers,
-                            swappedUsersModifiedAt: mergedUsersModifiedAt,
-                        });
+            // Collect deprecated URLs AND names from "current" projects (isOldProject=false in active entry)
+            if (mergedSwapInfo) {
+                const normalizedInfo = normalizeProjectSwapInfo(mergedSwapInfo);
+                const activeEntry = getActiveSwapEntry(normalizedInfo);
+                
+                if (activeEntry?.isOldProject === false) {
+                    for (const dep of getDeprecatedProjectsFromHistory(normalizedInfo)) {
+                        if (dep.url) {
+                            deprecatedUrls.add(dep.url.toLowerCase());
+                        }
+                        if (dep.name) {
+                            deprecatedNames.add(dep.name.toLowerCase());
+                        }
                     }
                 }
-            };
-
-            for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
-            for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
-
-            const mergedEntries = Array.from(mergedEntriesMap.values());
-            const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
-                ? { swapEntries: mergedEntries }
-                : (localSwapFileInfo || metadataSwapInfo);
-
-            if (!effectiveSwapInfo) {
-                // No swap info - show project
-                filtered.push(project);
-                continue;
             }
 
-            const swapInfo = normalizeProjectSwapInfo(effectiveSwapInfo);
-            const activeEntry = getActiveSwapEntry(swapInfo);
-
-            // Case 1: Active swap - show project (swap banner will show in UI)
-            if (activeEntry) {
-                filtered.push(project);
-                continue;
-            }
-
-            // Case 2: No active swap entry (all swaps cancelled)
-            // Clear projectSwap so UI doesn't show swap banner - show as normal project
-            const allEntries = swapInfo.swapEntries || [];
-
-            if (allEntries.length > 0) {
-                // Check what role this project had in cancelled swaps
-                const wasOldProject = allEntries.some(e => e.isOldProject === true);
-                const wasNewProject = allEntries.some(e => e.isOldProject === false);
-
-                if (wasOldProject) {
-                    debug(`Showing OLD project as normal (all swaps cancelled): ${project.name}`);
-                }
-                if (wasNewProject) {
-                    debug(`Showing NEW project as normal (all swaps cancelled): ${project.name}`);
-                }
-
-                // Clear projectSwap for both OLD and NEW projects when all swaps are cancelled
-                // This ensures neither shows swap-related UI
-                project.projectSwap = undefined;
-            }
-
-            // Show project
-            filtered.push(project);
-
+            processedProjects.push({ project, swapInfo: mergedSwapInfo, gitUrl });
         } catch (error) {
-            debug(`Error checking swap status for ${project.name}:`, error);
-            // If we can't check, show it to be safe
-            filtered.push(project);
+            debug(`Error processing ${project.name}:`, error);
+            processedProjects.push({ project, swapInfo: undefined, gitUrl: undefined });
         }
     }
 
-    return filtered;
+    // Filter: hide deprecated (by URL or name), handle swap status for the rest
+    return processedProjects
+        .filter(({ project, gitUrl }) => {
+            // Check by URL first (most reliable)
+            if (gitUrl && deprecatedUrls.has(gitUrl)) {
+                debug(`HIDING deprecated project (by URL): ${project.name}`);
+                return false;
+            }
+            // Also check by name (for remote-only projects without gitOriginUrl)
+            if (project.name && deprecatedNames.has(project.name.toLowerCase())) {
+                debug(`HIDING deprecated project (by name): ${project.name}`);
+                return false;
+            }
+            return true;
+        })
+        .map(({ project, swapInfo }) => {
+            if (!swapInfo) return project;
+
+            const normalizedInfo = normalizeProjectSwapInfo(swapInfo);
+            const activeEntry = getActiveSwapEntry(normalizedInfo);
+
+            // Active swap: keep projectSwap for UI banner
+            if (activeEntry) return project;
+
+            // All swaps cancelled: clear projectSwap so no banner shows
+            if (normalizedInfo.swapEntries?.length) {
+                project.projectSwap = undefined;
+            }
+
+            return project;
+        });
 }
 
 /**
