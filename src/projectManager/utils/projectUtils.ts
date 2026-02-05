@@ -1274,11 +1274,11 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
  * - Cancelled swap: SHOW as normal project (clear projectSwap so no banner)
  */
 async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalProject[]> {
-    const { 
-        getActiveSwapEntry, 
-        normalizeProjectSwapInfo, 
+    const {
+        getActiveSwapEntry,
+        normalizeProjectSwapInfo,
         mergeSwappedUsers,
-        getDeprecatedProjectsFromHistory 
+        getDeprecatedProjectsFromHistory
     } = await import("../../utils/projectSwapManager");
     const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 

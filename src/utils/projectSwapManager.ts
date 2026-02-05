@@ -135,6 +135,16 @@ export function getAllSwapEntries(swapInfo: ProjectSwapInfo): ProjectSwapEntry[]
 }
 
 /**
+ * Get the unique key for entry matching.
+ * swapUUID uniquely identifies each swap event (A→B gets uuid-ab, B→C gets uuid-bc).
+ * Both OLD and NEW project perspectives of the same swap share the same UUID,
+ * so they merge together correctly.
+ */
+export function getEntryKey(entry: ProjectSwapEntry): string {
+    return entry.swapUUID;
+}
+
+/**
  * Order fields within a ProjectSwapEntry for consistent, readable JSON output.
  * Groups related fields together:
  * 1. Identifier and status (swapUUID, swapStatus) - most important for scanning

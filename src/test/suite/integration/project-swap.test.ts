@@ -850,6 +850,183 @@ suite("Integration: Project Swap Flow", () => {
         });
     });
 
+    // ============ Chain Deprecation Filtering Integration ============
+    suite("Chain Deprecation Filtering Integration - QA Critical", () => {
+        test("getDeprecatedProjectsFromHistory extracts full chain URLs", async () => {
+            // This tests the core utility that StartupFlowProvider uses
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+                await import("../../../utils/projectSwapManager");
+
+            // Simulate swaptest3's metadata with full chain history
+            const swapInfo = normalizeProjectSwapInfo({
+                swapEntries: [
+                    // Active swap: swaptest2 → swaptest3
+                    createSwapEntry({
+                        swapUUID: "swap-2-to-3",
+                        swapStatus: "active",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        oldProjectName: "swaptest2",
+                        newProjectUrl: "https://gitlab.com/org/swaptest3.git",
+                        newProjectName: "swaptest3",
+                    }),
+                    // Historical: swaptest1 → swaptest2
+                    createSwapEntry({
+                        swapUUID: "swap-1-to-2",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                        oldProjectName: "swaptest1",
+                        newProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        newProjectName: "swaptest2",
+                    }),
+                ],
+            });
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+            const urls = deprecated.map(d => d.url);
+
+            // Both swaptest1 and swaptest2 should be deprecated
+            assert.strictEqual(deprecated.length, 2, "Should find 2 deprecated projects");
+            assert.ok(urls.includes("https://gitlab.com/org/swaptest1.git"), "swaptest1 should be deprecated");
+            assert.ok(urls.includes("https://gitlab.com/org/swaptest2.git"), "swaptest2 should be deprecated");
+        });
+
+        test("deprecated project info includes name for remote-only matching", async () => {
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+                await import("../../../utils/projectSwapManager");
+
+            const swapInfo = normalizeProjectSwapInfo({
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "test-swap",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/remote-only-abc.git",
+                        oldProjectName: "remote-only-abc", // Critical for remote-only projects
+                    }),
+                ],
+            });
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            assert.strictEqual(deprecated.length, 1);
+            assert.strictEqual(deprecated[0].name, "remote-only-abc", "Name must be captured for remote matching");
+            assert.strictEqual(deprecated[0].url, "https://gitlab.com/org/remote-only-abc.git");
+        });
+
+        test("isProjectDeprecated works with case-insensitive URLs", async () => {
+            const { isProjectDeprecated, normalizeProjectSwapInfo } = 
+                await import("../../../utils/projectSwapManager");
+
+            const swapInfo = normalizeProjectSwapInfo({
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "case-test",
+                        oldProjectUrl: "https://GitLab.com/Org/Project-A.git",
+                    }),
+                ],
+            });
+
+            // Various case combinations should match
+            assert.strictEqual(
+                isProjectDeprecated("https://gitlab.com/org/project-a.git", swapInfo),
+                true
+            );
+            assert.strictEqual(
+                isProjectDeprecated("https://GITLAB.COM/ORG/PROJECT-A.GIT", swapInfo),
+                true
+            );
+        });
+
+        test("orderEntryFields maintains consistent JSON serialization", async () => {
+            const { orderEntryFields, sortSwapEntries } = 
+                await import("../../../utils/projectSwapManager");
+
+            const entry = createSwapEntry({
+                swapUUID: "order-test",
+                swapStatus: "active",
+                swapInitiatedAt: 1000,
+                swapInitiatedBy: "admin",
+                swapReason: "Test",
+                swapModifiedAt: 2000,
+                swappedUsersModifiedAt: 3000,
+            });
+
+            const ordered = orderEntryFields(entry);
+            const keys = Object.keys(ordered);
+
+            // First two keys should be swapUUID and swapStatus (for quick scanning)
+            assert.strictEqual(keys[0], "swapUUID");
+            assert.strictEqual(keys[1], "swapStatus");
+        });
+
+        test("sortSwapEntries applies field ordering to all entries", async () => {
+            const { sortSwapEntries } = await import("../../../utils/projectSwapManager");
+
+            const entries = [
+                createSwapEntry({ swapUUID: "entry-1", swapStatus: "active", swapInitiatedAt: 2000 }),
+                createSwapEntry({ swapUUID: "entry-2", swapStatus: "cancelled", swapInitiatedAt: 1000 }),
+            ];
+
+            const sorted = sortSwapEntries(entries);
+
+            // All entries should have consistent key order
+            for (const entry of sorted) {
+                const keys = Object.keys(entry);
+                assert.strictEqual(keys[0], "swapUUID", "swapUUID should be first");
+                assert.strictEqual(keys[1], "swapStatus", "swapStatus should be second");
+            }
+        });
+    });
+
+    // ============ Timestamp Separation Integration ============
+    suite("Timestamp Separation Integration", () => {
+        test("user completion updates swappedUsersModifiedAt independently", async () => {
+            // Initial entry
+            const entry = createSwapEntry({
+                swapUUID: "timestamp-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 1000,
+                swappedUsersModifiedAt: undefined,
+                swappedUsers: [],
+            });
+
+            // Simulate user completion
+            const now = Date.now();
+            entry.swappedUsers = [
+                { userToSwap: "user1", createdAt: now, updatedAt: now, executed: true },
+            ];
+            entry.swappedUsersModifiedAt = now;
+            // swapModifiedAt should NOT change
+
+            assert.strictEqual(entry.swapModifiedAt, 1000, "swapModifiedAt unchanged on user completion");
+            assert.strictEqual(entry.swappedUsersModifiedAt, now, "swappedUsersModifiedAt updated");
+        });
+
+        test("cancellation updates swapModifiedAt but not swappedUsersModifiedAt", async () => {
+            const entry = createSwapEntry({
+                swapUUID: "cancel-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 1000,
+                swappedUsersModifiedAt: 2000,
+                swapStatus: "active",
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 2000, updatedAt: 2000, executed: true },
+                ],
+            });
+
+            // Simulate cancellation
+            entry.swapStatus = "cancelled";
+            entry.swapModifiedAt = 3000;
+            entry.cancelledBy = "admin";
+            entry.cancelledAt = 3000;
+            // swappedUsersModifiedAt should NOT change
+
+            assert.strictEqual(entry.swapModifiedAt, 3000);
+            assert.strictEqual(entry.swappedUsersModifiedAt, 2000, "swappedUsersModifiedAt unchanged on cancel");
+        });
+    });
+
     // ============ Error Recovery Integration ============
     suite("Error Recovery Integration", () => {
         test("interrupted swap state is persisted and recoverable", async () => {

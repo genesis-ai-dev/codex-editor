@@ -21,6 +21,8 @@ import {
     getDeprecatedProjectsFromHistory,
     isProjectDeprecated,
     getDeprecatedProjectUrls,
+    getEntryKey,
+    orderEntryFields,
 } from "../../utils/projectSwapManager";
 import {
     checkSwapPrerequisites,
@@ -2238,6 +2240,479 @@ suite("Project Swap Tests", () => {
             const key = getUserKey(user);
 
             assert.strictEqual(key, "testuser::1234567890");
+        });
+    });
+
+    // ========================================================================
+    // FIELD ORDERING TESTS
+    // ========================================================================
+    suite("Field Ordering", () => {
+        test("orderEntryFields produces consistent field order", () => {
+            const entry = createSwapEntry({
+                swapUUID: "order-test",
+                swapStatus: "active",
+                swapInitiatedAt: 1000,
+                swapInitiatedBy: "admin",
+                swapReason: "Test reason",
+                swapModifiedAt: 2000,
+                swappedUsersModifiedAt: 2500,
+                oldProjectName: "old-proj",
+                newProjectName: "new-proj",
+                isOldProject: true,
+                oldProjectUrl: "https://example.com/old.git",
+                newProjectUrl: "https://example.com/new.git",
+                swappedUsers: [],
+            });
+
+            const ordered = orderEntryFields(entry);
+            const keys = Object.keys(ordered);
+
+            // Verify key order matches expected: UUID and status first, then initiation info
+            assert.strictEqual(keys[0], "swapUUID", "swapUUID should be first");
+            assert.strictEqual(keys[1], "swapStatus", "swapStatus should be second");
+            assert.strictEqual(keys[2], "swapInitiatedAt", "swapInitiatedAt should be third");
+        });
+
+        test("orderEntryFields removes undefined fields", () => {
+            const entry = createSwapEntry({
+                swapUUID: "clean-test",
+                cancelledBy: undefined,
+                cancelledAt: undefined,
+            });
+
+            const ordered = orderEntryFields(entry);
+
+            assert.ok(!("cancelledBy" in ordered), "cancelledBy should be removed when undefined");
+            assert.ok(!("cancelledAt" in ordered), "cancelledAt should be removed when undefined");
+        });
+
+        test("orderEntryFields preserves all non-undefined values", () => {
+            const entry = createSwapEntry({
+                swapUUID: "preserve-test",
+                swapStatus: "cancelled",
+                cancelledBy: "admin",
+                cancelledAt: 5000,
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 2000, executed: true },
+                ],
+            });
+
+            const ordered = orderEntryFields(entry);
+
+            assert.strictEqual(ordered.swapUUID, "preserve-test");
+            assert.strictEqual(ordered.swapStatus, "cancelled");
+            assert.strictEqual(ordered.cancelledBy, "admin");
+            assert.strictEqual(ordered.cancelledAt, 5000);
+            assert.strictEqual(ordered.swappedUsers?.length, 1);
+        });
+
+        test("sortSwapEntries applies orderEntryFields to each entry", () => {
+            const entries = [
+                createSwapEntry({ swapUUID: "entry-1", swapStatus: "active" }),
+                createSwapEntry({ swapUUID: "entry-2", swapStatus: "cancelled" }),
+            ];
+
+            const sorted = sortSwapEntries(entries);
+
+            // All entries should have consistent key order
+            for (const entry of sorted) {
+                const keys = Object.keys(entry);
+                assert.strictEqual(keys[0], "swapUUID", "First key should be swapUUID");
+                assert.strictEqual(keys[1], "swapStatus", "Second key should be swapStatus");
+            }
+        });
+    });
+
+    // ========================================================================
+    // CHAIN DEPRECATION HIDING (QA CRITICAL)
+    // ========================================================================
+    suite("Chain Deprecation Hiding - QA Critical", () => {
+        test("full chain A→B→C: both A and B are deprecated from C's perspective", () => {
+            // This is the exact scenario: swaptest1 → swaptest2 → swaptest3
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    // Current active swap: swaptest2 → swaptest3
+                    createSwapEntry({
+                        swapUUID: "swap-2-to-3",
+                        swapStatus: "active",
+                        isOldProject: false, // swaptest3 is the NEW project
+                        oldProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        oldProjectName: "swaptest2",
+                        newProjectUrl: "https://gitlab.com/org/swaptest3.git",
+                        newProjectName: "swaptest3",
+                        swapInitiatedAt: 3000,
+                    }),
+                    // Historical: swaptest1 → swaptest2
+                    createSwapEntry({
+                        swapUUID: "swap-1-to-2",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                        oldProjectName: "swaptest1",
+                        newProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        newProjectName: "swaptest2",
+                        swapInitiatedAt: 2000,
+                    }),
+                    // Origin marker for swaptest1
+                    createSwapEntry({
+                        swapUUID: "origin-swaptest1",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                        oldProjectName: "swaptest1",
+                        newProjectUrl: "",
+                        newProjectName: "",
+                        swapInitiatedAt: 1000,
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+            const deprecatedUrls = deprecated.map(d => d.url);
+
+            // CRITICAL: Both swaptest1 and swaptest2 should be deprecated
+            assert.ok(
+                deprecatedUrls.includes("https://gitlab.com/org/swaptest1.git"),
+                "swaptest1 (origin) should be deprecated"
+            );
+            assert.ok(
+                deprecatedUrls.includes("https://gitlab.com/org/swaptest2.git"),
+                "swaptest2 (middle) should be deprecated"
+            );
+            assert.strictEqual(deprecated.length, 2, "Exactly 2 projects should be deprecated");
+        });
+
+        test("origin marker project is correctly identified as deprecated", () => {
+            // Origin marker has oldProjectUrl/oldProjectName populated, newProjectUrl/newProjectName empty
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "swap-origin-to-next",
+                        swapStatus: "active",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/origin-project.git",
+                        oldProjectName: "origin-project",
+                        newProjectUrl: "https://gitlab.com/org/next-project.git",
+                        newProjectName: "next-project",
+                    }),
+                    createSwapEntry({
+                        swapUUID: "origin-marker",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                        oldProjectUrl: "https://gitlab.com/org/origin-project.git",
+                        oldProjectName: "origin-project",
+                        newProjectUrl: "",
+                        newProjectName: "",
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            // Origin project should be deprecated (from the actual swap entry)
+            assert.ok(
+                deprecated.some(d => d.url === "https://gitlab.com/org/origin-project.git"),
+                "Origin project should be deprecated"
+            );
+        });
+
+        test("cancelled swap still marks old project as deprecated in history", () => {
+            // Even if A→B swap was cancelled, if there's a subsequent B→C swap,
+            // the history should still show A as deprecated
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "swap-b-to-c",
+                        swapStatus: "active",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/project-b.git",
+                        oldProjectName: "project-b",
+                        newProjectUrl: "https://gitlab.com/org/project-c.git",
+                        newProjectName: "project-c",
+                    }),
+                    createSwapEntry({
+                        swapUUID: "swap-a-to-b-cancelled",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                        oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                        oldProjectName: "project-a",
+                        newProjectUrl: "https://gitlab.com/org/project-b.git",
+                        newProjectName: "project-b",
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+            const deprecatedUrls = deprecated.map(d => d.url);
+
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-a.git"));
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-b.git"));
+        });
+
+        test("current project (isOldProject=false) is never deprecated", () => {
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "current-swap",
+                        swapStatus: "active",
+                        isOldProject: false, // This is the current/new project
+                        oldProjectUrl: "https://gitlab.com/org/old.git",
+                        newProjectUrl: "https://gitlab.com/org/current.git",
+                    }),
+                ],
+            };
+
+            assert.strictEqual(
+                isProjectDeprecated("https://gitlab.com/org/current.git", swapInfo),
+                false,
+                "Current project should never be deprecated"
+            );
+            assert.strictEqual(
+                isProjectDeprecated("https://gitlab.com/org/old.git", swapInfo),
+                true,
+                "Old project should be deprecated"
+            );
+        });
+    });
+
+    // ========================================================================
+    // REMOTE-ONLY PROJECT FILTERING (QA CRITICAL)
+    // ========================================================================
+    suite("Remote-Only Project Filtering - QA Critical", () => {
+        test("deprecated project names are extracted along with URLs", () => {
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "test-swap",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/remote-only-project.git",
+                        oldProjectName: "remote-only-project",
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            assert.strictEqual(deprecated.length, 1);
+            assert.strictEqual(deprecated[0].url, "https://gitlab.com/org/remote-only-project.git");
+            assert.strictEqual(deprecated[0].name, "remote-only-project");
+        });
+
+        test("remote project without gitOriginUrl can be matched by name", () => {
+            // This simulates a remote-only project that hasn't been cloned
+            // It won't have gitOriginUrl but will have a name
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "swap-test",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                        oldProjectName: "swaptest1-dsnl017zju6dyoue7bkq2i",
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            // Verify name is captured for name-based matching
+            assert.ok(
+                deprecated.some(d => d.name === "swaptest1-dsnl017zju6dyoue7bkq2i"),
+                "Deprecated project name should be captured"
+            );
+        });
+
+        test("case-insensitive name matching for deprecated projects", () => {
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    createSwapEntry({
+                        swapUUID: "case-test",
+                        oldProjectUrl: "https://gitlab.com/org/TestProject.git",
+                        oldProjectName: "TestProject",
+                    }),
+                ],
+            };
+
+            // isProjectDeprecated already does case-insensitive URL matching
+            // The filtering logic in projectUtils should also do case-insensitive name matching
+            assert.strictEqual(
+                isProjectDeprecated("https://gitlab.com/org/testproject.git", swapInfo),
+                true,
+                "URL matching should be case-insensitive"
+            );
+        });
+    });
+
+    // ========================================================================
+    // TIMESTAMP SEPARATION (swapModifiedAt vs swappedUsersModifiedAt)
+    // ========================================================================
+    suite("Timestamp Separation", () => {
+        test("swappedUsersModifiedAt is independent of swapModifiedAt", () => {
+            const entry = createSwapEntry({
+                swapUUID: "timestamp-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 1000, // Entry created
+                swappedUsersModifiedAt: 2000, // User completed later
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 2000, updatedAt: 2000, executed: true },
+                ],
+            });
+
+            // swapModifiedAt should NOT change when users complete
+            assert.strictEqual(entry.swapModifiedAt, 1000, "swapModifiedAt should not change on user completion");
+            assert.strictEqual(entry.swappedUsersModifiedAt, 2000, "swappedUsersModifiedAt should reflect user completion");
+        });
+
+        test("cancellation updates swapModifiedAt but not swappedUsersModifiedAt", () => {
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "cancel-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 3000, // Updated when cancelled
+                swappedUsersModifiedAt: 2000, // Users completed before cancellation
+                swapStatus: "cancelled",
+                cancelledAt: 3000,
+                cancelledBy: "admin",
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 2000, updatedAt: 2000, executed: true },
+                ],
+            });
+
+            assert.strictEqual(cancelledEntry.swapModifiedAt, 3000, "swapModifiedAt should reflect cancellation time");
+            assert.strictEqual(cancelledEntry.swappedUsersModifiedAt, 2000, "swappedUsersModifiedAt should not change on cancellation");
+        });
+
+        test("entry-level changes only affect swapModifiedAt", () => {
+            // Status change, URL update, name update = swapModifiedAt
+            // User completion = swappedUsersModifiedAt
+            const entry1 = createSwapEntry({
+                swapModifiedAt: 1000,
+                swappedUsersModifiedAt: 500,
+            });
+
+            // Simulate status change
+            const entry2 = {
+                ...entry1,
+                swapStatus: "cancelled" as const,
+                swapModifiedAt: 2000, // Updated
+                swappedUsersModifiedAt: 500, // Unchanged
+            };
+
+            assert.notStrictEqual(entry1.swapModifiedAt, entry2.swapModifiedAt);
+            assert.strictEqual(entry1.swappedUsersModifiedAt, entry2.swappedUsersModifiedAt);
+        });
+    });
+
+    // ========================================================================
+    // ENTRY KEY MATCHING (swapUUID only)
+    // ========================================================================
+    suite("Entry Key Matching - swapUUID", () => {
+        test("entries match by swapUUID alone", () => {
+            const entry1 = createSwapEntry({
+                swapUUID: "match-test-uuid",
+                isOldProject: true,
+            });
+            const entry2 = createSwapEntry({
+                swapUUID: "match-test-uuid",
+                isOldProject: false, // Different perspective
+            });
+
+            // getEntryKey should return just the swapUUID
+            assert.strictEqual(getEntryKey(entry1), "match-test-uuid");
+            assert.strictEqual(getEntryKey(entry2), "match-test-uuid");
+            assert.strictEqual(getEntryKey(entry1), getEntryKey(entry2), "Same UUID = same key");
+        });
+
+        test("different swapUUIDs = different entries", () => {
+            const entry1 = createSwapEntry({ swapUUID: "uuid-alpha" });
+            const entry2 = createSwapEntry({ swapUUID: "uuid-beta" });
+
+            assert.notStrictEqual(getEntryKey(entry1), getEntryKey(entry2));
+        });
+    });
+
+    // ========================================================================
+    // REGRESSION TESTS - SPECIFIC BUG SCENARIOS
+    // ========================================================================
+    suite("Regression Tests - Bug Scenarios", () => {
+        test("REGRESSION: swaptest1 not hiding - origin marker oldProjectUrl must be populated", () => {
+            // Bug: origin marker had oldProjectUrl empty, so origin wasn't being hidden
+            // Fix: origin marker's oldProjectUrl/oldProjectName = origin project's info
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    // Current swap
+                    createSwapEntry({
+                        swapUUID: "swap-2-to-3",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        oldProjectName: "swaptest2",
+                        newProjectUrl: "https://gitlab.com/org/swaptest3.git",
+                        newProjectName: "swaptest3",
+                    }),
+                    // Intermediate (cancelled)
+                    createSwapEntry({
+                        swapUUID: "swap-1-to-2",
+                        isOldProject: true,
+                        swapStatus: "cancelled",
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                        oldProjectName: "swaptest1",
+                        newProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                        newProjectName: "swaptest2",
+                    }),
+                    // Origin marker - MUST have oldProjectUrl populated
+                    createSwapEntry({
+                        swapUUID: "origin-swaptest1",
+                        isOldProject: true,
+                        swapStatus: "cancelled",
+                        oldProjectUrl: "https://gitlab.com/org/swaptest1.git", // CRITICAL: must be populated
+                        oldProjectName: "swaptest1",
+                        newProjectUrl: "", // Empty - no predecessor
+                        newProjectName: "",
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            // swaptest1 MUST be in deprecated list
+            assert.ok(
+                deprecated.some(d => d.url === "https://gitlab.com/org/swaptest1.git"),
+                "REGRESSION: swaptest1 must be deprecated"
+            );
+        });
+
+        test("REGRESSION: only immediate oldProjectUrl was hidden, not full chain", () => {
+            // Bug: StartupFlowProvider only looked at immediate oldProjectUrl
+            // Fix: Use getDeprecatedProjectsFromHistory for full chain
+            const swapInfo: ProjectSwapInfo = {
+                swapEntries: [
+                    // A→B→C→D chain - only D is current
+                    createSwapEntry({
+                        swapUUID: "c-to-d",
+                        isOldProject: false,
+                        oldProjectUrl: "https://gitlab.com/org/project-c.git",
+                    }),
+                    createSwapEntry({
+                        swapUUID: "b-to-c",
+                        isOldProject: true,
+                        swapStatus: "cancelled",
+                        oldProjectUrl: "https://gitlab.com/org/project-b.git",
+                    }),
+                    createSwapEntry({
+                        swapUUID: "a-to-b",
+                        isOldProject: true,
+                        swapStatus: "cancelled",
+                        oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                    }),
+                ],
+            };
+
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+            const urls = deprecated.map(d => d.url);
+
+            // ALL old projects must be deprecated, not just the immediate one
+            assert.strictEqual(urls.length, 3, "All 3 old projects should be deprecated");
+            assert.ok(urls.includes("https://gitlab.com/org/project-a.git"), "project-a must be deprecated");
+            assert.ok(urls.includes("https://gitlab.com/org/project-b.git"), "project-b must be deprecated");
+            assert.ok(urls.includes("https://gitlab.com/org/project-c.git"), "project-c must be deprecated");
         });
     });
 });

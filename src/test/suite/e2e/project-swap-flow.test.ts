@@ -938,6 +938,220 @@ suite("E2E: Project Swap Flow", () => {
     });
 
     // ========================================================================
+    // DEPRECATED PROJECT HIDING E2E TESTS (QA CRITICAL)
+    // ========================================================================
+    suite("Deprecated Project Hiding E2E - QA Critical", () => {
+        test("chain A→B→C: all old projects visible in history, identifiable for hiding", async () => {
+            // Setup: Create chain swaptest1 → swaptest2 → swaptest3
+            const projectA = await createTestProject(tempDir, "swaptest1");
+            const projectB = await createTestProject(tempDir, "swaptest2");
+            const projectC = await createTestProject(tempDir, "swaptest3");
+
+            const uuidAB = "swap-a-to-b";
+            const uuidBC = "swap-b-to-c";
+            const uuidOrigin = "origin-swaptest1";
+
+            // Build full history from C's perspective (what gets merged in)
+            const historyInC: ProjectSwapEntry[] = [
+                // Current active swap: B→C
+                createSwapEntry({
+                    swapUUID: uuidBC,
+                    swapStatus: "active",
+                    isOldProject: false, // C is the NEW project
+                    oldProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                    oldProjectName: "swaptest2",
+                    newProjectUrl: "https://gitlab.com/org/swaptest3.git",
+                    newProjectName: "swaptest3",
+                    swapInitiatedAt: 3000,
+                }),
+                // Historical: A→B (cancelled after B→C started)
+                createSwapEntry({
+                    swapUUID: uuidAB,
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                    oldProjectName: "swaptest1",
+                    newProjectUrl: "https://gitlab.com/org/swaptest2.git",
+                    newProjectName: "swaptest2",
+                    swapInitiatedAt: 2000,
+                }),
+                // Origin marker for swaptest1
+                createSwapEntry({
+                    swapUUID: uuidOrigin,
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    oldProjectUrl: "https://gitlab.com/org/swaptest1.git",
+                    oldProjectName: "swaptest1",
+                    newProjectUrl: "",
+                    newProjectName: "",
+                    swapInitiatedAt: 1000,
+                }),
+            ];
+
+            await writeSwapToMetadata(projectC, historyInC);
+
+            // Verify: Read C's metadata and check deprecated projects
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+                await import("../../../utils/projectSwapManager");
+
+            const metaC = await readMetadata(projectC);
+            const swapInfo = normalizeProjectSwapInfo(metaC.meta?.projectSwap);
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            // CRITICAL ASSERTIONS
+            const deprecatedUrls = deprecated.map(d => d.url);
+
+            assert.ok(
+                deprecatedUrls.includes("https://gitlab.com/org/swaptest1.git"),
+                "swaptest1 (origin) MUST be in deprecated list"
+            );
+            assert.ok(
+                deprecatedUrls.includes("https://gitlab.com/org/swaptest2.git"),
+                "swaptest2 (middle) MUST be in deprecated list"
+            );
+            assert.strictEqual(
+                deprecated.length, 
+                2, 
+                "Exactly 2 projects should be deprecated (swaptest1 and swaptest2)"
+            );
+
+            // Verify C is NOT deprecated
+            assert.ok(
+                !deprecatedUrls.includes("https://gitlab.com/org/swaptest3.git"),
+                "swaptest3 (current) should NOT be deprecated"
+            );
+        });
+
+        test("deprecated projects include name for remote-only matching", async () => {
+            const projectDir = await createTestProject(tempDir, "name-matching-test");
+            
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({
+                    swapUUID: "test-swap",
+                    isOldProject: false,
+                    oldProjectUrl: "https://gitlab.com/org/remote-only-project-abc123.git",
+                    oldProjectName: "remote-only-project-abc123", // Name is critical for remote-only
+                }),
+            ];
+
+            await writeSwapToMetadata(projectDir, entries);
+
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+                await import("../../../utils/projectSwapManager");
+
+            const meta = await readMetadata(projectDir);
+            const swapInfo = normalizeProjectSwapInfo(meta.meta?.projectSwap);
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+
+            // Verify both URL and name are captured
+            assert.strictEqual(deprecated.length, 1);
+            assert.strictEqual(deprecated[0].url, "https://gitlab.com/org/remote-only-project-abc123.git");
+            assert.strictEqual(deprecated[0].name, "remote-only-project-abc123");
+        });
+
+        test("long chain (5 projects) correctly identifies all deprecated", async () => {
+            const projectE = await createTestProject(tempDir, "project-e");
+
+            // Chain: A→B→C→D→E
+            const historyInE: ProjectSwapEntry[] = [
+                createSwapEntry({
+                    swapUUID: "d-to-e",
+                    swapStatus: "active",
+                    isOldProject: false,
+                    oldProjectUrl: "https://gitlab.com/org/project-d.git",
+                    oldProjectName: "project-d",
+                    newProjectUrl: "https://gitlab.com/org/project-e.git",
+                    newProjectName: "project-e",
+                    swapInitiatedAt: 5000,
+                }),
+                createSwapEntry({
+                    swapUUID: "c-to-d",
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    oldProjectUrl: "https://gitlab.com/org/project-c.git",
+                    oldProjectName: "project-c",
+                    swapInitiatedAt: 4000,
+                }),
+                createSwapEntry({
+                    swapUUID: "b-to-c",
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    oldProjectUrl: "https://gitlab.com/org/project-b.git",
+                    oldProjectName: "project-b",
+                    swapInitiatedAt: 3000,
+                }),
+                createSwapEntry({
+                    swapUUID: "a-to-b",
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                    oldProjectName: "project-a",
+                    swapInitiatedAt: 2000,
+                }),
+                createSwapEntry({
+                    swapUUID: "origin-a",
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                    oldProjectName: "project-a",
+                    newProjectUrl: "",
+                    newProjectName: "",
+                    swapInitiatedAt: 1000,
+                }),
+            ];
+
+            await writeSwapToMetadata(projectE, historyInE);
+
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+                await import("../../../utils/projectSwapManager");
+
+            const meta = await readMetadata(projectE);
+            const swapInfo = normalizeProjectSwapInfo(meta.meta?.projectSwap);
+            const deprecated = getDeprecatedProjectsFromHistory(swapInfo);
+            const deprecatedUrls = deprecated.map(d => d.url);
+
+            // All 4 old projects should be deprecated
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-a.git"), "project-a");
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-b.git"), "project-b");
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-c.git"), "project-c");
+            assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-d.git"), "project-d");
+            
+            // Current project (E) should NOT be deprecated
+            assert.ok(!deprecatedUrls.includes("https://gitlab.com/org/project-e.git"), "project-e should NOT be deprecated");
+        });
+
+        test("field ordering is applied in sorted entries", async () => {
+            const projectDir = await createTestProject(tempDir, "field-order-test");
+            
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({
+                    swapUUID: "order-test",
+                    swapStatus: "active",
+                    swapInitiatedAt: 1000,
+                    swapInitiatedBy: "admin",
+                    swapReason: "Test",
+                    swapModifiedAt: 2000,
+                    swappedUsersModifiedAt: 3000,
+                    oldProjectName: "old",
+                    newProjectName: "new",
+                    isOldProject: true,
+                    oldProjectUrl: "https://example.com/old.git",
+                    newProjectUrl: "https://example.com/new.git",
+                    swappedUsers: [],
+                }),
+            ];
+
+            const sorted = sortSwapEntries(entries);
+            const orderedEntry = sorted[0];
+            const keys = Object.keys(orderedEntry);
+
+            // Verify field order: UUID and status first
+            assert.strictEqual(keys[0], "swapUUID", "swapUUID should be first");
+            assert.strictEqual(keys[1], "swapStatus", "swapStatus should be second");
+        });
+    });
+
+    // ========================================================================
     // REGRESSION E2E TESTS
     // ========================================================================
     suite("Regression E2E Tests", () => {
