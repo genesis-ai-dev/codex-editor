@@ -1,17 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { WebviewHeader } from "../components/WebviewHeader";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "../components/ui/select";
 import { Button } from "../components/ui/button";
 
 const vscode = acquireVsCodeApi();
-
-type Visibility = "private" | "internal" | "public";
 
 export interface GroupList {
     id: number;
@@ -22,7 +13,6 @@ export interface GroupList {
 export default function PublishProject() {
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
-    const [visibility, setVisibility] = useState<Visibility>("private");
     const [groups, setGroups] = useState<GroupList[]>([]);
     const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
     const [busy, setBusy] = useState(false);
@@ -62,7 +52,6 @@ export default function PublishProject() {
                 if (m.defaults?.name) {
                     setName(m.defaults.name);
                 }
-                if (m.defaults?.visibility) setVisibility(m.defaults.visibility as Visibility);
             } else if (m?.type === "busy") {
                 setBusy(!!m.value);
             } else if (m?.type === "error") {
@@ -101,7 +90,7 @@ export default function PublishProject() {
             payload: {
                 name: name,
                 description: description || undefined,
-                visibility,
+                visibility: "private",
                 projectType: "group",
                 groupId: selectedGroupId,
             },
@@ -166,36 +155,6 @@ export default function PublishProject() {
                             className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
                             placeholder="Short description..."
                         />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3">
-                        <div className="space-y-1">
-                            <label
-                                className="text-sm text-[var(--vscode-descriptionForeground)]"
-                                htmlFor="visibility"
-                            >
-                                Visibility
-                            </label>
-                            <Select
-                                value={visibility}
-                                onValueChange={(value) => setVisibility(value as Visibility)}
-                            >
-                                <SelectTrigger className="w-full rounded-md px-2 py-1 text-base focus-visible:ring-0 focus-visible:ring-offset-0 outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    <SelectValue placeholder="Select a visibility" />
-                                </SelectTrigger>
-                                <SelectContent className="w-full rounded-md text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    <SelectItem value="private" className="text-base">
-                                        private
-                                    </SelectItem>
-                                    <SelectItem value="internal" className="text-base">
-                                        internal
-                                    </SelectItem>
-                                    <SelectItem value="public" className="text-base">
-                                        public
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
                     </div>
 
                     <div className="space-y-1">
