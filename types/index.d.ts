@@ -768,6 +768,7 @@ export type EditorPostMessages =
             testId: string;
             selectionTimeMs: number;
             totalVariants: number;
+            selectedContent: string;
         };
     }
     | { command: "openLoginFlow"; }

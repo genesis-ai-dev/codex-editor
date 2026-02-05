@@ -1442,7 +1442,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, testId, testName, selectionTimeMs, variants, names } = (typedEvent as any).content || {};
+        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants, names } = (typedEvent as any).content || {};
         const variantNames: string[] | undefined = variants || names;
         const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 
@@ -1493,6 +1493,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             if (!isRecovery) {
                 const { recordVariantSelection } = await import("../../utils/abTestingUtils");
                 await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, variantNames, testName);
+            }
+        }
+
+        // Persist the selected variant to the .codex document
+        // For attention checks, use the authoritative correctVariant from extension side
+        const contentToSave = attentionCheck ? attentionCheck.correctVariant : selectedContent;
+        if (contentToSave && cellId) {
+            try {
+                await document.updateCellContent(cellId, contentToSave, EditType.LLM_GENERATION);
+                await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+            } catch (err) {
+                console.error(`[selectABTestVariant] Failed to persist variant for cell ${cellId}:`, err);
             }
         }
 

@@ -692,6 +692,7 @@ const CodexCellEditor: React.FC = () => {
                 content: {
                     cellId,
                     selectedIndex,
+                    selectedContent: variant,
                     testId,
                     testName: testName || abTestState.testName,
                     selectionTimeMs: selectionTimeMs || 0,
