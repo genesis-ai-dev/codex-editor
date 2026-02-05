@@ -12,6 +12,7 @@ import {
     findSwapEntryByTimestamp,
     getAllSwapEntries,
     hasPendingSwap,
+    sortSwapEntries,
     validateGitUrl,
     extractProjectNameFromUrl,
     sanitizeGitUrl,
@@ -165,6 +166,46 @@ suite("Project Swap Tests", () => {
             test("returns true when an active entry exists", () => {
                 const entries = [createSwapEntry({ swapStatus: "active" })];
                 assert.strictEqual(hasPendingSwap({ swapEntries: entries }), true);
+            });
+        });
+
+        suite("sortSwapEntries", () => {
+            test("puts active entries first", () => {
+                const entries = [
+                    createSwapEntry({ swapStatus: "cancelled", swapInitiatedAt: 3000, swapUUID: "cancelled" }),
+                    createSwapEntry({ swapStatus: "active", swapInitiatedAt: 1000, swapUUID: "active" }),
+                ];
+                const sorted = sortSwapEntries(entries);
+                assert.strictEqual(sorted[0].swapStatus, "active");
+            });
+
+            test("orders by swapInitiatedAt when status matches", () => {
+                const entries = [
+                    createSwapEntry({ swapStatus: "cancelled", swapInitiatedAt: 1000, swapUUID: "old" }),
+                    createSwapEntry({ swapStatus: "cancelled", swapInitiatedAt: 3000, swapUUID: "new" }),
+                ];
+                const sorted = sortSwapEntries(entries);
+                assert.strictEqual(sorted[0].swapUUID, "new");
+                assert.strictEqual(sorted[1].swapUUID, "old");
+            });
+
+            test("uses swapModifiedAt as tie-breaker for same swapInitiatedAt", () => {
+                const entries = [
+                    createSwapEntry({ swapInitiatedAt: 1000, swapModifiedAt: 2000, swapUUID: "newer-modified" }),
+                    createSwapEntry({ swapInitiatedAt: 1000, swapModifiedAt: 1500, swapUUID: "older-modified" }),
+                ];
+                const sorted = sortSwapEntries(entries);
+                assert.strictEqual(sorted[0].swapUUID, "newer-modified");
+            });
+
+            test("uses swapUUID for deterministic ties", () => {
+                const entries = [
+                    createSwapEntry({ swapInitiatedAt: 1000, swapModifiedAt: 1000, swapUUID: "b-uuid" }),
+                    createSwapEntry({ swapInitiatedAt: 1000, swapModifiedAt: 1000, swapUUID: "a-uuid" }),
+                ];
+                const sorted = sortSwapEntries(entries);
+                assert.strictEqual(sorted[0].swapUUID, "a-uuid");
+                assert.strictEqual(sorted[1].swapUUID, "b-uuid");
             });
         });
 

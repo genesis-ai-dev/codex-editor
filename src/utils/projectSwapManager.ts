@@ -76,6 +76,31 @@ export function getAllSwapEntries(swapInfo: ProjectSwapInfo): ProjectSwapEntry[]
 }
 
 /**
+ * Deterministically sort swap entries to avoid metadata churn.
+ * Order: active swaps first (newest), then by swapInitiatedAt (newest),
+ * then swapModifiedAt (newest), then swapUUID for stable ties.
+ */
+export function sortSwapEntries(entries: ProjectSwapEntry[]): ProjectSwapEntry[] {
+    return entries.slice().sort((a, b) => {
+        const aActive = a.swapStatus === "active" ? 1 : 0;
+        const bActive = b.swapStatus === "active" ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+
+        if (a.swapInitiatedAt !== b.swapInitiatedAt) {
+            return b.swapInitiatedAt - a.swapInitiatedAt;
+        }
+
+        const aModified = a.swapModifiedAt ?? a.swapInitiatedAt;
+        const bModified = b.swapModifiedAt ?? b.swapInitiatedAt;
+        if (aModified !== bModified) {
+            return bModified - aModified;
+        }
+
+        return a.swapUUID.localeCompare(b.swapUUID);
+    });
+}
+
+/**
  * Check if there's an active (pending) swap that needs to be cancelled before initiating a new one
  * @param swapInfo - ProjectSwapInfo
  * @returns True if there's a pending swap that blocks new initiation

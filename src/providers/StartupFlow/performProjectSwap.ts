@@ -5,7 +5,7 @@ import * as os from "os";
 import archiver from "archiver";
 import { ProjectMetadata, LocalProjectSwap, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { MetadataManager } from "../../utils/metadataManager";
-import { extractProjectNameFromUrl, getGitOriginUrl, normalizeProjectSwapInfo, sanitizeGitUrl } from "../../utils/projectSwapManager";
+import { extractProjectNameFromUrl, getGitOriginUrl, normalizeProjectSwapInfo, sanitizeGitUrl, sortSwapEntries } from "../../utils/projectSwapManager";
 import { validateAndFixProjectMetadata } from "../../projectManager/utils/projectUtils";
 import { readLocalProjectSettings, writeLocalProjectSettings } from "../../utils/localProjectSettings";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
@@ -1468,25 +1468,7 @@ async function updateSwapMetadata(
             // Update entries array with stable ordering to avoid unnecessary sync churn.
             // Order: active swaps first (newest), then by swapInitiatedAt (newest), then swapModifiedAt,
             // then swapUUID for deterministic ties.
-            const sortedEntries = entries.slice().sort((a, b) => {
-                const aActive = a.swapStatus === "active" ? 1 : 0;
-                const bActive = b.swapStatus === "active" ? 1 : 0;
-                if (aActive !== bActive) return bActive - aActive;
-
-                if (a.swapInitiatedAt !== b.swapInitiatedAt) {
-                    return b.swapInitiatedAt - a.swapInitiatedAt;
-                }
-
-                const aModified = a.swapModifiedAt ?? a.swapInitiatedAt;
-                const bModified = b.swapModifiedAt ?? b.swapInitiatedAt;
-                if (aModified !== bModified) {
-                    return bModified - aModified;
-                }
-
-                return a.swapUUID.localeCompare(b.swapUUID);
-            });
-
-            meta.meta.projectSwap = { swapEntries: sortedEntries };
+            meta.meta.projectSwap = { swapEntries: sortSwapEntries(entries) };
             return meta;
         }
     );

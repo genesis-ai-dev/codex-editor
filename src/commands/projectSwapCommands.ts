@@ -14,6 +14,7 @@ import {
     hasPendingSwap,
     getAllSwapEntries,
     sanitizeGitUrl,
+    sortSwapEntries,
 } from "../utils/projectSwapManager";
 import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
 import {
@@ -803,26 +804,8 @@ export async function initiateProjectSwap(): Promise<void> {
                 updatedEntries.push(newEntry);
 
                 // Keep deterministic ordering to avoid metadata churn.
-                const sortedEntries = updatedEntries.slice().sort((a, b) => {
-                    const aActive = a.swapStatus === "active" ? 1 : 0;
-                    const bActive = b.swapStatus === "active" ? 1 : 0;
-                    if (aActive !== bActive) return bActive - aActive;
-
-                    if (a.swapInitiatedAt !== b.swapInitiatedAt) {
-                        return b.swapInitiatedAt - a.swapInitiatedAt;
-                    }
-
-                    const aModified = a.swapModifiedAt ?? a.swapInitiatedAt;
-                    const bModified = b.swapModifiedAt ?? b.swapInitiatedAt;
-                    if (aModified !== bModified) {
-                        return bModified - aModified;
-                    }
-
-                    return a.swapUUID.localeCompare(b.swapUUID);
-                });
-
                 meta.meta.projectSwap = {
-                    swapEntries: sortedEntries,
+                    swapEntries: sortSwapEntries(updatedEntries),
                 };
                 return meta;
             }
