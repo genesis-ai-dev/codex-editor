@@ -19,18 +19,28 @@ async function getAnalyticsBase(): Promise<string | null> {
     return null;
 }
 
-async function postJson(path: string, payload: any): Promise<void> {
+async function postJson(path: string, payload: Record<string, unknown>): Promise<void> {
     try {
         const baseUrl = await getAnalyticsBase();
         if (!baseUrl) {
             console.debug("[ABTestingAnalytics] No analytics endpoint available, skipping");
             return;
         }
-        await fetch(`${baseUrl}${path}` as any, {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        try {
+            const frontierApi = getAuthApi();
+            const token = await frontierApi?.authProvider?.getToken();
+            if (token) {
+                headers["Authorization"] = `Bearer ${token}`;
+            }
+        } catch {
+            // No token available — send without auth
+        }
+        await fetch(`${baseUrl}${path}`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
             body: JSON.stringify(payload),
-        } as any);
+        });
     } catch (err) {
         console.warn(`[ABTestingAnalytics] POST ${path} failed`, err);
     }
@@ -56,7 +66,7 @@ export async function recordAbResult(args: {
     projectId?: string | number;
 }): Promise<void> {
     const extras = getOptionalContext();
-    const body: any = {
+    const body: Record<string, unknown> = {
         category: args.category,
         options: args.options,
         winner: args.winner,

@@ -1454,8 +1454,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             if (!isRecovery) {
                 // Record the result
-                const { recordVariantSelection, recordAttentionCheckResult } = await import("../../utils/abTestingUtils");
-                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, variantNames, testName);
+                const { recordAttentionCheckResult } = await import("../../utils/abTestingUtils");
                 await recordAttentionCheckResult({
                     testId,
                     cellId,
