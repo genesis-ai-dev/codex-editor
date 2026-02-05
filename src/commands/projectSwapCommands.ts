@@ -779,6 +779,8 @@ export async function initiateProjectSwap(): Promise<void> {
 
                 // If this is the first-ever swap for this project, add an origin marker entry.
                 // This marks the origin project as an OLD project with no predecessor.
+                // The origin project's own URL/name go in oldProjectUrl/oldProjectName.
+                // newProjectUrl/newProjectName are empty since an origin has no predecessor.
                 // It is cancelled so it never blocks swap detection.
                 const updatedEntries = [...(existingSwap.swapEntries || [])];
                 if (updatedEntries.length === 0) {
@@ -788,10 +790,10 @@ export async function initiateProjectSwap(): Promise<void> {
                         swapModifiedAt: now,
                         swapStatus: "cancelled",
                         isOldProject: true,
-                        oldProjectUrl: "",
-                        oldProjectName: "",
-                        newProjectUrl: sanitizeGitUrl(currentGitUrl),
-                        newProjectName: oldProjectName,
+                        oldProjectUrl: sanitizeGitUrl(currentGitUrl),
+                        oldProjectName: oldProjectName,
+                        newProjectUrl: "",
+                        newProjectName: "",
                         swapInitiatedBy: currentUserInfo.username,
                         swapReason: "Origin project (no prior swap history)",
                         swappedUsers: [],

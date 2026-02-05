@@ -1055,23 +1055,27 @@ suite("Project Swap Tests", () => {
     suite("Origin Marker Entries", () => {
         test("origin marker has correct structure for first-time swap", () => {
             // When a project with no prior swap history initiates a swap,
-            // an origin marker entry should be created
+            // an origin marker entry should be created.
+            // The origin project's own URL/name go in oldProjectUrl/oldProjectName.
+            // newProjectUrl/newProjectName are empty since an origin has no predecessor.
             const originMarker = createSwapEntry({
                 swapUUID: "origin-abc123",
                 swapStatus: "cancelled",
                 isOldProject: true,
-                oldProjectUrl: "",
-                oldProjectName: "",
-                newProjectUrl: "https://gitlab.com/org/origin-project.git",
-                newProjectName: "origin-project",
+                oldProjectUrl: "https://gitlab.com/org/origin-project.git",
+                oldProjectName: "origin-project",
+                newProjectUrl: "",
+                newProjectName: "",
                 swapReason: "Origin project (no prior swap history)",
                 cancelledBy: "system",
                 cancelledAt: Date.now(),
             });
 
             // Verify origin marker properties
-            assert.strictEqual(originMarker.oldProjectUrl, "", "Origin marker should have empty oldProjectUrl");
-            assert.strictEqual(originMarker.oldProjectName, "", "Origin marker should have empty oldProjectName");
+            assert.strictEqual(originMarker.oldProjectUrl, "https://gitlab.com/org/origin-project.git", "Origin marker oldProjectUrl should be the origin project's URL");
+            assert.strictEqual(originMarker.oldProjectName, "origin-project", "Origin marker oldProjectName should be the origin project's name");
+            assert.strictEqual(originMarker.newProjectUrl, "", "Origin marker should have empty newProjectUrl (no predecessor)");
+            assert.strictEqual(originMarker.newProjectName, "", "Origin marker should have empty newProjectName (no predecessor)");
             assert.strictEqual(originMarker.swapStatus, "cancelled", "Origin marker should be cancelled");
             assert.strictEqual(originMarker.isOldProject, true, "Origin marker should be isOldProject: true");
             assert.ok(originMarker.swapUUID.startsWith("origin-"), "Origin marker UUID should start with 'origin-'");
@@ -1079,18 +1083,20 @@ suite("Project Swap Tests", () => {
 
         test("origin marker distinguishes first project in chain", () => {
             const entries: ProjectSwapEntry[] = [
-                // Origin marker
+                // Origin marker - identifies "first" as the origin project
+                // oldProjectUrl/oldProjectName = origin project's info
+                // newProjectUrl/newProjectName = empty (no predecessor)
                 createSwapEntry({
                     swapUUID: "origin-first",
                     swapStatus: "cancelled",
                     isOldProject: true,
-                    oldProjectUrl: "",
-                    oldProjectName: "",
-                    newProjectUrl: "https://gitlab.com/org/first.git",
-                    newProjectName: "first",
+                    oldProjectUrl: "https://gitlab.com/org/first.git",
+                    oldProjectName: "first",
+                    newProjectUrl: "",
+                    newProjectName: "",
                     swapInitiatedAt: 1000,
                 }),
-                // Actual swap
+                // Actual swap: first -> second
                 createSwapEntry({
                     swapUUID: "swap-first-second",
                     swapStatus: "active",
@@ -1106,11 +1112,12 @@ suite("Project Swap Tests", () => {
             // Find origin marker
             const originMarker = entries.find(e => e.swapUUID.startsWith("origin-"));
             assert.ok(originMarker, "Origin marker should exist");
-            assert.strictEqual(originMarker?.oldProjectUrl, "");
-            assert.strictEqual(originMarker?.oldProjectName, "");
-
-            // Origin project is identified by the origin marker's newProjectName
-            assert.strictEqual(originMarker?.newProjectName, "first");
+            
+            // Origin project is identified by the origin marker's oldProjectName
+            assert.strictEqual(originMarker?.oldProjectUrl, "https://gitlab.com/org/first.git");
+            assert.strictEqual(originMarker?.oldProjectName, "first");
+            assert.strictEqual(originMarker?.newProjectUrl, "", "Origin marker has no predecessor (newProjectUrl empty)");
+            assert.strictEqual(originMarker?.newProjectName, "", "Origin marker has no predecessor (newProjectName empty)");
         });
 
         test("origin marker is not added for projects with existing swap history", () => {

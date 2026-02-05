@@ -570,6 +570,8 @@ suite("Integration: Project Swap Flow", () => {
             assert.strictEqual(meta.meta?.projectSwap?.swapEntries?.length ?? 0, 0);
 
             // Simulate origin marker creation (what initiateProjectSwap does)
+            // The origin project's own URL/name go in oldProjectUrl/oldProjectName.
+            // newProjectUrl/newProjectName are empty since an origin has no predecessor.
             const now = Date.now();
             const originMarker = createSwapEntry({
                 swapUUID: `origin-${meta.projectId}`,
@@ -577,10 +579,10 @@ suite("Integration: Project Swap Flow", () => {
                 swapModifiedAt: now,
                 swapStatus: "cancelled",
                 isOldProject: true,
-                oldProjectUrl: "",
-                oldProjectName: "",
-                newProjectUrl: "https://gitlab.com/org/origin-project.git",
-                newProjectName: "Origin Project",
+                oldProjectUrl: "https://gitlab.com/org/origin-project.git",
+                oldProjectName: "Origin Project",
+                newProjectUrl: "",
+                newProjectName: "",
                 swapReason: "Origin project (no prior swap history)",
                 cancelledBy: "system",
                 cancelledAt: now,
@@ -612,11 +614,13 @@ suite("Integration: Project Swap Flow", () => {
             // Active entry should be first (due to sorting)
             assert.strictEqual(entries[0].swapStatus, "active", "Active entry should be first");
 
-            // Origin marker should exist
+            // Origin marker should exist with correct structure
             const marker = entries.find(e => e.swapUUID.startsWith("origin-"));
             assert.ok(marker, "Origin marker should exist");
-            assert.strictEqual(marker?.oldProjectUrl, "", "Origin marker has no old URL");
-            assert.strictEqual(marker?.oldProjectName, "", "Origin marker has no old name");
+            assert.strictEqual(marker?.oldProjectUrl, "https://gitlab.com/org/origin-project.git", "Origin marker oldProjectUrl should be the origin project's URL");
+            assert.strictEqual(marker?.oldProjectName, "Origin Project", "Origin marker oldProjectName should be the origin project's name");
+            assert.strictEqual(marker?.newProjectUrl, "", "Origin marker should have empty newProjectUrl (no predecessor)");
+            assert.strictEqual(marker?.newProjectName, "", "Origin marker should have empty newProjectName (no predecessor)");
         });
     });
 
