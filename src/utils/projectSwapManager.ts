@@ -10,13 +10,72 @@ const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...args) 
 // ============ HELPER FUNCTIONS FOR ARRAY-BASED STRUCTURE ============
 
 /**
+ * Merge swappedUsers arrays from two entries.
+ * Uses userToSwap as unique key, keeps the one with more recent updatedAt.
+ * This ensures user completion data is preserved even when entry-level timestamps match.
+ */
+/**
+ * Generate a unique key for a user entry.
+ * Users are uniquely identified by BOTH userToSwap AND createdAt together.
+ * This allows the same user to have multiple swap entries if they re-swap.
+ */
+function getUserKey(user: ProjectSwapUserEntry): string {
+    return `${user.userToSwap}::${user.createdAt}`;
+}
+
+/**
+ * Merge two swappedUsers arrays, preserving all unique user entries.
+ * 
+ * Uniqueness is determined by userToSwap + createdAt (both together).
+ * For the same unique key, the entry with newer updatedAt wins.
+ * 
+ * @param usersA - First array of user entries
+ * @param usersB - Second array of user entries
+ * @returns Merged array with all unique users, preferring newer updatedAt
+ */
+export function mergeSwappedUsers(
+    usersA: ProjectSwapUserEntry[] | undefined,
+    usersB: ProjectSwapUserEntry[] | undefined
+): ProjectSwapUserEntry[] {
+    const userMap = new Map<string, ProjectSwapUserEntry>();
+
+    // Add all users from first array
+    for (const user of usersA || []) {
+        const key = getUserKey(user);
+        userMap.set(key, user);
+    }
+
+    // Add/update from second array - keep newer updatedAt for same unique key
+    for (const user of usersB || []) {
+        const key = getUserKey(user);
+        const existing = userMap.get(key);
+        if (!existing) {
+            userMap.set(key, user);
+        } else {
+            // Same user + createdAt: keep the one with more recent updatedAt
+            const existingUpdated = existing.updatedAt ?? existing.createdAt ?? 0;
+            const newUpdated = user.updatedAt ?? user.createdAt ?? 0;
+            if (newUpdated > existingUpdated) {
+                userMap.set(key, user);
+            }
+        }
+    }
+
+    return Array.from(userMap.values());
+}
+
+/**
  * Normalize ProjectSwapInfo - ensures the swapEntries array exists
- * @param swapInfo - Raw ProjectSwapInfo from metadata
+ * Handles null, undefined, and malformed inputs gracefully
+ * @param swapInfo - Raw ProjectSwapInfo from metadata (may be null/undefined)
  * @returns ProjectSwapInfo with swapEntries array guaranteed
  */
-export function normalizeProjectSwapInfo(swapInfo: ProjectSwapInfo): ProjectSwapInfo {
+export function normalizeProjectSwapInfo(swapInfo: ProjectSwapInfo | null | undefined): ProjectSwapInfo {
+    if (!swapInfo || typeof swapInfo !== "object") {
+        return { swapEntries: [] };
+    }
     return {
-        swapEntries: swapInfo.swapEntries || [],
+        swapEntries: Array.isArray(swapInfo.swapEntries) ? swapInfo.swapEntries : [],
     };
 }
 
@@ -210,6 +269,7 @@ export async function checkProjectSwapRequired(
 
                                 // Build merged entries map - local entries first, then remote
                                 // For matching swapUUID, keep the one with more recent swapModifiedAt
+                                // ALSO merge swappedUsers arrays to preserve user completion data
                                 const mergedMap = new Map<string, ProjectSwapEntry>();
                                 for (const entry of existingLocalEntries) {
                                     mergedMap.set(entry.swapUUID, entry);
@@ -219,13 +279,18 @@ export async function checkProjectSwapRequired(
                                     if (!existing) {
                                         mergedMap.set(entry.swapUUID, entry);
                                     } else {
-                                        // Compare timestamps - keep the more recent one
+                                        // Compare timestamps
                                         const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
                                         const remoteModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+
+                                        // ALWAYS merge swappedUsers arrays
+                                        const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
+
                                         if (remoteModified > existingModified) {
-                                            mergedMap.set(entry.swapUUID, entry);
+                                            mergedMap.set(entry.swapUUID, { ...entry, swappedUsers: mergedUsers });
                                             debug(`Cache merge: using remote entry (modified ${remoteModified}) over local (modified ${existingModified})`);
                                         } else {
+                                            mergedMap.set(entry.swapUUID, { ...existing, swappedUsers: mergedUsers });
                                             debug(`Cache merge: keeping local entry (modified ${existingModified}) over remote (modified ${remoteModified})`);
                                         }
                                     }
@@ -259,38 +324,99 @@ export async function checkProjectSwapRequired(
             }
         }
 
-        // Determine which swap info to use by MERGING entries and comparing swapModifiedAt timestamps
-        // This ensures that if local has a more recent cancellation, it takes precedence over remote's active status
-        // Key insight: For the SAME swap entry (matched by swapUUID), use the version with
-        // the most recent swapModifiedAt timestamp
+        // Determine which swap info to use by MERGING entries from all sources
+        // 
+        // ENTRY MATCHING: swapUUID + isOldProject (since old and new projects share same swapUUID)
+        // 
+        // TIMESTAMP SEPARATION:
+        //   - swapModifiedAt: for entry-level changes (status, cancellation, URLs, etc.)
+        //   - swappedUsersModifiedAt: for user completion changes
+        //
+        // MERGE RULES:
+        //   1. If swapModifiedAt differs: use newer entry for status/cancellation/URLs
+        //   2. ALWAYS merge swappedUsers arrays using mergeSwappedUsers()
+        //   3. "Cancelled" status is sticky - if either entry is cancelled, result is cancelled
+        //   4. Compute new swappedUsersModifiedAt as max of both entries
 
         // Collect all entries from all sources (ensure arrays are never undefined)
         const remoteEntries = remoteSwapInfo ? (normalizeProjectSwapInfo(remoteSwapInfo).swapEntries || []) : [];
         const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
         const localMetadataEntries = localMetadataSwapInfo ? (normalizeProjectSwapInfo(localMetadataSwapInfo).swapEntries || []) : [];
 
-        // Merge entries by swapUUID, keeping the one with the most recent swapModifiedAt
+        // Merge entries by swapUUID + swapInitiatedAt (composite key)
+        // This uniquely identifies a swap event across all sources
         const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
 
+        /**
+         * Get the unique key for entry matching.
+         * swapUUID uniquely identifies each swap event (A→B gets uuid-ab, B→C gets uuid-bc).
+         * Both OLD and NEW project perspectives of the same swap share the same UUID,
+         * so they merge together correctly.
+         */
+        const getEntryKey = (entry: ProjectSwapEntry): string => {
+            return entry.swapUUID;
+        };
+
         const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-            const key = entry.swapUUID;
+            const key = getEntryKey(entry);
             const existing = mergedEntriesMap.get(key);
             if (!existing) {
                 mergedEntriesMap.set(key, entry);
             } else {
-                // Compare swapModifiedAt timestamps - use the more recent one
+                // Merge swappedUsers arrays to capture all user completions
+                // Users are matched by userToSwap + createdAt (composite key)
+                // If swappedUsersModifiedAt differs, the newer entry's users take precedence
+                // for any conflicts, but we still merge to capture users that may only
+                // exist in one source (e.g., user completed offline, not yet synced)
+                const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
+
+                // Compute new swappedUsersModifiedAt as max of both entries
+                const existingUsersModified = existing.swappedUsersModifiedAt ?? 0;
+                const newUsersModified = entry.swappedUsersModifiedAt ?? 0;
+                const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified) || undefined;
+
+                // Compare swapModifiedAt for ENTRY-LEVEL changes (status, cancellation, URLs)
+                // This does NOT include swappedUsers changes
                 const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
                 const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+
+                // Determine which entry to use as base for entry-level fields
+                let baseEntry: ProjectSwapEntry;
                 if (newModified > existingModified) {
-                    mergedEntriesMap.set(key, entry);
+                    baseEntry = entry;
                     debug(`Entry ${key}: using version with swapModifiedAt ${newModified} (status: ${entry.swapStatus}) over ${existingModified} (status: ${existing.swapStatus})`);
+                } else {
+                    baseEntry = existing;
+                }
+
+                // SEMANTIC RULE: "cancelled" status is sticky
+                // If EITHER entry is cancelled, preserve the cancellation
+                // This prevents entry-level changes from un-cancelling a swap
+                // Rationale: explicit admin cancellation should not be accidentally overridden
+                const eitherCancelled = existing.swapStatus === "cancelled" || entry.swapStatus === "cancelled";
+                if (eitherCancelled) {
+                    // Find the cancelled entry to get cancellation details
+                    const cancelledEntry = existing.swapStatus === "cancelled" ? existing : entry;
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                        swapStatus: "cancelled",
+                        cancelledBy: cancelledEntry.cancelledBy,
+                        cancelledAt: cancelledEntry.cancelledAt,
+                    });
+                    debug(`Entry ${key}: preserving cancelled status (cancelled is sticky)`);
+                } else {
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                    });
                 }
             }
         };
 
         // Add entries from all sources - local metadata first, then localSwapFile, then remote
-        // This order means that if timestamps are equal, remote would be last processed,
-        // but since we're comparing timestamps, the order doesn't matter for different timestamps
         for (const entry of localMetadataEntries) {
             addOrUpdateEntry(entry);
         }

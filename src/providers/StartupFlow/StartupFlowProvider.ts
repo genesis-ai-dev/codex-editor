@@ -1612,6 +1612,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         }
 
+                        // Track if user has already swapped and chose to open deprecated project
+                        let skipSwapPrompt = false;
                         if (swapCheck.required && swapCheck.activeEntry && remoteProjectRequirements?.currentUsername) {
                             try {
                                 const { extractProjectIdFromUrl, fetchRemoteMetadata, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
@@ -1638,6 +1640,43 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 entry.executed
                                         );
                                         if (hasAlreadySwapped) {
+                                            // Cache the swap status to localProjectSwap.json for offline detection
+                                            try {
+                                                const { writeLocalProjectSwapFile, readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                                                const projectUri = vscode.Uri.file(projectPath);
+                                                const existingSwapFile = await readLocalProjectSwapFile(projectUri);
+                                                const existingEntries = existingSwapFile?.remoteSwapInfo?.swapEntries || [];
+                                                // Update or add the entry with user completion info
+                                                // IMPORTANT: Copy BOTH swappedUsers AND swapModifiedAt from remote
+                                                // to ensure timestamps are consistent for merge logic
+                                                const entryIndex = existingEntries.findIndex((e: ProjectSwapEntry) => e.swapUUID === swapCheck.activeEntry!.swapUUID);
+                                                const updatedEntry = {
+                                                    ...swapCheck.activeEntry,
+                                                    // Copy swappedUsers from remote (where completions are recorded)
+                                                    swappedUsers: matchingEntry?.swappedUsers || swapCheck.activeEntry?.swappedUsers,
+                                                    // Copy swapModifiedAt from remote to keep timestamps consistent
+                                                    swapModifiedAt: matchingEntry?.swapModifiedAt || swapCheck.activeEntry?.swapModifiedAt,
+                                                    // Also copy swapStatus in case it was cancelled
+                                                    swapStatus: matchingEntry?.swapStatus || swapCheck.activeEntry?.swapStatus,
+                                                    // Copy cancellation fields if present
+                                                    cancelledBy: matchingEntry?.cancelledBy || swapCheck.activeEntry?.cancelledBy,
+                                                    cancelledAt: matchingEntry?.cancelledAt || swapCheck.activeEntry?.cancelledAt,
+                                                };
+                                                if (entryIndex >= 0) {
+                                                    existingEntries[entryIndex] = updatedEntry;
+                                                } else {
+                                                    existingEntries.push(updatedEntry);
+                                                }
+                                                await writeLocalProjectSwapFile({
+                                                    remoteSwapInfo: { swapEntries: existingEntries },
+                                                    fetchedAt: Date.now(),
+                                                    sourceOriginUrl: existingSwapFile?.sourceOriginUrl || "",
+                                                }, projectUri);
+                                                debugLog("Cached user swap completion to localProjectSwap.json");
+                                            } catch (cacheErr) {
+                                                debugLog("Failed to cache swap completion (non-fatal):", cacheErr);
+                                            }
+
                                             const swapTargetLabel =
                                                 swapCheck.activeEntry.newProjectName ||
                                                 swapCheck.activeEntry.newProjectUrl ||
@@ -1656,7 +1695,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 return;
                                             }
 
-                                            if (alreadySwappedChoice !== "Open Project") {
+                                            if (alreadySwappedChoice === "Open Project") {
+                                                // User wants to open the deprecated project - skip the swap prompt
+                                                skipSwapPrompt = true;
+                                            } else {
+                                                // User cancelled
                                                 return;
                                             }
                                         }
@@ -1667,7 +1710,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         }
 
-                        if (swapCheck.required && swapCheck.activeEntry) {
+                        if (swapCheck.required && swapCheck.activeEntry && !skipSwapPrompt) {
                             debugLog("Project swap required for project");
 
                             const activeEntry = swapCheck.activeEntry;
@@ -3495,6 +3538,42 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     )
                                     : false;
                                 if (hasAlreadySwapped) {
+                                    // Cache the swap status to localProjectSwap.json for offline detection
+                                    try {
+                                        const { writeLocalProjectSwapFile, readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                                        const existingSwapFile = await readLocalProjectSwapFile(projectUri);
+                                        const existingEntries = existingSwapFile?.remoteSwapInfo?.swapEntries || [];
+                                        // Update or add the entry with user completion info
+                                        // IMPORTANT: Copy BOTH swappedUsers AND swapModifiedAt from remote
+                                        // to ensure timestamps are consistent for merge logic
+                                        const entryIndex = existingEntries.findIndex((e: ProjectSwapEntry) => e.swapUUID === activeEntry.swapUUID);
+                                        const updatedEntry = {
+                                            ...activeEntry,
+                                            // Copy swappedUsers from remote (where completions are recorded)
+                                            swappedUsers: matchingEntry?.swappedUsers || activeEntry.swappedUsers,
+                                            // Copy swapModifiedAt from remote to keep timestamps consistent
+                                            swapModifiedAt: matchingEntry?.swapModifiedAt || activeEntry.swapModifiedAt,
+                                            // Also copy swapStatus in case it was cancelled
+                                            swapStatus: matchingEntry?.swapStatus || activeEntry.swapStatus,
+                                            // Copy cancellation fields if present
+                                            cancelledBy: matchingEntry?.cancelledBy || activeEntry.cancelledBy,
+                                            cancelledAt: matchingEntry?.cancelledAt || activeEntry.cancelledAt,
+                                        };
+                                        if (entryIndex >= 0) {
+                                            existingEntries[entryIndex] = updatedEntry;
+                                        } else {
+                                            existingEntries.push(updatedEntry);
+                                        }
+                                        await writeLocalProjectSwapFile({
+                                            remoteSwapInfo: { swapEntries: existingEntries },
+                                            fetchedAt: Date.now(),
+                                            sourceOriginUrl: existingSwapFile?.sourceOriginUrl || "",
+                                        }, projectUri);
+                                        debugLog("Cached user swap completion to localProjectSwap.json");
+                                    } catch (cacheErr) {
+                                        debugLog("Failed to cache swap completion (non-fatal):", cacheErr);
+                                    }
+
                                     const swapTargetLabel =
                                         activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                                     const alreadySwappedChoice = await vscode.window.showWarningMessage(
@@ -3510,9 +3589,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         return;
                                     }
 
-                                    if (alreadySwappedChoice !== "Open Project") {
+                                    if (alreadySwappedChoice === "Open Project") {
+                                        // Open the deprecated project directly - skip swap dialog
+                                        const { MetadataManager } = await import("../../utils/metadataManager");
+                                        await MetadataManager.safeOpenFolder(projectUri);
                                         return;
                                     }
+
+                                    // User cancelled
+                                    return;
                                 }
                             }
                         }

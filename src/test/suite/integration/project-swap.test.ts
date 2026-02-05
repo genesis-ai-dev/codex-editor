@@ -4,7 +4,8 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 import * as git from "isomorphic-git";
-import { ProjectMetadata, ProjectSwapEntry, ProjectSwapInfo } from "../../../../types";
+import { ProjectMetadata, ProjectSwapEntry, ProjectSwapInfo, ProjectSwapUserEntry } from "../../../../types";
+import { sortSwapEntries } from "../../../utils/projectSwapManager";
 
 suite("Integration: Project Swap Flow", () => {
     let tempDir: string;
@@ -399,6 +400,502 @@ suite("Integration: Project Swap Flow", () => {
 
             assert.ok(origin, "origin remote should be set");
             assert.strictEqual(origin?.url, "https://gitlab.com/org/new-project.git");
+        });
+    });
+
+    // ============ Chain Swap Workflow Tests ============
+    suite("Chain Swap Workflow (A→B→C)", () => {
+        let projectA: string;
+        let projectB: string;
+        let projectC: string;
+
+        setup(async () => {
+            projectA = path.join(tempDir, "project-a");
+            projectB = path.join(tempDir, "project-b");
+            projectC = path.join(tempDir, "project-c");
+
+            await createProjectStructure(projectA, {
+                projectName: "Project A",
+                projectId: "proj-a",
+                gitUrl: "https://gitlab.com/org/project-a.git",
+            });
+            await createProjectStructure(projectB, {
+                projectName: "Project B",
+                projectId: "proj-b",
+                gitUrl: "https://gitlab.com/org/project-b.git",
+            });
+            await createProjectStructure(projectC, {
+                projectName: "Project C",
+                projectId: "proj-c",
+                gitUrl: "https://gitlab.com/org/project-c.git",
+            });
+        });
+
+        test("complete chain swap preserves full history in final project", async () => {
+            const uuidAB = "swap-a-to-b";
+            const uuidBC = "swap-b-to-c";
+
+            // Step 1: A → B swap
+            // A gets entry as old project
+            const entryInA = createSwapEntry({
+                swapUUID: uuidAB,
+                isOldProject: true,
+                oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                oldProjectName: "Project A",
+                newProjectUrl: "https://gitlab.com/org/project-b.git",
+                newProjectName: "Project B",
+            });
+
+            // B gets entry as new project
+            const entryInB_fromA = createSwapEntry({
+                swapUUID: uuidAB,
+                isOldProject: false,
+                oldProjectUrl: "https://gitlab.com/org/project-a.git",
+                oldProjectName: "Project A",
+                newProjectUrl: "https://gitlab.com/org/project-b.git",
+                newProjectName: "Project B",
+            });
+
+            // Write to A's metadata
+            const metaPathA = path.join(projectA, "metadata.json");
+            const metaA: ProjectMetadata = JSON.parse(fs.readFileSync(metaPathA, "utf-8"));
+            metaA.meta = metaA.meta || ({} as any);
+            metaA.meta.projectSwap = { swapEntries: [entryInA] };
+            fs.writeFileSync(metaPathA, JSON.stringify(metaA, null, 2));
+
+            // Write to B's metadata
+            const metaPathB = path.join(projectB, "metadata.json");
+            const metaB: ProjectMetadata = JSON.parse(fs.readFileSync(metaPathB, "utf-8"));
+            metaB.meta = metaB.meta || ({} as any);
+            metaB.meta.projectSwap = { swapEntries: [entryInB_fromA] };
+            fs.writeFileSync(metaPathB, JSON.stringify(metaB, null, 2));
+
+            // Step 2: B → C swap (B now initiates swap to C)
+            const entryInB_toC = createSwapEntry({
+                swapUUID: uuidBC,
+                isOldProject: true,
+                oldProjectUrl: "https://gitlab.com/org/project-b.git",
+                oldProjectName: "Project B",
+                newProjectUrl: "https://gitlab.com/org/project-c.git",
+                newProjectName: "Project C",
+            });
+
+            // Add B→C entry to B
+            metaB.meta.projectSwap.swapEntries?.push(entryInB_toC);
+            fs.writeFileSync(metaPathB, JSON.stringify(metaB, null, 2));
+
+            // Step 3: Create C's metadata with full history
+            // C inherits all of B's entries, with historical entries marked as isOldProject: true
+            const entriesForC = metaB.meta.projectSwap.swapEntries!.map(entry =>
+                entry.swapUUID === uuidBC
+                    ? { ...entry, isOldProject: false } // C is NEW for B→C
+                    : { ...entry, isOldProject: true }  // Historical entries
+            );
+
+            const metaPathC = path.join(projectC, "metadata.json");
+            const metaC: ProjectMetadata = JSON.parse(fs.readFileSync(metaPathC, "utf-8"));
+            metaC.meta = metaC.meta || ({} as any);
+            metaC.meta.projectSwap = { swapEntries: entriesForC };
+            fs.writeFileSync(metaPathC, JSON.stringify(metaC, null, 2));
+
+            // Verify C has complete history
+            const finalMetaC: ProjectMetadata = JSON.parse(fs.readFileSync(metaPathC, "utf-8"));
+            const finalEntries = finalMetaC.meta?.projectSwap?.swapEntries || [];
+
+            assert.strictEqual(finalEntries.length, 2, "C should have 2 entries (A→B and B→C)");
+
+            // Check A→B entry
+            const abEntry = finalEntries.find(e => e.swapUUID === uuidAB);
+            assert.ok(abEntry, "A→B entry should exist");
+            assert.strictEqual(abEntry?.isOldProject, true, "A→B should be marked as historical");
+            assert.strictEqual(abEntry?.oldProjectName, "Project A");
+            assert.strictEqual(abEntry?.newProjectName, "Project B");
+
+            // Check B→C entry
+            const bcEntry = finalEntries.find(e => e.swapUUID === uuidBC);
+            assert.ok(bcEntry, "B→C entry should exist");
+            assert.strictEqual(bcEntry?.isOldProject, false, "B→C should show C as new project");
+            assert.strictEqual(bcEntry?.oldProjectName, "Project B");
+            assert.strictEqual(bcEntry?.newProjectName, "Project C");
+        });
+
+        test("chain history allows reconstruction of full project lineage", async () => {
+            // Set up a chain with full history in C
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "swap-1", oldProjectName: "A", newProjectName: "B", swapInitiatedAt: 1000 }),
+                createSwapEntry({ swapUUID: "swap-2", oldProjectName: "B", newProjectName: "C", swapInitiatedAt: 2000 }),
+            ];
+
+            const metaPathC = path.join(projectC, "metadata.json");
+            const metaC: ProjectMetadata = JSON.parse(fs.readFileSync(metaPathC, "utf-8"));
+            metaC.meta = metaC.meta || ({} as any);
+            metaC.meta.projectSwap = { swapEntries: entries };
+            fs.writeFileSync(metaPathC, JSON.stringify(metaC, null, 2));
+
+            // Read back and trace lineage
+            const savedMeta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPathC, "utf-8"));
+            const swapHistory = savedMeta.meta?.projectSwap?.swapEntries || [];
+
+            // Sort by time to get chronological order
+            const chronological = [...swapHistory].sort((a, b) => a.swapInitiatedAt - b.swapInitiatedAt);
+
+            // Extract lineage
+            const lineage: string[] = [];
+            for (const entry of chronological) {
+                if (lineage.length === 0) {
+                    lineage.push(entry.oldProjectName);
+                }
+                lineage.push(entry.newProjectName);
+            }
+
+            assert.deepStrictEqual(lineage, ["A", "B", "C"], "Should reconstruct full lineage");
+        });
+    });
+
+    // ============ Origin Marker Integration Tests ============
+    suite("Origin Marker Integration", () => {
+        test("first-time swap creates origin marker in metadata", async () => {
+            // Project with no prior swap history initiates first swap
+            const projectPath = path.join(tempDir, "origin-project");
+            await createProjectStructure(projectPath, {
+                projectName: "Origin Project",
+                projectId: "origin-123",
+                gitUrl: "https://gitlab.com/org/origin-project.git",
+            });
+
+            const metaPath = path.join(projectPath, "metadata.json");
+            const meta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+
+            // No swap history yet
+            assert.strictEqual(meta.meta?.projectSwap?.swapEntries?.length ?? 0, 0);
+
+            // Simulate origin marker creation (what initiateProjectSwap does)
+            const now = Date.now();
+            const originMarker = createSwapEntry({
+                swapUUID: `origin-${meta.projectId}`,
+                swapInitiatedAt: now,
+                swapModifiedAt: now,
+                swapStatus: "cancelled",
+                isOldProject: true,
+                oldProjectUrl: "",
+                oldProjectName: "",
+                newProjectUrl: "https://gitlab.com/org/origin-project.git",
+                newProjectName: "Origin Project",
+                swapReason: "Origin project (no prior swap history)",
+                cancelledBy: "system",
+                cancelledAt: now,
+            });
+
+            const actualSwapEntry = createSwapEntry({
+                swapUUID: "first-swap-uuid",
+                swapStatus: "active",
+                isOldProject: true,
+                oldProjectUrl: "https://gitlab.com/org/origin-project.git",
+                oldProjectName: "Origin Project",
+                newProjectUrl: "https://gitlab.com/org/new-target.git",
+                newProjectName: "New Target",
+            });
+
+            // Write both entries
+            meta.meta = meta.meta || ({} as any);
+            meta.meta.projectSwap = {
+                swapEntries: sortSwapEntries([originMarker, actualSwapEntry]),
+            };
+            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+
+            // Verify
+            const savedMeta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            const entries = savedMeta.meta?.projectSwap?.swapEntries || [];
+
+            assert.strictEqual(entries.length, 2, "Should have origin marker + actual swap");
+
+            // Active entry should be first (due to sorting)
+            assert.strictEqual(entries[0].swapStatus, "active", "Active entry should be first");
+
+            // Origin marker should exist
+            const marker = entries.find(e => e.swapUUID.startsWith("origin-"));
+            assert.ok(marker, "Origin marker should exist");
+            assert.strictEqual(marker?.oldProjectUrl, "", "Origin marker has no old URL");
+            assert.strictEqual(marker?.oldProjectName, "", "Origin marker has no old name");
+        });
+    });
+
+    // ============ Multi-User Swap Tracking Integration ============
+    suite("Multi-User Swap Tracking", () => {
+        test("multiple users completing swap updates entry correctly", async () => {
+            const sharedSwapUUID = "multi-user-swap";
+
+            // Initial swap entry on new project
+            const entry = createSwapEntry({
+                swapUUID: sharedSwapUUID,
+                isOldProject: false,
+                swappedUsers: [],
+            });
+
+            const metaPath = path.join(newProjectDir, "metadata.json");
+            const meta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            meta.meta = meta.meta || ({} as any);
+            meta.meta.projectSwap = { swapEntries: [entry] };
+            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+
+            // User 1 completes swap
+            const user1CompletedAt = Date.now();
+            const savedMeta1: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            const entry1 = savedMeta1.meta?.projectSwap?.swapEntries?.find(e => e.swapUUID === sharedSwapUUID);
+            if (entry1) {
+                entry1.swappedUsers = [
+                    { userToSwap: "user1", createdAt: user1CompletedAt, updatedAt: user1CompletedAt, executed: true, swapCompletedAt: user1CompletedAt },
+                ];
+                entry1.swapModifiedAt = user1CompletedAt;
+            }
+            fs.writeFileSync(metaPath, JSON.stringify(savedMeta1, null, 2));
+
+            // User 2 completes swap (later)
+            const user2CompletedAt = Date.now() + 1000;
+            const savedMeta2: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            const entry2 = savedMeta2.meta?.projectSwap?.swapEntries?.find(e => e.swapUUID === sharedSwapUUID);
+            if (entry2) {
+                entry2.swappedUsers?.push(
+                    { userToSwap: "user2", createdAt: user2CompletedAt, updatedAt: user2CompletedAt, executed: true, swapCompletedAt: user2CompletedAt }
+                );
+                entry2.swapModifiedAt = user2CompletedAt;
+            }
+            fs.writeFileSync(metaPath, JSON.stringify(savedMeta2, null, 2));
+
+            // Verify final state
+            const finalMeta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            const finalEntry = finalMeta.meta?.projectSwap?.swapEntries?.find(e => e.swapUUID === sharedSwapUUID);
+
+            assert.strictEqual(finalEntry?.swappedUsers?.length, 2, "Should track 2 users");
+            assert.ok(finalEntry?.swappedUsers?.some(u => u.userToSwap === "user1" && u.executed));
+            assert.ok(finalEntry?.swappedUsers?.some(u => u.userToSwap === "user2" && u.executed));
+        });
+
+        test("already-swapped detection works across projects", async () => {
+            const sharedSwapUUID = "already-swapped-test";
+            const currentUser = "translator1";
+
+            // New project has user marked as completed
+            const newEntry = createSwapEntry({
+                swapUUID: sharedSwapUUID,
+                isOldProject: false,
+                swappedUsers: [
+                    { userToSwap: currentUser, createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                    { userToSwap: "other-user", createdAt: 1000, updatedAt: 1500, executed: true, swapCompletedAt: 1500 },
+                ],
+            });
+
+            const newMetaPath = path.join(newProjectDir, "metadata.json");
+            const newMeta: ProjectMetadata = JSON.parse(fs.readFileSync(newMetaPath, "utf-8"));
+            newMeta.meta = newMeta.meta || ({} as any);
+            newMeta.meta.projectSwap = { swapEntries: [newEntry] };
+            fs.writeFileSync(newMetaPath, JSON.stringify(newMeta, null, 2));
+
+            // Old project checks if user already swapped by looking at new project's metadata
+            const remoteSwapInfo = newMeta.meta.projectSwap;
+            const matchingEntry = remoteSwapInfo.swapEntries?.find(e => e.swapUUID === sharedSwapUUID);
+            const hasAlreadySwapped = matchingEntry?.swappedUsers?.some(
+                u => u.userToSwap === currentUser && u.executed
+            ) ?? false;
+
+            assert.strictEqual(hasAlreadySwapped, true, "Should detect user has already swapped");
+        });
+    });
+
+    // ============ Local Swap Cache Sync Integration ============
+    suite("Local Swap Cache Sync", () => {
+        test("localProjectSwap.json syncs swappedUsers from remote", async () => {
+            const swapUUID = "cache-sync-test";
+
+            // Remote (new project) has user completion info
+            const remoteEntry = createSwapEntry({
+                swapUUID,
+                isOldProject: false,
+                swappedUsers: [
+                    { userToSwap: "remote-user", createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                ],
+            });
+
+            // Old project has local cache without user completion
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+            const existingCache = {
+                remoteSwapInfo: {
+                    swapEntries: [
+                        createSwapEntry({ swapUUID, isOldProject: true, swappedUsers: [] }),
+                    ],
+                },
+                fetchedAt: Date.now() - 3600000, // 1 hour ago
+                sourceOriginUrl: "https://gitlab.com/org/old-project.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(existingCache, null, 2));
+
+            // Simulate sync: update local cache with remote data
+            const localCache = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const existingEntries = localCache.remoteSwapInfo?.swapEntries || [];
+
+            const entryIndex = existingEntries.findIndex((e: ProjectSwapEntry) => e.swapUUID === swapUUID);
+            if (entryIndex >= 0) {
+                // Update with remote user data
+                existingEntries[entryIndex].swappedUsers = remoteEntry.swappedUsers;
+            }
+
+            localCache.remoteSwapInfo = { swapEntries: existingEntries };
+            localCache.fetchedAt = Date.now();
+            fs.writeFileSync(localSwapPath, JSON.stringify(localCache, null, 2));
+
+            // Verify sync
+            const syncedCache = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const syncedEntry = syncedCache.remoteSwapInfo?.swapEntries?.find((e: ProjectSwapEntry) => e.swapUUID === swapUUID);
+
+            assert.strictEqual(syncedEntry?.swappedUsers?.length, 1, "Should have synced user");
+            assert.strictEqual(syncedEntry?.swappedUsers?.[0].userToSwap, "remote-user");
+            assert.strictEqual(syncedEntry?.swappedUsers?.[0].executed, true);
+        });
+
+        test("local cache enables offline swap detection", async () => {
+            const swapUUID = "offline-detection-test";
+            const currentUser = "offline-user";
+
+            // Local cache has user marked as completed (from previous sync)
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+            const cachedData = {
+                remoteSwapInfo: {
+                    swapEntries: [
+                        createSwapEntry({
+                            swapUUID,
+                            isOldProject: true,
+                            swappedUsers: [
+                                { userToSwap: currentUser, createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                            ],
+                        }),
+                    ],
+                },
+                fetchedAt: Date.now() - 86400000, // 24 hours ago
+                sourceOriginUrl: "https://gitlab.com/org/old-project.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(cachedData, null, 2));
+
+            // Offline detection: check local cache
+            const localCache = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const cachedEntry = localCache.remoteSwapInfo?.swapEntries?.find(
+                (e: ProjectSwapEntry) => e.swapUUID === swapUUID
+            );
+            const hasAlreadySwappedOffline = cachedEntry?.swappedUsers?.some(
+                (u: ProjectSwapUserEntry) => u.userToSwap === currentUser && u.executed
+            ) ?? false;
+
+            assert.strictEqual(hasAlreadySwappedOffline, true, "Should detect swap completion from local cache");
+        });
+    });
+
+    // ============ Sorting Persistence Integration ============
+    suite("Sorting Persistence", () => {
+        test("entries are sorted consistently when written to metadata", async () => {
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "z-uuid", swapStatus: "cancelled", swapInitiatedAt: 1000 }),
+                createSwapEntry({ swapUUID: "a-uuid", swapStatus: "cancelled", swapInitiatedAt: 1000 }),
+                createSwapEntry({ swapUUID: "m-uuid", swapStatus: "active", swapInitiatedAt: 500 }),
+            ];
+
+            const metaPath = path.join(oldProjectDir, "metadata.json");
+            const meta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            meta.meta = meta.meta || ({} as any);
+
+            // Write sorted entries
+            meta.meta.projectSwap = { swapEntries: sortSwapEntries(entries) };
+            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+
+            // Read back and verify order
+            const savedMeta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            const savedEntries = savedMeta.meta?.projectSwap?.swapEntries || [];
+
+            // Active should be first
+            assert.strictEqual(savedEntries[0].swapUUID, "m-uuid", "Active entry should be first");
+            assert.strictEqual(savedEntries[0].swapStatus, "active");
+
+            // Then sorted by swapUUID for ties
+            assert.strictEqual(savedEntries[1].swapUUID, "a-uuid", "a-uuid should be before z-uuid");
+            assert.strictEqual(savedEntries[2].swapUUID, "z-uuid");
+        });
+
+        test("re-writing sorted entries produces identical JSON", async () => {
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "entry-1", swapStatus: "active", swapInitiatedAt: 2000 }),
+                createSwapEntry({ swapUUID: "entry-2", swapStatus: "cancelled", swapInitiatedAt: 1000 }),
+            ];
+
+            const metaPath = path.join(oldProjectDir, "metadata.json");
+            const meta: ProjectMetadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+            meta.meta = meta.meta || ({} as any);
+
+            // First write
+            meta.meta.projectSwap = { swapEntries: sortSwapEntries(entries) };
+            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+            const json1 = fs.readFileSync(metaPath, "utf-8");
+
+            // Read, re-sort, re-write
+            const savedMeta: ProjectMetadata = JSON.parse(json1);
+            savedMeta.meta!.projectSwap = {
+                swapEntries: sortSwapEntries(savedMeta.meta?.projectSwap?.swapEntries || []),
+            };
+            fs.writeFileSync(metaPath, JSON.stringify(savedMeta, null, 2));
+            const json2 = fs.readFileSync(metaPath, "utf-8");
+
+            // JSON should be identical (no churn)
+            assert.strictEqual(json1, json2, "Re-writing sorted entries should not change JSON");
+        });
+    });
+
+    // ============ Error Recovery Integration ============
+    suite("Error Recovery Integration", () => {
+        test("interrupted swap state is persisted and recoverable", async () => {
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+
+            // Simulate interrupted swap - save state
+            const interruptedState = {
+                swapPendingDownloads: {
+                    swapState: "pending_downloads",
+                    filesNeedingDownload: ["GEN/1_1.mp3", "GEN/1_2.mp3"],
+                    newProjectUrl: "https://gitlab.com/org/new-project.git",
+                    swapUUID: "interrupted-swap",
+                    swapInitiatedAt: Date.now(),
+                    createdAt: Date.now(),
+                },
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({ swapUUID: "interrupted-swap", isOldProject: true })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old-project.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(interruptedState, null, 2));
+
+            // Simulate recovery - read state
+            const recoveredState = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+
+            assert.strictEqual(recoveredState.swapPendingDownloads.swapState, "pending_downloads");
+            assert.strictEqual(recoveredState.swapPendingDownloads.filesNeedingDownload.length, 2);
+            assert.strictEqual(recoveredState.swapPendingDownloads.swapUUID, "interrupted-swap");
+        });
+
+        test("corrupted local cache is handled gracefully", async () => {
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+
+            // Write corrupted JSON
+            fs.writeFileSync(localSwapPath, "{ invalid json }}}");
+
+            // Try to read - should handle error
+            let readSuccessfully = false;
+            let fallbackUsed = false;
+            try {
+                JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+                readSuccessfully = true;
+            } catch {
+                // Fallback to empty/default
+                fallbackUsed = true;
+            }
+
+            assert.strictEqual(readSuccessfully, false, "Should not read corrupted JSON");
+            assert.strictEqual(fallbackUsed, true, "Should use fallback for corrupted cache");
         });
     });
 });

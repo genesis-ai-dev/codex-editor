@@ -1354,19 +1354,34 @@ export interface ProjectSwapUserEntry {
  */
 export interface ProjectSwapEntry {
     /**
-     * Unique identifier that links all projects in a swap chain.
-     * Generated once when a swap is first initiated, then propagated to all
-     * subsequent swapped projects. This creates a traceable chain:
-     * ProjectA (original) -> ProjectB -> ProjectC all share the same swapUUID.
-     * Enables tracking lineage regardless of how many times a project is swapped.
+     * Unique identifier for this specific swap event.
+     * Generated once when a swap is first initiated.
+     * Each swap in a chain gets a NEW swapUUID (A→B gets uuid-ab, B→C gets uuid-bc).
+     * 
+     * This is the primary key used for entry matching during merges.
+     * Both OLD and NEW project perspectives of the same swap share the same UUID.
      */
     swapUUID: string;
 
-    /** Unique key - immutable once set, shared between OLD and NEW projects */
+    /**
+     * Immutable timestamp when this swap was initiated.
+     * This value never changes after the swap is created.
+     */
     swapInitiatedAt: number;
 
-    /** Last modification timestamp */
+    /**
+     * Last modification timestamp for ENTRY-LEVEL changes only.
+     * Updated when: swapStatus, cancelledBy, cancelledAt, URLs, names change.
+     * NOT updated when: swappedUsers array changes (use swappedUsersModifiedAt).
+     */
     swapModifiedAt: number;
+
+    /**
+     * Last modification timestamp for swappedUsers array changes.
+     * Updated when: users are added/updated in swappedUsers array.
+     * Used during merge to determine which swappedUsers data to prioritize.
+     */
+    swappedUsersModifiedAt?: number;
 
     /** Only active or cancelled - execution state lives in localProjectSettings.json */
     swapStatus: "active" | "cancelled";
@@ -1388,8 +1403,11 @@ export interface ProjectSwapEntry {
     swapInitiatedBy: string;
     swapReason?: string;
 
-    /** Users who completed this swap (moved to new project)
-     *  This array is merged across OLD and NEW projects during sync */
+    /**
+     * Users who completed this swap (moved to new project).
+     * This array is merged across OLD and NEW projects during sync.
+     * Users are matched by BOTH userToSwap AND createdAt (together as unique key).
+     */
     swappedUsers?: ProjectSwapUserEntry[];
 
     /** If cancelled, who cancelled it and when */

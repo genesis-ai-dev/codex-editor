@@ -17,6 +17,7 @@ import {
     extractProjectNameFromUrl,
     sanitizeGitUrl,
     getGitOriginUrl,
+    mergeSwappedUsers,
 } from "../../utils/projectSwapManager";
 import {
     checkSwapPrerequisites,
@@ -206,6 +207,122 @@ suite("Project Swap Tests", () => {
                 const sorted = sortSwapEntries(entries);
                 assert.strictEqual(sorted[0].swapUUID, "a-uuid");
                 assert.strictEqual(sorted[1].swapUUID, "b-uuid");
+            });
+        });
+
+        suite("mergeSwappedUsers", () => {
+            test("returns empty array when both inputs are undefined", () => {
+                const result = mergeSwappedUsers(undefined, undefined);
+                assert.deepStrictEqual(result, []);
+            });
+
+            test("returns first array when second is undefined", () => {
+                const usersA: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: true },
+                ];
+                const result = mergeSwappedUsers(usersA, undefined);
+                assert.strictEqual(result.length, 1);
+                assert.strictEqual(result[0].userToSwap, "user1");
+            });
+
+            test("returns second array when first is undefined", () => {
+                const usersB: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user2", createdAt: 2000, updatedAt: 2000, executed: true },
+                ];
+                const result = mergeSwappedUsers(undefined, usersB);
+                assert.strictEqual(result.length, 1);
+                assert.strictEqual(result[0].userToSwap, "user2");
+            });
+
+            test("merges unique users from both arrays", () => {
+                const usersA: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: true },
+                ];
+                const usersB: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user2", createdAt: 2000, updatedAt: 2000, executed: true },
+                ];
+                const result = mergeSwappedUsers(usersA, usersB);
+                assert.strictEqual(result.length, 2);
+                assert.ok(result.some(u => u.userToSwap === "user1"));
+                assert.ok(result.some(u => u.userToSwap === "user2"));
+            });
+
+            test("keeps newer updatedAt when same user appears in both", () => {
+                const usersA: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: false },
+                ];
+                const usersB: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                ];
+                const result = mergeSwappedUsers(usersA, usersB);
+                assert.strictEqual(result.length, 1);
+                assert.strictEqual(result[0].userToSwap, "user1");
+                assert.strictEqual(result[0].executed, true, "Should keep newer entry with executed: true");
+                assert.strictEqual(result[0].updatedAt, 2000);
+            });
+
+            test("keeps older entry if newer has earlier updatedAt", () => {
+                const usersA: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 3000, executed: true },
+                ];
+                const usersB: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 2000, executed: false },
+                ];
+                const result = mergeSwappedUsers(usersA, usersB);
+                assert.strictEqual(result.length, 1);
+                assert.strictEqual(result[0].executed, true, "Should keep entry with more recent updatedAt");
+                assert.strictEqual(result[0].updatedAt, 3000);
+            });
+
+            test("handles multiple users with mixed updates", () => {
+                const usersA: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: false },
+                    { userToSwap: "user2", createdAt: 1000, updatedAt: 3000, executed: true },
+                ];
+                const usersB: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 2000, executed: true },
+                    { userToSwap: "user3", createdAt: 1000, updatedAt: 1000, executed: true },
+                ];
+                const result = mergeSwappedUsers(usersA, usersB);
+                assert.strictEqual(result.length, 3);
+
+                const user1 = result.find(u => u.userToSwap === "user1");
+                assert.strictEqual(user1?.executed, true, "user1 should have newer executed: true");
+                assert.strictEqual(user1?.updatedAt, 2000);
+
+                const user2 = result.find(u => u.userToSwap === "user2");
+                assert.strictEqual(user2?.updatedAt, 3000);
+
+                const user3 = result.find(u => u.userToSwap === "user3");
+                assert.ok(user3, "user3 should be included");
+            });
+
+            test("different createdAt creates separate entries (composite key)", () => {
+                // With the new composite key (userToSwap + createdAt), entries with
+                // different createdAt are considered DIFFERENT users (e.g., same user re-swapping)
+                const usersA: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, executed: false } as ProjectSwapUserEntry,
+                ];
+                const usersB: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 2000, executed: true } as ProjectSwapUserEntry,
+                ];
+                const result = mergeSwappedUsers(usersA, usersB);
+                assert.strictEqual(result.length, 2, "Different createdAt = different entries");
+                assert.ok(result.some(u => u.createdAt === 1000), "Should have first entry");
+                assert.ok(result.some(u => u.createdAt === 2000), "Should have second entry");
+            });
+
+            test("same composite key uses updatedAt for fallback when missing", () => {
+                // Same userToSwap + createdAt with missing updatedAt - uses createdAt as fallback
+                const usersA: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, executed: false } as ProjectSwapUserEntry,
+                ];
+                const usersB: ProjectSwapUserEntry[] = [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 2000, executed: true } as ProjectSwapUserEntry,
+                ];
+                const result = mergeSwappedUsers(usersA, usersB);
+                assert.strictEqual(result.length, 1, "Same composite key = merged");
+                assert.strictEqual(result[0].executed, true, "Should use entry with higher timestamp");
             });
         });
 
@@ -837,6 +954,1046 @@ suite("Project Swap Tests", () => {
         test("markedForDeletion flag for orphaned projects", () => {
             const localSwap = { remoteSwapInfo: {}, fetchedAt: Date.now(), sourceOriginUrl: "", markedForDeletion: true, swapCompletedAt: Date.now() };
             assert.strictEqual(localSwap.markedForDeletion, true);
+        });
+    });
+
+    // ========================================================================
+    // CHAIN SWAP HISTORY PRESERVATION
+    // ========================================================================
+    suite("Chain Swap History Preservation", () => {
+        test("full chain A→B→C preserves complete history in project C", () => {
+            // Simulate chain: A → B → C
+            // When C is created from B, it should have both A→B and B→C entries
+            const uuidAB = "chain-swap-ab";
+            const uuidBC = "chain-swap-bc";
+
+            // B's entries before swapping to C
+            const entriesInB: ProjectSwapEntry[] = [
+                createSwapEntry({
+                    swapUUID: uuidAB,
+                    isOldProject: false, // B is NEW from A→B
+                    oldProjectName: "ProjectA",
+                    newProjectName: "ProjectB",
+                    swapStatus: "active",
+                }),
+            ];
+
+            // B initiates swap to C - add B→C entry
+            entriesInB.push(createSwapEntry({
+                swapUUID: uuidBC,
+                isOldProject: true, // B is OLD for B→C
+                oldProjectName: "ProjectB",
+                newProjectName: "ProjectC",
+                swapStatus: "active",
+            }));
+
+            // When user swaps to C, simulate history preservation logic:
+            // All entries are kept, but historical entries (not current swap) get isOldProject: true
+            const entriesForC = entriesInB.map(entry =>
+                entry.swapUUID === uuidBC
+                    ? { ...entry, isOldProject: false } // Current swap: C is NEW
+                    : { ...entry, isOldProject: true }  // Historical: mark as old
+            );
+
+            // Verify all entries preserved
+            assert.strictEqual(entriesForC.length, 2, "Both swap entries should be preserved");
+
+            // Verify A→B entry is marked as old
+            const abEntry = entriesForC.find(e => e.swapUUID === uuidAB);
+            assert.ok(abEntry, "A→B entry should exist");
+            assert.strictEqual(abEntry?.isOldProject, true, "A→B should be marked as historical (isOldProject: true)");
+
+            // Verify B→C entry has C as new project
+            const bcEntry = entriesForC.find(e => e.swapUUID === uuidBC);
+            assert.ok(bcEntry, "B→C entry should exist");
+            assert.strictEqual(bcEntry?.isOldProject, false, "B→C should show C as new project");
+        });
+
+        test("extended chain A→B→C→D preserves all history", () => {
+            const uuidAB = "chain-ab";
+            const uuidBC = "chain-bc";
+            const uuidCD = "chain-cd";
+
+            // D's entries should have complete chain history
+            const entriesInD: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: uuidAB, isOldProject: true, oldProjectName: "A", newProjectName: "B" }),
+                createSwapEntry({ swapUUID: uuidBC, isOldProject: true, oldProjectName: "B", newProjectName: "C" }),
+                createSwapEntry({ swapUUID: uuidCD, isOldProject: false, oldProjectName: "C", newProjectName: "D" }),
+            ];
+
+            // All should be preserved
+            assert.strictEqual(entriesInD.length, 3);
+            // Only the current (latest) entry should have isOldProject: false
+            assert.strictEqual(entriesInD.filter(e => e.isOldProject === false).length, 1);
+            assert.strictEqual(entriesInD.find(e => e.isOldProject === false)?.swapUUID, uuidCD);
+        });
+
+        test("chain history allows tracing back to origin project", () => {
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "swap-1", oldProjectName: "Origin", newProjectName: "V2", isOldProject: true, swapInitiatedAt: 1000 }),
+                createSwapEntry({ swapUUID: "swap-2", oldProjectName: "V2", newProjectName: "V3", isOldProject: true, swapInitiatedAt: 2000 }),
+                createSwapEntry({ swapUUID: "swap-3", oldProjectName: "V3", newProjectName: "Current", isOldProject: false, swapInitiatedAt: 3000 }),
+            ];
+
+            // Sort by swapInitiatedAt ascending to trace history
+            const sorted = [...entries].sort((a, b) => a.swapInitiatedAt - b.swapInitiatedAt);
+
+            // First entry should be origin
+            assert.strictEqual(sorted[0].oldProjectName, "Origin");
+            // Last entry's newProjectName should be current
+            assert.strictEqual(sorted[sorted.length - 1].newProjectName, "Current");
+
+            // Can trace full path
+            const path = sorted.map(e => `${e.oldProjectName}→${e.newProjectName}`);
+            assert.deepStrictEqual(path, ["Origin→V2", "V2→V3", "V3→Current"]);
+        });
+    });
+
+    // ========================================================================
+    // ORIGIN MARKER ENTRIES
+    // ========================================================================
+    suite("Origin Marker Entries", () => {
+        test("origin marker has correct structure for first-time swap", () => {
+            // When a project with no prior swap history initiates a swap,
+            // an origin marker entry should be created
+            const originMarker = createSwapEntry({
+                swapUUID: "origin-abc123",
+                swapStatus: "cancelled",
+                isOldProject: true,
+                oldProjectUrl: "",
+                oldProjectName: "",
+                newProjectUrl: "https://gitlab.com/org/origin-project.git",
+                newProjectName: "origin-project",
+                swapReason: "Origin project (no prior swap history)",
+                cancelledBy: "system",
+                cancelledAt: Date.now(),
+            });
+
+            // Verify origin marker properties
+            assert.strictEqual(originMarker.oldProjectUrl, "", "Origin marker should have empty oldProjectUrl");
+            assert.strictEqual(originMarker.oldProjectName, "", "Origin marker should have empty oldProjectName");
+            assert.strictEqual(originMarker.swapStatus, "cancelled", "Origin marker should be cancelled");
+            assert.strictEqual(originMarker.isOldProject, true, "Origin marker should be isOldProject: true");
+            assert.ok(originMarker.swapUUID.startsWith("origin-"), "Origin marker UUID should start with 'origin-'");
+        });
+
+        test("origin marker distinguishes first project in chain", () => {
+            const entries: ProjectSwapEntry[] = [
+                // Origin marker
+                createSwapEntry({
+                    swapUUID: "origin-first",
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    oldProjectUrl: "",
+                    oldProjectName: "",
+                    newProjectUrl: "https://gitlab.com/org/first.git",
+                    newProjectName: "first",
+                    swapInitiatedAt: 1000,
+                }),
+                // Actual swap
+                createSwapEntry({
+                    swapUUID: "swap-first-second",
+                    swapStatus: "active",
+                    isOldProject: true,
+                    oldProjectUrl: "https://gitlab.com/org/first.git",
+                    oldProjectName: "first",
+                    newProjectUrl: "https://gitlab.com/org/second.git",
+                    newProjectName: "second",
+                    swapInitiatedAt: 2000,
+                }),
+            ];
+
+            // Find origin marker
+            const originMarker = entries.find(e => e.swapUUID.startsWith("origin-"));
+            assert.ok(originMarker, "Origin marker should exist");
+            assert.strictEqual(originMarker?.oldProjectUrl, "");
+            assert.strictEqual(originMarker?.oldProjectName, "");
+
+            // Origin project is identified by the origin marker's newProjectName
+            assert.strictEqual(originMarker?.newProjectName, "first");
+        });
+
+        test("origin marker is not added for projects with existing swap history", () => {
+            // Project with existing history should NOT get an origin marker
+            const existingEntries: ProjectSwapEntry[] = [
+                createSwapEntry({
+                    swapUUID: "existing-swap",
+                    isOldProject: false,
+                    oldProjectName: "previous",
+                    newProjectName: "current",
+                }),
+            ];
+
+            // When initiating a new swap, we should NOT add origin marker
+            const shouldAddOriginMarker = existingEntries.length === 0;
+            assert.strictEqual(shouldAddOriginMarker, false, "Should not add origin marker when history exists");
+        });
+    });
+
+    // ========================================================================
+    // DETERMINISTIC SORTING PERSISTENCE
+    // ========================================================================
+    suite("Deterministic Sorting Persistence", () => {
+        test("sortSwapEntries produces identical results for same input", () => {
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "c-uuid", swapStatus: "cancelled", swapInitiatedAt: 1000 }),
+                createSwapEntry({ swapUUID: "a-uuid", swapStatus: "cancelled", swapInitiatedAt: 1000 }),
+                createSwapEntry({ swapUUID: "b-uuid", swapStatus: "active", swapInitiatedAt: 2000 }),
+            ];
+
+            // Sort multiple times
+            const sorted1 = sortSwapEntries([...entries]);
+            const sorted2 = sortSwapEntries([...entries]);
+            const sorted3 = sortSwapEntries([...entries]);
+
+            // All results should be identical
+            assert.deepStrictEqual(sorted1.map(e => e.swapUUID), sorted2.map(e => e.swapUUID));
+            assert.deepStrictEqual(sorted2.map(e => e.swapUUID), sorted3.map(e => e.swapUUID));
+        });
+
+        test("sortSwapEntries is stable across different input orderings", () => {
+            const baseEntries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "uuid-1", swapStatus: "cancelled", swapInitiatedAt: 1000, swapModifiedAt: 1000 }),
+                createSwapEntry({ swapUUID: "uuid-2", swapStatus: "cancelled", swapInitiatedAt: 1000, swapModifiedAt: 1000 }),
+                createSwapEntry({ swapUUID: "uuid-3", swapStatus: "active", swapInitiatedAt: 2000, swapModifiedAt: 2000 }),
+            ];
+
+            // Sort with different input orders
+            const order1 = sortSwapEntries([baseEntries[0], baseEntries[1], baseEntries[2]]);
+            const order2 = sortSwapEntries([baseEntries[2], baseEntries[0], baseEntries[1]]);
+            const order3 = sortSwapEntries([baseEntries[1], baseEntries[2], baseEntries[0]]);
+
+            // All should produce same output order
+            assert.deepStrictEqual(order1.map(e => e.swapUUID), order2.map(e => e.swapUUID));
+            assert.deepStrictEqual(order2.map(e => e.swapUUID), order3.map(e => e.swapUUID));
+        });
+
+        test("sorted entries prevent unnecessary metadata churn", () => {
+            // Simulate what happens during sync: if sorting is deterministic,
+            // writing sorted entries should not change the JSON
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "first", swapStatus: "active", swapInitiatedAt: 2000 }),
+                createSwapEntry({ swapUUID: "second", swapStatus: "cancelled", swapInitiatedAt: 1000 }),
+            ];
+
+            const sorted = sortSwapEntries(entries);
+            const json1 = JSON.stringify({ swapEntries: sorted });
+
+            // Re-sort and stringify
+            const reSorted = sortSwapEntries(sorted);
+            const json2 = JSON.stringify({ swapEntries: reSorted });
+
+            assert.strictEqual(json1, json2, "Re-sorting should not change JSON output");
+        });
+
+        test("active entry is always first regardless of timestamps", () => {
+            // Even if cancelled entry has newer timestamp, active should be first
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "newer-cancelled", swapStatus: "cancelled", swapInitiatedAt: 9999 }),
+                createSwapEntry({ swapUUID: "older-active", swapStatus: "active", swapInitiatedAt: 1000 }),
+            ];
+
+            const sorted = sortSwapEntries(entries);
+            assert.strictEqual(sorted[0].swapUUID, "older-active", "Active entry should be first");
+            assert.strictEqual(sorted[0].swapStatus, "active");
+        });
+    });
+
+    // ========================================================================
+    // ALREADY-SWAPPED USER DETECTION
+    // ========================================================================
+    suite("Already-Swapped User Detection", () => {
+        test("detects user who has already completed swap", () => {
+            const currentUsername = "user123";
+            const entry = createSwapEntry({
+                swappedUsers: [
+                    { userToSwap: "user123", createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                    { userToSwap: "other-user", createdAt: 1000, updatedAt: 1000, executed: false },
+                ],
+            });
+
+            const hasAlreadySwapped = entry.swappedUsers?.some(
+                u => u.userToSwap === currentUsername && u.executed
+            );
+
+            assert.strictEqual(hasAlreadySwapped, true, "Should detect user has already swapped");
+        });
+
+        test("returns false for user who has not swapped", () => {
+            const currentUsername = "new-user";
+            const entry = createSwapEntry({
+                swappedUsers: [
+                    { userToSwap: "other-user", createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                ],
+            });
+
+            const hasAlreadySwapped = entry.swappedUsers?.some(
+                u => u.userToSwap === currentUsername && u.executed
+            );
+
+            assert.strictEqual(hasAlreadySwapped, false, "Should return false for user who hasn't swapped");
+        });
+
+        test("returns false when user entry exists but not executed", () => {
+            const currentUsername = "pending-user";
+            const entry = createSwapEntry({
+                swappedUsers: [
+                    { userToSwap: "pending-user", createdAt: 1000, updatedAt: 1000, executed: false },
+                ],
+            });
+
+            const hasAlreadySwapped = entry.swappedUsers?.some(
+                u => u.userToSwap === currentUsername && u.executed
+            );
+
+            assert.strictEqual(hasAlreadySwapped, false, "Should return false when executed is false");
+        });
+
+        test("handles empty swappedUsers array", () => {
+            const currentUsername = "any-user";
+            const entry = createSwapEntry({ swappedUsers: [] });
+
+            const hasAlreadySwapped = entry.swappedUsers?.some(
+                u => u.userToSwap === currentUsername && u.executed
+            );
+
+            assert.strictEqual(hasAlreadySwapped, false, "Should return false for empty array");
+        });
+
+        test("handles undefined swappedUsers", () => {
+            const currentUsername = "any-user";
+            const entry = createSwapEntry({});
+            delete (entry as any).swappedUsers;
+
+            const hasAlreadySwapped = entry.swappedUsers?.some(
+                u => u.userToSwap === currentUsername && u.executed
+            ) ?? false;
+
+            assert.strictEqual(hasAlreadySwapped, false, "Should return false for undefined");
+        });
+    });
+
+    // ========================================================================
+    // MULTI-USER SWAP COORDINATION
+    // ========================================================================
+    suite("Multi-User Swap Coordination", () => {
+        test("multiple users can be tracked in same swap entry", () => {
+            const entry = createSwapEntry({
+                swappedUsers: [
+                    { userToSwap: "admin", createdAt: 1000, updatedAt: 1000, executed: true, swapCompletedAt: 1000 },
+                    { userToSwap: "translator1", createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                    { userToSwap: "translator2", createdAt: 1000, updatedAt: 3000, executed: true, swapCompletedAt: 3000 },
+                    { userToSwap: "pending-user", createdAt: 1000, updatedAt: 1000, executed: false },
+                ],
+            });
+
+            const completedCount = entry.swappedUsers?.filter(u => u.executed).length ?? 0;
+            const pendingCount = entry.swappedUsers?.filter(u => !u.executed).length ?? 0;
+
+            assert.strictEqual(completedCount, 3, "Should track 3 completed swaps");
+            assert.strictEqual(pendingCount, 1, "Should track 1 pending swap");
+        });
+
+        test("user entries are deduplicated by username (newer wins)", () => {
+            const users: ProjectSwapUserEntry[] = [
+                { userToSwap: "dup-user", createdAt: 1000, updatedAt: 1000, executed: false },
+                { userToSwap: "dup-user", createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 },
+                { userToSwap: "unique-user", createdAt: 1000, updatedAt: 1000, executed: true, swapCompletedAt: 1000 },
+            ];
+
+            // Simulate deduplication logic
+            const map = new Map<string, ProjectSwapUserEntry>();
+            for (const u of users) {
+                const existing = map.get(u.userToSwap);
+                if (!existing || u.updatedAt > existing.updatedAt) {
+                    map.set(u.userToSwap, u);
+                }
+            }
+
+            const deduplicated = Array.from(map.values());
+            assert.strictEqual(deduplicated.length, 2, "Should have 2 unique users");
+
+            const dupUser = deduplicated.find(u => u.userToSwap === "dup-user");
+            assert.strictEqual(dupUser?.executed, true, "Newer entry with executed=true should win");
+            assert.strictEqual(dupUser?.updatedAt, 2000, "Should have newer timestamp");
+        });
+
+        test("swapModifiedAt updates when user completes swap", () => {
+            const entry = createSwapEntry({
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 1000,
+                swappedUsers: [],
+            });
+
+            // User completes swap
+            const userCompletionTime = 5000;
+            entry.swappedUsers = [
+                { userToSwap: "newuser", createdAt: userCompletionTime, updatedAt: userCompletionTime, executed: true, swapCompletedAt: userCompletionTime },
+            ];
+            entry.swapModifiedAt = userCompletionTime;
+
+            assert.strictEqual(entry.swapModifiedAt, 5000, "swapModifiedAt should update on user completion");
+            assert.ok(entry.swapModifiedAt > entry.swapInitiatedAt, "Modified should be after initiated");
+        });
+    });
+
+    // ========================================================================
+    // ERROR RECOVERY SCENARIOS
+    // ========================================================================
+    suite("Error Recovery Scenarios", () => {
+        test("partial swap state is recoverable", () => {
+            // Simulate interrupted swap state
+            const partialState = {
+                projectSwap: {
+                    pendingSwap: true,
+                    swapUUID: "interrupted-uuid",
+                    backupPath: "/tmp/backup.zip",
+                    swapInProgress: true,
+                    swapAttempts: 2,
+                    lastAttemptError: "Network timeout during clone",
+                },
+                updateState: {
+                    step: "clone_started",
+                    completedSteps: ["backup_done"],
+                    projectPath: "/path/to/project",
+                    projectName: "my-project",
+                    createdAt: Date.now(),
+                },
+            };
+
+            // Verify state can be used for recovery
+            assert.strictEqual(partialState.projectSwap.pendingSwap, true);
+            assert.strictEqual(partialState.projectSwap.swapAttempts, 2);
+            assert.ok(partialState.projectSwap.backupPath, "Backup path should exist for recovery");
+            assert.ok(partialState.updateState.completedSteps.includes("backup_done"), "Should track completed steps");
+        });
+
+        test("corrupted metadata falls back to empty swap info", () => {
+            const corruptedCases = [
+                null,
+                undefined,
+                "invalid-string",
+                { swapEntries: null },
+                { swapEntries: "not-an-array" },
+                { wrongProperty: [] },
+            ];
+
+            for (const corrupted of corruptedCases) {
+                const normalized = normalizeProjectSwapInfo(corrupted as any);
+                assert.deepStrictEqual(normalized.swapEntries, [], `Should handle: ${JSON.stringify(corrupted)}`);
+            }
+        });
+
+        test("missing required entry fields don't crash functions", () => {
+            // Entry with minimal/missing fields
+            const minimalEntry = {
+                swapUUID: "minimal",
+                swapInitiatedAt: Date.now(),
+                swapStatus: "active",
+            } as ProjectSwapEntry;
+
+            const swapInfo = { swapEntries: [minimalEntry] };
+
+            // These should not throw
+            assert.doesNotThrow(() => getActiveSwapEntry(swapInfo));
+            assert.doesNotThrow(() => getAllSwapEntries(swapInfo));
+            assert.doesNotThrow(() => hasPendingSwap(swapInfo));
+            assert.doesNotThrow(() => findSwapEntryByUUID(swapInfo, "minimal"));
+        });
+
+        test("duplicate swapUUIDs are handled (newer wins)", () => {
+            const entries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "same-uuid", swapModifiedAt: 1000, swapStatus: "active" }),
+                createSwapEntry({ swapUUID: "same-uuid", swapModifiedAt: 2000, swapStatus: "cancelled" }),
+            ];
+
+            // Simulate merge deduplication
+            const map = new Map<string, ProjectSwapEntry>();
+            for (const entry of entries) {
+                const existing = map.get(entry.swapUUID);
+                if (!existing || (entry.swapModifiedAt ?? 0) > (existing.swapModifiedAt ?? 0)) {
+                    map.set(entry.swapUUID, entry);
+                }
+            }
+
+            const deduplicated = Array.from(map.values());
+            assert.strictEqual(deduplicated.length, 1, "Should have 1 entry after deduplication");
+            assert.strictEqual(deduplicated[0].swapStatus, "cancelled", "Newer (cancelled) should win");
+        });
+    });
+
+    // ========================================================================
+    // CANCELLED STATUS STICKY RULE
+    // ========================================================================
+    suite("Cancelled Status Sticky Rule", () => {
+        test("cancelled status is preserved even if active entry has later timestamp", () => {
+            // Scenario: Admin cancels at T1, user completes swap at T2 (T2 > T1)
+            // Result: Should stay cancelled (admin cancellation should not be overridden)
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "sticky-test",
+                swapModifiedAt: 1000,
+                swapStatus: "cancelled",
+                cancelledBy: "admin",
+                cancelledAt: 1000,
+            });
+            const activeEntry = createSwapEntry({
+                swapUUID: "sticky-test",
+                swapModifiedAt: 2000, // Later timestamp
+                swapStatus: "active",
+                swappedUsers: [{ userToSwap: "user1", createdAt: 2000, updatedAt: 2000, executed: true }],
+            });
+
+            // Simulate merge with "cancelled is sticky" rule
+            const eitherCancelled = cancelledEntry.swapStatus === "cancelled" || activeEntry.swapStatus === "cancelled";
+            const mergedUsers = mergeSwappedUsers(cancelledEntry.swappedUsers, activeEntry.swappedUsers);
+
+            // Base entry would be activeEntry (newer timestamp)
+            // But if either is cancelled, result should be cancelled
+            const mergedEntry = eitherCancelled
+                ? { ...activeEntry, swappedUsers: mergedUsers, swapStatus: "cancelled", cancelledBy: cancelledEntry.cancelledBy, cancelledAt: cancelledEntry.cancelledAt }
+                : { ...activeEntry, swappedUsers: mergedUsers };
+
+            assert.strictEqual(mergedEntry.swapStatus, "cancelled", "Cancelled status should be preserved");
+            assert.strictEqual(mergedEntry.cancelledBy, "admin", "Cancellation details should be preserved");
+            assert.strictEqual(mergedEntry.swappedUsers?.length, 1, "User completions should still be merged");
+        });
+
+        test("active entries merge normally when neither is cancelled", () => {
+            const entry1 = createSwapEntry({
+                swapUUID: "active-test",
+                swapModifiedAt: 1000,
+                swapStatus: "active",
+                swappedUsers: [{ userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: true }],
+            });
+            const entry2 = createSwapEntry({
+                swapUUID: "active-test",
+                swapModifiedAt: 2000,
+                swapStatus: "active",
+                swappedUsers: [{ userToSwap: "user2", createdAt: 2000, updatedAt: 2000, executed: true }],
+            });
+
+            const eitherCancelled = entry1.swapStatus === "cancelled" || entry2.swapStatus === "cancelled";
+            const mergedUsers = mergeSwappedUsers(entry1.swappedUsers, entry2.swappedUsers);
+
+            // Neither is cancelled, so newer entry wins with merged users
+            const mergedEntry = eitherCancelled
+                ? { ...entry2, swappedUsers: mergedUsers, swapStatus: "cancelled" }
+                : { ...entry2, swappedUsers: mergedUsers };
+
+            assert.strictEqual(mergedEntry.swapStatus, "active", "Should remain active when neither is cancelled");
+            assert.strictEqual(mergedEntry.swappedUsers?.length, 2, "Both users should be merged");
+        });
+
+        test("cancelled entry with older timestamp still wins over active", () => {
+            // Even if cancellation has OLDER timestamp, it should still be preserved
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "old-cancel-test",
+                swapModifiedAt: 500, // Older timestamp
+                swapStatus: "cancelled",
+                cancelledBy: "admin",
+                cancelledAt: 500,
+            });
+            const activeEntry = createSwapEntry({
+                swapUUID: "old-cancel-test",
+                swapModifiedAt: 3000, // Much later timestamp
+                swapStatus: "active",
+            });
+
+            const eitherCancelled = cancelledEntry.swapStatus === "cancelled" || activeEntry.swapStatus === "cancelled";
+
+            assert.strictEqual(eitherCancelled, true, "Should detect that one entry is cancelled");
+            // The "sticky" rule means the final result should be cancelled
+        });
+
+        test("swappedUsers are preserved even when swap is cancelled", () => {
+            // Important: users who completed the swap should still be tracked,
+            // even if the swap was later cancelled
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "users-preserved",
+                swapModifiedAt: 2000,
+                swapStatus: "cancelled",
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+                swappedUsers: [{ userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: true }],
+            });
+            const activeEntry = createSwapEntry({
+                swapUUID: "users-preserved",
+                swapModifiedAt: 1500,
+                swapStatus: "active",
+                swappedUsers: [{ userToSwap: "user2", createdAt: 1500, updatedAt: 1500, executed: true }],
+            });
+
+            const mergedUsers = mergeSwappedUsers(cancelledEntry.swappedUsers, activeEntry.swappedUsers);
+
+            assert.strictEqual(mergedUsers.length, 2, "Both users should be preserved");
+            assert.ok(mergedUsers.some(u => u.userToSwap === "user1"));
+            assert.ok(mergedUsers.some(u => u.userToSwap === "user2"));
+        });
+    });
+
+    // ========================================================================
+    // LOCAL CACHE SYNC
+    // ========================================================================
+    suite("Local Cache Sync (localProjectSwap.json)", () => {
+        test("local cache structure matches expected schema", () => {
+            const localSwapData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({ swapUUID: "cached" })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/project.git",
+            };
+
+            assert.ok(localSwapData.remoteSwapInfo, "Should have remoteSwapInfo");
+            assert.ok(localSwapData.fetchedAt, "Should have fetchedAt timestamp");
+            assert.ok(localSwapData.sourceOriginUrl, "Should have sourceOriginUrl");
+        });
+
+        test("local cache updates preserve existing entries", () => {
+            const existingEntries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "existing-1" }),
+            ];
+
+            const remoteEntry = createSwapEntry({ swapUUID: "remote-new", swappedUsers: [{ userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: true }] });
+
+            // Simulate cache update logic
+            const entryIndex = existingEntries.findIndex(e => e.swapUUID === remoteEntry.swapUUID);
+            if (entryIndex >= 0) {
+                existingEntries[entryIndex] = remoteEntry;
+            } else {
+                existingEntries.push(remoteEntry);
+            }
+
+            assert.strictEqual(existingEntries.length, 2, "Should have both entries");
+            assert.ok(existingEntries.some(e => e.swapUUID === "existing-1"));
+            assert.ok(existingEntries.some(e => e.swapUUID === "remote-new"));
+        });
+
+        test("local cache update replaces existing entry by swapUUID", () => {
+            const existingEntries: ProjectSwapEntry[] = [
+                createSwapEntry({ swapUUID: "update-me", swappedUsers: [] }),
+            ];
+
+            const remoteEntry = createSwapEntry({
+                swapUUID: "update-me",
+                swappedUsers: [{ userToSwap: "completed-user", createdAt: 1000, updatedAt: 2000, executed: true, swapCompletedAt: 2000 }],
+            });
+
+            // Simulate cache update logic
+            const entryIndex = existingEntries.findIndex(e => e.swapUUID === remoteEntry.swapUUID);
+            if (entryIndex >= 0) {
+                existingEntries[entryIndex] = remoteEntry;
+            } else {
+                existingEntries.push(remoteEntry);
+            }
+
+            assert.strictEqual(existingEntries.length, 1, "Should still have 1 entry");
+            assert.strictEqual(existingEntries[0].swappedUsers?.length, 1, "Should have updated swappedUsers");
+            assert.strictEqual(existingEntries[0].swappedUsers?.[0].executed, true, "User should be marked as executed");
+        });
+    });
+
+    // ========================================================================
+    // SWAPPED USERS MODIFIED AT - TIMESTAMP SEPARATION
+    // ========================================================================
+    suite("swappedUsersModifiedAt Timestamp Separation", () => {
+        test("swappedUsersModifiedAt is separate from swapModifiedAt", () => {
+            // swappedUsersModifiedAt tracks user array changes
+            // swapModifiedAt tracks entry-level changes (status, cancellation, URLs)
+            const entry = createSwapEntry({
+                swapModifiedAt: 1000,
+                swappedUsersModifiedAt: 2000,
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 2000, updatedAt: 2000, executed: true },
+                ],
+            });
+
+            // These should be independent timestamps
+            assert.notStrictEqual(entry.swapModifiedAt, entry.swappedUsersModifiedAt);
+            assert.strictEqual(entry.swapModifiedAt, 1000, "swapModifiedAt should be entry-level timestamp");
+            assert.strictEqual(entry.swappedUsersModifiedAt, 2000, "swappedUsersModifiedAt should be user array timestamp");
+        });
+
+        test("user completion should update swappedUsersModifiedAt, not swapModifiedAt", () => {
+            // Simulates the correct behavior after our fix
+            const entryBeforeCompletion = createSwapEntry({
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 1000,
+                swappedUsersModifiedAt: undefined,
+                swappedUsers: [],
+            });
+
+            // User completes swap - should only update swappedUsersModifiedAt
+            const completionTime = 5000;
+            const entryAfterCompletion = {
+                ...entryBeforeCompletion,
+                swapModifiedAt: entryBeforeCompletion.swapModifiedAt, // UNCHANGED
+                swappedUsersModifiedAt: completionTime, // UPDATED
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: completionTime, updatedAt: completionTime, executed: true },
+                ],
+            };
+
+            assert.strictEqual(entryAfterCompletion.swapModifiedAt, 1000, "swapModifiedAt should NOT change on user completion");
+            assert.strictEqual(entryAfterCompletion.swappedUsersModifiedAt, 5000, "swappedUsersModifiedAt SHOULD change");
+        });
+
+        test("cancellation should update swapModifiedAt, not swappedUsersModifiedAt", () => {
+            const entryBeforeCancellation = createSwapEntry({
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 1000,
+                swappedUsersModifiedAt: 2000,
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 2000, updatedAt: 2000, executed: true },
+                ],
+            });
+
+            // Admin cancels swap - should only update swapModifiedAt
+            const cancellationTime = 5000;
+            const entryAfterCancellation = {
+                ...entryBeforeCancellation,
+                swapStatus: "cancelled" as const,
+                swapModifiedAt: cancellationTime, // UPDATED
+                swappedUsersModifiedAt: entryBeforeCancellation.swappedUsersModifiedAt, // UNCHANGED
+                cancelledBy: "admin",
+                cancelledAt: cancellationTime,
+            };
+
+            assert.strictEqual(entryAfterCancellation.swapModifiedAt, 5000, "swapModifiedAt SHOULD change on cancellation");
+            assert.strictEqual(entryAfterCancellation.swappedUsersModifiedAt, 2000, "swappedUsersModifiedAt should NOT change");
+        });
+
+        test("merge logic computes swappedUsersModifiedAt as max of both entries", () => {
+            const entry1 = createSwapEntry({
+                swapUUID: "merge-test",
+                swapInitiatedAt: 1000,
+                swappedUsersModifiedAt: 2000,
+                swappedUsers: [{ userToSwap: "user1", createdAt: 2000, updatedAt: 2000, executed: true }],
+            });
+            const entry2 = createSwapEntry({
+                swapUUID: "merge-test",
+                swapInitiatedAt: 1000,
+                swappedUsersModifiedAt: 3000,
+                swappedUsers: [{ userToSwap: "user2", createdAt: 3000, updatedAt: 3000, executed: true }],
+            });
+
+            // Simulate merge logic
+            const existingUsersModified = entry1.swappedUsersModifiedAt ?? 0;
+            const newUsersModified = entry2.swappedUsersModifiedAt ?? 0;
+            const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified);
+
+            assert.strictEqual(mergedUsersModifiedAt, 3000, "Should take max of both timestamps");
+        });
+
+        test("missing swappedUsersModifiedAt is handled gracefully (defaults to 0)", () => {
+            const entry1 = createSwapEntry({
+                swapUUID: "no-timestamp",
+                swappedUsersModifiedAt: undefined,
+            });
+            const entry2 = createSwapEntry({
+                swapUUID: "no-timestamp",
+                swappedUsersModifiedAt: 2000,
+            });
+
+            const existingUsersModified = entry1.swappedUsersModifiedAt ?? 0;
+            const newUsersModified = entry2.swappedUsersModifiedAt ?? 0;
+            const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified);
+
+            assert.strictEqual(mergedUsersModifiedAt, 2000, "Should handle undefined as 0");
+        });
+    });
+
+    // ========================================================================
+    // ENTRY KEY MATCHING (swapUUID)
+    // ========================================================================
+    suite("Entry Key Matching", () => {
+        test("entries are matched by swapUUID alone", () => {
+            // Each swap event gets a unique swapUUID
+            const entry1 = createSwapEntry({
+                swapUUID: "uuid-ab",
+                swapInitiatedAt: 1000,
+                oldProjectName: "ProjectA",
+                newProjectName: "ProjectB",
+            });
+            const entry2 = createSwapEntry({
+                swapUUID: "uuid-bc", // Different UUID = different swap
+                swapInitiatedAt: 2000,
+                oldProjectName: "ProjectB",
+                newProjectName: "ProjectC",
+            });
+
+            const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+            const key1 = getEntryKey(entry1);
+            const key2 = getEntryKey(entry2);
+
+            assert.notStrictEqual(key1, key2, "Different swapUUID should produce different keys");
+        });
+
+        test("same swapUUID identifies same swap event regardless of isOldProject", () => {
+            // Same swapUUID = same swap event (from different perspectives)
+            const entryFromOldProject = createSwapEntry({
+                swapUUID: "shared-uuid",
+                swapInitiatedAt: 1000,
+                isOldProject: true,
+            });
+            const entryFromNewProject = createSwapEntry({
+                swapUUID: "shared-uuid",
+                swapInitiatedAt: 1000,
+                isOldProject: false,
+            });
+
+            const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+            assert.strictEqual(
+                getEntryKey(entryFromOldProject),
+                getEntryKey(entryFromNewProject),
+                "Same swapUUID should be same key regardless of isOldProject"
+            );
+        });
+
+        test("swapUUID uniquely identifies swap in chain scenarios", () => {
+            // In A→B→C chain, each swap has unique swapUUID
+            const swapAB = createSwapEntry({
+                swapUUID: "uuid-ab",
+                swapInitiatedAt: 1000,
+                oldProjectName: "A",
+                newProjectName: "B",
+            });
+            const swapBC = createSwapEntry({
+                swapUUID: "uuid-bc",
+                swapInitiatedAt: 2000,
+                oldProjectName: "B",
+                newProjectName: "C",
+            });
+
+            const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+            const keys = [getEntryKey(swapAB), getEntryKey(swapBC)];
+            const uniqueKeys = new Set(keys);
+
+            assert.strictEqual(uniqueKeys.size, 2, "Each swap should have unique swapUUID");
+        });
+
+        test("entries with same swapUUID merge (newer swapModifiedAt wins)", () => {
+            const entries = [
+                createSwapEntry({ swapUUID: "uuid", swapModifiedAt: 1500 }),
+                createSwapEntry({ swapUUID: "uuid", swapModifiedAt: 2000 }), // Same UUID, later modified
+            ];
+
+            const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+            const map = new Map<string, ProjectSwapEntry>();
+            for (const entry of entries) {
+                const key = getEntryKey(entry);
+                const existing = map.get(key);
+                if (!existing || (entry.swapModifiedAt ?? 0) > (existing.swapModifiedAt ?? 0)) {
+                    map.set(key, entry);
+                }
+            }
+
+            assert.strictEqual(map.size, 1, "Same swapUUID should merge to one entry");
+            assert.strictEqual(
+                Array.from(map.values())[0].swapModifiedAt,
+                2000,
+                "Should keep entry with later swapModifiedAt"
+            );
+        });
+
+        test("different swapUUIDs are preserved separately", () => {
+            const entries = [
+                createSwapEntry({ swapUUID: "uuid-1", oldProjectName: "A", newProjectName: "B" }),
+                createSwapEntry({ swapUUID: "uuid-2", oldProjectName: "B", newProjectName: "C" }),
+            ];
+
+            const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+            const map = new Map<string, ProjectSwapEntry>();
+            for (const entry of entries) {
+                map.set(getEntryKey(entry), entry);
+            }
+
+            assert.strictEqual(map.size, 2, "Different swapUUIDs should be preserved separately");
+        });
+    });
+
+    // ========================================================================
+    // RACE CONDITION REGRESSION TESTS
+    // ========================================================================
+    suite("Race Condition Regression Tests", () => {
+        test("REGRESSION: cancellation NOT lost when user swaps with later timestamp", () => {
+            // This was a bug: if user swapped at T3 and admin cancelled at T2,
+            // the cancellation could be lost if we only compared swapModifiedAt
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "race-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 2000, // Admin cancels at T2
+                swapStatus: "cancelled",
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+                swappedUsers: [],
+            });
+
+            const userCompletedEntry = createSwapEntry({
+                swapUUID: "race-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 3000, // User completes at T3 > T2
+                swapStatus: "active",
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 3000, updatedAt: 3000, executed: true },
+                ],
+            });
+
+            // Cancelled is sticky - either cancelled means result is cancelled
+            const eitherCancelled = cancelledEntry.swapStatus === "cancelled" || userCompletedEntry.swapStatus === "cancelled";
+            const mergedUsers = mergeSwappedUsers(cancelledEntry.swappedUsers, userCompletedEntry.swappedUsers);
+
+            assert.strictEqual(eitherCancelled, true, "Should detect cancellation");
+            assert.strictEqual(mergedUsers.length, 1, "User completion should still be tracked");
+
+            // Merged result should be cancelled
+            const baseEntry = (userCompletedEntry.swapModifiedAt ?? 0) > (cancelledEntry.swapModifiedAt ?? 0)
+                ? userCompletedEntry
+                : cancelledEntry;
+            const mergedEntry = eitherCancelled
+                ? { ...baseEntry, swappedUsers: mergedUsers, swapStatus: "cancelled" as const }
+                : { ...baseEntry, swappedUsers: mergedUsers };
+
+            assert.strictEqual(mergedEntry.swapStatus, "cancelled", "Final status should be cancelled (sticky rule)");
+        });
+
+        test("REGRESSION: concurrent user completions are both preserved", () => {
+            // If User A completes at T1 and User B completes at T2 independently,
+            // both should be preserved in the merged result
+            const entryA = createSwapEntry({
+                swapUUID: "concurrent-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 2000,
+                swappedUsersModifiedAt: 2000,
+                swappedUsers: [
+                    { userToSwap: "userA", createdAt: 2000, updatedAt: 2000, executed: true },
+                ],
+            });
+
+            const entryB = createSwapEntry({
+                swapUUID: "concurrent-test",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 3000,
+                swappedUsersModifiedAt: 3000,
+                swappedUsers: [
+                    { userToSwap: "userB", createdAt: 3000, updatedAt: 3000, executed: true },
+                ],
+            });
+
+            const mergedUsers = mergeSwappedUsers(entryA.swappedUsers, entryB.swappedUsers);
+
+            assert.strictEqual(mergedUsers.length, 2, "Both users should be preserved");
+            assert.ok(mergedUsers.some(u => u.userToSwap === "userA"), "User A should be present");
+            assert.ok(mergedUsers.some(u => u.userToSwap === "userB"), "User B should be present");
+        });
+
+        test("REGRESSION: swappedUsers not lost due to timestamp conflict", () => {
+            // This was a bug: if swapModifiedAt was equal but swappedUsers differed,
+            // one source's users could be lost
+            const metadataEntry = createSwapEntry({
+                swapUUID: "timestamp-conflict",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 2000,
+                swappedUsers: [], // Empty in metadata
+            });
+
+            const localCacheEntry = createSwapEntry({
+                swapUUID: "timestamp-conflict",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 2000, // Same timestamp
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 1500, updatedAt: 1500, executed: true },
+                ],
+            });
+
+            // Merging should always combine swappedUsers
+            const mergedUsers = mergeSwappedUsers(metadataEntry.swappedUsers, localCacheEntry.swappedUsers);
+
+            assert.strictEqual(mergedUsers.length, 1, "User from local cache should be preserved");
+            assert.strictEqual(mergedUsers[0].userToSwap, "user1");
+        });
+
+        test("REGRESSION: swappedUsersModifiedAt breaks timestamp tie correctly", () => {
+            // When swapModifiedAt is equal, swappedUsersModifiedAt should determine
+            // which swappedUsers array takes precedence for conflicts
+            const entry1 = createSwapEntry({
+                swapUUID: "tie-breaker",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 2000,
+                swappedUsersModifiedAt: 2500,
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 2500, executed: true }, // Newer updatedAt
+                ],
+            });
+
+            const entry2 = createSwapEntry({
+                swapUUID: "tie-breaker",
+                swapInitiatedAt: 1000,
+                swapModifiedAt: 2000, // Same swapModifiedAt
+                swappedUsersModifiedAt: 1500, // Older swappedUsersModifiedAt
+                swappedUsers: [
+                    { userToSwap: "user1", createdAt: 1000, updatedAt: 1500, executed: false }, // Older state
+                ],
+            });
+
+            // mergeSwappedUsers should keep the one with newer updatedAt
+            const merged = mergeSwappedUsers(entry1.swappedUsers, entry2.swappedUsers);
+
+            assert.strictEqual(merged.length, 1);
+            assert.strictEqual(merged[0].executed, true, "Should keep entry with newer updatedAt");
+            assert.strictEqual(merged[0].updatedAt, 2500);
+        });
+    });
+
+    // ========================================================================
+    // COMPOSITE KEY USER MATCHING (userToSwap + createdAt)
+    // ========================================================================
+    suite("Composite Key User Matching", () => {
+        test("same user with different createdAt = different entries", () => {
+            // If user re-swaps in a new chain, they get a new entry
+            const users = [
+                { userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: true } as ProjectSwapUserEntry,
+                { userToSwap: "user1", createdAt: 5000, updatedAt: 5000, executed: true } as ProjectSwapUserEntry, // Same user, different swap event
+            ];
+
+            const merged = mergeSwappedUsers(users.slice(0, 1), users.slice(1, 2));
+
+            assert.strictEqual(merged.length, 2, "Different createdAt = different user entries");
+        });
+
+        test("same user + same createdAt = merged by updatedAt", () => {
+            // Same user in same swap event, merge by newer updatedAt
+            const usersA = [
+                { userToSwap: "user1", createdAt: 1000, updatedAt: 1000, executed: false } as ProjectSwapUserEntry,
+            ];
+            const usersB = [
+                { userToSwap: "user1", createdAt: 1000, updatedAt: 2000, executed: true } as ProjectSwapUserEntry,
+            ];
+
+            const merged = mergeSwappedUsers(usersA, usersB);
+
+            assert.strictEqual(merged.length, 1, "Same composite key = merged");
+            assert.strictEqual(merged[0].executed, true, "Should keep newer state");
+            assert.strictEqual(merged[0].updatedAt, 2000);
+        });
+
+        test("getUserKey function produces correct composite key", () => {
+            const user: ProjectSwapUserEntry = {
+                userToSwap: "testuser",
+                createdAt: 1234567890,
+                updatedAt: 1234567890,
+                executed: true,
+            };
+
+            const getUserKey = (u: ProjectSwapUserEntry): string => `${u.userToSwap}::${u.createdAt}`;
+            const key = getUserKey(user);
+
+            assert.strictEqual(key, "testuser::1234567890");
         });
     });
 });

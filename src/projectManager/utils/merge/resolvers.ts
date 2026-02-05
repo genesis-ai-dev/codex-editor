@@ -196,7 +196,7 @@ function mergeProjectSwap(
                 mergedEntry.cancelledAt = ourEntry.cancelledAt || theirEntry.cancelledAt;
             }
 
-            // Use latest swapModifiedAt
+            // Use latest swapModifiedAt (for entry-level changes: status, cancellation, URLs)
             mergedEntry.swapModifiedAt = Math.max(
                 ourEntry.swapModifiedAt || 0,
                 theirEntry.swapModifiedAt || 0
@@ -208,6 +208,14 @@ function mergeProjectSwap(
                 ourEntry.swappedUsers,
                 theirEntry.swappedUsers
             );
+
+            // Compute swappedUsersModifiedAt as max of both (for user completion changes)
+            const ourUsersModified = ourEntry.swappedUsersModifiedAt ?? 0;
+            const theirUsersModified = theirEntry.swappedUsersModifiedAt ?? 0;
+            const maxUsersModified = Math.max(ourUsersModified, theirUsersModified);
+            if (maxUsersModified > 0) {
+                mergedEntry.swappedUsersModifiedAt = maxUsersModified;
+            }
         } else {
             // Neither has it (shouldn't happen but handle gracefully)
             continue;
@@ -226,6 +234,7 @@ function mergeProjectSwap(
 
 /**
  * Merges swappedUsers arrays from base, ours, and theirs
+ * Users are uniquely identified by userToSwap + createdAt (both together)
  * Similar to how initiateRemoteUpdatingFor entries are merged
  */
 function mergeSwappedUsers(
@@ -237,20 +246,26 @@ function mergeSwappedUsers(
     const ourList = ourUsers || [];
     const theirList = theirUsers || [];
 
-    // Map by userToSwap
+    // Generate unique key for user entry: userToSwap + createdAt
+    const getUserKey = (e: ProjectSwapUserEntry): string => `${e.userToSwap}::${e.createdAt}`;
+
+    // Map by userToSwap + createdAt (composite key)
     const userMap = new Map<string, { base?: ProjectSwapUserEntry; ours?: ProjectSwapUserEntry; theirs?: ProjectSwapUserEntry; }>();
 
     baseList.forEach(e => {
-        if (!userMap.has(e.userToSwap)) userMap.set(e.userToSwap, {});
-        userMap.get(e.userToSwap)!.base = e;
+        const key = getUserKey(e);
+        if (!userMap.has(key)) userMap.set(key, {});
+        userMap.get(key)!.base = e;
     });
     ourList.forEach(e => {
-        if (!userMap.has(e.userToSwap)) userMap.set(e.userToSwap, {});
-        userMap.get(e.userToSwap)!.ours = e;
+        const key = getUserKey(e);
+        if (!userMap.has(key)) userMap.set(key, {});
+        userMap.get(key)!.ours = e;
     });
     theirList.forEach(e => {
-        if (!userMap.has(e.userToSwap)) userMap.set(e.userToSwap, {});
-        userMap.get(e.userToSwap)!.theirs = e;
+        const key = getUserKey(e);
+        if (!userMap.has(key)) userMap.set(key, {});
+        userMap.get(key)!.theirs = e;
     });
 
     const mergedList: ProjectSwapUserEntry[] = [];

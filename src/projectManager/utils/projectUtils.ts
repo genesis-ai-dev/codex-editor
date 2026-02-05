@@ -6,7 +6,7 @@ import { getAllBookRefs } from "../../utils";
 import * as vscode from "vscode";
 import * as path from "path";
 import semver from "semver";
-import { LocalProject, ProjectMetadata, ProjectOverview, ProjectSwapInfo, ProjectSwapEntry } from "../../../types";
+import { LocalProject, ProjectMetadata, ProjectOverview, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
@@ -1273,7 +1273,7 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
  */
 async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalProject[]> {
     const filtered: LocalProject[] = [];
-    const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+    const { getActiveSwapEntry, normalizeProjectSwapInfo, mergeSwappedUsers } = await import("../../utils/projectSwapManager");
     const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 
     for (const project of projects) {
@@ -1302,21 +1302,53 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
                 // Non-fatal - localProjectSwap.json might not exist
             }
 
-            // MERGE entries from all sources by swapUUID, keeping the most recent swapModifiedAt
+            // MERGE entries from all sources
+            // Entry key: swapUUID + swapInitiatedAt (uniquely identifies a swap event)
+            // swapModifiedAt: for entry-level changes (status, cancellation, URLs)
+            // swappedUsersModifiedAt: for user completion changes
             const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
             const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
 
             const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+            const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
             const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-                const key = entry.swapUUID;
+                const key = getEntryKey(entry);
                 const existing = mergedEntriesMap.get(key);
                 if (!existing) {
                     mergedEntriesMap.set(key, entry);
                 } else {
+                    // ALWAYS merge swappedUsers arrays (users matched by userToSwap + createdAt)
+                    const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
+
+                    // Compute new swappedUsersModifiedAt as max of both entries
+                    const existingUsersModified = existing.swappedUsersModifiedAt ?? 0;
+                    const newUsersModified = entry.swappedUsersModifiedAt ?? 0;
+                    const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified) || undefined;
+
+                    // Use swapModifiedAt for entry-level changes (status, cancellation, URLs)
                     const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
                     const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
-                    if (newModified > existingModified) {
-                        mergedEntriesMap.set(key, entry);
+                    const baseEntry = newModified > existingModified ? entry : existing;
+
+                    // Cancelled status is sticky
+                    const eitherCancelled = existing.swapStatus === "cancelled" || entry.swapStatus === "cancelled";
+                    if (eitherCancelled) {
+                        const cancelledEntry = existing.swapStatus === "cancelled" ? existing : entry;
+                        mergedEntriesMap.set(key, {
+                            ...baseEntry,
+                            swappedUsers: mergedUsers,
+                            swappedUsersModifiedAt: mergedUsersModifiedAt,
+                            swapStatus: "cancelled",
+                            cancelledBy: cancelledEntry.cancelledBy,
+                            cancelledAt: cancelledEntry.cancelledAt,
+                        });
+                    } else {
+                        mergedEntriesMap.set(key, {
+                            ...baseEntry,
+                            swappedUsers: mergedUsers,
+                            swappedUsersModifiedAt: mergedUsersModifiedAt,
+                        });
                     }
                 }
             };
@@ -1586,23 +1618,57 @@ async function processProjectDirectory(
             // Non-fatal - localProjectSwap.json might not exist
         }
 
-        // Merge entries from both sources by swapUUID, keeping the one with most recent swapModifiedAt
+        // Merge entries from both sources
+        // Entry key: swapUUID + swapInitiatedAt (uniquely identifies a swap event)
+        // swapModifiedAt: for entry-level changes (status, cancellation, URLs)
+        // swappedUsersModifiedAt: for user completion changes
         const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
         const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
 
         const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+        const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+        // Import mergeSwappedUsers helper
+        const { mergeSwappedUsers } = await import("../../utils/projectSwapManager");
 
         const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-            const key = entry.swapUUID;
+            const key = getEntryKey(entry);
             const existing = mergedEntriesMap.get(key);
             if (!existing) {
                 mergedEntriesMap.set(key, entry);
             } else {
-                // Compare swapModifiedAt timestamps - use the more recent one
+                // ALWAYS merge swappedUsers arrays (users matched by userToSwap + createdAt)
+                const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
+
+                // Compute new swappedUsersModifiedAt as max of both entries
+                const existingUsersModified = existing.swappedUsersModifiedAt ?? 0;
+                const newUsersModified = entry.swappedUsersModifiedAt ?? 0;
+                const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified) || undefined;
+
+                // Use swapModifiedAt for entry-level changes (status, cancellation, URLs)
                 const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
                 const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
-                if (newModified > existingModified) {
-                    mergedEntriesMap.set(key, entry);
+                const baseEntry = newModified > existingModified ? entry : existing;
+
+                // SEMANTIC RULE: "cancelled" status is sticky
+                // If EITHER entry is cancelled, preserve the cancellation
+                const eitherCancelled = existing.swapStatus === "cancelled" || entry.swapStatus === "cancelled";
+                if (eitherCancelled) {
+                    const cancelledEntry = existing.swapStatus === "cancelled" ? existing : entry;
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                        swapStatus: "cancelled",
+                        cancelledBy: cancelledEntry.cancelledBy,
+                        cancelledAt: cancelledEntry.cancelledAt,
+                    });
+                } else {
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                    });
                 }
             }
         };

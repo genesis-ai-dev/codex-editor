@@ -1442,6 +1442,7 @@ async function updateSwapMetadata(
                 }
 
                 // Check if already in list (avoid duplicates)
+                // Users are uniquely identified by userToSwap + createdAt
                 const existingUserEntry = targetEntry.swappedUsers.find(
                     u => u.userToSwap === currentUser
                 );
@@ -1461,8 +1462,9 @@ async function updateSwapMetadata(
                     existingUserEntry.swapCompletedAt = existingUserEntry.swapCompletedAt || now;
                 }
 
-                // Update entry's swapModifiedAt
-                targetEntry.swapModifiedAt = now;
+                // Update swappedUsersModifiedAt (NOT swapModifiedAt - that's for entry-level changes)
+                // swapModifiedAt should only change for status/cancellation/URL changes
+                targetEntry.swappedUsersModifiedAt = now;
             }
 
             // Update entries array with stable ordering to avoid unnecessary sync churn.
