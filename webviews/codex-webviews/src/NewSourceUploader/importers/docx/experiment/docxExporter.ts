@@ -109,34 +109,36 @@ function collectTranslations(
 
     console.log(`[Exporter] Processing ${codexCells.length} cells for translations`);
 
-    // Debug: Log first few cells to understand structure
-    let emptyCount = 0;
-    let nonEmptyCount = 0;
-
     for (let i = 0; i < codexCells.length; i++) {
         const cell = codexCells[i];
         const meta = cell.metadata;
 
+        // Only DOCX cells have paragraphIndex/paragraphId; everything else is skipped naturally.
+        // (Don't rely on kind/type here; it varies by host and we only need the mapping fields.)
+
         // Get translated content (strip HTML tags)
-        const translated = removeHtmlTags(cell.value || '').trim();
+        const translated = removeHtmlTags(cell.value).trim();
         if (!translated) {
-            emptyCount++;
-            // Debug first 3 empty cells
-            if (emptyCount <= 3) {
-                console.log(`[Exporter] Cell ${i} is empty. Raw value: "${(cell.value || '').substring(0, 50)}"`);
-            }
             continue;
         }
-        nonEmptyCount++;
 
-        // Get paragraph identifier - check multiple locations for compatibility
-        // Priority: paragraphIndex > paragraphId > data.segmentIndex > cell index
+        // Get paragraph identifier
         const paragraphId = meta?.paragraphId;
         const paragraphIndex = meta?.paragraphIndex;
-        const segmentIndex = meta?.data?.segmentIndex;
+        const paragraphIndices = meta?.paragraphIndices;
 
-        if (typeof paragraphIndex === 'number') {
+        if (Array.isArray(paragraphIndices) && paragraphIndices.length > 0) {
+            // Table-cell case: a single Codex cell maps to multiple DOCX paragraphs.
+            // We map lines of the translation to each paragraph index (preserves paragraph count).
+            const parts = translated.split(/\r?\n/);
+            for (let j = 0; j < paragraphIndices.length; j++) {
+                const idx = paragraphIndices[j];
+                if (typeof idx !== "number") continue;
+                translations.set(idx, parts[j] ?? '');
+            }
+        } else if (typeof paragraphIndex === 'number') {
             translations.set(paragraphIndex, translated);
+            // Keep logs light; large documents can have thousands of cells.
         } else if (typeof paragraphId === 'string') {
             const m = paragraphId.match(/^p-(\d+)$/);
             if (m) {
@@ -145,16 +147,11 @@ function collectTranslations(
             } else {
                 console.warn(`[Exporter] ⚠ Unrecognized paragraphId format: ${paragraphId}`);
             }
-        } else if (typeof segmentIndex === 'number') {
-            // Fallback for older files that only have segmentIndex in data
-            translations.set(segmentIndex, translated);
-        } else {
-            // Last resort: use cell index (works if cells match paragraph order)
-            translations.set(i, translated);
         }
     }
 
-    console.log(`[Exporter] Collected ${translations.size} translations total (${nonEmptyCount} non-empty cells, ${emptyCount} empty cells)`);
+    console.log(`[Exporter] Collected ${translations.size} translations total`);
+    // Avoid dumping thousands of IDs in logs.
 
     return translations;
 }

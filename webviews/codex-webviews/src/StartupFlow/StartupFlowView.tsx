@@ -16,6 +16,7 @@ import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo"
 import NameProjectModal from "./components/NameProjectModal";
 import { WebviewApi } from "vscode-webview";
 import ConfirmModal from "../components/ConfirmModal";
+import { useNetworkState } from "@uidotdev/usehooks";
 
 enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -39,6 +40,27 @@ export const StartupFlowView: React.FC = () => {
     useEffect(() => {
         valueRef.current = value;
     }, [value]);
+
+    // Connectivity detection - notify extension when coming back online
+    const network = useNetworkState();
+    const isOnline = network?.online;
+    const wasOnlineRef = useRef<boolean | undefined>(undefined);
+
+    useEffect(() => {
+        // Skip the first render (initialization)
+        if (wasOnlineRef.current === undefined) {
+            wasOnlineRef.current = isOnline;
+            return;
+        }
+
+        // Detect transition from offline to online
+        if (isOnline && wasOnlineRef.current === false) {
+            console.log("Connectivity restored - notifying extension to revalidate session");
+            vscode.postMessage({ command: "network.connectivityRestored" });
+        }
+
+        wasOnlineRef.current = isOnline;
+    }, [isOnline]);
 
     useEffect(() => {
         // Request metadata check to determine initial state
@@ -195,32 +217,59 @@ export const StartupFlowView: React.FC = () => {
         // The login is asynchronous, but we need to keep the loading state until
         // we get a response from the extension about auth state update
         return new Promise<boolean>((resolve) => {
+            let resolved = false;
             const messageHandler = (event: MessageEvent<any>) => {
+                if (resolved) return;
                 const message = event.data;
-                if (message.command === "updateAuthState") {
-                    console.log("Auth state updated during login:", message.authState);
-                    window.removeEventListener("message", messageHandler);
 
-                    const isAuthenticated = message.authState?.isAuthenticated || false;
-                    const authError = message.authState?.error;
+                // Handle state.update message (primary response from provider)
+                if (message.command === "state.update") {
+                    const authState = message.state?.context?.authState;
+                    if (authState) {
+                        const isAuthenticated = authState.isAuthenticated || false;
+                        console.log("Auth state updated via state.update during login:", {
+                            isAuthenticated,
+                            authState,
+                        });
 
-                    // If login was successful, trigger project sync
-                    if (isAuthenticated) {
-                        triggerSyncAfterAuth(isAuthenticated);
+                        // Only resolve on SUCCESS - don't resolve false immediately
+                        // because we might receive intermediate state updates before
+                        // the actual login completes
+                        if (isAuthenticated) {
+                            resolved = true;
+                            window.removeEventListener("message", messageHandler);
+                            triggerSyncAfterAuth(isAuthenticated);
+                            resolve(true);
+                        }
+                        // If not authenticated, keep waiting - the login might still be in progress
                     }
+                } else if (message.command === "updateAuthState") {
+                    // Legacy handler for updateAuthState (if still used)
+                    const isAuthenticated = message.authState?.isAuthenticated || false;
+                    console.log("Auth state updated during login:", {
+                        isAuthenticated,
+                        authState: message.authState,
+                    });
 
-                    // Resolve with success status based on auth state
-                    resolve(isAuthenticated);
+                    // Only resolve on SUCCESS
+                    if (isAuthenticated) {
+                        resolved = true;
+                        window.removeEventListener("message", messageHandler);
+                        triggerSyncAfterAuth(isAuthenticated);
+                        resolve(true);
+                    }
+                    // If not authenticated, keep waiting
                 } else if (message.command === "auth.error") {
-                    // Handle explicit auth error message
+                    // Handle explicit auth error message - this IS a definitive failure
                     console.error("Authentication error:", message.error);
+                    resolved = true;
                     window.removeEventListener("message", messageHandler);
                     resolve(false);
                 } else if (message.command === "show.error" || message.command === "show.warning") {
                     // Handle VS Code notifications which often indicate authentication failures
                     console.warn("VS Code notification during login:", message);
-                    // We keep the listener to also get the auth state update, but resolve false immediately
-                    // to stop the loading indicator
+                    resolved = true;
+                    window.removeEventListener("message", messageHandler);
                     resolve(false);
                 }
             };
@@ -230,8 +279,9 @@ export const StartupFlowView: React.FC = () => {
 
             // Fallback timeout in case we don't get a response
             setTimeout(() => {
+                if (resolved) return;
                 window.removeEventListener("message", messageHandler);
-                console.warn("Authentication timed out");
+                console.warn("Authentication timed out - no successful auth state received");
                 resolve(false);
             }, 5000); // Reduced timeout to 5 seconds
         });
@@ -248,31 +298,59 @@ export const StartupFlowView: React.FC = () => {
 
         // Similar to login, keep loading state until auth response
         return new Promise<boolean>((resolve) => {
+            let resolved = false;
             const messageHandler = (event: MessageEvent<any>) => {
+                if (resolved) return;
                 const message = event.data;
-                if (message.command === "updateAuthState") {
-                    console.log("Auth state updated during registration:", message.authState);
-                    window.removeEventListener("message", messageHandler);
 
-                    const isAuthenticated = message.authState?.isAuthenticated || false;
-                    const authError = message.authState?.error;
+                // Handle state.update message (primary response from provider)
+                if (message.command === "state.update") {
+                    const authState = message.state?.context?.authState;
+                    if (authState) {
+                        const isAuthenticated = authState.isAuthenticated || false;
+                        console.log("Auth state updated via state.update during registration:", {
+                            isAuthenticated,
+                            authState,
+                        });
 
-                    // If registration was successful, trigger project sync
-                    if (isAuthenticated) {
-                        triggerSyncAfterAuth(isAuthenticated);
+                        // Only resolve on SUCCESS - don't resolve false immediately
+                        // because we might receive intermediate state updates before
+                        // the actual registration completes
+                        if (isAuthenticated) {
+                            resolved = true;
+                            window.removeEventListener("message", messageHandler);
+                            triggerSyncAfterAuth(isAuthenticated);
+                            resolve(true);
+                        }
+                        // If not authenticated, keep waiting - the registration might still be in progress
                     }
+                } else if (message.command === "updateAuthState") {
+                    // Legacy handler for updateAuthState (if still used)
+                    const isAuthenticated = message.authState?.isAuthenticated || false;
+                    console.log("Auth state updated during registration:", {
+                        isAuthenticated,
+                        authState: message.authState,
+                    });
 
-                    resolve(isAuthenticated);
+                    // Only resolve on SUCCESS
+                    if (isAuthenticated) {
+                        resolved = true;
+                        window.removeEventListener("message", messageHandler);
+                        triggerSyncAfterAuth(isAuthenticated);
+                        resolve(true);
+                    }
+                    // If not authenticated, keep waiting
                 } else if (message.command === "auth.error") {
-                    // Handle explicit auth error message
+                    // Handle explicit auth error message - this IS a definitive failure
                     console.error("Registration error:", message.error);
+                    resolved = true;
                     window.removeEventListener("message", messageHandler);
                     resolve(false);
                 } else if (message.command === "show.error" || message.command === "show.warning") {
                     // Handle VS Code notifications which often indicate registration failures
                     console.warn("VS Code notification during registration:", message);
-                    // We keep the listener to also get the auth state update, but resolve false immediately
-                    // to stop the loading indicator
+                    resolved = true;
+                    window.removeEventListener("message", messageHandler);
                     resolve(false);
                 }
             };
@@ -281,10 +359,11 @@ export const StartupFlowView: React.FC = () => {
 
             // Fallback timeout
             setTimeout(() => {
+                if (resolved) return;
                 window.removeEventListener("message", messageHandler);
-                console.warn("Registration timed out");
+                console.warn("Registration timed out - no successful auth state received");
                 resolve(false);
-            }, 5000); // Reduced timeout to 5 seconds
+            }, 15000); // 15 seconds timeout for network latency
         });
     };
 

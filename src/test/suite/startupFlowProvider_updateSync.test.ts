@@ -12,15 +12,15 @@ import * as directoryConflicts from "../../projectManager/utils/merge/directoryC
 import * as mergeResolvers from "../../projectManager/utils/merge/resolvers";
 import * as projectLocationUtils from "../../utils/projectLocationUtils";
 
-suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
+suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
     suiteSetup(() => {
         swallowDuplicateCommandRegistrations();
     });
 
-    test("performProjectHeal sets workspace and calls stageAndCommitAllAndSync", async function () {
+    test("performProjectUpdate sets workspace and calls stageAndCommitAllAndSync", async function () {
         this.timeout(15000);
 
-        const tempProjectsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-heal-sync-"));
+        const tempProjectsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-update-sync-"));
 
         // Ensure we don't actually pop UI
         const infoStub = sinon.stub(vscode.window, "showInformationMessage").resolves(undefined as any);
@@ -28,7 +28,7 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         // Prevent background preflight/auth initialization from running during this test
         const initStub = sinon.stub(StartupFlowProvider.prototype as any, "initializeComponentsAsync").resolves();
 
-        // Frontier auth extension activation stub (also used for heal version gate)
+        // Frontier auth extension activation stub (also used for update version gate)
         const activateStub = sinon.stub().resolves();
         const getExtensionStub = sinon.stub(vscode.extensions, "getExtension").returns({
             id: "frontier-rnd.frontier-authentication",
@@ -38,7 +38,7 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
             packageJSON: { version: "0.4.11" },
         } as any);
 
-        // Ensure heal uses our temp projects dir for snapshot
+        // Ensure update uses our temp projects dir for snapshot
         // Make sure the directory exists so createDirectory can succeed
         fs.mkdirSync(tempProjectsDir, { recursive: true });
         const getCodexProjectsDirectoryStub = sinon.stub(projectLocationUtils, "getCodexProjectsDirectory").resolves(
@@ -52,11 +52,18 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         });
         const resolveConflictFilesStub = sinon.stub(mergeResolvers, "resolveConflictFiles").resolves([]);
 
+        // Mock window.showQuickPick for backup selection
+        const quickPickStub = sinon.stub(vscode.window, "showQuickPick").resolves({
+            label: "Full Backup",
+            includeGit: true
+        } as any);
+
         // Try to stub vscode.workspace.fs operations (may fail if non-configurable)
         let fsStatStub: sinon.SinonStub | undefined;
         let fsDeleteStub: sinon.SinonStub | undefined;
         let fsCreateDirectoryStub: sinon.SinonStub | undefined;
         let fsWriteFileStub: sinon.SinonStub | undefined;
+        let fsRenameStub: sinon.SinonStub | undefined;
         try {
             fsStatStub = sinon.stub(vscode.workspace.fs, "stat").resolves({ type: vscode.FileType.Directory } as any);
         } catch {
@@ -77,8 +84,13 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         } catch {
             // Non-configurable, will use real operations
         }
+        try {
+            fsRenameStub = sinon.stub(vscode.workspace.fs, "rename").resolves();
+        } catch {
+            // Non-configurable, will use real operations
+        }
 
-        // Capture openFolder invocation (heal triggers reload to run sync on next activation)
+        // Capture openFolder invocation (update triggers reload to run sync on next activation)
         // Ensure it resolves immediately to prevent hanging
         const executeCommandStub = sinon.stub(vscode.commands, "executeCommand").callsFake(async (command: string) => {
             if (command === "vscode.openFolder") {
@@ -97,11 +109,11 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         (provider as any).ensureDirectoryExists = sinon.stub().resolves(true);
 
         // Create an initial "corrupted" project folder so the delete step has something to remove
-        const projectPath = path.join(tempProjectsDir, "healed-project");
+        const projectPath = path.join(tempProjectsDir, "updateed-project");
         fs.mkdirSync(projectPath, { recursive: true });
         fs.writeFileSync(path.join(projectPath, "dummy.txt"), "dummy", "utf8");
 
-        // Stub frontierApi clone used by heal step 4
+        // Stub frontierApi clone used by update step 4
         // The clone will recreate the directory after deletion
         (provider as any).frontierApi = {
             cloneRepository: sinon.stub().callsFake(async (_repoUrl: string, cloneToPath?: string) => {
@@ -119,8 +131,8 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         // Make the internal post-clone delay instant for tests
         (provider as any).sleep = sinon.stub().resolves();
 
-        // Start heal
-        const healPromise = (provider as any).performProjectHeal(
+        // Start update
+        const updatePromise = (provider as any).performProjectUpdate(
             progress,
             "projectName",
             projectPath,
@@ -129,15 +141,15 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         );
 
         // Wait for the promise to resolve
-        await healPromise;
+        await updatePromise;
 
-        // Should persist a pending heal sync payload
-        const pending = (context.globalState as any).get("codex.pendingHealSync");
-        assert.ok(pending, "Should store codex.pendingHealSync");
+        // Should persist a pending update sync payload
+        const pending = (context.globalState as any).get("codex.pendingUpdateSync");
+        assert.ok(pending, "Should store codex.pendingUpdateSync");
         assert.strictEqual(pending.projectPath, projectPath);
-        assert.strictEqual(pending.commitMessage, "Healed project: merged local changes after re-clone");
+        assert.strictEqual(pending.commitMessage, "Updated project: merged local changes after re-clone");
 
-        // Should open the healed folder (triggers reload)
+        // Should open the updateed folder (triggers reload)
         sinon.assert.calledWith(executeCommandStub, "vscode.openFolder", sinon.match.any, false);
 
         // Cleanup stubs
@@ -159,7 +171,11 @@ suite("StartupFlowProvider Heal - triggers LFS-aware sync", () => {
         if (fsWriteFileStub) {
             fsWriteFileStub.restore();
         }
+        if (fsRenameStub) {
+            fsRenameStub.restore();
+        }
         executeCommandStub.restore();
+        quickPickStub.restore();
         sinon.restore();
 
         try {

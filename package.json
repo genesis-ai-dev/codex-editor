@@ -9,12 +9,12 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.16.0",
+    "version": "0.18.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
     },
-    "categories": [ 
+    "categories": [
         "Other"
     ],
     "activationEvents": [
@@ -27,7 +27,18 @@
         "readFile"
     ],
     "contributes": {
-        "keybindings": [],
+        "keybindings": [
+            {
+                "key": "cmd+shift+s",
+                "command": "codex-editor.preventSaveAs",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "key": "ctrl+shift+s",
+                "command": "codex-editor.preventSaveAs",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            }
+        ],
         "views": {
             "codex-main-menu": [
                 {
@@ -146,18 +157,38 @@
         },
         "commands": [
             {
-                "command": "codex-editor-extension.submitProgressReport",
-                "title": "Submit Progress Report",
+                "command": "codex-editor.preventSaveAs",
+                "title": "Prevent Save As for Codex Files",
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.initiateRemoteHealing",
-                "title": "Initiate Remote Healing",
+                "command": "codex-editor.initiateRemoteUpdating",
+                "title": "Initiate Remote Update",
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.viewRemoteHealingList",
-                "title": "View Remote Healing List",
+                "command": "codex-editor.viewRemoteUpdatingList",
+                "title": "View Remote Update List",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.initiateProjectSwap",
+                "title": "Project Swap - Initiate Swap (Step 2)",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.initiateSwapCopy",
+                "title": "Project Swap - Copy to New Project (Step 1)",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.viewProjectSwapStatus",
+                "title": "Project Swap - View Status",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.cancelProjectSwap",
+                "title": "Project Swap - Cancel Swap",
                 "category": "Codex Editor"
             },
             {
@@ -1023,6 +1054,7 @@
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
         "@testing-library/webdriverio": "^3.0.0",
+        "@types/archiver": "^7.0.0",
         "@types/copy-webpack-plugin": "^8.0.1",
         "@types/diff": "^5.2.3",
         "@types/glob": "^7.1.1",
@@ -1096,6 +1128,7 @@
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "animejs": "^3.2.1",
+        "archiver": "^7.0.1",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
         "copy-webpack-plugin": "^12.0.2",

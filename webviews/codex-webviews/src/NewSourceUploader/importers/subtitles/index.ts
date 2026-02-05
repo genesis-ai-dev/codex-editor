@@ -146,7 +146,7 @@ type SubtitleImportOptions = {
     includeCellLabels?: boolean;
 };
 
-const parseFile = async (
+export const parseFile = async (
     file: File,
     onProgress?: ProgressCallback,
     options?: SubtitleImportOptions
