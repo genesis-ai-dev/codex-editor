@@ -221,6 +221,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): void | Thenable<void> {
+        // Don't show startup flow if there are other tabs open (unless explicitly forced)
+        // This prevents the startup flow from appearing during session restore
+        const hasOtherTabs = vscode.window.tabGroups.all.some((group) =>
+            group.tabs.some(tab => {
+                // Check if this tab is NOT the startup flow itself
+                const input = tab.input;
+                if (input && typeof input === 'object' && 'uri' in input) {
+                    const uri = (input as { uri: vscode.Uri }).uri;
+                    return !uri.scheme.includes('startupFlow');
+                }
+                return true; // Count unknown tabs as "other" tabs
+            })
+        );
+
+        if (hasOtherTabs && !this._forceLogin) {
+            debugLog("Other tabs are open - closing startup flow");
+            webviewPanel.dispose();
+            return;
+        }
+
         this.webviewPanel = webviewPanel;
         this.disposables.push(webviewPanel);
 

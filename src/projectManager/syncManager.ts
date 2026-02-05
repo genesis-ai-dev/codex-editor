@@ -4,7 +4,6 @@ import { getAuthApi } from "../extension";
 import { createIndexWithContext } from "../activationHelpers/contextAware/contentIndexes/indexes";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import * as path from "path";
-import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
@@ -744,9 +743,6 @@ export class SyncManager {
             this.showSyncProgress(commitMessage);
         }
 
-        // Update splash screen with initial sync status
-        updateSplashScreenSync(30, "Checking files are up to date...");
-
         // Run the actual sync operation in the background (truly async)
         this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues);
 
@@ -764,10 +760,9 @@ export class SyncManager {
             const syncStartTime = performance.now();
             debug("🔄 Starting background sync operation...");
 
-            // Update sync stage and splash screen
+            // Update sync stage
             this.currentSyncStage = "Preparing sync...";
             this.notifySyncStatusListeners();
-            updateSplashScreenSync(60, this.currentSyncStage);
 
             // Migrate comments before sync if needed
             const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -785,7 +780,6 @@ export class SyncManager {
                 if (needsMigration && inSourceControl) {
                     this.currentSyncStage = "Migrating legacy comments...";
                     this.notifySyncStatusListeners();
-                    updateSplashScreenSync(65, this.currentSyncStage);
 
                     try {
                         await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
@@ -801,7 +795,6 @@ export class SyncManager {
                     // This ensures we clean up any local corruption before syncing to other users
                     this.currentSyncStage = "Cleaning up comment data...";
                     this.notifySyncStatusListeners();
-                    updateSplashScreenSync(67, this.currentSyncStage);
 
                     try {
                         const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
@@ -820,7 +813,6 @@ export class SyncManager {
             if (syncResult.offline) {
                 this.currentSyncStage = "Synchronization skipped! (offline)";
                 this.notifySyncStatusListeners();
-                updateSplashScreenSync(100, "Synchronization skipped (offline)");
                 return;
             }
 
@@ -853,7 +845,6 @@ export class SyncManager {
                 if (needsPostSyncMigration && inSourceControl) {
                     this.currentSyncStage = "Cleaning up legacy files...";
                     this.notifySyncStatusListeners();
-                    updateSplashScreenSync(95, this.currentSyncStage);
 
                     try {
                         await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
@@ -919,10 +910,9 @@ export class SyncManager {
                 // Don't fail sync completion due to cleanup errors
             }
 
-            // Update sync stage and splash screen
+            // Update sync stage
             this.currentSyncStage = "Synchronization complete!";
             this.notifySyncStatusListeners();
-            updateSplashScreenSync(100, "Synchronization complete");
 
             // Clear local update completion flag now that sync has pushed changes to remote
             try {
@@ -962,10 +952,9 @@ export class SyncManager {
             console.error("Error during background sync operation:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);
 
-            // Update sync stage and splash screen
+            // Update sync stage
             this.currentSyncStage = "Sync failed";
             this.notifySyncStatusListeners();
-            updateSplashScreenSync(100, `Sync failed: ${errorMessage}`);
 
             // Show error messages to user
             if (

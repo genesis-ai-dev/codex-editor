@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { WelcomeViewProvider } from "./welcomeViewProvider";
+import { isStartingUp } from "../../extension";
 
 let provider: WelcomeViewProvider;
 
@@ -84,6 +85,12 @@ export function getWelcomeViewProvider(): WelcomeViewProvider {
 
 // Check if there are no visible editors and show welcome view if needed
 export async function showWelcomeViewIfNeeded() {
+    // Don't show welcome view during startup/tab restoration to prevent race conditions
+    if (isStartingUp()) {
+        debug("[WelcomeView] Startup in progress, skipping welcome view");
+        return;
+    }
+
     // Safety check - if provider is not initialized, log and return
     if (!provider) {
         console.warn("[WelcomeView] Provider not initialized yet, skipping welcome view");

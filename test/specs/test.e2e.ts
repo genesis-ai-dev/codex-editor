@@ -2,37 +2,12 @@ import { browser, expect } from '@wdio/globals';
 import { setupBrowser } from '@testing-library/webdriverio';
 
 
-
 describe('VS Code Extension Testing', () => {
-    // Define all possible loading stages based on extension.ts analysis
-    const EXPECTED_LOADING_STAGES = [
-        'Initializing Splash Screen',
-        'Configuring Editor Layout',
-        'Setting up Pre-activation Commands',
-        'Loading Project Metadata',
-        'Connecting Authentication Service',
-        'Setting up Basic Components',
-        'Configuring Startup Workflow',
-        'AI preparing search capabilities',
-        'AI search capabilities (skipped - no workspace)',
-        'Initializing Workspace',
-        'Watching for Initialization',
-        'Loading Core Components',
-        'Initializing Status Bar',
-        'Running Post-activation Tasks',
-        'Initializing Language Server',
-        'AI learning your project structure',
-        'Completing Project Synchronization',
-        'Failing Project Synchronization',
-        'Project Synchronization Complete',
-        'Project Synchronization Skipped',
-        'Project Synchronization Failed'
-    ];
 
-    it('should successfully load VS Code with extension and validate all loading stages', async () => {
+    it('should successfully load VS Code with extension in non-blocking mode', async () => {
         const workbench = await browser.getWorkbench();
 
-        // Wait for VS Code to fully load (longer timeout for comprehensive testing)
+        // Wait for VS Code to fully load
         await browser.pause(3000);
 
         // Verify VS Code launched in Extension Development Host mode
@@ -40,146 +15,18 @@ describe('VS Code Extension Testing', () => {
         expect(await workbench.getTitleBar().getTitle())
             .toContain('[Extension Development Host]');
 
-        // Wait for the webview to appear
-        console.log('🔍 Looking for webview iframe...');
-        await browser.waitUntil(async () => {
-            try {
-                const webviewFrame = await browser.$('iframe.webview.ready');
-                return await webviewFrame.isExisting();
-            } catch {
-                return false;
-            }
-        }, {
-            timeout: 20000,
-            timeoutMsg: 'Webview iframe did not appear within 20 seconds'
-        });
+        // With the new non-blocking startup, the UI should be ready quickly
+        // and providers should be registered immediately
+        console.log('✅ VS Code Extension Development Host verified');
 
-        // Switch to the webview iframe
-        const webviewFrame = await browser.$('iframe.webview.ready');
-        await browser.switchToFrame(webviewFrame);
-        console.log('✅ Successfully switched to webview iframe');
-
-        // Look for the inner active frame where content actually lives
-        console.log('🔍 Looking for active frame inside webview...');
-        await browser.waitUntil(async () => {
-            try {
-                const activeFrame = await browser.$('#active-frame');
-                return await activeFrame.isExisting();
-            } catch {
-                return false;
-            }
-        }, {
-            timeout: 15000,
-            timeoutMsg: 'Active frame did not appear within 15 seconds'
-        });
-
-        // Switch to the inner active frame
-        const activeFrame = await browser.$('#active-frame');
-        await browser.switchToFrame(activeFrame);
-        console.log('✅ Successfully switched to active frame - this is where the content is!');
-
-        // Verify essential splash screen content
-        console.log('🔍 Verifying splash screen content...');
-
-        // Check for main loading message
-        const bodyText = await browser.$('body').getText();
-        console.log('📝 Active frame body text preview:', bodyText.substring(0, 200) + '...');
-
-        expect(bodyText).toContain('Loading Codex Editor');
-        console.log('✅ Found "Loading Codex Editor" text');
-
-        // Wait a bit more for loading stages to populate
-        await browser.pause(2000);
-
-        // Get updated content after waiting
-        const updatedBodyText = await browser.$('body').getText();
-
-        // Validate core loading stages that should always be present
-        const coreStages = [
-            'Initializing Splash Screen',
-            'Configuring Editor Layout',
-            'Setting up Pre-activation Commands',
-            'Loading Project Metadata'
-        ];
-
-        console.log('🔍 Checking for core loading stages...');
-        const foundStages: string[] = [];
-        const missingStages: string[] = [];
-
-        for (const stage of coreStages) {
-            if (updatedBodyText.includes(stage)) {
-                foundStages.push(stage);
-                console.log(`✅ Found core stage: "${stage}"`);
-            } else {
-                missingStages.push(stage);
-                console.log(`❌ Missing core stage: "${stage}"`);
-            }
-        }
-
-        // Ensure we found the essential core stages
-        expect(foundStages.length).toBeGreaterThanOrEqual(3);
-        console.log(`✅ Found ${foundStages.length} out of ${coreStages.length} core stages`);
-
-        // Check for any additional loading stages that might be present
-        console.log('🔍 Checking for additional loading stages...');
-        const additionalStagesFound: string[] = [];
-
-        for (const stage of EXPECTED_LOADING_STAGES) {
-            if (!coreStages.includes(stage) && updatedBodyText.includes(stage)) {
-                additionalStagesFound.push(stage);
-                console.log(`✅ Found additional stage: "${stage}"`);
-            }
-        }
-
-        if (additionalStagesFound.length > 0) {
-            console.log(`✅ Found ${additionalStagesFound.length} additional loading stages`);
-        }
-
-        // Check for progress indication
-        const progressMatches = updatedBodyText.match(/Current progress: (\d+)%/);
-        if (progressMatches) {
-            const progress = parseInt(progressMatches[1]);
-            console.log(`📊 Current loading progress: ${progress}%`);
-            expect(progress).toBeGreaterThanOrEqual(0);
-            expect(progress).toBeLessThanOrEqual(100);
-        }
-
-        // Check for timing information
-        const timingMatches = updatedBodyText.match(/(\d+)ms/g);
-        if (timingMatches && timingMatches.length > 0) {
-            console.log(`⏱️ Found ${timingMatches.length} timing measurements`);
-            console.log(`⏱️ Sample timings: ${timingMatches.slice(0, 5).join(', ')}`);
-        }
-
-        // Check for stage completion indicators
-        const completedStagesCount = (updatedBodyText.match(/\d+ms/g) || []).length;
-        console.log(`✅ Found ${completedStagesCount} completed stages with timing`);
-
-        // Detailed logging of all found stages
-        const allFoundStages = [...foundStages, ...additionalStagesFound];
-        console.log('📋 Summary of all found loading stages:');
-        allFoundStages.forEach((stage, index) => {
-            console.log(`  ${index + 1}. ${stage}`);
-        });
-
-        if (missingStages.length > 0) {
-            console.log('⚠️ Missing core stages:');
-            missingStages.forEach((stage, index) => {
-                console.log(`  ${index + 1}. ${stage}`);
-            });
-        }
-
-        // Verify the splash screen shows loading activity
-        expect(allFoundStages.length).toBeGreaterThanOrEqual(3);
-        console.log(`🎯 Final validation: Found ${allFoundStages.length} total loading stages`);
-
-        // Switch back to main VS Code context for final verification
-        await browser.switchToFrame(null);
-        console.log('🔄 Switched back to main VS Code context');
+        // Check that the workbench is accessible
+        const workbenchElement = await browser.$('.monaco-workbench');
+        expect(await workbenchElement.isDisplayed()).toBe(true);
+        console.log('✅ VS Code workbench is accessible - non-blocking startup successful');
     });
 
-    it('should show authentication form after startup flow completes', async () => {
-        console.log('🔐 Testing authentication step after startup flow...');
+    it('should show authentication form when ready', async () => {
+        console.log('🔐 Testing authentication UI...');
 
         // Wait for VS Code to be ready
         await browser.pause(2000);
@@ -219,16 +66,15 @@ describe('VS Code Extension Testing', () => {
         await browser.switchToFrame(activeFrame);
         console.log('✅ Switched to active frame for authentication');
 
-        // Wait for startup flow to complete and authentication to appear
-        console.log('⏳ Waiting for startup flow to complete and authentication to appear...');
+        // Wait for authentication to appear (no longer waiting for splash to complete)
+        console.log('⏳ Waiting for authentication UI to appear...');
 
-        // Wait longer for the loading to complete and authentication to show
         await browser.waitUntil(async () => {
             try {
                 const bodyText = await browser.$('body').getText();
                 console.log('🔍 Current content check:', bodyText.substring(0, 300) + '...');
 
-                // Check if we've moved past loading to authentication
+                // Check if authentication UI is present
                 return bodyText.includes('username') ||
                     bodyText.includes('password') ||
                     bodyText.includes('login') ||
@@ -237,15 +83,14 @@ describe('VS Code Extension Testing', () => {
                     bodyText.includes('Password') ||
                     bodyText.includes('Sign in') ||
                     bodyText.includes('Authentication') ||
-                    bodyText.includes('email') ||
-                    !bodyText.includes('Loading Codex Editor'); // Loading is done
+                    bodyText.includes('email');
             } catch (error) {
                 console.log('⚠️ Error checking for authentication content:', error instanceof Error ? error.message : String(error));
                 return false;
             }
         }, {
             timeout: 30000,
-            timeoutMsg: 'Authentication form did not appear after startup flow completed',
+            timeoutMsg: 'Authentication form did not appear',
             interval: 1000
         });
 
@@ -367,7 +212,6 @@ describe('VS Code Extension Testing', () => {
         // Ensure we found some authentication UI
         const hasAuthContent = foundAuthElements.length > 0;
         const hasInputFields = foundInputs.length > 0;
-        const hasButtons = foundButtons.length > 0;
 
         expect(hasAuthContent || hasInputFields).toBe(true);
         console.log('🎯 Authentication form validation completed successfully!');
@@ -385,7 +229,7 @@ describe('VS Code Extension Testing', () => {
         expect(titleBar).toBeDefined();
         console.log('✅ VS Code workbench is accessible');
 
-        // Verify we can access basic VS Code UI elements  
+        // Verify we can access basic VS Code UI elements
         const workbenchElement = await browser.$('.monaco-workbench');
         expect(await workbenchElement.isDisplayed()).toBe(true);
         console.log('✅ VS Code UI elements are accessible');

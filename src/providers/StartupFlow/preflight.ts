@@ -1,9 +1,8 @@
 import * as vscode from "vscode";
-import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
 import * as fs from "fs";
-import { getAuthApi } from "../../extension";
+import { getAuthApi, waitForAuthInit } from "../../extension";
 
 interface AuthState {
     isAuthenticated: boolean;
@@ -135,6 +134,8 @@ export class PreflightCheck {
         };
 
         try {
+            debugLog("Waiting for auth initialization to complete");
+            await waitForAuthInit();
             debugLog("Checking authentication state");
             const isAuthenticated = await this.checkAuthentication();
             state.authState.isAuthenticated = isAuthenticated;
@@ -252,6 +253,14 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
         "codex-project-manager.preflight",
         async () => {
             debugLog("Executing preflight command");
+
+            // Don't open startup flow if there are any open tabs
+            const hasOpenTabs = vscode.window.tabGroups.all.some((group) => group.tabs.length > 0);
+            if (hasOpenTabs) {
+                debugLog("Tabs are open - skipping startup flow");
+                return;
+            }
+
             const state = await preflightCheck.preflight();
             debugLog("Preflight state:", state);
 
@@ -298,7 +307,9 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
     disposables.push(preflightCommand);
     context.subscriptions.push(...disposables);
 
-    // Run initial preflight check
-    debugLog("Running initial preflight check");
-    vscode.commands.executeCommand("codex-project-manager.preflight");
+    // NOTE: We no longer run preflight automatically at startup.
+    // With non-blocking startup, auth and other services initialize in the background.
+    // Running preflight immediately would open the startup flow before auth completes,
+    // causing a "ghost tab" that opens and immediately closes.
+    // Users can manually trigger preflight via the command if needed.
 };
