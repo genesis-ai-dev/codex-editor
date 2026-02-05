@@ -135,28 +135,81 @@ export function getAllSwapEntries(swapInfo: ProjectSwapInfo): ProjectSwapEntry[]
 }
 
 /**
+ * Order fields within a ProjectSwapEntry for consistent, readable JSON output.
+ * Groups related fields together:
+ * 1. Identifier and status (swapUUID, swapStatus) - most important for scanning
+ * 2. Initiation info (swapInitiatedAt, swapInitiatedBy, swapReason)
+ * 3. Modification timestamps (swapModifiedAt, swappedUsersModifiedAt)
+ * 4. Project names (oldProjectName, newProjectName) - shorter, easier to scan
+ * 5. Perspective flag (isOldProject) - separates names from URLs
+ * 6. Project URLs (oldProjectUrl, newProjectUrl) - longer, at the end
+ * 7. User tracking (swappedUsers)
+ * 8. Cancellation info (cancelledBy, cancelledAt) - optional, at the very end
+ */
+export function orderEntryFields(entry: ProjectSwapEntry): ProjectSwapEntry {
+    const ordered: ProjectSwapEntry = {
+        // 1. Identifier and status (most important for scanning)
+        swapUUID: entry.swapUUID,
+        swapStatus: entry.swapStatus,
+        // 2. Initiation info
+        swapInitiatedAt: entry.swapInitiatedAt,
+        swapInitiatedBy: entry.swapInitiatedBy,
+        swapReason: entry.swapReason,
+        // 3. Modification timestamps
+        swapModifiedAt: entry.swapModifiedAt,
+        swappedUsersModifiedAt: entry.swappedUsersModifiedAt,
+        // 4. Project names (short, easy to scan)
+        oldProjectName: entry.oldProjectName,
+        newProjectName: entry.newProjectName,
+        // 5. Perspective flag (separates names from URLs)
+        isOldProject: entry.isOldProject,
+        // 6. Project URLs (long, at the end)
+        oldProjectUrl: entry.oldProjectUrl,
+        newProjectUrl: entry.newProjectUrl,
+        // 7. User tracking
+        swappedUsers: entry.swappedUsers,
+        // 8. Cancellation info (optional)
+        cancelledBy: entry.cancelledBy,
+        cancelledAt: entry.cancelledAt,
+    };
+
+    // Remove undefined fields to keep JSON clean
+    Object.keys(ordered).forEach((key) => {
+        if ((ordered as any)[key] === undefined) {
+            delete (ordered as any)[key];
+        }
+    });
+
+    return ordered;
+}
+
+/**
  * Deterministically sort swap entries to avoid metadata churn.
  * Order: active swaps first (newest), then by swapInitiatedAt (newest),
  * then swapModifiedAt (newest), then swapUUID for stable ties.
+ * Also orders fields within each entry for consistent JSON output.
  */
 export function sortSwapEntries(entries: ProjectSwapEntry[]): ProjectSwapEntry[] {
-    return entries.slice().sort((a, b) => {
-        const aActive = a.swapStatus === "active" ? 1 : 0;
-        const bActive = b.swapStatus === "active" ? 1 : 0;
-        if (aActive !== bActive) return bActive - aActive;
+    return entries
+        .slice()
+        .sort((a, b) => {
+            const aActive = a.swapStatus === "active" ? 1 : 0;
+            const bActive = b.swapStatus === "active" ? 1 : 0;
+            if (aActive !== bActive) return bActive - aActive;
 
-        if (a.swapInitiatedAt !== b.swapInitiatedAt) {
-            return b.swapInitiatedAt - a.swapInitiatedAt;
-        }
+            if (a.swapInitiatedAt !== b.swapInitiatedAt) {
+                return b.swapInitiatedAt - a.swapInitiatedAt;
+            }
 
-        const aModified = a.swapModifiedAt ?? a.swapInitiatedAt;
-        const bModified = b.swapModifiedAt ?? b.swapInitiatedAt;
-        if (aModified !== bModified) {
-            return bModified - aModified;
-        }
+            const aModified = a.swapModifiedAt ?? a.swapInitiatedAt;
+            const bModified = b.swapModifiedAt ?? b.swapInitiatedAt;
+            if (aModified !== bModified) {
+                return bModified - aModified;
+            }
 
-        return a.swapUUID.localeCompare(b.swapUUID);
-    });
+            return a.swapUUID.localeCompare(b.swapUUID);
+        })
+        .map(orderEntryFields);
 }
 
 /**

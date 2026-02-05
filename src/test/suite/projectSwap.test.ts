@@ -208,6 +208,76 @@ suite("Project Swap Tests", () => {
                 assert.strictEqual(sorted[0].swapUUID, "a-uuid");
                 assert.strictEqual(sorted[1].swapUUID, "b-uuid");
             });
+
+            test("orders fields within entries for readable JSON output", () => {
+                const entries = [
+                    createSwapEntry({
+                        swapUUID: "test-uuid",
+                        swapInitiatedAt: 1000,
+                        swapModifiedAt: 2000,
+                        swapStatus: "active",
+                        isOldProject: true,
+                        oldProjectUrl: "https://example.com/old.git",
+                        oldProjectName: "old-project",
+                        newProjectUrl: "https://example.com/new.git",
+                        newProjectName: "new-project",
+                        swapInitiatedBy: "admin",
+                        swapReason: "Test reason",
+                    }),
+                ];
+                const sorted = sortSwapEntries(entries);
+                const fieldOrder = Object.keys(sorted[0]);
+
+                // Verify field order grouping
+                const uuidIndex = fieldOrder.indexOf("swapUUID");
+                const statusIndex = fieldOrder.indexOf("swapStatus");
+                const initiatedAtIndex = fieldOrder.indexOf("swapInitiatedAt");
+                const initiatedByIndex = fieldOrder.indexOf("swapInitiatedBy");
+                const reasonIndex = fieldOrder.indexOf("swapReason");
+                const modifiedAtIndex = fieldOrder.indexOf("swapModifiedAt");
+                const oldNameIndex = fieldOrder.indexOf("oldProjectName");
+                const newNameIndex = fieldOrder.indexOf("newProjectName");
+                const isOldIndex = fieldOrder.indexOf("isOldProject");
+                const oldUrlIndex = fieldOrder.indexOf("oldProjectUrl");
+                const newUrlIndex = fieldOrder.indexOf("newProjectUrl");
+
+                // Identifier and status first (most important for scanning)
+                assert.ok(uuidIndex < statusIndex, "swapUUID should come before swapStatus");
+                assert.ok(statusIndex < initiatedAtIndex, "swapStatus should come before swapInitiatedAt");
+                // Initiation info together
+                assert.ok(initiatedAtIndex < initiatedByIndex, "swapInitiatedAt should come before swapInitiatedBy");
+                assert.ok(initiatedByIndex < reasonIndex, "swapInitiatedBy should come before swapReason");
+                // Then modification timestamp
+                assert.ok(reasonIndex < modifiedAtIndex, "swapReason should come before swapModifiedAt");
+                // Names come after timestamps
+                assert.ok(modifiedAtIndex < oldNameIndex, "swapModifiedAt should come before oldProjectName");
+                assert.ok(oldNameIndex < newNameIndex, "oldProjectName should come before newProjectName");
+                // isOldProject separates names from URLs
+                assert.ok(newNameIndex < isOldIndex, "newProjectName should come before isOldProject");
+                // URLs at the end
+                assert.ok(isOldIndex < oldUrlIndex, "isOldProject should come before oldProjectUrl");
+                assert.ok(oldUrlIndex < newUrlIndex, "oldProjectUrl should come before newProjectUrl");
+            });
+
+            test("removes undefined fields when ordering", () => {
+                const entries = [
+                    createSwapEntry({
+                        swapUUID: "test-uuid",
+                        swapInitiatedAt: 1000,
+                        swapModifiedAt: 1000,
+                        swapStatus: "active",
+                        isOldProject: true,
+                        // No swapReason, swappedUsersModifiedAt, cancelledBy, cancelledAt
+                    }),
+                ];
+                const sorted = sortSwapEntries(entries);
+                const entry = sorted[0];
+
+                assert.ok(!("swapReason" in entry) || entry.swapReason !== undefined, "Should not have undefined swapReason");
+                assert.ok(!("swappedUsersModifiedAt" in entry) || entry.swappedUsersModifiedAt !== undefined, "Should not have undefined swappedUsersModifiedAt");
+                assert.ok(!("cancelledBy" in entry) || entry.cancelledBy !== undefined, "Should not have undefined cancelledBy");
+                assert.ok(!("cancelledAt" in entry) || entry.cancelledAt !== undefined, "Should not have undefined cancelledAt");
+            });
         });
 
         suite("mergeSwappedUsers", () => {
