@@ -12,7 +12,7 @@ import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
 import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
 
-const DEBUG = true;
+const DEBUG = false;
 const debugLog = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...args) : () => { };
 
 /**
