@@ -1,6 +1,7 @@
 import { NotebookPair, ProcessedNotebook } from './common';
 import type { CustomNotebookCellData } from 'types';
 import { WizardContext } from './wizard';
+import React from 'react';
 
 /**
  * Information about existing source files in the project
