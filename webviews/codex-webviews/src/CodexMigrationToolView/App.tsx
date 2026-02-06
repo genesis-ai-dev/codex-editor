@@ -1,18 +1,28 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Checkbox } from "../components/ui/checkbox";
+import { Label } from "../components/ui/label";
+import { Separator } from "../components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Badge } from "../components/ui/badge";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
-    VSCodeButton,
-    VSCodeCheckbox,
-    VSCodeDivider,
-    VSCodeDropdown,
-    VSCodeOption,
-    VSCodeProgressRing,
-} from "@vscode/webview-ui-toolkit/react";
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "../components/ui/select";
+import { Check, ChevronsUpDown, Loader2, AlertCircle } from "lucide-react";
+import { cn } from "../lib/utils";
 import type { CodexMigrationMatchMode, MigrationMatchResult } from "types";
 
 declare const vscode: {
-    postMessage: (message: any) => void;
-    getState: () => any;
-    setState: (state: any) => void;
+    postMessage: (message: unknown) => void;
+    getState: () => Record<string, unknown> | undefined;
+    setState: (state: unknown) => void;
 };
 
 type SourceFileUIData = {
@@ -32,6 +42,8 @@ type AppState = {
     toFilePath: string;
     matchMode: CodexMigrationMatchMode;
     forceOverride: boolean;
+    fromStartLine: number;
+    toStartLine: number;
     results: MigrationMatchResult[];
     summary: MigrationSummary | null;
     isLoading: boolean;
@@ -42,19 +54,105 @@ const MATCH_MODE_LABELS: Record<CodexMigrationMatchMode, string> = {
     globalReferences: "Match Global References",
     timestamps: "Match Timestamps",
     sequential: "Match Sequential Source Lines",
+    lineNumber: "Match Line Numbers (Skip Child/Paratext)",
+};
+
+/** Searchable file combobox using shadcn Popover + Button + Input. */
+const FileCombobox: React.FC<{
+    files: SourceFileUIData[];
+    value: string;
+    onChange: (path: string) => void;
+    placeholder: string;
+}> = ({ files, value, onChange, placeholder }) => {
+    const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState("");
+
+    const filtered = useMemo(() => {
+        if (!search.trim()) return files;
+        const lower = search.toLowerCase();
+        return files.filter(
+            (f) => f.name.toLowerCase().includes(lower) || f.path.toLowerCase().includes(lower)
+        );
+    }, [files, search]);
+
+    const selectedFile = useMemo(() => files.find((f) => f.path === value), [files, value]);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    disabled={files.length === 0}
+                    className="w-full justify-between font-normal"
+                >
+                    <span className={cn("truncate", !selectedFile && "text-muted-foreground")}>
+                        {selectedFile ? selectedFile.name : placeholder}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                <div className="p-2 border-b">
+                    <Input
+                        placeholder="Search files..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="h-8"
+                        autoFocus
+                    />
+                </div>
+                <div className="max-h-60 overflow-y-auto py-1">
+                    {filtered.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No files found
+                        </div>
+                    ) : (
+                        filtered.map((f) => (
+                            <div
+                                key={f.path}
+                                onClick={() => {
+                                    onChange(f.path);
+                                    setOpen(false);
+                                    setSearch("");
+                                }}
+                                className={cn(
+                                    "flex items-center px-3 py-1.5 text-sm cursor-pointer transition-colors",
+                                    value === f.path
+                                        ? "bg-accent text-accent-foreground"
+                                        : "hover:bg-accent/50"
+                                )}
+                            >
+                                <Check
+                                    className={cn(
+                                        "mr-2 h-4 w-4 shrink-0",
+                                        value === f.path ? "opacity-100" : "opacity-0"
+                                    )}
+                                />
+                                <span className="truncate">{f.name}</span>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
 };
 
 const App: React.FC = () => {
     const [state, setState] = useState<AppState>(() => {
         const persisted = vscode.getState();
         return {
-            targetFiles: persisted?.targetFiles || [],
-            fromFilePath: persisted?.fromFilePath || "",
-            toFilePath: persisted?.toFilePath || "",
-            matchMode: persisted?.matchMode || "globalReferences",
-            forceOverride: persisted?.forceOverride || false,
-            results: persisted?.results || [],
-            summary: persisted?.summary || null,
+            targetFiles: (persisted?.targetFiles as SourceFileUIData[]) || [],
+            fromFilePath: (persisted?.fromFilePath as string) || "",
+            toFilePath: (persisted?.toFilePath as string) || "",
+            matchMode: (persisted?.matchMode as CodexMigrationMatchMode) || "globalReferences",
+            forceOverride: (persisted?.forceOverride as boolean) || false,
+            fromStartLine: (persisted?.fromStartLine as number) || 1,
+            toStartLine: (persisted?.toStartLine as number) || 1,
+            results: (persisted?.results as MigrationMatchResult[]) || [],
+            summary: (persisted?.summary as MigrationSummary) || null,
             isLoading: false,
             errorMessage: null,
         };
@@ -101,159 +199,227 @@ const App: React.FC = () => {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
-    const canRunMigration = useMemo(() => {
-        return Boolean(state.fromFilePath && state.toFilePath && !state.isLoading);
-    }, [state.fromFilePath, state.toFilePath, state.isLoading]);
+    const canRunMigration = useMemo(
+        () => Boolean(state.fromFilePath && state.toFilePath && !state.isLoading),
+        [state.fromFilePath, state.toFilePath, state.isLoading]
+    );
 
     const handleRunMigration = () => {
-        vscode.postMessage({
-            command: "runMigration",
-            data: {
-                fromFilePath: state.fromFilePath,
-                toFilePath: state.toFilePath,
-                matchMode: state.matchMode,
-                forceOverride: state.forceOverride,
-            },
-        });
+        const data: Record<string, unknown> = {
+            fromFilePath: state.fromFilePath,
+            toFilePath: state.toFilePath,
+            matchMode: state.matchMode,
+            forceOverride: state.forceOverride,
+        };
+        if (state.matchMode === "lineNumber") {
+            data.fromStartLine = state.fromStartLine;
+            data.toStartLine = state.toStartLine;
+        }
+        vscode.postMessage({ command: "runMigration", data });
     };
 
     const visibleResults = state.results.slice(0, 200);
 
     return (
-        <div className="migration-container">
-            <header className="migration-header">
-                <h1>Codex Migration Tool</h1>
-                <p>
-                    Migrate edits, validations, and values from one codex file to another
-                    using the selected matching mode.
-                </p>
-            </header>
-
-            <section className="migration-panel">
-                <label className="field-label">From Codex File</label>
-                <VSCodeDropdown
-                    value={state.fromFilePath}
-                    onChange={(event: any) =>
-                        setState((prev) => ({
-                            ...prev,
-                            fromFilePath: event.target.value,
-                        }))
-                    }
-                >
-                    <VSCodeOption value="">Select source codex file</VSCodeOption>
-                    {state.targetFiles.map((file) => (
-                        <VSCodeOption key={file.path} value={file.path}>
-                            {file.name}
-                        </VSCodeOption>
-                    ))}
-                </VSCodeDropdown>
-
-                <label className="field-label">To Codex File</label>
-                <VSCodeDropdown
-                    value={state.toFilePath}
-                    onChange={(event: any) =>
-                        setState((prev) => ({
-                            ...prev,
-                            toFilePath: event.target.value,
-                        }))
-                    }
-                >
-                    <VSCodeOption value="">Select target codex file</VSCodeOption>
-                    {state.targetFiles.map((file) => (
-                        <VSCodeOption key={file.path} value={file.path}>
-                            {file.name}
-                        </VSCodeOption>
-                    ))}
-                </VSCodeDropdown>
-
-                <label className="field-label">Matching Mode</label>
-                <VSCodeDropdown
-                    value={state.matchMode}
-                    onChange={(event: any) =>
-                        setState((prev) => ({
-                            ...prev,
-                            matchMode: event.target.value as CodexMigrationMatchMode,
-                        }))
-                    }
-                >
-                    {Object.entries(MATCH_MODE_LABELS).map(([mode, label]) => (
-                        <VSCodeOption key={mode} value={mode}>
-                            {label}
-                        </VSCodeOption>
-                    ))}
-                </VSCodeDropdown>
-
-                <div className="checkbox-row">
-                    <VSCodeCheckbox
-                        checked={state.forceOverride}
-                        onChange={(event: any) =>
-                            setState((prev) => ({
-                                ...prev,
-                                forceOverride: event.target.checked,
-                            }))
-                        }
-                    >
-                        Force migrated edits to supersede existing content
-                    </VSCodeCheckbox>
-                </div>
-
-                <div className="action-row">
-                    <VSCodeButton
-                        appearance="primary"
-                        onClick={handleRunMigration}
-                        disabled={!canRunMigration}
-                    >
-                        Run Migration
-                    </VSCodeButton>
-                    {state.isLoading && <VSCodeProgressRing />}
-                </div>
-
-                {state.errorMessage && (
-                    <div className="error-banner">{state.errorMessage}</div>
-                )}
-            </section>
-
-            <VSCodeDivider />
-
-            <section className="results-panel">
-                <h2>Migration Results</h2>
-                {state.summary ? (
-                    <div className="summary-row">
-                        <span>Matched: {state.summary.matched}</span>
-                        <span>Skipped: {state.summary.skipped}</span>
-                        <span>Total matches: {state.results.length}</span>
-                    </div>
-                ) : (
-                    <p className="muted">No migration run yet.</p>
-                )}
-
-                {visibleResults.length > 0 && (
-                    <div className="results-table">
-                        <div className="results-header">
-                            <span>From Cell</span>
-                            <span>To Cell</span>
-                            <span>Source Line</span>
+        <div className="min-h-screen bg-background text-foreground">
+            <div className="max-w-3xl mx-auto p-6 flex flex-col gap-6">
+                {/* Header */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-xl">Codex Migration Tool</CardTitle>
+                        <CardDescription>
+                            Migrate edits, validations, and values from one codex file to another
+                            using the selected matching mode.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-4">
+                        {/* From file */}
+                        <div className="space-y-1.5">
+                            <Label htmlFor="fromFile">From Codex File</Label>
+                            <FileCombobox
+                                files={state.targetFiles}
+                                value={state.fromFilePath}
+                                onChange={(path) =>
+                                    setState((prev) => ({ ...prev, fromFilePath: path }))
+                                }
+                                placeholder="Select source codex file..."
+                            />
                         </div>
-                        {visibleResults.map((result) => (
-                            <div
-                                className="results-row"
-                                key={`${result.fromCellId}-${result.toCellId}`}
+
+                        {/* To file */}
+                        <div className="space-y-1.5">
+                            <Label htmlFor="toFile">To Codex File</Label>
+                            <FileCombobox
+                                files={state.targetFiles}
+                                value={state.toFilePath}
+                                onChange={(path) =>
+                                    setState((prev) => ({ ...prev, toFilePath: path }))
+                                }
+                                placeholder="Select target codex file..."
+                            />
+                        </div>
+
+                        {/* Matching mode */}
+                        <div className="space-y-1.5">
+                            <Label htmlFor="matchMode">Matching Mode</Label>
+                            <Select
+                                value={state.matchMode}
+                                onValueChange={(val) =>
+                                    setState((prev) => ({
+                                        ...prev,
+                                        matchMode: val as CodexMigrationMatchMode,
+                                    }))
+                                }
                             >
-                                <span>{result.fromCellId}</span>
-                                <span>{result.toCellId}</span>
-                                <span className="result-text">
-                                    {result.fromSourceValue || ""}
-                                </span>
+                                <SelectTrigger className="w-full" id="matchMode">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {Object.entries(MATCH_MODE_LABELS).map(([mode, label]) => (
+                                        <SelectItem key={mode} value={mode}>
+                                            {label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Start-line fields (lineNumber mode only) */}
+                        {state.matchMode === "lineNumber" && (
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="fromStartLine">From Start Line</Label>
+                                    <Input
+                                        id="fromStartLine"
+                                        type="number"
+                                        min={1}
+                                        value={state.fromStartLine}
+                                        onChange={(e) => {
+                                            const parsed = parseInt(e.target.value, 10);
+                                            setState((prev) => ({
+                                                ...prev,
+                                                fromStartLine:
+                                                    Number.isFinite(parsed) && parsed >= 1
+                                                        ? parsed
+                                                        : 1,
+                                            }));
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Line in source file to start migrating from
+                                    </p>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="toStartLine">To Start Line</Label>
+                                    <Input
+                                        id="toStartLine"
+                                        type="number"
+                                        min={1}
+                                        value={state.toStartLine}
+                                        onChange={(e) => {
+                                            const parsed = parseInt(e.target.value, 10);
+                                            setState((prev) => ({
+                                                ...prev,
+                                                toStartLine:
+                                                    Number.isFinite(parsed) && parsed >= 1
+                                                        ? parsed
+                                                        : 1,
+                                            }));
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Line in target file to start migrating into
+                                    </p>
+                                </div>
                             </div>
-                        ))}
-                        {state.results.length > visibleResults.length && (
-                            <p className="muted">
-                                Showing first {visibleResults.length} results.
-                            </p>
                         )}
-                    </div>
-                )}
-            </section>
+
+                        {/* Force override checkbox */}
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="forceOverride"
+                                checked={state.forceOverride}
+                                onCheckedChange={(checked) =>
+                                    setState((prev) => ({
+                                        ...prev,
+                                        forceOverride: checked === true,
+                                    }))
+                                }
+                            />
+                            <Label htmlFor="forceOverride" className="cursor-pointer">
+                                Force migrated edits to supersede existing content
+                            </Label>
+                        </div>
+
+                        {/* Action row */}
+                        <div className="flex items-center gap-3 pt-1">
+                            <Button onClick={handleRunMigration} disabled={!canRunMigration}>
+                                {state.isLoading && (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                )}
+                                Run Migration
+                            </Button>
+                        </div>
+
+                        {/* Error banner */}
+                        {state.errorMessage && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertDescription>{state.errorMessage}</AlertDescription>
+                            </Alert>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Separator />
+
+                {/* Results panel */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Migration Results</CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                        {state.summary ? (
+                            <div className="flex flex-wrap gap-2">
+                                <Badge variant="secondary">Matched: {state.summary.matched}</Badge>
+                                <Badge variant="outline">Skipped: {state.summary.skipped}</Badge>
+                                <Badge variant="outline">Total: {state.results.length}</Badge>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">No migration run yet.</p>
+                        )}
+
+                        {visibleResults.length > 0 && (
+                            <div className="max-h-96 overflow-y-auto">
+                                <div className="flex flex-col gap-1">
+                                    <div className="grid grid-cols-[1fr_1fr_2fr] gap-3 text-xs text-muted-foreground uppercase font-semibold sticky top-0 bg-card py-1">
+                                        <span>From Cell</span>
+                                        <span>To Cell</span>
+                                        <span>Source Line</span>
+                                    </div>
+                                    {visibleResults.map((result) => (
+                                        <div
+                                            className="grid grid-cols-[1fr_1fr_2fr] gap-3 text-xs"
+                                            key={`${result.fromCellId}-${result.toCellId}`}
+                                        >
+                                            <span className="truncate">{result.fromCellId}</span>
+                                            <span className="truncate">{result.toCellId}</span>
+                                            <span className="truncate text-muted-foreground">
+                                                {result.fromSourceValue || ""}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    {state.results.length > visibleResults.length && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Showing first {visibleResults.length} results.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     );
 };

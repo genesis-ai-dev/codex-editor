@@ -1,6 +1,10 @@
 import type { FileData } from "../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
 
-export type CodexMigrationMatchMode = "globalReferences" | "timestamps" | "sequential";
+export type CodexMigrationMatchMode =
+    | "globalReferences"
+    | "timestamps"
+    | "sequential"
+    | "lineNumber";
 
 export interface SourceFileUIData {
     path: string;
@@ -26,6 +30,10 @@ export interface MigrationRunConfig {
     toFilePath: string;
     matchMode: CodexMigrationMatchMode;
     forceOverride: boolean;
+    /** 1-based starting line in the source file (lineNumber mode only). */
+    fromStartLine?: number;
+    /** 1-based starting line in the target file (lineNumber mode only). */
+    toStartLine?: number;
 }
 
 export interface MigrationFileSet {

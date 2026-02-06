@@ -133,7 +133,7 @@ export async function openCodexMigrationTool(context: vscode.ExtensionContext) {
             case "runMigration":
                 try {
                     safePostMessageToPanel(panel, { command: "setLoading", isLoading: true });
-                    const { data } = message as { data: MigrationRunConfig };
+                    const { data } = message as { data: MigrationRunConfig; };
                     if (!data?.fromFilePath || !data?.toFilePath) {
                         safePostMessageToPanel(panel, {
                             command: "showError",
@@ -181,6 +181,8 @@ export async function openCodexMigrationTool(context: vscode.ExtensionContext) {
                         toSourceFile,
                         matchMode: data.matchMode,
                         sqliteManager,
+                        fromStartLine: data.fromStartLine,
+                        toStartLine: data.toStartLine,
                     });
 
                     const { updated, skipped } = await applyMigrationToTargetFile({
