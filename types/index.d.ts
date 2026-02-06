@@ -771,6 +771,8 @@ export type EditorPostMessages =
             selectedContent?: string;
             testName?: string;
             variants?: string[];
+            /** Model identifiers for server-initiated model comparison tests. */
+            models?: string[];
         };
     }
     | { command: "openLoginFlow"; }
@@ -2133,7 +2135,7 @@ type EditorReceiveMessages =
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
-    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; models?: string[]; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }

@@ -45,7 +45,8 @@ async function generateCompletionFromPairs(
     "source-and-target"
   );
 
-  return await callLLM(msgs, ctx.completionConfig, ctx.token);
+  const result = await callLLM(msgs, ctx.completionConfig, ctx.token);
+  return result.text;
 }
 
 export function initializeABTesting() {

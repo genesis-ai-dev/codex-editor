@@ -3667,7 +3667,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked LLM response";
+                return { text: "Mocked LLM response" };
             });
 
             // Stub status bar item
@@ -3809,7 +3809,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ text: "Mocked response" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -3912,7 +3912,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ text: "Mocked response" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -4016,7 +4016,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub MetadataManager.getChatSystemMessage to return custom system message
@@ -4161,7 +4161,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub status bar and notebook reader
@@ -4301,7 +4301,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Mock callLLM to capture messages
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub status bar and notebook reader
@@ -4450,7 +4450,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             let capturedMessages: any[] | null = null;
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub status bar and notebook reader
