@@ -3992,84 +3992,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             throw new Error(`Frontier Authentication extension version ${requiredVersion} or later is required. Current version: ${currentVersion}. Please update the extension.`);
         }
 
-        // Determine backup policy based on recent backups
         const codexProjectsRoot = await getCodexProjectsDirectory();
         const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsRoot, "archived_projects");
         await this.ensureDirectoryExists(archivedProjectsDir);
 
-        // If a prior update session exists, reuse its backup choice to avoid re-prompting.
+        // Retrieve prior update state for backup reuse logic.
         const projectUri = vscode.Uri.file(projectPath);
         const priorSettings = await readLocalProjectSettings(projectUri);
         const priorState = priorSettings.updateState;
         const priorBackupMode = priorState?.backupMode;
 
-        let hasRecentBackup = false;
-        try {
-            const entries = await vscode.workspace.fs.readDirectory(archivedProjectsDir);
-            const oneHourMs = 60 * 60 * 1000; // 1 hour (3,600,000 ms)
-            const now = Date.now();
-            for (const [name, type] of entries) {
-                if (
-                    type === vscode.FileType.File &&
-                    name.toLowerCase().endsWith(".zip") &&
-                    name.startsWith(`${projectName}_backup_`)
-                ) {
-                    const stat = await vscode.workspace.fs.stat(vscode.Uri.joinPath(archivedProjectsDir, name));
-                    if (now - stat.mtime < oneHourMs) {
-                        hasRecentBackup = true;
-                        break;
-                    }
-                }
-            }
-        } catch (e) {
-            // If inspection fails (e.g., directory missing), treat as no recent backup
-            debugLog("Could not inspect archived_projects for recent backups", e);
-            hasRecentBackup = false;
-        }
-
-        // Ask user for backup preference unless a prior choice exists.
-        let backupOption: { includeGit: boolean; label?: string; };
-        if (priorBackupMode === "full") {
-            backupOption = { includeGit: true, label: "Full Backup (previous selection)" };
-        } else if (priorBackupMode === "data-only") {
-            backupOption = { includeGit: false, label: "Data Only (previous selection)" };
-        } else {
-            const backupChoices = hasRecentBackup
-                ? [
-                    {
-                        label: "Full Backup (Recommended)",
-                        description: "Includes .git folder and history",
-                        detail: "Safest option, but larger file size",
-                        includeGit: true,
-                    },
-                    {
-                        label: "Data Only (no .git)",
-                        description: "Excludes .git folder",
-                        detail: "Smaller file size (recent full backup found in the last hour)",
-                        includeGit: false,
-                    },
-                ]
-                : [
-                    {
-                        label: "Full Backup (Required)",
-                        description: "Includes .git folder and history",
-                        detail: "No recent full backup found in the last hour; data-only is unavailable",
-                        includeGit: true,
-                    },
-                ];
-
-            const picked = await vscode.window.showQuickPick(backupChoices, {
-                placeHolder: "Choose a backup method before updating",
-                ignoreFocusOut: true,
-            });
-
-            if (!picked) {
-                throw new Error("Update cancelled by user (no backup method selected)");
-            }
-            backupOption = picked;
-            await this.persistUpdateState(projectPath, {
-                backupMode: picked.includeGit ? "full" : "data-only",
-            });
+        // Always perform a full backup (includes .git folder).
+        const backupOption: { includeGit: boolean; label?: string; } = {
+            includeGit: true,
+            label: "Full Backup",
+        };
+        if (priorBackupMode !== "full") {
+            await this.persistUpdateState(projectPath, { backupMode: "full" });
         }
 
         // Step 1: Create or reuse backup
@@ -5152,7 +5091,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const newProjectUrlsToHide = new Set<string>();
 
             // Import the function to get ALL deprecated projects from chain history
-            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo, getActiveSwapEntry } = 
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo, getActiveSwapEntry } =
                 await import("../../utils/projectSwapManager");
 
             for (const project of projectList) {
