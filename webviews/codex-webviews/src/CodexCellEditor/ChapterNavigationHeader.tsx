@@ -25,6 +25,7 @@ import {
 } from "../components/ui/dropdown-menu";
 import { Slider } from "../components/ui/slider";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { RenameModal } from "../components/RenameModal";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -92,6 +93,7 @@ interface ChapterNavigationHeaderProps {
     subsectionProgress?: Record<number, ProgressPercentages>;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    showHealthIndicators?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -153,6 +155,7 @@ export function ChapterNavigationHeader({
     subsectionProgress,
     allSubsectionProgress,
     requestSubsectionProgress,
+    showHealthIndicators = false,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -160,6 +163,8 @@ ChapterNavigationHeaderProps) {
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
     const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [milestoneNewName, setMilestoneNewName] = useState("");
+    const [showEditMilestoneModal, setShowEditMilestoneModal] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
     const headerContainerRef = useRef<HTMLDivElement>(null);
     const [truncatedBookName, setTruncatedBookName] = useState<string | null>(null);
@@ -535,6 +540,45 @@ ChapterNavigationHeaderProps) {
             onUpdateVideoUrl(metadata.videoUrl);
         }
     };
+
+    const handleEditMilestoneModalOpen = () => {
+        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
+        if (currentMilestone) {
+            setMilestoneNewName(currentMilestone.value);
+            setShowEditMilestoneModal(true);
+        }
+    };
+
+    const handleEditMilestoneModalClose = () => {
+        setShowEditMilestoneModal(false);
+        setMilestoneNewName("");
+    };
+
+    const handleEditMilestoneModalConfirm = () => {
+        const currentMilestone = milestoneIndex?.milestones[currentMilestoneIndex];
+        if (
+            currentMilestone &&
+            milestoneNewName.trim() !== "" &&
+            milestoneNewName.trim() !== currentMilestone.value
+        ) {
+            // Send message to update milestone value
+            vscode.postMessage({
+                command: "updateMilestoneValue",
+                content: {
+                    milestoneIndex: currentMilestoneIndex,
+                    newValue: milestoneNewName.trim(),
+                },
+            });
+        }
+        handleEditMilestoneModalClose();
+    };
+
+    // Close accordion when rename modal opens
+    useEffect(() => {
+        if (showEditMilestoneModal) {
+            setShowMilestoneAccordion(false);
+        }
+    }, [showEditMilestoneModal]);
 
     const handleFontSizeChange = (value: number[]) => {
         const newFontSize = value[0];
@@ -1255,6 +1299,26 @@ ChapterNavigationHeaderProps) {
                 calculateSubsectionProgress={calculateSubsectionProgress}
                 requestSubsectionProgress={requestSubsectionProgress}
                 vscode={vscode}
+                handleEditMilestoneModalOpen={handleEditMilestoneModalOpen}
+                showHealthIndicators={showHealthIndicators}
+            />
+
+            <RenameModal
+                open={showEditMilestoneModal}
+                title="Rename Milestone"
+                description="Enter new name for"
+                originalLabel={milestoneIndex?.milestones[currentMilestoneIndex]?.value || ""}
+                value={milestoneNewName}
+                placeholder="Enter milestone name"
+                confirmButtonLabel="Save"
+                disabled={
+                    !milestoneNewName.trim() ||
+                    milestoneNewName.trim() ===
+                        milestoneIndex?.milestones[currentMilestoneIndex]?.value
+                }
+                onClose={handleEditMilestoneModalClose}
+                onConfirm={handleEditMilestoneModalConfirm}
+                onValueChange={setMilestoneNewName}
             />
         </div>
     );

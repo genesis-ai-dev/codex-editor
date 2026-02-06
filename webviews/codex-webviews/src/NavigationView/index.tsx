@@ -7,7 +7,7 @@ import { Progress } from "../components/ui/progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import { Languages } from "lucide-react";
+import { Languages, Heart } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
 
 // Declare the acquireVsCodeApi function
@@ -33,6 +33,7 @@ interface State {
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     hasReceivedInitialData: boolean;
+    showHealthIndicators: boolean;
     renameModal: {
         isOpen: boolean;
         item: CodexItem | null;
@@ -176,8 +177,8 @@ function NavigationView() {
         previousExpandedGroups: null,
         searchQuery: "",
         bibleBookMap: undefined,
-
         hasReceivedInitialData: false,
+        showHealthIndicators: false,
         renameModal: {
             isOpen: false,
             item: null,
@@ -274,6 +275,7 @@ function NavigationView() {
                             codexItems: processedCodexItems,
                             dictionaryItems: message.dictionaryItems || [],
                             hasReceivedInitialData: true,
+                            showHealthIndicators: message.showHealthIndicators ?? false,
                         };
                     });
                     break;
@@ -611,6 +613,7 @@ function NavigationView() {
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            averageHealth?: number;
         }
     ) => {
         if (typeof progress !== "object") return null;
@@ -645,8 +648,45 @@ function NavigationView() {
         const requiredText = progress.requiredTextValidations;
         const requiredAudio = progress.requiredAudioValidations;
 
+        // Health indicator - compute percentage
+        // Only show health indicator when there's actual health data and feature flag is enabled
+        const health = progress.averageHealth;
+        const hasHealthData = typeof health === 'number' && state.showHealthIndicators;
+        const healthPercent = hasHealthData ? Math.round(health * 100) : 0;
+
         return (
             <div className="flex flex-col gap-y-4 pl-7">
+                {/* Health indicator - styled to match other progress bars */}
+                {hasHealthData && (
+                    <div className="flex gap-x-1">
+                        <span className="opacity-70 font-light">
+                            <Heart className="h-[14px] w-[14px]" />
+                        </span>
+                        <div className="mt-[2px] w-full">
+                            <div className="w-full">
+                                <div className="bg-primary/20 relative w-full overflow-hidden rounded-full h-[8px]">
+                                    <div
+                                        className="h-full transition-all"
+                                        style={{
+                                            width: `${healthPercent}%`,
+                                            backgroundColor: healthPercent >= 70
+                                                ? "var(--vscode-charts-green, #22c55e)"
+                                                : healthPercent >= 30
+                                                    ? "var(--vscode-charts-yellow, #eab308)"
+                                                    : "var(--vscode-charts-red, #ef4444)",
+                                        }}
+                                    />
+                                </div>
+                                <div className="flex items-center mt-0.5 gap-2">
+                                    <span className="text-[10px] font-medium text-primary">
+                                        {healthPercent}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex gap-x-1">
                     <span className="opacity-70 font-light">
                         <Languages className="h-[14px] w-[14px]" />
