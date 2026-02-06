@@ -329,7 +329,7 @@ export async function generateChatSystemMessage(
         const llmConfig: CompletionConfig = {
             apiKey: config.get("openAIKey") || "",
             model: "default",
-            endpoint: config.get("endpoint") || "https://api.openai.com/v1",
+            endpoint: config.get("endpoint") || "https://api.frontierrnd.com/api/v1",
             temperature: 0.3,
             contextSize: "2000",
             additionalResourceDirectory: "",
