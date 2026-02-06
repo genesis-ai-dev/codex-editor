@@ -751,4 +751,116 @@ suite("Codex migration tool integration", function () {
             await deleteIfExists(toUri);
         }
     });
+
+    test("matchMigrationCells: lineNumber with maxCells caps the match count", async () => {
+        const fromTargetFile = buildFileData({
+            path: "/tmp/from.codex",
+            id: "from",
+            cells: [
+                { id: "from-1", value: "A" },
+                { id: "from-2", value: "B" },
+                { id: "from-3", value: "C" },
+                { id: "from-4", value: "D" },
+                { id: "from-5", value: "E" },
+            ],
+        });
+        const toTargetFile = buildFileData({
+            path: "/tmp/to.codex",
+            id: "to",
+            cells: [
+                { id: "to-1", value: "X" },
+                { id: "to-2", value: "Y" },
+                { id: "to-3", value: "Z" },
+                { id: "to-4", value: "W" },
+                { id: "to-5", value: "V" },
+            ],
+        });
+
+        const matches = await matchMigrationCells({
+            fromTargetFile,
+            toTargetFile,
+            matchMode: "lineNumber",
+            maxCells: 3,
+        });
+
+        assert.strictEqual(matches.length, 3, "maxCells should cap matches at 3");
+        assert.deepStrictEqual(
+            matches.map((m) => [m.fromCellId, m.toCellId]),
+            [
+                ["from-1", "to-1"],
+                ["from-2", "to-2"],
+                ["from-3", "to-3"],
+            ]
+        );
+    });
+
+    test("matchMigrationCells: lineNumber with maxCells and start offsets", async () => {
+        const fromTargetFile = buildFileData({
+            path: "/tmp/from.codex",
+            id: "from",
+            cells: [
+                { id: "from-1", value: "A" },
+                { id: "from-2", value: "B" },
+                { id: "from-3", value: "C" },
+                { id: "from-4", value: "D" },
+                { id: "from-5", value: "E" },
+            ],
+        });
+        const toTargetFile = buildFileData({
+            path: "/tmp/to.codex",
+            id: "to",
+            cells: [
+                { id: "to-1", value: "X" },
+                { id: "to-2", value: "Y" },
+                { id: "to-3", value: "Z" },
+                { id: "to-4", value: "W" },
+            ],
+        });
+
+        // from line 2 (from-2..from-5 = 4 cells), to line 1 (to-1..to-4 = 4 cells), maxCells = 2
+        const matches = await matchMigrationCells({
+            fromTargetFile,
+            toTargetFile,
+            matchMode: "lineNumber",
+            fromStartLine: 2,
+            maxCells: 2,
+        });
+
+        assert.strictEqual(matches.length, 2, "maxCells should cap at 2 even though 4 cells remain");
+        assert.deepStrictEqual(
+            matches.map((m) => [m.fromCellId, m.toCellId]),
+            [
+                ["from-2", "to-1"],
+                ["from-3", "to-2"],
+            ]
+        );
+    });
+
+    test("matchMigrationCells: lineNumber with maxCells=0 means no limit", async () => {
+        const fromTargetFile = buildFileData({
+            path: "/tmp/from.codex",
+            id: "from",
+            cells: [
+                { id: "from-1", value: "A" },
+                { id: "from-2", value: "B" },
+            ],
+        });
+        const toTargetFile = buildFileData({
+            path: "/tmp/to.codex",
+            id: "to",
+            cells: [
+                { id: "to-1", value: "X" },
+                { id: "to-2", value: "Y" },
+            ],
+        });
+
+        const matches = await matchMigrationCells({
+            fromTargetFile,
+            toTargetFile,
+            matchMode: "lineNumber",
+            maxCells: 0,
+        });
+
+        assert.strictEqual(matches.length, 2, "maxCells=0 should be treated as no limit");
+    });
 });

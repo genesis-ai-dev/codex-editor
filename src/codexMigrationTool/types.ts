@@ -34,6 +34,8 @@ export interface MigrationRunConfig {
     fromStartLine?: number;
     /** 1-based starting line in the target file (lineNumber mode only). */
     toStartLine?: number;
+    /** Maximum number of cells to migrate (lineNumber mode only). Omit or 0 for no limit. */
+    maxCells?: number;
 }
 
 export interface MigrationFileSet {

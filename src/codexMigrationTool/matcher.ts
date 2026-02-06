@@ -250,7 +250,8 @@ const matchByLineNumber = (
     fromTargetFile: FileData,
     toTargetFile: FileData,
     fromStartLine: number = 1,
-    toStartLine: number = 1
+    toStartLine: number = 1,
+    maxCells?: number
 ): MigrationMatchResult[] => {
     const fromLines = buildLineNumberCells(fromTargetFile);
     const toLines = buildLineNumberCells(toTargetFile);
@@ -262,7 +263,12 @@ const matchByLineNumber = (
 
     const fromRemaining = fromLines.length - fromOffset;
     const toRemaining = toLines.length - toOffset;
-    const limit = Math.min(fromRemaining, toRemaining);
+    let limit = Math.min(fromRemaining, toRemaining);
+
+    // Optionally cap the number of cells to migrate
+    if (typeof maxCells === "number" && maxCells > 0) {
+        limit = Math.min(limit, maxCells);
+    }
 
     for (let i = 0; i < limit; i += 1) {
         matches.push({
@@ -284,6 +290,7 @@ export async function matchMigrationCells(params: {
     sqliteManager?: SQLiteIndexManager | null;
     fromStartLine?: number;
     toStartLine?: number;
+    maxCells?: number;
 }): Promise<MigrationMatchResult[]> {
     const {
         fromTargetFile,
@@ -294,6 +301,7 @@ export async function matchMigrationCells(params: {
         sqliteManager,
         fromStartLine,
         toStartLine,
+        maxCells,
     } = params;
 
     if (matchMode === "globalReferences") {
@@ -305,7 +313,7 @@ export async function matchMigrationCells(params: {
     }
 
     if (matchMode === "lineNumber") {
-        return matchByLineNumber(fromTargetFile, toTargetFile, fromStartLine, toStartLine);
+        return matchByLineNumber(fromTargetFile, toTargetFile, fromStartLine, toStartLine, maxCells);
     }
 
     return matchSequentially(

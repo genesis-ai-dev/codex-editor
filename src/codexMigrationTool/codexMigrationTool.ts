@@ -183,6 +183,7 @@ export async function openCodexMigrationTool(context: vscode.ExtensionContext) {
                         sqliteManager,
                         fromStartLine: data.fromStartLine,
                         toStartLine: data.toStartLine,
+                        maxCells: data.maxCells,
                     });
 
                     const { updated, skipped } = await applyMigrationToTargetFile({

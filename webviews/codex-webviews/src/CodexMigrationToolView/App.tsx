@@ -44,6 +44,7 @@ type AppState = {
     forceOverride: boolean;
     fromStartLine: number;
     toStartLine: number;
+    maxCells: string;
     results: MigrationMatchResult[];
     summary: MigrationSummary | null;
     isLoading: boolean;
@@ -154,6 +155,7 @@ const App: React.FC = () => {
             forceOverride: (persisted?.forceOverride as boolean) || false,
             fromStartLine: (persisted?.fromStartLine as number) || 1,
             toStartLine: (persisted?.toStartLine as number) || 1,
+            maxCells: (persisted?.maxCells as string) || "",
             results: (persisted?.results as MigrationMatchResult[]) || [],
             summary: (persisted?.summary as MigrationSummary) || null,
             isLoading: false,
@@ -217,6 +219,10 @@ const App: React.FC = () => {
         if (state.matchMode === "lineNumber") {
             data.fromStartLine = state.fromStartLine;
             data.toStartLine = state.toStartLine;
+            const parsedMax = parseInt(state.maxCells, 10);
+            if (Number.isFinite(parsedMax) && parsedMax > 0) {
+                data.maxCells = parsedMax;
+            }
         }
         vscode.postMessage({ command: "runMigration", data });
     };
@@ -334,6 +340,29 @@ const App: React.FC = () => {
                                         Line in target file to start migrating into
                                     </p>
                                 </div>
+                            </div>
+                        )}
+
+                        {state.matchMode === "lineNumber" && (
+                            <div className="space-y-1.5">
+                                <Label htmlFor="maxCells">Max Cells to Migrate</Label>
+                                <Input
+                                    id="maxCells"
+                                    type="number"
+                                    min={1}
+                                    placeholder="No limit"
+                                    value={state.maxCells}
+                                    onChange={(e) =>
+                                        setState((prev) => ({
+                                            ...prev,
+                                            maxCells: e.target.value,
+                                        }))
+                                    }
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Leave empty to migrate all matching cells, or set a number to
+                                    cap how many cells are migrated
+                                </p>
                             </div>
                         )}
 
