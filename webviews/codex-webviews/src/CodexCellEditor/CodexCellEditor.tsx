@@ -698,7 +698,7 @@ const CodexCellEditor: React.FC = () => {
                     selectionTimeMs: selectionTimeMs || 0,
                     variants: names || abTestState.variants,
                 },
-            } as unknown as EditorPostMessages);
+            } as EditorPostMessages);
         }
     };
 
@@ -1389,7 +1389,9 @@ const CodexCellEditor: React.FC = () => {
             if (!Array.isArray(variants) || count === 0 || !cellId) return;
 
             if (count > 1) {
-                const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
+                const isRecovery =
+                    testName === "Recovery" ||
+                    (typeof testId === "string" && testId.includes("-recovery-"));
 
                 if (isRecovery) {
                     const original = abTestOriginalContentRef.current.get(cellId);

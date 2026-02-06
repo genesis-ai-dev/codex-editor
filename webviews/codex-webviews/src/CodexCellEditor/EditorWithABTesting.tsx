@@ -90,18 +90,22 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
     const [abTestState, setAbTestState] = useState<ABTestState>({
         isActive: false,
         variants: [],
-        cellId: '',
-        testId: '',
-        testName: ''
+        cellId: "",
+        testId: "",
+        testName: "",
     });
 
     // A/B Testing handlers
-    const handleShowABTestVariants = (data: { variants: string[]; cellId: string; testId: string; }) => {
+    const handleShowABTestVariants = (data: {
+        variants: string[];
+        cellId: string;
+        testId: string;
+    }) => {
         setAbTestState({
             isActive: true,
             variants: data.variants,
             cellId: data.cellId,
-            testId: data.testId
+            testId: data.testId,
         });
     };
 
@@ -119,8 +123,8 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 selectionTimeMs,
                 totalVariants: abTestState.variants?.length ?? 0,
                 variants: abTestState.variants,
-            }
-        } as unknown as EditorPostMessages);
+            },
+        } as EditorPostMessages);
 
         // Close the selector - backend will send new one if needed
         handleDismissABTest();
@@ -130,9 +134,9 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
         setAbTestState({
             isActive: false,
             variants: [],
-            cellId: '',
-            testId: '',
-            testName: '',
+            cellId: "",
+            testId: "",
+            testName: "",
         });
     };
 
@@ -141,50 +145,58 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
     };
 
     // Enhanced message handling for A/B testing
-    useMessageHandler("editorWithABTesting", (event: MessageEvent) => {
-        if (quillRef.current) {
-            const quill = quillRef.current;
-            if (event.data.type === "providerSendsPromptedEditResponse") {
-                quill.root.innerHTML = event.data.content;
-            } else if (event.data.type === "providerSendsLLMCompletionResponse") {
-                const completionText = event.data.content.completion;
-                const completionCellId = event.data.content.cellId;
+    useMessageHandler(
+        "editorWithABTesting",
+        (event: MessageEvent) => {
+            if (quillRef.current) {
+                const quill = quillRef.current;
+                if (event.data.type === "providerSendsPromptedEditResponse") {
+                    quill.root.innerHTML = event.data.content;
+                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                    const completionText = event.data.content.completion;
+                    const completionCellId = event.data.content.cellId;
 
-                // Validate that the completion is for the current cell
-                if (completionCellId === props.currentLineId) {
-                    quill.root.innerHTML = completionText;
-                    props.onChange?.({ 
-                        html: quill.root.innerHTML,
-                        text: quill.getText(),
-                        wordCount: quill.getText().trim().split(/\s+/).length
-                    });
-                    setUnsavedChanges(true);
-                } else {
-                    console.warn(
-                        `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
-                    );
+                    // Validate that the completion is for the current cell
+                    if (completionCellId === props.currentLineId) {
+                        quill.root.innerHTML = completionText;
+                        props.onChange?.({
+                            html: quill.root.innerHTML,
+                            text: quill.getText(),
+                            wordCount: quill.getText().trim().split(/\s+/).length,
+                        });
+                        setUnsavedChanges(true);
+                    } else {
+                        console.warn(
+                            `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
+                        );
+                    }
+                } else if (event.data.type === "providerSendsABTestVariants") {
+                    // Handle A/B test variants: always show selector for user choice
+                    const { variants, cellId, testId, testName } = event.data.content as {
+                        variants: string[];
+                        cellId: string;
+                        testId: string;
+                        testName?: string;
+                    };
+                    if (
+                        cellId === props.currentLineId &&
+                        Array.isArray(variants) &&
+                        variants.length > 1
+                    ) {
+                        setAbTestState({
+                            isActive: true,
+                            variants,
+                            cellId,
+                            testId,
+                            testName,
+                        });
+                    }
                 }
-            } else if (event.data.type === "providerSendsABTestVariants") {
-                // Handle A/B test variants: always show selector for user choice
-                const { variants, cellId, testId, testName } = event.data.content as {
-                    variants: string[];
-                    cellId: string;
-                    testId: string;
-                    testName?: string;
-                };
-                if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 1) {
-                    setAbTestState({
-                        isActive: true,
-                        variants,
-                        cellId,
-                        testId,
-                        testName,
-                    });
-                }
+                updateHeaderLabel();
             }
-            updateHeaderLabel();
-        }
-    }, [props.currentLineId, props.onChange, updateHeaderLabel]);
+        },
+        [props.currentLineId, props.onChange, updateHeaderLabel]
+    );
 
     // Rest of the Editor component logic would be here...
     // For brevity, I'm including just the essential parts for A/B testing
@@ -203,7 +215,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
             if (!selection) return null;
             return {
                 text: quillRef.current.getText(selection.index, selection.length),
-                html: quillRef.current.getSemanticHTML(selection.index, selection.length)
+                html: quillRef.current.getSemanticHTML(selection.index, selection.length),
             };
         },
         getCurrentLineId: () => props.currentLineId,
@@ -237,21 +249,21 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
         },
         insertText: (position: number, text: string) => {
             quillRef.current?.insertText(position, text);
-        }
+        },
     }));
 
     return (
         <div className="editor-container">
             {/* Quill editor container */}
-            <div 
+            <div
                 ref={setQuillContainer}
-                className={`quill-editor ${props.fontSizeClass || ''}`}
-                style={{ 
+                className={`quill-editor ${props.fontSizeClass || ""}`}
+                style={{
                     fontFamily: props.fontFamily,
-                    direction: props.isRTL ? 'rtl' : 'ltr'
+                    direction: props.isRTL ? "rtl" : "ltr",
                 }}
             />
-            
+
             {/* A/B Testing Overlay */}
             {abTestState.isActive && (
                 <ABTestVariantSelector
@@ -267,6 +279,6 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
     );
 });
 
-EditorWithABTesting.displayName = 'EditorWithABTesting';
+EditorWithABTesting.displayName = "EditorWithABTesting";
 
 export default EditorWithABTesting;

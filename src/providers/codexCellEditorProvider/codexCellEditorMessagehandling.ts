@@ -1442,8 +1442,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants, names } = (typedEvent as any).content || {};
-        const variantNames: string[] | undefined = variants || names;
+        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants } = typedEvent.content || {};
+        const variantNames: string[] | undefined = variants;
         const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 
         // Check if this was a pending attention check

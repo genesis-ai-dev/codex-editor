@@ -4615,10 +4615,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     selectedIndex: 1,
                     testId: "test-123",
                     testName: "Example Count Test",
-                    selectedVariant: "Test variant B",
+                    selectedContent: "Test variant B",
                     selectionTimeMs: 1500,
                     totalVariants: 2,
-                    names: ["15 examples", "30 examples"]
+                    variants: ["15 examples", "30 examples"]
                 }
             };
 
