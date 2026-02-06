@@ -90,6 +90,8 @@ export interface LLMCompletionResult {
     isAttentionCheck?: boolean;
     correctIndex?: number;
     decoyCellId?: string;
+    /** Model identifiers for server-initiated model comparison A/B tests. */
+    models?: string[];
 }
 
 export async function llmCompletion(
@@ -246,10 +248,10 @@ export async function llmCompletion(
             );
 
             // Unified AB testing via registry with random test selection (global gating)
-            // A/B testing is disabled during batch operations (chapter autocomplete, batch transcription)
-            // to avoid interrupting the user with variant selection UI
+            // A/B tests can fire during batch operations — the caller queues them
+            // non-blockingly for user selection
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
-            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true) && !isBatchOperation;
+            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true);
             const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
             const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.15));
             const randomValue = Math.random();
@@ -260,9 +262,7 @@ export async function llmCompletion(
             }
 
             if (!triggerAB && completionConfig.debugMode) {
-                if (isBatchOperation) {
-                    console.debug(`[llmCompletion] A/B testing disabled during batch operation`);
-                } else if (!abEnabled) {
+                if (!abEnabled) {
                     console.debug(`[llmCompletion] A/B testing disabled in settings`);
                 } else {
                     console.debug(`[llmCompletion] A/B test not triggered (random ${randomValue.toFixed(3)} >= probability ${abProbability})`);
@@ -313,9 +313,32 @@ export async function llmCompletion(
                 }
             }
 
-            // A/B testing not triggered (or failed): call LLM once, return two identical variants
-            const completion = await callLLM(messages, completionConfig, token);
+            // A/B testing not triggered (or failed): call LLM with ab_eligible flag
+            // so the server can optionally return a multi-model A/B test response.
+            const llmResult = await callLLM(messages, completionConfig, token, /* abEligible */ true);
             const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
+
+            // If the server returned a multi-model A/B test, build the result from it
+            if (llmResult.abTest) {
+                const serverVariants = llmResult.abTest.variants.map((txt) =>
+                    postProcessABTestResult(txt, allowHtml, returnHTML)
+                );
+                if (completionConfig.debugMode) {
+                    console.debug(
+                        `[llmCompletion] Server returned model A/B test: models=${llmResult.abTest.models.join(", ")}, variants=${serverVariants.length}`
+                    );
+                }
+                return {
+                    variants: serverVariants,
+                    isABTest: true,
+                    testId: `${currentCellId}-model-${Date.now()}`,
+                    testName: "model_comparison",
+                    models: llmResult.abTest.models,
+                };
+            }
+
+            // Standard single-completion path
+            const completion = llmResult.text;
 
             // Preserve multi-line completions: strip any leading "->" markers per line, then join with <br/>
             const lines = (completion || "").split(/\r?\n/);

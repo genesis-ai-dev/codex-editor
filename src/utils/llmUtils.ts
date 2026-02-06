@@ -5,57 +5,218 @@ import { getAuthApi } from "../extension";
 import * as vscode from "vscode";
 import { MetadataManager } from "./metadataManager";
 
+/** Result returned by callLLM. Always contains `text`; when the server runs a
+ *  model A/B test it also populates `abTest` with the multi-variant payload. */
+export interface LLMCallResult {
+    /** Single completion text (normal path, or first variant for A/B). */
+    text: string;
+    /** Present only when the server returns a multi-model A/B test response. */
+    abTest?: {
+        variants: string[];
+        models: string[];
+    };
+}
+
+/** Shape of the server's A/B test JSON response. */
+interface ServerABTestResponse {
+    variants: string[];
+    models: string[];
+    is_ab_test: true;
+}
+
+/**
+ * Resolves the Frontier LLM endpoint and auth token.
+ * Extracted so both the OpenAI-SDK path and the direct-fetch path can reuse it.
+ */
+async function resolveFrontierAuth(config: CompletionConfig): Promise<{
+    endpoint: string;
+    authBearerToken: string | undefined;
+    isFrontierEndpoint: boolean;
+}> {
+    const isFrontierEndpoint = config.endpoint.includes("frontierrnd.com");
+    let llmEndpoint: string | undefined;
+    let authBearerToken: string | undefined;
+
+    const hasCustomApiKey = config.apiKey && config.apiKey.trim().length > 0;
+    const shouldUseFrontierAuth = isFrontierEndpoint || !hasCustomApiKey;
+
+    if (shouldUseFrontierAuth) {
+        try {
+            const frontierApi = getAuthApi();
+            if (frontierApi) {
+                llmEndpoint = await frontierApi.getLlmEndpoint();
+                authBearerToken = await frontierApi.authProvider.getToken();
+            }
+        } catch (error) {
+            console.debug("Could not get LLM endpoint from auth API:", error);
+        }
+
+        if (llmEndpoint) {
+            config.endpoint = llmEndpoint;
+        }
+    }
+
+    return { endpoint: config.endpoint, authBearerToken, isFrontierEndpoint };
+}
+
+/**
+ * Makes a direct fetch() call to the LLM endpoint with `ab_eligible: true`.
+ * If the server returns an A/B test response, returns the multi-variant payload.
+ * Otherwise parses the standard OpenAI-compatible JSON and returns a single completion.
+ */
+async function fetchWithABEligible(
+    messages: ChatMessage[],
+    config: CompletionConfig,
+    endpoint: string,
+    authBearerToken: string | undefined,
+    isFrontierEndpoint: boolean,
+    cancellationToken?: vscode.CancellationToken
+): Promise<LLMCallResult> {
+    const model = "default";
+    const body: Record<string, unknown> = {
+        model,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        ab_eligible: true,
+    };
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authBearerToken) {
+        headers["Authorization"] = `Bearer ${authBearerToken}`;
+    } else if (!isFrontierEndpoint && config.apiKey) {
+        headers["Authorization"] = `Bearer ${config.apiKey}`;
+    }
+
+    // Build the URL — the endpoint may already include /chat/completions or just a base
+    let url = endpoint;
+    if (!url.endsWith("/chat/completions")) {
+        url = url.replace(/\/+$/, "") + "/chat/completions";
+    }
+
+    const abortController = new AbortController();
+    let cancellationListener: vscode.Disposable | undefined;
+    if (cancellationToken) {
+        cancellationListener = cancellationToken.onCancellationRequested(() => {
+            abortController.abort();
+        });
+    }
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+            const status = response.status;
+            if (status === 401) {
+                try {
+                    const now = Date.now();
+                    const key = "codex.lastAuthErrorTs";
+                    const last = (globalThis as unknown as Record<string, number | undefined>)[key];
+                    if (!last || now - last > 5000) {
+                        vscode.window.showErrorMessage(
+                            "Authentication failed for LLM. Set an API key or sign in to your LLM provider."
+                        );
+                        (globalThis as unknown as Record<string, number | undefined>)[key] = now;
+                    }
+                } catch {
+                    // no-op
+                }
+                throw new vscode.CancellationError();
+            }
+            throw new Error(`LLM request failed with status ${status}`);
+        }
+
+        const json = await response.json() as Record<string, unknown>;
+
+        // Check for server A/B test response
+        if (
+            json.is_ab_test === true &&
+            Array.isArray(json.variants) &&
+            Array.isArray(json.models)
+        ) {
+            const abResponse = json as unknown as ServerABTestResponse;
+            return {
+                text: abResponse.variants[0]?.trim() ?? "",
+                abTest: {
+                    variants: abResponse.variants,
+                    models: abResponse.models,
+                },
+            };
+        }
+
+        // Standard OpenAI-compatible response
+        const choices = json.choices as Array<{ message?: { content?: string } }> | undefined;
+        if (choices && choices.length > 0 && choices[0].message) {
+            return { text: choices[0].message.content?.trim() ?? "" };
+        }
+
+        throw new Error("Unexpected response format from the LLM; callLLM() A/B fetch failed");
+    } catch (error: unknown) {
+        const err = error as { name?: string };
+        if (
+            err.name === "AbortError" ||
+            cancellationToken?.isCancellationRequested
+        ) {
+            throw new vscode.CancellationError();
+        }
+        if (error instanceof vscode.CancellationError) {
+            throw error;
+        }
+        throw error;
+    } finally {
+        cancellationListener?.dispose();
+    }
+}
+
 /**
  * Calls the Language Model (LLM) with the given messages and configuration.
  *
  * @param messages - An array of ChatMessage objects representing the conversation history.
  * @param config - The CompletionConfig object containing LLM configuration settings.
  * @param cancellationToken - Optional cancellation token to cancel the request
- * @returns A Promise that resolves to the LLM's response as a string.
+ * @param abEligible - When true, signals the server that this request is eligible for
+ *   a multi-model A/B test. Uses direct fetch() instead of the OpenAI SDK so it can
+ *   handle the custom server response shape.
+ * @returns A Promise that resolves to an LLMCallResult.
  * @throws Error if the LLM response is unexpected or if there's an error during the API call.
  */
 export async function callLLM(
     messages: ChatMessage[],
     config: CompletionConfig,
-    cancellationToken?: vscode.CancellationToken
-): Promise<string> {
+    cancellationToken?: vscode.CancellationToken,
+    abEligible: boolean = false
+): Promise<LLMCallResult> {
     try {
         // Check for cancellation before starting
         if (cancellationToken?.isCancellationRequested) {
             throw new vscode.CancellationError();
         }
 
-        // Check if using Frontier endpoint (requires Frontier auth, not API key)
-        const isFrontierEndpoint = config.endpoint.includes("frontierrnd.com");
-        let llmEndpoint: string | undefined;
-        let authBearerToken: string | undefined;
+        // Resolve endpoint and auth once for both code paths
+        const { endpoint, authBearerToken, isFrontierEndpoint } =
+            await resolveFrontierAuth(config);
 
-        // Use Frontier auth if: using Frontier endpoint OR no custom API key
-        const hasCustomApiKey = config.apiKey && config.apiKey.trim().length > 0;
-        const shouldUseFrontierAuth = isFrontierEndpoint || !hasCustomApiKey;
-
-        if (shouldUseFrontierAuth) {
-            try {
-                const frontierApi = getAuthApi();
-                if (frontierApi) {
-                    llmEndpoint = await frontierApi.getLlmEndpoint();
-                    authBearerToken = await frontierApi.authProvider.getToken();
-                }
-            } catch (error) {
-                console.debug("Could not get LLM endpoint from auth API:", error);
-            }
-
-            if (llmEndpoint) {
-                config.endpoint = llmEndpoint;
-            }
-        }
-
-        // Check for cancellation before creating OpenAI client
+        // Check for cancellation after auth resolution
         if (cancellationToken?.isCancellationRequested) {
             throw new vscode.CancellationError();
         }
 
-        // For Frontier endpoint, use auth token; for other endpoints, use API key
+        // --- A/B eligible path: direct fetch() so we can handle the custom response shape ---
+        if (abEligible) {
+            return await fetchWithABEligible(
+                messages,
+                config,
+                endpoint,
+                authBearerToken,
+                isFrontierEndpoint,
+                cancellationToken
+            );
+        }
+
+        // --- Standard path: OpenAI SDK ---
         const openai = new OpenAI({
             apiKey: isFrontierEndpoint ? "" : config.apiKey,
             baseURL: config.endpoint,
@@ -67,7 +228,7 @@ export async function callLLM(
         });
 
         const model = "default";
-        if ((config as any)?.debugMode) {
+        if (config.debugMode) {
             console.debug("[callLLM] model", model);
         }
 
@@ -108,17 +269,18 @@ export async function callLLM(
                         completion.choices.length > 0 &&
                         completion.choices[0].message
                     ) {
-                        return completion.choices[0].message.content?.trim() ?? "";
+                        return { text: completion.choices[0].message.content?.trim() ?? "" };
                     } else {
                         throw new Error(
                             "Unexpected response format from the LLM; callLLM() failed - case 1"
                         );
                     }
-                } catch (error: any) {
+                } catch (error: unknown) {
                     cleanup();
 
+                    const err = error as { name?: string };
                     // Check if the error is due to cancellation
-                    if (error.name === 'AbortError' || cancellationToken.isCancellationRequested) {
+                    if (err.name === 'AbortError' || cancellationToken.isCancellationRequested) {
                         throw new vscode.CancellationError();
                     }
 
@@ -137,31 +299,32 @@ export async function callLLM(
                     completion.choices.length > 0 &&
                     completion.choices[0].message
                 ) {
-                    return completion.choices[0].message.content?.trim() ?? "";
+                    return { text: completion.choices[0].message.content?.trim() ?? "" };
                 } else {
                     throw new Error(
                         "Unexpected response format from the LLM; callLLM() failed - case 1"
                     );
                 }
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             if (error instanceof vscode.CancellationError) {
                 throw error; // Re-throw cancellation errors as-is
             }
 
-            const status = (error?.response?.status ?? error?.status) as number | undefined;
-            const isAuthError = status === 401 || String(error?.message || "").includes("401");
+            const err = error as { response?: { status?: number }; status?: number; message?: string };
+            const status = (err?.response?.status ?? err?.status) as number | undefined;
+            const isAuthError = status === 401 || String(err?.message || "").includes("401");
             if (isAuthError) {
                 // Throttle the auth error toast
                 try {
                     const now = Date.now();
                     const key = "codex.lastAuthErrorTs";
-                    const last = (globalThis as any)[key] as number | undefined;
+                    const last = (globalThis as unknown as Record<string, number | undefined>)[key];
                     if (!last || now - last > 5000) {
                         vscode.window.showErrorMessage(
                             "Authentication failed for LLM. Set an API key or sign in to your LLM provider."
                         );
-                        (globalThis as any)[key] = now;
+                        (globalThis as unknown as Record<string, number | undefined>)[key] = now;
                     }
                 } catch {
                     // no-op
@@ -200,7 +363,7 @@ export async function performReflection(
         systemContent +=
             "Provide a grade from 0 to 100 where 0 is the lowest grade and 100 is the highest grade and a grade comment.\n";
 
-        const response = await callLLM(
+        const result = await callLLM(
             [
                 {
                     role: "system",
@@ -215,13 +378,13 @@ export async function performReflection(
             cancellationToken
         );
 
-        return response;
+        return result.text;
     }
 
     async function generateSummary(improvements: Promise<string>[]): Promise<string> {
         const results = await Promise.all(improvements);
         const summarizedContent = results.join("\n\n");
-        const summary = await callLLM(
+        const result = await callLLM(
             [
                 {
                     role: "system",
@@ -237,7 +400,7 @@ export async function performReflection(
             config,
             cancellationToken
         );
-        return summary.trim();
+        return result.text.trim();
     }
 
     async function implementImprovements(
@@ -260,7 +423,7 @@ export async function performReflection(
                     ],
                     config,
                     cancellationToken
-                );
+                ).then((r) => r.text);
             });
             return await improvedText;
         } catch (error) {
@@ -284,9 +447,9 @@ export async function performReflection(
             config,
             cancellationToken
         )
-            .then((distilledText) => {
+            .then((result) => {
                 // Some basic post-processing to remove any trailing whitespace
-                return distilledText.trim();
+                return result.text.trim();
             })
             .catch((error) => {
                 console.error("Error implementing improvements:", error);

@@ -24,6 +24,7 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
+import { ABTestQueueItem } from "./abTestTypes";
 
 import {
     getCellValueData,
@@ -356,21 +357,9 @@ const CodexCellEditor: React.FC = () => {
     // Add correction editor mode state
     const [isCorrectionEditorMode, setIsCorrectionEditorMode] = useState<boolean>(false);
 
-    // A/B testing state
-    const [abTestState, setAbTestState] = useState<{
-        isActive: boolean;
-        variants: string[];
-        cellId: string;
-        testId: string;
-        testName?: string;
-        names?: string[];
-        abProbability?: number;
-    }>({
-        isActive: false,
-        variants: [],
-        cellId: "",
-        testId: "",
-    });
+    // A/B testing queue: items accumulate during batch, shown one at a time
+    const [abTestQueue, setAbTestQueue] = useState<ABTestQueueItem[]>([]);
+    const currentABTest = abTestQueue.length > 0 ? abTestQueue[0] : null;
     const abTestOriginalContentRef = useRef<Map<string, string>>(new Map());
 
     // Acquire VS Code API once at component initialization
@@ -589,51 +578,48 @@ const CodexCellEditor: React.FC = () => {
 
     // A/B test variant selection handler
     const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
-        if (!abTestState.isActive) return;
+        if (!currentABTest) return;
 
-        const selectedVariant = abTestState.variants[selectedIndex];
+        const selectedVariant = currentABTest.variants[selectedIndex];
         debug("ab-test", `User selected variant ${selectedIndex}:`, selectedVariant);
 
         // Apply the selected variant
         applyVariantToCell(
-            abTestState.cellId,
+            currentABTest.cellId,
             selectedVariant,
-            abTestState.testId,
+            currentABTest.testId,
             selectedIndex,
-            abTestState.variants.length,
+            currentABTest.variants.length,
             selectionTimeMs,
-            abTestState.testName,
-            abTestState.names
+            currentABTest.testName,
+            currentABTest.names,
+            currentABTest.models
         );
 
         // If this was a recovery selection, we're done with the original content snapshot.
-        if (abTestState.testName === "Recovery" || abTestState.testId.includes("-recovery-")) {
-            abTestOriginalContentRef.current.delete(abTestState.cellId);
+        if (currentABTest.testName === "Recovery" || currentABTest.testId.includes("-recovery-")) {
+            abTestOriginalContentRef.current.delete(currentABTest.cellId);
         }
 
-        // Casual confirmation with variant name if available
-        const variantName = abTestState.variants?.[selectedIndex];
-        if (variantName) {
-            vscode.postMessage({
-                command: "showInfo",
-                text: `Applied translation from ${variantName}.`,
-            } as any);
-        }
-
-        // Keep A/B modal open to show names and stats; user can close manually
-        // Do not allow re-vote (selector component already blocks further clicks)
+        // Advance queue — next test appears automatically
+        setAbTestQueue((prev) => prev.slice(1));
     };
 
     const handleDismissABTest = () => {
         debug("ab-test", "A/B test dismissed");
-        setAbTestState({
-            isActive: false,
-            variants: [],
-            cellId: "",
-            testId: "",
-            testName: undefined,
-        });
+        // Skip current test, advance to next
+        setAbTestQueue((prev) => prev.slice(1));
     };
+
+    // Scroll the source panel to the cell of the currently displayed A/B test
+    useEffect(() => {
+        if (currentABTest?.cellId) {
+            vscode.postMessage({
+                command: "setCurrentIdToGlobalState",
+                content: { currentLineId: currentABTest.cellId },
+            } as EditorPostMessages);
+        }
+    }, [currentABTest?.testId]);
 
     // Helper function to apply a variant to a cell
     const applyVariantToCell = (
@@ -644,7 +630,8 @@ const CodexCellEditor: React.FC = () => {
         totalVariants: number,
         selectionTimeMs: number = 0,
         testName?: string,
-        names?: string[]
+        names?: string[],
+        models?: string[]
     ) => {
         debug("ab-test", `Applying variant ${selectedIndex} to cell ${cellId}:`, variant);
 
@@ -694,9 +681,10 @@ const CodexCellEditor: React.FC = () => {
                     selectedIndex,
                     selectedContent: variant,
                     testId,
-                    testName: testName || abTestState.testName,
+                    testName: testName || currentABTest?.testName,
                     selectionTimeMs: selectionTimeMs || 0,
-                    variants: names || abTestState.variants,
+                    variants: names || currentABTest?.variants,
+                    models: models || currentABTest?.models,
                 },
             } as EditorPostMessages);
         }
@@ -1382,7 +1370,7 @@ const CodexCellEditor: React.FC = () => {
         },
         setAudioAttachments: setAudioAttachments,
         showABTestVariants: (data) => {
-            const { variants, cellId, testId, testName, names, abProbability } = data as any;
+            const { variants, cellId, testId, testName, names, abProbability, models } = data as ABTestQueueItem;
             const count = Array.isArray(variants) ? variants.length : 0;
             debug("ab-test", "Received A/B test variants:", { cellId, count });
 
@@ -1424,16 +1412,11 @@ const CodexCellEditor: React.FC = () => {
                     }
                 }
 
-                // Show A/B selector UI
-                setAbTestState({
-                    isActive: true,
-                    variants,
-                    cellId,
-                    testId,
-                    testName,
-                    names,
-                    abProbability,
-                });
+                // Queue A/B test — shown one at a time, next appears after selection
+                setAbTestQueue((prev) => [
+                    ...prev,
+                    { variants, cellId, testId, testName, names, abProbability, models },
+                ]);
                 return;
             }
 
@@ -3098,13 +3081,15 @@ const CodexCellEditor: React.FC = () => {
                 )}
             </div>
 
-            {/* A/B Test Variant Selection Modal */}
-            {abTestState.isActive && (
+            {/* A/B Test Variant Selection Modal — shows first item in queue */}
+            {currentABTest && (
                 <ABTestVariantSelector
-                    key={abTestState.testId}
-                    variants={abTestState.variants}
-                    cellId={abTestState.cellId}
-                    testId={abTestState.testId}
+                    key={currentABTest.testId}
+                    variants={currentABTest.variants}
+                    cellId={currentABTest.cellId}
+                    testId={currentABTest.testId}
+                    queuePosition={1}
+                    queueTotal={abTestQueue.length}
                     onVariantSelected={(idx, ms) => handleVariantSelected(idx, ms)}
                     onDismiss={handleDismissABTest}
                 />
