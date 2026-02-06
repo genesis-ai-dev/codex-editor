@@ -2221,6 +2221,7 @@ type EditorReceiveMessages =
     | { type: "currentUsername"; content: { username: string; }; }
     | { type: "validationCount"; content: number; }
     | { type: "validationCountAudio"; content: number; }
+    | { type: "updateShowHealthIndicators"; showHealthIndicators: boolean; }
     | { type: "configurationChanged"; }
     | {
         type: "validationInProgress";
