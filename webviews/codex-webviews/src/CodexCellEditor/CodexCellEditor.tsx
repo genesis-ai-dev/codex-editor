@@ -371,6 +371,7 @@ const CodexCellEditor: React.FC = () => {
         cellId: "",
         testId: "",
     });
+    const abTestOriginalContentRef = useRef<Map<string, string>>(new Map());
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -605,8 +606,13 @@ const CodexCellEditor: React.FC = () => {
             abTestState.names
         );
 
+        // If this was a recovery selection, we're done with the original content snapshot.
+        if (abTestState.testName === "Recovery" || abTestState.testId.includes("-recovery-")) {
+            abTestOriginalContentRef.current.delete(abTestState.cellId);
+        }
+
         // Casual confirmation with variant name if available
-        const variantName = (abTestState as any).names?.[selectedIndex];
+        const variantName = abTestState.variants?.[selectedIndex];
         if (variantName) {
             vscode.postMessage({
                 command: "showInfo",
@@ -686,12 +692,13 @@ const CodexCellEditor: React.FC = () => {
                 content: {
                     cellId,
                     selectedIndex,
+                    selectedContent: variant,
                     testId,
                     testName: testName || abTestState.testName,
                     selectionTimeMs: selectionTimeMs || 0,
-                    names: names || (abTestState as any).names,
+                    variants: names || abTestState.variants,
                 },
-            } as unknown as EditorPostMessages);
+            } as EditorPostMessages);
         }
     };
 
@@ -1381,11 +1388,42 @@ const CodexCellEditor: React.FC = () => {
 
             if (!Array.isArray(variants) || count === 0 || !cellId) return;
 
-            // Determine if all variants are effectively identical (normalize whitespace)
-            const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
-            const allIdentical = variants.every((v: string) => norm(v) === norm(variants[0]));
+            if (count > 1) {
+                const isRecovery =
+                    testName === "Recovery" ||
+                    (typeof testId === "string" && testId.includes("-recovery-"));
 
-            if (count > 1 && !allIdentical) {
+                if (isRecovery) {
+                    const original = abTestOriginalContentRef.current.get(cellId);
+                    if (original !== undefined) {
+                        // Revert any previously applied (wrong) variant before showing recovery options.
+                        setTranslationUnits((prevUnits) =>
+                            prevUnits.map((unit) =>
+                                unit.cellMarkers[0] === cellId
+                                    ? { ...unit, cellContent: original, cellLabel: unit.cellLabel }
+                                    : unit
+                            )
+                        );
+                        if (contentBeingUpdated.cellMarkers?.[0] === cellId) {
+                            setContentBeingUpdated((prev) => ({
+                                ...prev,
+                                cellContent: original,
+                                cellChanged: true,
+                            }));
+                        }
+                    }
+                } else {
+                    // Snapshot original content so we can restore if a recovery flow happens.
+                    if (!abTestOriginalContentRef.current.has(cellId)) {
+                        const original = translationUnits.find(
+                            (unit) => unit.cellMarkers[0] === cellId
+                        )?.cellContent;
+                        if (typeof original === "string") {
+                            abTestOriginalContentRef.current.set(cellId, original);
+                        }
+                    }
+                }
+
                 // Show A/B selector UI
                 setAbTestState({
                     isActive: true,
@@ -3063,11 +3101,10 @@ const CodexCellEditor: React.FC = () => {
             {/* A/B Test Variant Selection Modal */}
             {abTestState.isActive && (
                 <ABTestVariantSelector
+                    key={abTestState.testId}
                     variants={abTestState.variants}
                     cellId={abTestState.cellId}
                     testId={abTestState.testId}
-                    names={(abTestState as any).names}
-                    abProbability={(abTestState as any).abProbability}
                     onVariantSelected={(idx, ms) => handleVariantSelected(idx, ms)}
                     onDismiss={handleDismissABTest}
                 />
