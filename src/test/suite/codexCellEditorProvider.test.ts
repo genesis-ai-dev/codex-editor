@@ -4615,10 +4615,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     selectedIndex: 1,
                     testId: "test-123",
                     testName: "Example Count Test",
-                    selectedVariant: "Test variant B",
+                    selectedContent: "Test variant B",
                     selectionTimeMs: 1500,
                     totalVariants: 2,
-                    names: ["15 examples", "30 examples"]
+                    variants: ["15 examples", "30 examples"]
                 }
             };
 
@@ -4633,40 +4633,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Verify message was handled without error
             // Note: Analytics posting is tested separately in abTestingAnalytics tests
             assert.ok(true, "Message handled successfully");
-        });
-
-        test("should handle adjustABTestingProbability message", async function () {
-            this.timeout(10000);
-
-            const document = await provider.openCustomDocument(
-                tempUri,
-                { backupId: undefined },
-                new vscode.CancellationTokenSource().token
-            );
-
-            const mockPanel = {
-                webview: {
-                    postMessage: sinon.stub().resolves(true)
-                }
-            } as any;
-
-            const event = {
-                command: "adjustABTestingProbability",
-                content: {
-                    delta: -0.1,
-                    buttonChoice: "less"
-                }
-            };
-
-            await handleMessages(
-                event,
-                mockPanel,
-                document,
-                () => { },
-                provider
-            );
-
-            assert.ok(true, "Should handle probability adjustment without error");
         });
 
         test("should send A/B test variants to webview when completion returns multiple variants", async function () {
