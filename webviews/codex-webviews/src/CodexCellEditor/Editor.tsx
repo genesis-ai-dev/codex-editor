@@ -44,6 +44,7 @@ export interface EditorProps {
     currentLineId: string;
     initialValue?: string;
     editHistory: EditHistory[];
+    activeEditId?: string;
     onChange?: (changes: EditorContentChanged) => void;
     onDirtyChange?: (dirty: boolean, rawHtml: string) => void;
     spellCheckResponse?: SpellCheckResponse | null;
@@ -1580,12 +1581,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                           )
                                         : generateDiffHtml("", entry.value as string);
 
-                                    // Check if this is the most recent entry that matches the initial value
-                                    const isCurrentVersion =
-                                        entry.value === props.initialValue &&
-                                        !array
-                                            .slice(0, index)
-                                            .some((e) => e.value === props.initialValue);
+                                    // Check if this is the current active edit
+                                    const isCurrentVersion = props.activeEditId
+                                        ? entry.id === props.activeEditId
+                                        : entry.value === props.initialValue &&
+                                          !array
+                                              .slice(0, index)
+                                              .some((e) => e.value === props.initialValue);
 
                                     return (
                                         <div

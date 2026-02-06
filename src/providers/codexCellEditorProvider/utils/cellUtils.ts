@@ -65,6 +65,7 @@ export function convertCellToQuillContent(cell: CustomNotebookCellData): QuillCe
         cellContent: cell.value || "",
         cellType: cell.metadata?.type || CodexCellTypes.TEXT,
         editHistory: cell.metadata?.edits || [],
+        activeEditId: cell.metadata?.activeEditId,
         timestamps: cell.metadata?.data,
         cellLabel: cell.metadata?.cellLabel,
         merged: cell.metadata?.data?.merged,
