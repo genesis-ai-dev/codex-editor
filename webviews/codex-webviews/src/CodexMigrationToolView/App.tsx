@@ -68,7 +68,10 @@ const FileCombobox: React.FC<{
     const [search, setSearch] = useState("");
 
     const filtered = useMemo(() => {
-        if (!search.trim()) return files;
+        const sortedFiles = files.sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        );
+        if (!search.trim()) return sortedFiles;
         const lower = search.toLowerCase();
         return files.filter(
             (f) => f.name.toLowerCase().includes(lower) || f.path.toLowerCase().includes(lower)
@@ -405,7 +408,7 @@ const App: React.FC = () => {
                                             <span className="truncate">{result.fromCellId}</span>
                                             <span className="truncate">{result.toCellId}</span>
                                             <span className="truncate text-muted-foreground">
-                                                {result.fromSourceValue || ""}
+                                                {result.reason || ""}
                                             </span>
                                         </div>
                                     ))}
