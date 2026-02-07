@@ -256,30 +256,30 @@ function App() {
     }, []);
 
     // Helper to determine if project uses Bible terminology based on data
-    const isBibleProject = useMemo(() => {
-        // Check if any thread has Bible-style references (e.g., "GEN 1:1")
-        return commentThreadArray.some(thread => {
-            const refs = thread.cellId.globalReferences || [];
-            return refs.some(ref => /^[A-Z0-9]{3}\s+\d+:\d+/.test(ref));
-        });
-    }, [commentThreadArray]);
+    //const isBibleProject = useMemo(() => {
+    //    // Check if any thread has Bible-style references (e.g., "GEN 1:1")
+    //    return commentThreadArray.some(thread => {
+    //        const refs = thread.cellId.globalReferences || [];
+    //        return refs.some(ref => /^[A-Z0-9]{3}\s+\d+:\d+/.test(ref));
+    //    });
+    //}, [commentThreadArray]);
 
     // Get appropriate label for missing data
     const getMissingLabel = useCallback((type: "file" | "milestone" | "cell"): string => {
-        if (isBibleProject) {
+        //if (isBibleProject) {
             switch (type) {
-                case "file": return "No book name";
-                case "milestone": return "No chapter";
-                case "cell": return "No verse number";
+                case "file": return "No Book Name";
+                case "milestone": return "No Chapter Number";
+                case "cell": return "No Verse Number";
             }
-        } else {
-            switch (type) {
-                case "file": return "No file name";
-                case "milestone": return "No milestone value";
-                case "cell": return "No cell number";
-            }
-        }
-    }, [isBibleProject]);
+        //} else {
+        //    switch (type) {
+        //        case "file": return "No File Name";
+        //        case "milestone": return "No Milestone Value";
+        //        case "cell": return "No Cell Number";
+        //    }
+        //}
+    }, []);//[isBibleProject]);
 
     // Helper to get sort order from fileDisplayName (using canonical Bible book order)
     const getFileSortOrder = useCallback((fileDisplayName: string | undefined): string => {
