@@ -3,6 +3,7 @@ import {
     MessagesFromStartupFlowProvider,
     GitLabProject,
     ProjectWithSyncStatus,
+    ProjectSyncStatus,
     LocalProject,
     ProjectManagerMessageFromWebview,
     ProjectMetadata,
@@ -5196,16 +5197,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 console.error("Error fetching local projects:", localProjectsResult.reason);
             }
 
-            const remoteProjects =
-                remoteProjectsResult.status === "fulfilled" ? remoteProjectsResult.value : [];
+            const remoteResult =
+                remoteProjectsResult.status === "fulfilled"
+                    ? remoteProjectsResult.value
+                    : { projects: [] as GitLabProject[], serverUnreachable: true };
             if (remoteProjectsResult.status === "rejected") {
                 console.error("Error fetching remote projects:", remoteProjectsResult.reason);
             }
 
+            const remoteProjects = remoteResult.projects;
+            const remoteServerUnreachable = remoteResult.serverUnreachable;
 
             const projectList: ProjectWithSyncStatus[] = [];
 
-            // Process remote projects
+            // Process remote projects (only if server was reachable)
             for (const project of remoteProjects) {
                 projectList.push({
                     name: project.name,
@@ -5279,12 +5284,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
-                    // If local project has a git remote but is NOT in the remote list,
-                    // mark it as "orphaned" (remote missing or inaccessible).
-                    // If no git remote, it's a pure local project.
+                    // Local project has a git remote but is NOT in the remote list.
+                    // CRITICAL: Distinguish between "server unreachable" and "project genuinely missing".
+                    // If the server was unreachable (network error, expired cert, 500, etc.),
+                    // we must NOT mark projects as orphaned -- that would trigger destructive
+                    // actions like "Fix & Open" which deletes .git and renames folders.
+                    let status: ProjectSyncStatus;
+                    if (!project.gitOriginUrl) {
+                        status = "localOnlyNotSynced";
+                    } else if (remoteServerUnreachable) {
+                        // Server was unreachable -- don't mark as orphaned.
+                        // Use "serverUnreachable" so the UI shows appropriate messaging.
+                        status = "serverUnreachable";
+                    } else {
+                        // Server responded successfully but this project was not in the list.
+                        // This means the remote project was genuinely deleted/missing.
+                        status = "orphaned";
+                    }
                     projectList.push({
                         ...project,
-                        syncStatus: project.gitOriginUrl ? "orphaned" : "localOnlyNotSynced",
+                        syncStatus: status,
                     });
                 }
             }
@@ -5300,9 +5319,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             );
 
             // Build set of local project URLs (projects that are downloaded)
+            // Include "serverUnreachable" since these are also local projects (just can't verify remote)
             const localDownloadedUrls = new Set(
                 projectList
-                    .filter(p => p.syncStatus === "downloadedAndSynced" || p.syncStatus === "localOnlyNotSynced" || p.syncStatus === "orphaned")
+                    .filter(p => p.syncStatus === "downloadedAndSynced" || p.syncStatus === "localOnlyNotSynced" || p.syncStatus === "orphaned" || p.syncStatus === "serverUnreachable")
                     .map(p => normalizeUrl(p.gitOriginUrl))
                     .filter(Boolean)
             );
@@ -5456,12 +5476,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     command: "projectsListFromGitLab",
                     projects: filteredProjectList,
                     currentUsername,
+                    ...(remoteServerUnreachable ? {
+                        error: "Server unreachable - remote project status could not be verified. Some projects may show outdated status."
+                    } : {}),
                 } as MessagesFromStartupFlowProvider,
                 "StartupFlow"
             );
 
             const mergeTime = Date.now() - startTime;
-            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${filteredProjectList.length} projects`);
+            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${filteredProjectList.length} projects${remoteServerUnreachable ? " (server unreachable)" : ""}`);
 
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
@@ -5744,11 +5767,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     /**
-     * Fetch remote projects with error handling and cleanup
+     * Fetch remote projects with error handling and cleanup.
+     * Returns { projects, serverUnreachable } to distinguish between
+     * "server returned empty list" vs "server could not be reached".
      */
-    private async fetchRemoteProjects(): Promise<GitLabProject[]> {
+    private async fetchRemoteProjects(): Promise<{
+        projects: GitLabProject[];
+        serverUnreachable: boolean;
+    }> {
         if (!this.frontierApi) {
-            return [];
+            // No API available -- treat as unreachable (not as "no projects exist")
+            return { projects: [], serverUnreachable: true };
         }
 
         try {
@@ -5757,10 +5786,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Keep full project names with UUID for proper identification
             // (Previously stripped the UUID suffix, but now keeping it for differentiation)
 
-            return remoteProjects;
+            return { projects: remoteProjects, serverUnreachable: false };
         } catch (error) {
             console.error("Error fetching remote projects:", error);
-            return [];
+            // Server error (network failure, expired cert, 500, etc.)
+            // Return empty list but flag that the server was unreachable.
+            // This prevents local projects from being incorrectly marked as "orphaned".
+            return { projects: [], serverUnreachable: true };
         }
     }
 
