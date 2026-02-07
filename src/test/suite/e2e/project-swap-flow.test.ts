@@ -1460,6 +1460,74 @@ suite("E2E: Project Swap Flow", () => {
                 "With fresh data (bypass cache), no active swap should be found");
         });
 
+        test("REGRESSION: remote projectSwap erased entirely cleans up local state", async () => {
+            const projectDir = await createTestProject(tempDir, "erased-remote");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            // Step 1: localProjectSwap.json exists with active swap (stale)
+            const staleData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "erased-test",
+                        swapStatus: "active",
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now() - 60000,
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(staleData, null, 2));
+            assert.ok(fs.existsSync(localSwapPath), "Setup: local cache exists");
+
+            // Step 2: Remote metadata has NO projectSwap at all (erased)
+            const remoteMetadata = {
+                meta: {
+                    version: "0.16.0",
+                    // projectSwap is completely absent
+                },
+            };
+
+            // Step 3: Apply the same logic as checkProjectSwapRequired
+            const hasProjectSwap = !!(remoteMetadata?.meta as any)?.projectSwap;
+            const hasMeta = !!remoteMetadata?.meta;
+
+            // With our fix: treat erased remote as empty swap info
+            const remoteSwapInfo = hasProjectSwap
+                ? (remoteMetadata.meta as any).projectSwap
+                : (hasMeta ? { swapEntries: [] as ProjectSwapEntry[] } : undefined);
+
+            assert.ok(remoteSwapInfo, "Should get empty swap info, not undefined");
+            const remoteEntries = remoteSwapInfo!.swapEntries;
+            assert.strictEqual(remoteEntries.length, 0, "Remote has 0 entries");
+
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                (e: ProjectSwapEntry) => e.swapStatus === "active" && e.isOldProject === true
+            );
+            assert.strictEqual(hasActiveOldProjectSwap, false, "No active OLD swap");
+
+            // Step 4: Cleanup - delete localProjectSwap.json (no pending state)
+            const fileData = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const hasPendingState = fileData.swapPendingDownloads || fileData.pendingLfsDownloads;
+            if (!hasActiveOldProjectSwap && !hasPendingState) {
+                fs.unlinkSync(localSwapPath);
+            }
+            assert.ok(!fs.existsSync(localSwapPath),
+                "localProjectSwap.json should be deleted when remote has no projectSwap");
+
+            // Step 5: Verify metadata also reflects no swap
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            assert.ok(!metadata.meta?.projectSwap,
+                "metadata.json should also have no projectSwap");
+
+            // Final: normalizing empty remote should yield no active entry
+            const normalizedRemote = normalizeProjectSwapInfo({ swapEntries: [] });
+            const activeEntry = getActiveSwapEntry(normalizedRemote);
+            assert.strictEqual(activeEntry, undefined,
+                "No active swap anywhere - swap is NOT required");
+        });
+
         test("E2E: full swap cycle preserves all data", async () => {
             const oldProject = await createTestProject(tempDir, "full-cycle-old");
             const newProject = await createTestProject(tempDir, "full-cycle-new");

@@ -312,7 +312,15 @@ export async function checkProjectSwapRequired(
                     if (remoteMetadata?.meta?.projectSwap) {
                         remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
                         debug("Fetched remote metadata for swap check");
+                    } else if (remoteMetadata?.meta) {
+                        // Remote metadata exists but projectSwap is absent/erased.
+                        // This is an authoritative signal: there is no swap on remote.
+                        // Treat as empty swap info so we clean up any stale local state.
+                        remoteSwapInfo = { swapEntries: [] };
+                        debug("Remote metadata has no projectSwap object - treating as empty (no swap)");
+                    }
 
+                    if (remoteSwapInfo) {
                         // Always compare remote with localProjectSwap.json by swapUUID + swapModifiedAt.
                         // If remote has newer data (e.g. cancellation), update the local cache.
                         // If no active OLD swap remains after merge, delete the file (it's redundant
@@ -366,7 +374,7 @@ export async function checkProjectSwapRequired(
 
                                 localSwapFileInfo = mergedSwapInfo;
                             } else if (existingLocalEntries.length > 0) {
-                                // No active OLD swap on remote, but localProjectSwap.json exists.
+                                // No active OLD swap on remote (or remote erased), but localProjectSwap.json exists.
                                 // Check if we can safely delete: only if no pending downloads are stored.
                                 // Note: swapPendingDownloads/pendingLfsDownloads are untyped extra fields
                                 const existingFile = await readSwapFile(projectUri) as any;
