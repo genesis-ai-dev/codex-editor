@@ -815,6 +815,23 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
     );
 
     if (action === "Continue Swap") {
+        // Re-validate swap is still active before executing
+        try {
+            const { checkProjectSwapRequired } = await import("./utils/projectSwapManager");
+            const recheck = await checkProjectSwapRequired(projectUri.fsPath, undefined, true);
+            if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== pendingState.swapUUID) {
+                vscode.window.showInformationMessage(
+                    "The project swap has been cancelled or is no longer required."
+                );
+                const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
+                await clearSwapPendingState(projectUri.fsPath);
+                return;
+            }
+        } catch {
+            // Non-fatal - proceed with swap if re-check fails
+        }
+
+        // Mark as ready and trigger swap
         await saveSwapPendingState(projectUri.fsPath, {
             ...pendingState,
             swapState: "ready_to_swap"
