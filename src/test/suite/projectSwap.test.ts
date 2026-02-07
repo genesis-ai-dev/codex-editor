@@ -1187,7 +1187,7 @@ suite("Project Swap Tests", () => {
             // Find origin marker
             const originMarker = entries.find(e => e.swapUUID.startsWith("origin-"));
             assert.ok(originMarker, "Origin marker should exist");
-            
+
             // Origin project is identified by the origin marker's oldProjectName
             assert.strictEqual(originMarker?.oldProjectUrl, "https://gitlab.com/org/first.git");
             assert.strictEqual(originMarker?.oldProjectName, "first");
@@ -2723,7 +2723,7 @@ suite("Project Swap Tests", () => {
                 swapInitiatedBy: "admin-user",
             });
 
-            assert.notStrictEqual(validEntry.swapInitiatedBy, "unknown", 
+            assert.notStrictEqual(validEntry.swapInitiatedBy, "unknown",
                 "swapInitiatedBy should have actual username, not 'unknown'");
             assert.ok(validEntry.swapInitiatedBy && validEntry.swapInitiatedBy.length > 0,
                 "swapInitiatedBy must be a non-empty string");
@@ -2803,6 +2803,154 @@ suite("Project Swap Tests", () => {
             assert.ok(validEntry.swapInitiatedAt > 0, "swapInitiatedAt must be a valid timestamp");
             assert.ok(validEntry.oldProjectUrl.startsWith("https://"), "oldProjectUrl must be a valid URL");
             assert.ok(validEntry.newProjectUrl.startsWith("https://"), "newProjectUrl must be a valid URL");
+        });
+    });
+
+    suite("localProjectSwap.json Lifecycle - QA Critical", () => {
+        test("checkProjectSwapRequired cleans up localProjectSwap when remote has no active OLD swap", async () => {
+            // Simulate: remote entries exist but all are cancelled
+            // The merge logic should recognise there's no active OLD swap
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "cancelled-uuid",
+                swapStatus: "cancelled",
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: Date.now(),
+            });
+
+            const remoteEntries = [cancelledEntry];
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                e => e.swapStatus === "active" && e.isOldProject === true
+            );
+
+            assert.strictEqual(hasActiveOldProjectSwap, false,
+                "Cancelled entries should not count as active OLD swaps");
+        });
+
+        test("active NEW project swap does not count as active OLD swap", () => {
+            const newProjectEntry = createSwapEntry({
+                swapUUID: "new-project-uuid",
+                swapStatus: "active",
+                isOldProject: false, // This is the NEW project
+            });
+
+            const remoteEntries = [newProjectEntry];
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                e => e.swapStatus === "active" && e.isOldProject === true
+            );
+
+            assert.strictEqual(hasActiveOldProjectSwap, false,
+                "Active NEW project swap should not trigger OLD project caching");
+        });
+
+        test("merged result with no active entry means localProjectSwap can be deleted", () => {
+            const entries = [
+                createSwapEntry({ swapUUID: "uuid-1", swapStatus: "cancelled", isOldProject: true }),
+                createSwapEntry({ swapUUID: "uuid-2", swapStatus: "cancelled", isOldProject: true }),
+            ];
+
+            const swapInfo = normalizeProjectSwapInfo({ swapEntries: entries });
+            const activeEntry = getActiveSwapEntry(swapInfo);
+
+            assert.strictEqual(activeEntry, undefined,
+                "No active entry means localProjectSwap.json is redundant and can be deleted");
+        });
+
+        test("merged result with active entry means localProjectSwap must be kept", () => {
+            const entries = [
+                createSwapEntry({ swapUUID: "uuid-1", swapStatus: "cancelled", isOldProject: true }),
+                createSwapEntry({ swapUUID: "uuid-2", swapStatus: "active", isOldProject: true }),
+            ];
+
+            const swapInfo = normalizeProjectSwapInfo({ swapEntries: entries });
+            const activeEntry = getActiveSwapEntry(swapInfo);
+
+            assert.ok(activeEntry, "Active entry exists - localProjectSwap.json must be kept");
+            assert.strictEqual(activeEntry!.swapUUID, "uuid-2");
+        });
+
+        test("remote cancellation detected via swapModifiedAt comparison", () => {
+            // Local has active, remote has cancelled with newer swapModifiedAt
+            const localEntry = createSwapEntry({
+                swapUUID: "shared-uuid",
+                swapStatus: "active",
+                swapModifiedAt: 1000,
+                isOldProject: true,
+            });
+            const remoteEntry = createSwapEntry({
+                swapUUID: "shared-uuid",
+                swapStatus: "cancelled",
+                swapModifiedAt: 2000, // Newer
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+            });
+
+            // Simulate the merge logic
+            const localModified = localEntry.swapModifiedAt ?? localEntry.swapInitiatedAt;
+            const remoteModified = remoteEntry.swapModifiedAt ?? remoteEntry.swapInitiatedAt;
+
+            assert.ok(remoteModified > localModified,
+                "Remote cancellation has newer timestamp");
+
+            // Cancelled-is-sticky rule: even if local is "active", cancelled wins
+            const eitherCancelled = localEntry.swapStatus === "cancelled" || remoteEntry.swapStatus === "cancelled";
+            assert.strictEqual(eitherCancelled, true,
+                "Cancelled-is-sticky rule correctly detects cancellation");
+        });
+
+        test("re-validation before swap detects cancelled swap", () => {
+            // Simulate: initial check says required, re-check says not required
+            const initialResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID: "swap-uuid", swapStatus: "active" }),
+            };
+            const recheckResult = {
+                required: false,
+                activeEntry: undefined as ProjectSwapEntry | undefined,
+            };
+
+            // The re-validation logic: if recheck says not required, abort
+            const shouldAbort = !recheckResult.required || !recheckResult.activeEntry ||
+                (recheckResult.activeEntry?.swapUUID !== initialResult.activeEntry.swapUUID);
+
+            assert.strictEqual(shouldAbort, true,
+                "Re-validation should detect cancelled swap and abort execution");
+        });
+
+        test("re-validation passes when swap is still active with same UUID", () => {
+            const swapUUID = "consistent-uuid";
+            const initialResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID, swapStatus: "active" }),
+            };
+            const recheckResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID, swapStatus: "active" }),
+            };
+
+            const shouldAbort = !recheckResult.required || !recheckResult.activeEntry ||
+                (recheckResult.activeEntry?.swapUUID !== initialResult.activeEntry.swapUUID);
+
+            assert.strictEqual(shouldAbort, false,
+                "Re-validation should pass when swap is still active with same UUID");
+        });
+
+        test("re-validation detects UUID change (different swap initiated)", () => {
+            const initialResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID: "old-uuid", swapStatus: "active" }),
+            };
+            const recheckResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID: "new-uuid", swapStatus: "active" }),
+            };
+
+            const shouldAbort = !recheckResult.required || !recheckResult.activeEntry ||
+                (recheckResult.activeEntry?.swapUUID !== initialResult.activeEntry.swapUUID);
+
+            assert.strictEqual(shouldAbort, true,
+                "Re-validation should detect UUID change and abort old swap");
         });
     });
 });

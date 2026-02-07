@@ -1577,9 +1577,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
 
                         const { checkProjectSwapRequired } = await import("../../utils/projectSwapManager");
+                        // Always bypass cache on project open to get fresh remote data.
+                        // This ensures we detect cancellations, new swaps, and user completions
+                        // that happened since we last checked.
                         const localSwapCheck = await checkProjectSwapRequired(
                             projectPath,
-                            remoteProjectRequirements?.currentUsername || undefined
+                            remoteProjectRequirements?.currentUsername || undefined,
+                            true // bypassCache: always check remote on project open
                         );
                         // Use Awaited to get the return type of checkProjectSwapRequired
                         type SwapCheckResult = Awaited<ReturnType<typeof checkProjectSwapRequired>>;
@@ -1729,6 +1733,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 if (swapDecision === "openDeprecated") {
                                     // Continue opening without swapping
                                 } else {
+                                    // Re-validate swap is still active before executing
+                                    // (it could have been cancelled by another user since we checked)
+                                    try {
+                                        const recheck = await checkProjectSwapRequired(projectPath, remoteProjectRequirements?.currentUsername || undefined, true);
+                                        if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
+                                            debugLog("Swap no longer required (cancelled or changed since check) - aborting swap");
+                                            vscode.window.showInformationMessage(
+                                                "The project swap has been cancelled or is no longer required. Opening project normally."
+                                            );
+                                            // Fall through to normal open
+                                            break;
+                                        }
+                                    } catch (recheckErr) {
+                                        debugLog("Failed to re-validate swap (proceeding anyway):", recheckErr);
+                                    }
+
                                     swapWasPerformed = true;
 
                                     // Show notification and perform swap
@@ -3699,6 +3719,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Fall through to continue with swap below
                     }
 
+                    // Re-validate swap is still active before executing
+                    try {
+                        const { checkProjectSwapRequired: recheckSwap } = await import("../../utils/projectSwapManager");
+                        const recheck = await recheckSwap(projectPath, undefined, true);
+                        if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
+                            debugLog("Swap no longer required (cancelled or changed) - aborting");
+                            vscode.window.showInformationMessage(
+                                "The project swap has been cancelled or is no longer required."
+                            );
+                            return;
+                        }
+                    } catch (recheckErr) {
+                        debugLog("Failed to re-validate swap (proceeding anyway):", recheckErr);
+                    }
+
                     // No downloads needed or prerequisites met - proceed with swap
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
@@ -5152,7 +5187,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const newProjectUrlsToHide = new Set<string>();
 
             // Import the function to get ALL deprecated projects from chain history
-            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo, getActiveSwapEntry } = 
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo, getActiveSwapEntry } =
                 await import("../../utils/projectSwapManager");
 
             for (const project of projectList) {
