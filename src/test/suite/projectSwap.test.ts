@@ -3191,23 +3191,36 @@ suite("Project Swap Tests", () => {
         });
 
         test("Fix & Open should only trigger for orphaned, never for serverUnreachable", () => {
-            // Simulates the ProjectCard onClick logic
+            // Simulates the ProjectCard onClick and button label logic
             const testCases = [
-                { syncStatus: "orphaned", expectedCommand: "project.fixAndOpen" },
-                { syncStatus: "serverUnreachable", expectedCommand: "project.open" },
-                { syncStatus: "downloadedAndSynced", expectedCommand: "project.open" },
+                { syncStatus: "orphaned", expectedCommand: "project.fixAndOpen", expectedLabel: "Fix & Open" },
+                { syncStatus: "serverUnreachable", expectedCommand: "project.open", expectedLabel: "Open Offline" },
+                { syncStatus: "downloadedAndSynced", expectedCommand: "project.open", expectedLabel: "Open" },
+                { syncStatus: "localOnlyNotSynced", expectedCommand: "project.open", expectedLabel: "Open" },
             ];
 
             for (const tc of testCases) {
+                // Command logic
                 let command: string;
                 if (tc.syncStatus === "orphaned") {
                     command = "project.fixAndOpen";
                 } else {
-                    // serverUnreachable, downloadedAndSynced, etc. all just open normally
                     command = "project.open";
                 }
                 assert.strictEqual(command, tc.expectedCommand,
                     `syncStatus "${tc.syncStatus}" should trigger "${tc.expectedCommand}"`);
+
+                // Button label logic
+                let label: string;
+                if (tc.syncStatus === "orphaned") {
+                    label = "Fix & Open";
+                } else if (tc.syncStatus === "serverUnreachable") {
+                    label = "Open Offline";
+                } else {
+                    label = "Open";
+                }
+                assert.strictEqual(label, tc.expectedLabel,
+                    `syncStatus "${tc.syncStatus}" should show button label "${tc.expectedLabel}"`);
             }
         });
 

@@ -3569,14 +3569,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const swapResult = await checkProjectSwapRequired(projectPath, undefined, true);
 
                     if (swapResult.remoteUnreachable && swapResult.required) {
-                        // Server unreachable - can't verify swap status. Don't proceed.
-                        await vscode.window.showWarningMessage(
+                        // Server unreachable - can't perform swap, but let user open offline.
+                        const offlineChoice = await vscode.window.showWarningMessage(
                             "Server Unreachable\n\n" +
-                            "A project swap has been requested, but the server cannot be reached to verify its status.\n\n" +
-                            "Please check your internet connection or try again later.",
+                            "A project swap has been requested, but the swap requires an internet connection.\n\n" +
+                            "You can open this project and work offline. The swap will be available when connectivity is restored.",
                             { modal: true },
-                            "OK"
+                            "Open Project Offline"
                         );
+                        if (offlineChoice === "Open Project Offline") {
+                            await MetadataManager.safeOpenFolder(projectUri);
+                        }
                         return;
                     }
 
