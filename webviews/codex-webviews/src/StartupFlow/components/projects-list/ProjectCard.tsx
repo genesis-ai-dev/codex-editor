@@ -77,8 +77,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
         useState<boolean>(false);
+    // CRITICAL: If we're offline, "orphaned" is not trustworthy -- the server couldn't
+    // be reached to confirm the project is genuinely missing. Override to "serverUnreachable"
+    // to prevent destructive actions like "Fix & Open".
+    const effectiveSyncStatus: ProjectSyncStatus = (!isOnline && project.syncStatus === "orphaned")
+        ? "serverUnreachable" as ProjectSyncStatus
+        : project.syncStatus;
+
     const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(
-        project.syncStatus
+        effectiveSyncStatus
     );
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
 
@@ -374,16 +381,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     command: "project.performSwap",
                                     projectPath: project.path,
                                 });
-                            } else if (project.syncStatus === "orphaned") {
+                            } else if (effectiveSyncStatus === "orphaned") {
                                 // Only show Fix & Open for genuinely orphaned projects
-                                // (server confirmed the project doesn't exist remotely)
+                                // (server confirmed the project doesn't exist remotely AND we're online)
                                 vscode.postMessage({
                                     command: "project.fixAndOpen",
                                     projectPath: project.path,
                                 });
                             } else {
                                 // Normal open for downloaded, local-only, AND serverUnreachable projects.
-                                // CRITICAL: serverUnreachable must NOT trigger Fix & Open -- the server
+                                // CRITICAL: when offline, we must NOT trigger Fix & Open -- the server
                                 // just couldn't be reached (expired cert, network error, etc.).
                                 onOpenProject(project);
                             }
@@ -420,10 +427,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 <i className="codicon codicon-arrow-swap mr-1" />
                                 Swap Project
                             </>
-                        ) : project.syncStatus === "orphaned" ? (
+                        ) : effectiveSyncStatus === "orphaned" ? (
                             <>
                                 <i className="codicon codicon-tools mr-1" />
                                 Fix & Open
+                            </>
+                        ) : (effectiveSyncStatus === "serverUnreachable" || !isOnline) ? (
+                            <>
+                                <i className="codicon codicon-cloud-offline mr-1" />
+                                Open Offline
                             </>
                         ) : (
                             <>
@@ -474,7 +486,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (!project) return null;
         const { cleanName, displayUrl } = parseProjectUrl(project.gitOriginUrl);
         const isUnpublished = !project.gitOriginUrl;
-        const status = getStatusIcon(project.syncStatus);
+        const status = getStatusIcon(effectiveSyncStatus);
         const isExpanded = expandedProjects[project.name];
         const isNewlyAdded = newlyAddedProjects.has(project.name);
         const isStatusChanged = statusChangedProjects.has(project.name);
@@ -527,12 +539,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 Unsynced
                             </Badge>
                         )}
-                        {project.syncStatus === "orphaned" && (
+                        {effectiveSyncStatus === "orphaned" && (
                             <Badge variant="outline" className="text-xs px-1 py-0 bg-amber-50 text-amber-700 border-amber-300 whitespace-nowrap">
                                 Remote Missing
                             </Badge>
                         )}
-                        {project.syncStatus === "serverUnreachable" && (
+                        {effectiveSyncStatus === "serverUnreachable" && (
                             <Badge variant="outline" className="text-xs px-1 py-0 bg-red-50 text-red-700 border-red-300 whitespace-nowrap">
                                 Server Unreachable
                             </Badge>
@@ -598,7 +610,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const { cleanName,displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isExpanded = expandedProjects[project.name];
         // Include orphaned (Remote Missing) and serverUnreachable projects as local since they exist on disk
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus);
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(effectiveSyncStatus);
 
         if (!isExpanded || (!displayUrl && !onDeleteProject)) return null;
 
