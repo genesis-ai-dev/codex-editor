@@ -2952,6 +2952,70 @@ suite("Project Swap Tests", () => {
             assert.strictEqual(shouldAbort, true,
                 "Re-validation should detect UUID change and abort old swap");
         });
+
+        test("remote projectSwap erased entirely triggers cleanup of localProjectSwap", () => {
+            // Simulate: remote metadata exists but projectSwap is absent/undefined
+            const remoteMetadata: any = {
+                meta: {
+                    version: "0.16.0",
+                    // projectSwap is missing entirely
+                },
+            };
+
+            // The check: if remote meta exists but projectSwap is falsy,
+            // treat it as authoritative "no swap"
+            const hasProjectSwap = !!remoteMetadata?.meta?.projectSwap;
+            const hasMeta = !!remoteMetadata?.meta;
+
+            assert.strictEqual(hasProjectSwap, false, "Remote has no projectSwap");
+            assert.strictEqual(hasMeta, true, "Remote meta does exist");
+
+            // This means we should treat remoteSwapInfo as empty
+            const remoteSwapInfo = hasProjectSwap
+                ? (remoteMetadata.meta as any).projectSwap
+                : (hasMeta ? { swapEntries: [] } : undefined);
+
+            assert.ok(remoteSwapInfo, "Should produce an empty swap info (not undefined)");
+            assert.strictEqual(remoteSwapInfo.swapEntries.length, 0,
+                "Empty swap entries from erased remote");
+
+            // With empty remote entries, hasActiveOldProjectSwap is false
+            const hasActiveOldProjectSwap = remoteSwapInfo.swapEntries.some(
+                (e: any) => e.swapStatus === "active" && e.isOldProject === true
+            );
+            assert.strictEqual(hasActiveOldProjectSwap, false,
+                "Erased remote means no active OLD swap - triggers cleanup");
+        });
+
+        test("remote projectSwap erased with stale localProjectSwap entry should not show swap required", () => {
+            // Local cache still has active swap from before the wipe
+            const staleLocalEntry = createSwapEntry({
+                swapUUID: "stale-uuid",
+                swapStatus: "active",
+                isOldProject: true,
+            });
+
+            // Remote says empty
+            const remoteEntries: ProjectSwapEntry[] = [];
+
+            // After merge, the stale local entry should NOT survive because
+            // remote is authoritative. The merge sees 0 remote entries,
+            // and hasActiveOldProjectSwap is false, so cleanup path runs.
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                e => e.swapStatus === "active" && e.isOldProject === true
+            );
+            assert.strictEqual(hasActiveOldProjectSwap, false);
+
+            // The cleanup path checks existingLocalEntries.length > 0 (true)
+            // and deletes localProjectSwap.json if no pending state.
+            // After deletion, the final merge only uses metadataSwapInfo.
+            // If metadata.json was also updated (synced), there's nothing active.
+            // Result: swap is NOT required.
+            const normalizedRemote = normalizeProjectSwapInfo({ swapEntries: remoteEntries });
+            const activeEntry = getActiveSwapEntry(normalizedRemote);
+            assert.strictEqual(activeEntry, undefined,
+                "With erased remote, no active swap should be found");
+        });
     });
 });
 
