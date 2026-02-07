@@ -148,7 +148,7 @@ export class SyncManager {
             // Force bypass cache to ensure we get the latest state from server
             const result = await checkProjectSwapRequired(projectPath, undefined, true);
 
-            if (result.required && result.activeEntry) {
+            if (result.required && result.activeEntry && !result.remoteUnreachable) {
                 debug("Project swap required for user, blocking sync");
 
                 // Check if there are pending downloads for the swap
@@ -223,7 +223,7 @@ export class SyncManager {
             // Force bypass cache to get the latest state (just synced, so remote might have new info)
             const result = await checkProjectSwapRequired(projectPath, undefined, true);
 
-            if (result.required && result.activeEntry) {
+            if (result.required && result.activeEntry && !result.remoteUnreachable) {
                 // Check if there are pending downloads for the swap
                 // If so, DON'T show the swap modal - let downloads complete first
                 const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");

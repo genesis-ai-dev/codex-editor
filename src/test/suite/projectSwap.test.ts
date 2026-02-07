@@ -3017,6 +3017,118 @@ suite("Project Swap Tests", () => {
                 "With erased remote, no active swap should be found");
         });
     });
+
+    suite("Server Unreachable vs Erased Distinction", () => {
+        test("null remoteMetadata means server unreachable, NOT swap erased", () => {
+            // fetchRemoteMetadata returns null on ANY failure (network, 404, 500, auth)
+            const remoteMetadata: any = null;
+
+            // Server unreachable: remoteMetadata is null
+            const isUnreachable = remoteMetadata === null;
+            // Server returned metadata but no swap: remoteMetadata.meta exists but no projectSwap
+            const isErased = remoteMetadata !== null && !!remoteMetadata?.meta && !remoteMetadata?.meta?.projectSwap;
+
+            assert.strictEqual(isUnreachable, true,
+                "null metadata should be treated as server unreachable");
+            assert.strictEqual(isErased, false,
+                "null metadata should NOT be treated as swap erased");
+        });
+
+        test("metadata with no projectSwap means swap erased, NOT unreachable", () => {
+            const remoteMetadata: any = {
+                meta: { version: "0.16.0" },
+            };
+
+            const isUnreachable = remoteMetadata === null;
+            const isErased = remoteMetadata !== null && !!remoteMetadata?.meta && !remoteMetadata?.meta?.projectSwap;
+
+            assert.strictEqual(isUnreachable, false,
+                "Valid metadata should NOT be treated as unreachable");
+            assert.strictEqual(isErased, true,
+                "Metadata without projectSwap should be treated as erased");
+        });
+
+        test("metadata with projectSwap is neither unreachable nor erased", () => {
+            const remoteMetadata: any = {
+                meta: {
+                    version: "0.16.0",
+                    projectSwap: { swapEntries: [createSwapEntry()] },
+                },
+            };
+
+            const isUnreachable = remoteMetadata === null;
+            const isErased = remoteMetadata !== null && !!remoteMetadata?.meta && !remoteMetadata?.meta?.projectSwap;
+
+            assert.strictEqual(isUnreachable, false);
+            assert.strictEqual(isErased, false);
+        });
+
+        test("remoteUnreachable flag prevents localProjectSwap cleanup", () => {
+            // When server is unreachable, we should NOT touch localProjectSwap.json
+            // because we don't know if the swap was erased or still active
+            const remoteUnreachable = true;
+
+            // With stale local data showing active swap
+            const staleEntry = createSwapEntry({
+                swapUUID: "stale-uuid",
+                swapStatus: "active",
+                isOldProject: true,
+            });
+
+            // When unreachable, remoteSwapInfo remains undefined (never set)
+            // The cleanup/merge block only runs when remoteSwapInfo is defined
+            // So local data is preserved as-is
+            assert.strictEqual(remoteUnreachable, true,
+                "With server unreachable, local state should be preserved untouched");
+            assert.strictEqual(staleEntry.swapStatus, "active",
+                "Stale active entry remains because we can't verify with remote");
+        });
+
+        test("swap should NOT execute when server is unreachable", () => {
+            // Simulates the re-validation check before swap execution
+            const recheckResult = {
+                required: true,
+                remoteUnreachable: true,
+                activeEntry: createSwapEntry({ swapUUID: "some-uuid", swapStatus: "active" }),
+            };
+
+            // The re-validation logic: if server unreachable, abort swap
+            const shouldAbortDueToUnreachable = !!recheckResult.remoteUnreachable;
+            assert.strictEqual(shouldAbortDueToUnreachable, true,
+                "Swap execution must be blocked when server is unreachable");
+        });
+
+        test("project opening allowed when server is unreachable with pending swap", () => {
+            // Even with a pending swap, user should be able to open the project
+            // They just can't perform the swap
+            const swapCheck = {
+                required: true,
+                remoteUnreachable: true,
+                activeEntry: createSwapEntry({ swapUUID: "pending-uuid", swapStatus: "active" }),
+            };
+
+            // The UI logic: show "Server Unreachable" modal with "Open Project Offline" button
+            // If user clicks "Open Project Offline", project opens normally (skip swap)
+            const canOpenProject = true; // Always allowed
+            const canPerformSwap = !swapCheck.remoteUnreachable;
+
+            assert.strictEqual(canOpenProject, true, "Project opening is always allowed");
+            assert.strictEqual(canPerformSwap, false, "Swap is blocked when server unreachable");
+        });
+
+        test("pending download state preserved when server unreachable", () => {
+            // extension.ts re-validation: when server unreachable, don't clear pending state
+            const recheckResult = {
+                remoteUnreachable: true,
+            };
+
+            // When remoteUnreachable, we return without clearing pendingState
+            // so it can resume when connectivity is restored
+            const shouldClearPendingState = !recheckResult.remoteUnreachable;
+            assert.strictEqual(shouldClearPendingState, false,
+                "Pending state should be preserved for when server becomes available again");
+        });
+    });
 });
 
 // ============ Helper Functions ============

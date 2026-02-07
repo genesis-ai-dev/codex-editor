@@ -249,6 +249,9 @@ export async function checkProjectSwapRequired(
     swapInfo?: ProjectSwapInfo;
     activeEntry?: ProjectSwapEntry;
     userAlreadySwapped?: boolean;
+    /** True when remote server was unreachable (network error, 404, 500, auth failure).
+     *  NOT set when the server returned valid metadata with no projectSwap (that's "erased"). */
+    remoteUnreachable?: boolean;
 }> {
     try {
         debug("Checking project swap requirement for:", projectPath);
@@ -286,6 +289,9 @@ export async function checkProjectSwapRequired(
         let remoteSwapInfo: ProjectSwapInfo | undefined;
         let localSwapFileInfo: ProjectSwapInfo | undefined;
         const localMetadataSwapInfo: ProjectSwapInfo | undefined = metadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
+        /** True when the server could not be reached at all (null from fetchRemoteMetadata).
+         *  False/undefined when the server responded successfully (even if projectSwap is absent). */
+        let remoteUnreachable = false;
 
         // Try to fetch remote metadata for the latest swap status
         // Always check localProjectSwap.json FIRST - it may have local modifications (like cancellations)
@@ -294,9 +300,14 @@ export async function checkProjectSwapRequired(
             const cachedSwapFile = await readLocalProjectSwapFile(projectUri);
             if (cachedSwapFile?.remoteSwapInfo) {
                 // Verify the cached file is for the same origin (if we have one)
-                if (!gitOriginUrl || cachedSwapFile.sourceOriginUrl === gitOriginUrl) {
+                // Use sanitizeGitUrl on both sides for consistent comparison
+                // (sourceOriginUrl was stored via sanitizeGitUrl, raw gitOriginUrl may differ)
+                const sanitizedOrigin = gitOriginUrl ? sanitizeGitUrl(gitOriginUrl) : null;
+                if (!sanitizedOrigin || cachedSwapFile.sourceOriginUrl === sanitizedOrigin) {
                     localSwapFileInfo = cachedSwapFile.remoteSwapInfo;
                     debug("Found swap info in localProjectSwap.json (fetched at:", new Date(cachedSwapFile.fetchedAt).toISOString(), ")");
+                } else {
+                    debug("localProjectSwap.json origin mismatch:", cachedSwapFile.sourceOriginUrl, "vs", sanitizedOrigin);
                 }
             }
         } catch (e) {
@@ -309,7 +320,13 @@ export async function checkProjectSwapRequired(
                 const projectId = extractProjectIdFromUrl(gitOriginUrl);
                 if (projectId) {
                     const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
-                    if (remoteMetadata?.meta?.projectSwap) {
+                    if (remoteMetadata === null) {
+                        // Server unreachable (network error, 404, 500, auth failure).
+                        // Do NOT treat this as "projectSwap erased" - we simply couldn't reach the server.
+                        // Local state (localProjectSwap.json, metadata.json) remains untouched.
+                        remoteUnreachable = true;
+                        debug("Remote server unreachable - cannot verify swap status");
+                    } else if (remoteMetadata?.meta?.projectSwap) {
                         remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
                         debug("Fetched remote metadata for swap check");
                     } else if (remoteMetadata?.meta) {
@@ -523,7 +540,7 @@ export async function checkProjectSwapRequired(
 
         if (!effectiveSwapInfo) {
             debug("No project swap information found");
-            return { required: false, reason: "No swap configured" };
+            return { required: false, reason: "No swap configured", remoteUnreachable };
         }
 
         // Normalize to new array format
@@ -546,7 +563,7 @@ export async function checkProjectSwapRequired(
             } catch {
                 // Non-fatal
             }
-            return { required: false, reason: "No active swap", swapInfo };
+            return { required: false, reason: "No active swap", swapInfo, remoteUnreachable };
         }
 
         // Only OLD projects (isOldProject: true in the entry) can trigger swap requirements
@@ -564,7 +581,7 @@ export async function checkProjectSwapRequired(
             } catch {
                 // Non-fatal
             }
-            return { required: false, reason: "This is the destination project", swapInfo };
+            return { required: false, reason: "This is the destination project", swapInfo, remoteUnreachable };
         }
 
         // Check if user has already completed this swap
@@ -578,6 +595,7 @@ export async function checkProjectSwapRequired(
                     swapInfo,
                     activeEntry,
                     userAlreadySwapped: true,
+                    remoteUnreachable,
                 };
             }
         }
@@ -589,10 +607,11 @@ export async function checkProjectSwapRequired(
             reason: "Project has been swapped to a new repository",
             swapInfo,
             activeEntry,
+            remoteUnreachable,
         };
     } catch (error) {
         debug("Error checking project swap requirement:", error);
-        return { required: false, reason: `Error: ${error}` };
+        return { required: false, reason: `Error: ${error}`, remoteUnreachable: true };
     }
 }
 

@@ -1613,6 +1613,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 : { required: true, reason: "Remote swap required", swapInfo: remoteProjectRequirements.swapInfo, activeEntry: localSwapCheck.activeEntry })
                             : localSwapCheck;
 
+                        // If swap is not required and we have merged data from remote,
+                        // update local metadata.json with the authoritative swap status.
+                        // This ensures local metadata reflects cancellations from remote.
+                        if (!swapCheck.required && swapCheck.swapInfo && localSwapCheck.swapInfo) {
+                            try {
+                                const { sortSwapEntries, orderEntryFields } = await import("../../utils/projectSwapManager");
+                                const projectUri = vscode.Uri.file(projectPath);
+                                await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                    projectUri,
+                                    (meta) => {
+                                        if (!meta.meta) {
+                                            meta.meta = {} as any;
+                                        }
+                                        const sorted = sortSwapEntries(localSwapCheck.swapInfo!.swapEntries || []);
+                                        meta.meta!.projectSwap = {
+                                            swapEntries: sorted.map(orderEntryFields),
+                                        };
+                                        return meta;
+                                    }
+                                );
+                                debugLog("Updated local metadata.json with merged swap status from remote");
+                            } catch (metaUpdateErr) {
+                                debugLog("Failed to update local metadata with remote swap status (non-fatal):", metaUpdateErr);
+                            }
+                        }
+
                         if (swapCheck.userAlreadySwapped && swapCheck.activeEntry) {
                             const activeEntry = swapCheck.activeEntry;
                             const swapTargetLabel =
@@ -1737,6 +1763,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (swapCheck.required && swapCheck.activeEntry && !skipSwapPrompt) {
                             debugLog("Project swap required for project");
 
+                            // If the remote server is unreachable, we can't perform the swap.
+                            // Show a modal and let the user open the project offline.
+                            if (localSwapCheck.remoteUnreachable) {
+                                const activeEntry = swapCheck.activeEntry;
+                                const newProjectName = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
+                                const offlineChoice = await vscode.window.showWarningMessage(
+                                    `Server Unreachable\n\n` +
+                                    `A project swap to "${newProjectName}" has been requested, but the server cannot be reached at this time.\n\n` +
+                                    `You can open this project and work offline, but the swap cannot be performed until the server is available again. ` +
+                                    `It may be best to wait for the server to come back up or for your internet connection to be restored.`,
+                                    { modal: true },
+                                    "Open Project Offline",
+                                );
+                                if (offlineChoice !== "Open Project Offline") {
+                                    return; // User cancelled
+                                }
+                                // Fall through to normal project open (skip swap)
+                            } else {
                             const activeEntry = swapCheck.activeEntry;
                             const newProjectUrl = activeEntry.newProjectUrl;
                             const newProjectName = activeEntry.newProjectName;
@@ -1757,10 +1801,49 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     // (it could have been cancelled by another user since we checked)
                                     try {
                                         const recheck = await checkProjectSwapRequired(projectPath, remoteProjectRequirements?.currentUsername || undefined, true);
+                                        if (recheck.remoteUnreachable) {
+                                            debugLog("Server unreachable during re-validation - cannot perform swap");
+                                            await vscode.window.showWarningMessage(
+                                                "Server Unreachable\n\n" +
+                                                "The swap cannot be performed because the server is not reachable. " +
+                                                "Please check your internet connection or try again later.\n\n" +
+                                                "Opening project without swapping.",
+                                                { modal: true },
+                                                "OK"
+                                            );
+                                            break; // Fall through to normal open
+                                        }
                                         if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
                                             debugLog("Swap no longer required (cancelled or changed since check) - aborting swap");
-                                            vscode.window.showInformationMessage(
-                                                "The project swap has been cancelled or is no longer required. Opening project normally."
+
+                                            // Update local metadata with merged data
+                                            if (recheck.swapInfo) {
+                                                try {
+                                                    const { sortSwapEntries: sortEntries, orderEntryFields: orderFields } = await import("../../utils/projectSwapManager");
+                                                    await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                                        vscode.Uri.file(projectPath),
+                                                        (meta) => {
+                                                            if (!meta.meta) { meta.meta = {} as any; }
+                                                            const sorted = sortEntries(recheck.swapInfo!.swapEntries || []);
+                                                            meta.meta!.projectSwap = { swapEntries: sorted.map(orderFields) };
+                                                            return meta;
+                                                        }
+                                                    );
+                                                } catch { /* non-fatal */ }
+                                            }
+
+                                            // Clean up localProjectSwap.json
+                                            try {
+                                                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                                                await deleteLocalProjectSwapFile(vscode.Uri.file(projectPath));
+                                            } catch { /* non-fatal */ }
+
+                                            await vscode.window.showWarningMessage(
+                                                "Swap Cancelled\n\n" +
+                                                "The project swap has been cancelled or is no longer required.\n\n" +
+                                                "Opening the project normally.",
+                                                { modal: true },
+                                                "OK"
                                             );
                                             // Fall through to normal open
                                             break;
@@ -1815,6 +1898,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     }
                                 }
                             }
+                        } // end else (server reachable)
                         }
                     } catch (swapErr) {
                         debugLog("Project swap check/execution failed:", swapErr);
@@ -3496,64 +3580,81 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
-                    const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
-                    const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
-                    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 
-                    // Gather swap info from all sources
-                    const metadataSwapInfo = metadataResult.metadata?.meta?.projectSwap;
-                    let localSwapFileInfo: ProjectSwapInfo | undefined;
-                    try {
-                        const localSwapFile = await readLocalProjectSwapFile(projectUri);
-                        if (localSwapFile?.remoteSwapInfo) {
-                            localSwapFileInfo = localSwapFile.remoteSwapInfo;
-                        }
-                    } catch {
-                        // Non-fatal
-                    }
+                    // Use checkProjectSwapRequired for authoritative swap status.
+                    // This fetches remote, merges all sources, applies "cancelled is sticky",
+                    // and cleans up localProjectSwap.json when appropriate.
+                    const { checkProjectSwapRequired, normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
+                    const swapResult = await checkProjectSwapRequired(projectPath, undefined, true);
 
-                    // MERGE entries from all sources by swapUUID, keeping the most recent swapModifiedAt
-                    // This ensures we use cancelled status if it's more recent than active status
-                    const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
-                    const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
-
-                    const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
-                    const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-                        const key = entry.swapUUID;
-                        const existing = mergedEntriesMap.get(key);
-                        if (!existing) {
-                            mergedEntriesMap.set(key, entry);
-                        } else {
-                            // Compare swapModifiedAt timestamps - use the more recent one
-                            const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
-                            const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
-                            if (newModified > existingModified) {
-                                mergedEntriesMap.set(key, entry);
-                            }
-                        }
-                    };
-
-                    for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
-                    for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
-
-                    const mergedEntries = Array.from(mergedEntriesMap.values());
-                    const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
-                        ? { swapEntries: mergedEntries }
-                        : (localSwapFileInfo || metadataSwapInfo);
-
-                    if (!effectiveSwapInfo) {
-                        vscode.window.showErrorMessage("Cannot perform swap: Project swap metadata missing.");
+                    if (swapResult.remoteUnreachable && swapResult.required) {
+                        // Server unreachable - can't verify swap status. Don't proceed.
+                        await vscode.window.showWarningMessage(
+                            "Server Unreachable\n\n" +
+                            "A project swap has been requested, but the server cannot be reached to verify its status.\n\n" +
+                            "Please check your internet connection or try again later.",
+                            { modal: true },
+                            "OK"
+                        );
                         return;
                     }
 
-                    const swapInfo = effectiveSwapInfo;
+                    if (!swapResult.required || !swapResult.activeEntry) {
+                        // Swap no longer required (cancelled, completed, or erased).
+                        // Update local metadata.json with the merged/authoritative swap data
+                        // and clean up localProjectSwap.json.
+                        if (swapResult.swapInfo) {
+                            try {
+                                const { sortSwapEntries, orderEntryFields } = await import("../../utils/projectSwapManager");
+                                await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                    projectUri,
+                                    (meta) => {
+                                        if (!meta.meta) {
+                                            meta.meta = {} as any;
+                                        }
+                                        // Write the merged entries (with cancelled status, cancellation details, etc.)
+                                        const sorted = sortSwapEntries(swapResult.swapInfo!.swapEntries || []);
+                                        meta.meta!.projectSwap = {
+                                            swapEntries: sorted.map(orderEntryFields),
+                                        };
+                                        return meta;
+                                    }
+                                );
+                                debugLog("Updated local metadata.json with authoritative swap status (cancelled)");
+                            } catch (metaErr) {
+                                debugLog("Failed to update local metadata.json (non-fatal):", metaErr);
+                            }
+                        }
+
+                        // Delete localProjectSwap.json - no longer needed
+                        try {
+                            const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                            await deleteLocalProjectSwapFile(projectUri);
+                            debugLog("Deleted localProjectSwap.json (swap no longer active)");
+                        } catch {
+                            // Non-fatal - file may not exist
+                        }
+
+                        // Show modal so user can open the project
+                        const choice = await vscode.window.showWarningMessage(
+                            "Swap Cancelled\n\n" +
+                            "The project swap has been cancelled or is no longer required.\n\n" +
+                            "You can open this project normally.",
+                            { modal: true },
+                            "Open Project"
+                        );
+                        if (choice === "Open Project") {
+                            await MetadataManager.safeOpenFolder(projectUri);
+                        }
+                        return;
+                    }
+
+                    const activeEntry = swapResult.activeEntry;
+                    const swapInfo = swapResult.swapInfo!;
+                    const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
                     const projectName = metadataResult.metadata?.projectName || path.basename(projectPath);
 
-                    // Normalize swap info to get active entry
-                    const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
-                    const activeEntry = getActiveSwapEntry(normalizedSwap);
-
-                    if (!activeEntry?.newProjectUrl) {
+                    if (!activeEntry.newProjectUrl) {
                         vscode.window.showErrorMessage("Cannot perform swap: No target project URL found.");
                         return;
                     }
@@ -3743,10 +3844,44 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     try {
                         const { checkProjectSwapRequired: recheckSwap } = await import("../../utils/projectSwapManager");
                         const recheck = await recheckSwap(projectPath, undefined, true);
+                        if (recheck.remoteUnreachable) {
+                            debugLog("Server unreachable during re-validation - cannot perform swap");
+                            vscode.window.showWarningMessage(
+                                "The swap cannot be performed because the server is not reachable. " +
+                                "Please check your internet connection or try again later."
+                            );
+                            return;
+                        }
                         if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
                             debugLog("Swap no longer required (cancelled or changed) - aborting");
-                            vscode.window.showInformationMessage(
-                                "The project swap has been cancelled or is no longer required."
+
+                            // Update local metadata with merged data
+                            if (recheck.swapInfo) {
+                                try {
+                                    const { sortSwapEntries: sortRecheck, orderEntryFields: orderRecheck } = await import("../../utils/projectSwapManager");
+                                    await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                        projectUri,
+                                        (meta) => {
+                                            if (!meta.meta) { meta.meta = {} as any; }
+                                            const sorted = sortRecheck(recheck.swapInfo!.swapEntries || []);
+                                            meta.meta!.projectSwap = { swapEntries: sorted.map(orderRecheck) };
+                                            return meta;
+                                        }
+                                    );
+                                } catch { /* non-fatal */ }
+                            }
+
+                            // Clean up localProjectSwap.json
+                            try {
+                                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                                await deleteLocalProjectSwapFile(projectUri);
+                            } catch { /* non-fatal */ }
+
+                            await vscode.window.showWarningMessage(
+                                "Swap Cancelled\n\n" +
+                                "The project swap has been cancelled or is no longer required.",
+                                { modal: true },
+                                "Open Project"
                             );
                             return;
                         }
