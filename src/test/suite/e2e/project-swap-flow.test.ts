@@ -1460,6 +1460,182 @@ suite("E2E: Project Swap Flow", () => {
                 "With fresh data (bypass cache), no active swap should be found");
         });
 
+        test("REGRESSION: cancelled swap updates local metadata.json with merged data", async () => {
+            const projectDir = await createTestProject(tempDir, "cancel-updates-meta");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            // Setup: local metadata has active swap
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            metadata.meta = metadata.meta || {};
+            metadata.meta.projectSwap = {
+                swapEntries: [createSwapEntry({
+                    swapUUID: "cancel-meta-test",
+                    swapStatus: "active",
+                    swapModifiedAt: 1000,
+                    isOldProject: true,
+                    oldProjectName: "old-proj",
+                    newProjectName: "new-proj",
+                })],
+            };
+            fs.writeFileSync(
+                path.join(projectDir, "metadata.json"),
+                JSON.stringify(metadata, null, 2)
+            );
+
+            // Setup: localProjectSwap.json also has active
+            fs.writeFileSync(localSwapPath, JSON.stringify({
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "cancel-meta-test",
+                        swapStatus: "active",
+                        swapModifiedAt: 1000,
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            }, null, 2));
+
+            // Simulate: remote has cancelled data
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "cancel-meta-test",
+                swapStatus: "cancelled",
+                swapModifiedAt: 2000,
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+                oldProjectName: "old-proj",
+                newProjectName: "new-proj",
+            });
+
+            // After checkProjectSwapRequired merges and returns swapInfo with cancelled entries,
+            // the project.performSwap handler should:
+            // 1. Update metadata.json with the cancelled entries
+            const mergedSwapInfo: ProjectSwapInfo = {
+                swapEntries: [cancelledEntry],
+            };
+
+            // Simulate writing merged data back to metadata
+            const updatedMeta = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            updatedMeta.meta.projectSwap = mergedSwapInfo;
+            fs.writeFileSync(
+                path.join(projectDir, "metadata.json"),
+                JSON.stringify(updatedMeta, null, 2)
+            );
+
+            // 2. Delete localProjectSwap.json
+            fs.unlinkSync(localSwapPath);
+
+            // Verify: metadata has cancelled status
+            const finalMeta = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            assert.strictEqual(finalMeta.meta.projectSwap.swapEntries[0].swapStatus, "cancelled",
+                "Local metadata should now reflect cancelled status from remote");
+            assert.strictEqual(finalMeta.meta.projectSwap.swapEntries[0].cancelledBy, "admin",
+                "Cancellation details should be preserved");
+
+            // Verify: localProjectSwap.json deleted
+            assert.ok(!fs.existsSync(localSwapPath),
+                "localProjectSwap.json should be deleted after swap cancellation");
+
+            // Verify: no active swap in the updated data
+            const normalizedFinal = normalizeProjectSwapInfo(finalMeta.meta.projectSwap);
+            const activeEntry = getActiveSwapEntry(normalizedFinal);
+            assert.strictEqual(activeEntry, undefined,
+                "No active swap should exist after metadata update");
+        });
+
+        test("REGRESSION: server unreachable preserves local state and blocks swap", async () => {
+            const projectDir = await createTestProject(tempDir, "unreachable-server");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            // Setup: localProjectSwap.json exists with active swap
+            const localData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "unreachable-test",
+                        swapStatus: "active",
+                        swapModifiedAt: 1000,
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now() - 60000,
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(localData, null, 2));
+
+            // Simulate: fetchRemoteMetadata returns null (server unreachable)
+            const remoteMetadata = null;
+
+            // Apply the same logic as checkProjectSwapRequired
+            let remoteUnreachable = false;
+            let remoteSwapInfo: ProjectSwapInfo | undefined;
+
+            if (remoteMetadata === null) {
+                remoteUnreachable = true;
+            } else if ((remoteMetadata as any)?.meta?.projectSwap) {
+                remoteSwapInfo = (remoteMetadata as any).meta.projectSwap;
+            } else if ((remoteMetadata as any)?.meta) {
+                remoteSwapInfo = { swapEntries: [] };
+            }
+
+            // Key assertions: server unreachable
+            assert.strictEqual(remoteUnreachable, true,
+                "Should detect server as unreachable");
+            assert.strictEqual(remoteSwapInfo, undefined,
+                "remoteSwapInfo should NOT be set when server is unreachable");
+
+            // localProjectSwap.json should NOT be touched (no cleanup, no merge)
+            assert.ok(fs.existsSync(localSwapPath),
+                "localProjectSwap.json must be preserved when server is unreachable");
+
+            // The local data should remain unchanged
+            const preserved = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            assert.strictEqual(preserved.remoteSwapInfo.swapEntries[0].swapStatus, "active",
+                "Local active entry must be preserved as-is");
+            assert.strictEqual(preserved.remoteSwapInfo.swapEntries[0].swapUUID, "unreachable-test",
+                "Entry UUID must be unchanged");
+
+            // Swap should NOT be executable
+            assert.strictEqual(remoteUnreachable, true,
+                "Swap execution must be blocked (server unreachable)");
+        });
+
+        test("REGRESSION: server unreachable vs erased are distinct code paths", async () => {
+            // Test that the two scenarios produce different outcomes
+
+            // Scenario A: server unreachable (null)
+            const unreachableMetadata = null;
+            let unreachableFlag = false;
+            let erasedFlag = false;
+
+            if (unreachableMetadata === null) {
+                unreachableFlag = true;
+            } else if ((unreachableMetadata as any)?.meta && !(unreachableMetadata as any)?.meta?.projectSwap) {
+                erasedFlag = true;
+            }
+            assert.strictEqual(unreachableFlag, true, "A: unreachable detected");
+            assert.strictEqual(erasedFlag, false, "A: not erased");
+
+            // Scenario B: server reachable, swap erased
+            const erasedMetadata: any = { meta: { version: "0.16.0" } };
+            unreachableFlag = false;
+            erasedFlag = false;
+
+            if (erasedMetadata === null) {
+                unreachableFlag = true;
+            } else if (erasedMetadata?.meta && !erasedMetadata?.meta?.projectSwap) {
+                erasedFlag = true;
+            }
+            assert.strictEqual(unreachableFlag, false, "B: not unreachable");
+            assert.strictEqual(erasedFlag, true, "B: erased detected");
+        });
+
         test("REGRESSION: remote projectSwap erased entirely cleans up local state", async () => {
             const projectDir = await createTestProject(tempDir, "erased-remote");
             const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");

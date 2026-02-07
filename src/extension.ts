@@ -1095,12 +1095,49 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
         try {
             const { checkProjectSwapRequired } = await import("./utils/projectSwapManager");
             const recheck = await checkProjectSwapRequired(projectUri.fsPath, undefined, true);
-            if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== pendingState.swapUUID) {
-                vscode.window.showInformationMessage(
-                    "The project swap has been cancelled or is no longer required."
+            if (recheck.remoteUnreachable) {
+                await vscode.window.showWarningMessage(
+                    "Server Unreachable\n\n" +
+                    "The swap cannot be completed because the server is not reachable. " +
+                    "Please check your internet connection or try again later.\n\n" +
+                    "The pending swap state has been preserved and will resume when connectivity is restored.",
+                    { modal: true },
+                    "OK"
                 );
+                return; // Don't clear pending state - preserve for when connectivity returns
+            }
+            if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== pendingState.swapUUID) {
+                // Update local metadata with merged data
+                if (recheck.swapInfo) {
+                    try {
+                        const { sortSwapEntries, orderEntryFields } = await import("./utils/projectSwapManager");
+                        await MetadataManager.safeUpdateMetadata(
+                            projectUri,
+                            (meta: any) => {
+                                if (!meta.meta) { meta.meta = {}; }
+                                const sorted = sortSwapEntries(recheck.swapInfo!.swapEntries || []);
+                                meta.meta.projectSwap = { swapEntries: sorted.map(orderEntryFields) };
+                                return meta;
+                            }
+                        );
+                    } catch { /* non-fatal */ }
+                }
+
+                // Clean up localProjectSwap.json
+                try {
+                    const { deleteLocalProjectSwapFile } = await import("./utils/localProjectSettings");
+                    await deleteLocalProjectSwapFile(projectUri);
+                } catch { /* non-fatal */ }
+
                 const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
                 await clearSwapPendingState(projectUri.fsPath);
+
+                await vscode.window.showWarningMessage(
+                    "Swap Cancelled\n\n" +
+                    "The project swap has been cancelled or is no longer required.",
+                    { modal: true },
+                    "OK"
+                );
                 return;
             }
         } catch {
