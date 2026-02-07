@@ -3350,6 +3350,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
+                // Notify webview that fix operation is in progress (locks UI)
+                this.safeSendMessage({
+                    command: "project.fixingInProgress",
+                    projectPath,
+                    fixing: true,
+                } as any);
+
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const gitPath = vscode.Uri.joinPath(projectUri, ".git");
@@ -3549,6 +3556,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } catch (error) {
                     console.error("Error fixing project:", error);
                     vscode.window.showErrorMessage(`Failed to fix project: ${error instanceof Error ? error.message : String(error)}`);
+                } finally {
+                    // Always unlock the UI, regardless of outcome (success, cancel, error)
+                    this.safeSendMessage({
+                        command: "project.fixingInProgress",
+                        projectPath,
+                        fixing: false,
+                    } as any);
                 }
                 break;
             }
@@ -3558,6 +3572,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     vscode.window.showErrorMessage("No project path provided for swap.");
                     return;
                 }
+
+                // Notify webview that swap operation is in progress (locks UI)
+                this.safeSendMessage({
+                    command: "project.swappingInProgress",
+                    projectPath,
+                    swapping: true,
+                } as any);
 
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
@@ -3905,6 +3926,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         `Project swap failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
                         `Please contact your project administrator for assistance.\n\nError: ${error instanceof Error ? error.message : String(error)}`
                     );
+                } finally {
+                    // Always unlock the UI, regardless of outcome (success, cancel, error)
+                    this.safeSendMessage({
+                        command: "project.swappingInProgress",
+                        projectPath,
+                        swapping: false,
+                    } as any);
                 }
                 break;
             }

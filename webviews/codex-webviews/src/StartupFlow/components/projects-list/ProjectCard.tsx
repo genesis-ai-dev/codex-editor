@@ -69,6 +69,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [isOpening, setIsOpening] = useState<boolean>(false);
     const [isVerifying, setIsVerifying] = useState<boolean>(false);
+    const [isSwapping, setIsSwapping] = useState<boolean>(false);
+    const [isFixing, setIsFixing] = useState<boolean>(false);
     const [isRenaming, setIsRenaming] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
@@ -104,6 +106,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         isCloning ||
         isOpening ||
         isVerifying ||
+        isSwapping ||
+        isFixing ||
         isRenaming ||
         isZipping ||
         isZippingMini ||
@@ -264,6 +268,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 }
                 return;
             }
+            if (msg?.command === "project.swappingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsSwapping(msg.swapping);
+                }
+                return;
+            }
+            if (msg?.command === "project.fixingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsFixing(msg.fixing);
+                }
+                return;
+            }
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
@@ -377,6 +393,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         size="sm"
                         onClick={() => {
                             if (isSwapPending) {
+                                // Immediately lock the UI to prevent double-clicks.
+                                // Backend will confirm via project.swappingInProgress message.
+                                setIsSwapping(true);
                                 vscode.postMessage({
                                     command: "project.performSwap",
                                     projectPath: project.path,
@@ -384,6 +403,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             } else if (effectiveSyncStatus === "orphaned") {
                                 // Only show Fix & Open for genuinely orphaned projects
                                 // (server confirmed the project doesn't exist remotely AND we're online)
+                                setIsFixing(true);
                                 vscode.postMessage({
                                     command: "project.fixAndOpen",
                                     projectPath: project.path,
@@ -392,17 +412,28 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 // Normal open for downloaded, local-only, AND serverUnreachable projects.
                                 // CRITICAL: when offline, we must NOT trigger Fix & Open -- the server
                                 // just couldn't be reached (expired cert, network error, etc.).
+                                setIsOpening(true);
                                 onOpenProject(project);
                             }
                         }}
                         className={cn(
                             "h-6 text-xs px-2",
-                            (isChangingStrategy || isOpening || isUpdating) &&
+                            (isChangingStrategy || isOpening || isUpdating || isSwapping || isFixing) &&
                                 "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
                     >
-                        {isUpdating ? (
+                        {isSwapping ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Swapping...
+                            </>
+                        ) : isFixing ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Fixing...
+                            </>
+                        ) : isUpdating ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
                                 Updating...
@@ -455,7 +486,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => onCloneProject({ ...project, mediaStrategy })}
+                        onClick={() => {
+                            setIsCloning(true);
+                            onCloneProject({ ...project, mediaStrategy });
+                        }}
                         className={cn(
                             "h-6 text-xs px-2 border",
                             (isChangingStrategy || isCloning) &&

@@ -87,6 +87,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             if (msg?.command === "project.cleaningInProgress") {
                 setIsAnyApplying(!!msg.cleaning);
             }
+            if (msg?.command === "project.swappingInProgress") {
+                setIsAnyApplying(!!msg.swapping);
+            }
+            if (msg?.command === "project.fixingInProgress") {
+                setIsAnyApplying(!!msg.fixing);
+            }
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
