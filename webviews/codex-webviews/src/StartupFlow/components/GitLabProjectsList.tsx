@@ -177,6 +177,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     title: "Remote project missing or inaccessible",
                     className: "text-amber-500",
                 };
+            case "serverUnreachable":
+                return {
+                    icon: "codicon-cloud-offline",
+                    title: "Server unreachable - cannot verify remote status",
+                    className: "text-red-500",
+                };
             case "error":
                 return {
                     icon: "codicon-error",
@@ -380,7 +386,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 }
                 return true;
             } else if (currentFilter === "local") {
-                if (!["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus)) {
+                if (!["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus)) {
                     return false;
                 }
             } else if (currentFilter === "remote") {
@@ -388,7 +394,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     return false;
                 }
             } else if (currentFilter === "synced") {
-                if (!["downloadedAndSynced", "orphaned"].includes(project.syncStatus)) {
+                if (!["downloadedAndSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus)) {
                     return false;
                 }
             } else if (currentFilter === "non-synced") {

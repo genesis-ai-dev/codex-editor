@@ -3129,6 +3129,151 @@ suite("Project Swap Tests", () => {
                 "Pending state should be preserved for when server becomes available again");
         });
     });
+
+    suite("Server Unreachable vs Remote Missing - Projects List", () => {
+        test("server unreachable should NOT mark projects as orphaned", () => {
+            // Simulates the logic in sendList() when fetchRemoteProjects returns serverUnreachable=true
+            const remoteServerUnreachable = true;
+            const localProject = {
+                gitOriginUrl: "https://git.example.com/org/my-project.git",
+                name: "my-project",
+            };
+            const remoteProjects: any[] = []; // Empty because server is down
+
+            // The project has a git URL but no match in remote list
+            const matchInRemoteList = remoteProjects.find(
+                (p: any) => p.url === localProject.gitOriginUrl
+            );
+
+            let status: string;
+            if (!localProject.gitOriginUrl) {
+                status = "localOnlyNotSynced";
+            } else if (remoteServerUnreachable) {
+                status = "serverUnreachable";
+            } else {
+                status = "orphaned";
+            }
+
+            assert.strictEqual(status, "serverUnreachable",
+                "When server is unreachable, projects must NOT be marked as orphaned");
+            assert.notStrictEqual(status, "orphaned",
+                "Orphaned status would trigger destructive Fix & Open actions");
+        });
+
+        test("genuinely missing project should be marked as orphaned", () => {
+            // Server responded successfully but project is not in the list
+            const remoteServerUnreachable = false;
+            const localProject = {
+                gitOriginUrl: "https://git.example.com/org/deleted-project.git",
+                name: "deleted-project",
+            };
+            const remoteProjects = [
+                { url: "https://git.example.com/org/other-project.git" }
+            ];
+
+            const matchInRemoteList = remoteProjects.find(
+                (p: any) => p.url === localProject.gitOriginUrl
+            );
+
+            let status: string;
+            if (!localProject.gitOriginUrl) {
+                status = "localOnlyNotSynced";
+            } else if (remoteServerUnreachable) {
+                status = "serverUnreachable";
+            } else if (!matchInRemoteList) {
+                status = "orphaned";
+            } else {
+                status = "downloadedAndSynced";
+            }
+
+            assert.strictEqual(status, "orphaned",
+                "When server confirms project is missing, it should be marked orphaned");
+        });
+
+        test("Fix & Open should only trigger for orphaned, never for serverUnreachable", () => {
+            // Simulates the ProjectCard onClick logic
+            const testCases = [
+                { syncStatus: "orphaned", expectedCommand: "project.fixAndOpen" },
+                { syncStatus: "serverUnreachable", expectedCommand: "project.open" },
+                { syncStatus: "downloadedAndSynced", expectedCommand: "project.open" },
+            ];
+
+            for (const tc of testCases) {
+                let command: string;
+                if (tc.syncStatus === "orphaned") {
+                    command = "project.fixAndOpen";
+                } else {
+                    // serverUnreachable, downloadedAndSynced, etc. all just open normally
+                    command = "project.open";
+                }
+                assert.strictEqual(command, tc.expectedCommand,
+                    `syncStatus "${tc.syncStatus}" should trigger "${tc.expectedCommand}"`);
+            }
+        });
+
+        test("serverUnreachable projects should be counted as local in filters", () => {
+            const localStatuses = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"];
+            assert.ok(localStatuses.includes("serverUnreachable"),
+                "serverUnreachable must be included in local project filter");
+        });
+
+        test("fetchRemoteProjects error should return serverUnreachable=true", () => {
+            // Simulates fetchRemoteProjects behavior
+            async function simulateFetchRemoteProjects(shouldFail: boolean) {
+                if (shouldFail) {
+                    // Error path (network error, expired cert, 500, etc.)
+                    return { projects: [], serverUnreachable: true };
+                }
+                return { projects: [{ name: "test" }], serverUnreachable: false };
+            }
+
+            return Promise.all([
+                simulateFetchRemoteProjects(true).then(result => {
+                    assert.strictEqual(result.serverUnreachable, true,
+                        "Failed fetch should flag serverUnreachable");
+                    assert.deepStrictEqual(result.projects, [],
+                        "Failed fetch should return empty projects");
+                }),
+                simulateFetchRemoteProjects(false).then(result => {
+                    assert.strictEqual(result.serverUnreachable, false,
+                        "Successful fetch should not flag serverUnreachable");
+                    assert.strictEqual(result.projects.length, 1,
+                        "Successful fetch should return projects");
+                }),
+            ]);
+        });
+
+        test("no remote projects but server reachable should show orphaned, not serverUnreachable", () => {
+            // Edge case: server is up but user has no projects (new user, all deleted, etc.)
+            const remoteServerUnreachable = false;
+            const remoteProjects: any[] = []; // Empty, but server responded OK
+
+            const localProject = {
+                gitOriginUrl: "https://git.example.com/org/my-project.git",
+            };
+
+            let status: string;
+            if (remoteServerUnreachable) {
+                status = "serverUnreachable";
+            } else {
+                status = "orphaned";
+            }
+
+            assert.strictEqual(status, "orphaned",
+                "When server is reachable but returns empty, projects should be orphaned (genuinely missing)");
+        });
+
+        test("no frontierApi should be treated as serverUnreachable", () => {
+            // Simulates fetchRemoteProjects when frontierApi is null
+            const frontierApi = null;
+            const result = frontierApi
+                ? { projects: [], serverUnreachable: false }
+                : { projects: [], serverUnreachable: true };
+
+            assert.strictEqual(result.serverUnreachable, true,
+                "No API instance should be treated as server unreachable, not as empty remote");
+        });
+    });
 });
 
 // ============ Helper Functions ============

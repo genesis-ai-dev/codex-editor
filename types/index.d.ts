@@ -307,6 +307,7 @@ export type ProjectSyncStatus =
     | "cloudOnlyNotSynced"
     | "localOnlyNotSynced"
     | "orphaned"
+    | "serverUnreachable"
     | "error";
 
 export type MediaFilesStrategy =

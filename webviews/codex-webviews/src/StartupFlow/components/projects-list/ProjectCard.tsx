@@ -77,7 +77,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
         useState<boolean>(false);
-    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(
+    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(
         project.syncStatus
     );
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
@@ -353,7 +353,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     };
 
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus);
         const isRemote = project.syncStatus === "cloudOnlyNotSynced";
         const hasPendingUpdate = project.pendingUpdate?.required;
         const isSwapPending =
@@ -375,11 +375,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     projectPath: project.path,
                                 });
                             } else if (project.syncStatus === "orphaned") {
+                                // Only show Fix & Open for genuinely orphaned projects
+                                // (server confirmed the project doesn't exist remotely)
                                 vscode.postMessage({
                                     command: "project.fixAndOpen",
                                     projectPath: project.path,
                                 });
                             } else {
+                                // Normal open for downloaded, local-only, AND serverUnreachable projects.
+                                // CRITICAL: serverUnreachable must NOT trigger Fix & Open -- the server
+                                // just couldn't be reached (expired cert, network error, etc.).
                                 onOpenProject(project);
                             }
                         }}
@@ -527,6 +532,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 Remote Missing
                             </Badge>
                         )}
+                        {project.syncStatus === "serverUnreachable" && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-red-50 text-red-700 border-red-300 whitespace-nowrap">
+                                Server Unreachable
+                            </Badge>
+                        )}
                         {isNewlyAdded && (
                             <Badge
                                 variant="default"
@@ -587,8 +597,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (!project) return null;
         const { cleanName,displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isExpanded = expandedProjects[project.name];
-        // Include orphaned (Remote Missing) projects as local since they exist on disk
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
+        // Include orphaned (Remote Missing) and serverUnreachable projects as local since they exist on disk
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus);
 
         if (!isExpanded || (!displayUrl && !onDeleteProject)) return null;
 
