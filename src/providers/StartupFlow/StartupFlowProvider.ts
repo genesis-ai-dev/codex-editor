@@ -4194,204 +4194,61 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             throw new Error(`Frontier Authentication extension version ${requiredVersion} or later is required. Current version: ${currentVersion}. Please update the extension.`);
         }
 
-        // Determine backup policy based on recent backups
         const codexProjectsRoot = await getCodexProjectsDirectory();
         const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsRoot, "archived_projects");
         await this.ensureDirectoryExists(archivedProjectsDir);
 
-        // If a prior update session exists, reuse its backup choice to avoid re-prompting.
+        // Retrieve prior update state (used for temp snapshot reuse).
         const projectUri = vscode.Uri.file(projectPath);
         const priorSettings = await readLocalProjectSettings(projectUri);
         const priorState = priorSettings.updateState;
-        const priorBackupMode = priorState?.backupMode;
 
-        let hasRecentBackup = false;
-        try {
-            const entries = await vscode.workspace.fs.readDirectory(archivedProjectsDir);
-            const oneHourMs = 60 * 60 * 1000; // 1 hour (3,600,000 ms)
-            const now = Date.now();
-            for (const [name, type] of entries) {
-                if (
-                    type === vscode.FileType.File &&
-                    name.toLowerCase().endsWith(".zip") &&
-                    name.startsWith(`${projectName}_backup_`)
-                ) {
-                    const stat = await vscode.workspace.fs.stat(vscode.Uri.joinPath(archivedProjectsDir, name));
-                    if (now - stat.mtime < oneHourMs) {
-                        hasRecentBackup = true;
-                        break;
-                    }
-                }
-            }
-        } catch (e) {
-            // If inspection fails (e.g., directory missing), treat as no recent backup
-            debugLog("Could not inspect archived_projects for recent backups", e);
-            hasRecentBackup = false;
-        }
+        await this.persistUpdateState(projectPath, { backupMode: "full" });
 
-        // Ask user for backup preference unless a prior choice exists.
-        let backupOption: { includeGit: boolean; label?: string; };
-        if (priorBackupMode === "full") {
-            backupOption = { includeGit: true, label: "Full Backup (previous selection)" };
-        } else if (priorBackupMode === "data-only") {
-            backupOption = { includeGit: false, label: "Data Only (previous selection)" };
-        } else {
-            const backupChoices = hasRecentBackup
-                ? [
-                    {
-                        label: "Full Backup (Recommended)",
-                        description: "Includes .git folder and history",
-                        detail: "Safest option, but larger file size",
-                        includeGit: true,
-                    },
-                    {
-                        label: "Data Only (no .git)",
-                        description: "Excludes .git folder",
-                        detail: "Smaller file size (recent full backup found in the last hour)",
-                        includeGit: false,
-                    },
-                ]
-                : [
-                    {
-                        label: "Full Backup (Required)",
-                        description: "Includes .git folder and history",
-                        detail: "No recent full backup found in the last hour; data-only is unavailable",
-                        includeGit: true,
-                    },
-                ];
-
-            const picked = await vscode.window.showQuickPick(backupChoices, {
-                placeHolder: "Choose a backup method before updating",
-                ignoreFocusOut: true,
-            });
-
-            if (!picked) {
-                throw new Error("Update cancelled by user (no backup method selected)");
-            }
-            backupOption = picked;
-            await this.persistUpdateState(projectPath, {
-                backupMode: picked.includeGit ? "full" : "data-only",
-            });
-        }
-
-        // Step 1: Create or reuse backup
-        const priorBackupZipPath = priorState?.backupZipPath;
-        const priorCreatedAt = priorState?.createdAt;
-        let backupUri: vscode.Uri | undefined;
-        let reuseBackup = false;
+        // Step 1: Always create a fresh full backup (includes .git folder)
+        let backupUri: vscode.Uri;
         let backupStat: vscode.FileStat | undefined;
-        if (priorBackupZipPath) {
+
+        progress.report({ increment: 2, message: "Preparing backup (scanning project)..." });
+        progress.report({ increment: 8, message: "Creating full backup (includes .git)..." });
+
+        try {
+            backupUri = await this.createProjectBackup(projectPath, projectName, true);
+            debugLog(`Backup created at: ${backupUri.fsPath}`);
             try {
-                const priorZipUri = vscode.Uri.file(priorBackupZipPath);
-                const priorStat = await vscode.workspace.fs.stat(priorZipUri);
-                const toleranceMs = 30 * 60 * 1000; // 30 minutes tolerance
-                if (
-                    !priorCreatedAt ||
-                    Math.abs(priorStat.mtime - priorCreatedAt) <= toleranceMs
-                ) {
-                    reuseBackup = true;
-                    backupUri = priorZipUri;
-                    backupStat = priorStat;
-                    debugLog(`Reusing existing backup: ${priorBackupZipPath}, mtime=${priorStat.mtime}, createdAt=${priorCreatedAt}`);
-                    progress.report({ increment: 10, message: "Reusing existing backup ZIP..." });
-                } else {
-                    debugLog(
-                        `Backup ZIP timestamp mismatch, will recreate. mtime=${priorStat.mtime}, createdAt=${priorCreatedAt}`
-                    );
-                }
+                backupStat = await vscode.workspace.fs.stat(backupUri);
             } catch {
-                reuseBackup = false;
-                backupUri = undefined;
                 backupStat = undefined;
             }
-        }
-
-        if (!reuseBackup) {
-            progress.report({ increment: 2, message: "Preparing backup (scanning project)..." });
-            progress.report({
-                increment: 8,
-                message: backupOption.includeGit
-                    ? "Creating full backup (includes .git)..."
-                    : "Creating data-only backup (excluding .git)..."
-            });
-
-            try {
-                backupUri = await this.createProjectBackup(projectPath, projectName, backupOption.includeGit);
-                debugLog(`Backup created at: ${backupUri.fsPath}`);
-                try {
-                    backupStat = await vscode.workspace.fs.stat(backupUri);
-                } catch {
-                    backupStat = undefined;
-                }
-            } catch (backupError) {
-                const categorized = categorizeError(backupError);
-                if (categorized.type === ErrorType.DISK_FULL) {
-                    vscode.window.showErrorMessage(
-                        `Cannot create backup: ${categorized.userMessage}\n\nPlease free up disk space and try again.`,
-                        { modal: true }
-                    );
-                    throw backupError;
-                } else if (categorized.type === ErrorType.PERMISSION) {
-                    vscode.window.showErrorMessage(
-                        `Cannot create backup: ${categorized.userMessage}\n\nPlease check permissions for the archived_projects folder.`,
-                        { modal: true }
-                    );
-                    throw backupError;
-                } else {
-                    throw backupError;
-                }
-            }
-        } else {
-            // Reuse requested but backup file missing; recreate
-            if (!backupStat) {
-                progress.report({ increment: 2, message: "Preparing backup (scanning project)..." });
-                progress.report({
-                    increment: 8,
-                    message: backupOption.includeGit
-                        ? "Creating full backup (includes .git)..."
-                        : "Creating data-only backup (excluding .git)..."
-                });
-
-                try {
-                    backupUri = await this.createProjectBackup(projectPath, projectName, backupOption.includeGit);
-                    debugLog(`Backup recreated at: ${backupUri.fsPath}`);
-                    try {
-                        backupStat = await vscode.workspace.fs.stat(backupUri);
-                    } catch {
-                        backupStat = undefined;
-                    }
-                    reuseBackup = false;
-                } catch (backupError) {
-                    const categorized = categorizeError(backupError);
-                    if (categorized.type === ErrorType.DISK_FULL) {
-                        vscode.window.showErrorMessage(
-                            `Cannot create backup: ${categorized.userMessage}\n\nPlease free up disk space and try again.`,
-                            { modal: true }
-                        );
-                        throw backupError;
-                    } else if (categorized.type === ErrorType.PERMISSION) {
-                        vscode.window.showErrorMessage(
-                            `Cannot create backup: ${categorized.userMessage}\n\nPlease check permissions for the archived_projects folder.`,
-                            { modal: true }
-                        );
-                        throw backupError;
-                    } else {
-                        throw backupError;
-                    }
-                }
+        } catch (backupError) {
+            const categorized = categorizeError(backupError);
+            if (categorized.type === ErrorType.DISK_FULL) {
+                vscode.window.showErrorMessage(
+                    `Cannot create backup: ${categorized.userMessage}\n\nPlease free up disk space and try again.`,
+                    { modal: true }
+                );
+                throw backupError;
+            } else if (categorized.type === ErrorType.PERMISSION) {
+                vscode.window.showErrorMessage(
+                    `Cannot create backup: ${categorized.userMessage}\n\nPlease check permissions for the archived_projects folder.`,
+                    { modal: true }
+                );
+                throw backupError;
+            } else {
+                throw backupError;
             }
         }
 
-        const backupFileName = path.basename(backupUri!.fsPath);
+        const backupFileName = path.basename(backupUri.fsPath);
         progress.report({ increment: 0, message: "Backup ready; preparing temp copy..." });
         await this.persistUpdateState(projectPath, {
             projectPath,
             projectName,
-            backupZipPath: backupUri!.fsPath,
-            createdAt: reuseBackup && priorCreatedAt ? priorCreatedAt : (backupStat?.mtime ?? Date.now()),
+            backupZipPath: backupUri.fsPath,
+            createdAt: backupStat?.mtime ?? Date.now(),
             step: "backup_done",
             completedSteps: ["backup_done"],
-            backupMode: backupOption.includeGit ? "full" : "data-only",
+            backupMode: "full",
         });
 
         // Step 2: Create or reuse temporary snapshot
