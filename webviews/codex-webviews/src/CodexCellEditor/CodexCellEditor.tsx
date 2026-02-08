@@ -285,7 +285,7 @@ const CodexCellEditor: React.FC = () => {
     // Milestone-based pagination state
     const [milestoneIndex, setMilestoneIndex] = useState<MilestoneIndex | null>(null);
     const [currentMilestoneIndex, setCurrentMilestoneIndex] = useState(0);
-    const [isLoadingCells, setIsLoadingCells] = useState(false);
+    const [isLoadingCells, setIsLoadingCells] = useState(true);
 
     // Subsection progress state (milestone index -> subsection index -> progress)
     const [subsectionProgress, setSubsectionProgress] = useState<
@@ -333,6 +333,9 @@ const CodexCellEditor: React.FC = () => {
     // Refs to access current milestone/subsection indices in message handlers without dependencies
     const currentMilestoneIndexRef = useRef<number>(0);
     const currentSubsectionIndexRef = useRef<number>(0);
+
+    // Track whether initial paginated content has been received (used to allow first content through stale guard)
+    const hasReceivedInitialContentRef = useRef(false);
 
     // Ref to store requestCellsForMilestone function so it can be used in message handlers
     const requestCellsForMilestoneRef = useRef<
@@ -1450,11 +1453,18 @@ const CodexCellEditor: React.FC = () => {
             isSourceTextValue: boolean,
             sourceCellMapValue: { [k: string]: { content: string; versions: string[] } }
         ) => {
+            // On first load, always accept the initial content regardless of ref values.
+            // The refs start at (0,0) but the provider may send a cached position (e.g. chapter 3 → milestone 2),
+            // which would be incorrectly rejected by the stale guard below.
+            const isFirstContent = !hasReceivedInitialContentRef.current;
+
             // Ignore initial content when we're already on a different page (e.g. source: provider sent
             // providerSendsInitialContentPaginated (0,0) after we navigated to (0,1), which would revert us).
+            // But never reject the very first content message - that's our initial load.
             if (
-                currentMilestoneIndexRef.current !== currentMilestoneIdx ||
-                currentSubsectionIndexRef.current !== currentSubsectionIdx
+                !isFirstContent &&
+                (currentMilestoneIndexRef.current !== currentMilestoneIdx ||
+                    currentSubsectionIndexRef.current !== currentSubsectionIdx)
             ) {
                 debug(
                     "pagination",
@@ -1468,6 +1478,9 @@ const CodexCellEditor: React.FC = () => {
                 );
                 return;
             }
+
+            // Mark that we've received initial content so subsequent messages go through the stale guard
+            hasReceivedInitialContentRef.current = true;
 
             debug("pagination", "Received paginated content:", {
                 milestones: milestoneIdx.milestones.length,

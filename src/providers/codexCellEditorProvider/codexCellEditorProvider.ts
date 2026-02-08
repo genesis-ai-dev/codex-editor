@@ -841,7 +841,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     const memberList = await fetchProjectMembers(projectId);
                                     if (memberList) {
                                         const currentUserMember = memberList.find(
-                                            (m: { username: string; email: string; accessLevel: number }) => m.username === userInfo.username || m.email === userInfo.email
+                                            (m: { username: string; email: string; accessLevel: number; }) => m.username === userInfo.username || m.email === userInfo.email
                                         );
                                         if (currentUserMember) {
                                             userAccessLevel = currentUserMember.accessLevel;
@@ -870,6 +870,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
+                });
+
+                // Record the initial position so subsequent updateWebview() calls
+                // (e.g. from "getContent") see a tracked position and send
+                // refreshCurrentPage instead of duplicating the initial content.
+                this.currentMilestoneSubsectionMap.set(docUri, {
+                    milestoneIndex: initialMilestoneIndex,
+                    subsectionIndex: initialSubsectionIndex,
                 });
             }
 
