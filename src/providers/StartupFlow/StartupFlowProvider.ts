@@ -5220,8 +5220,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // RULE 1: Hide OLD remote projects when NEW is local AND swap is ACTIVE
             //         (User should complete swap on the new project, not clone the old one)
             //
-            // RULE 2: Hide NEW remote projects when OLD is local AND swap is ACTIVE
-            //         (User needs to complete swap from old→new, not clone new separately)
+            // RULE 2: Hide NEW projects (remote OR local) when OLD is local AND swap is ACTIVE
+            //         (User needs to complete swap from old→new, not open new separately
+            //          which could cause them to skip the swap and leave unmerged work behind)
             //
             // RULE 3: When swap is COMPLETED/CANCELLED, show BOTH projects
             //         (User may want access to both versions)
@@ -5253,13 +5254,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     continue;
                 }
 
-                // RULE 1: LOCAL OLD project with ACTIVE swap → hide NEW remote
+                // RULE 1: LOCAL OLD project with ACTIVE swap → hide NEW project (remote OR local)
                 // isOldProject must be explicitly true (not undefined or false)
+                // Hiding the new project forces users through the swap flow on the old project,
+                // preventing them from opening the new project and skipping the swap
                 if (activeEntry.isOldProject === true && activeEntry.newProjectUrl) {
                     const newProjectNormalized = normalizeUrl(activeEntry.newProjectUrl);
                     if (newProjectNormalized) {
                         newProjectUrlsToHide.add(newProjectNormalized);
-                        debugLog(`Swap filter: hiding NEW remote ${newProjectNormalized} (OLD local ${project.name} has active swap)`);
+                        debugLog(`Swap filter: hiding NEW project ${newProjectNormalized} (OLD local ${project.name} has active swap)`);
                     }
 
                     // Also check: if NEW project is already local, hide OLD remote too
@@ -5290,28 +5293,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
-            // Apply filtering: only hide REMOTE (cloudOnlyNotSynced) projects
-            // Local projects are NEVER hidden by swap rules
+            // Apply filtering:
+            // - Hide NEW projects (remote OR local) when OLD is local with active swap (RULE 2)
+            // - Hide OLD remote projects when NEW is local with active swap (RULE 1)
+            // - Local OLD projects are never hidden (they carry the swap banner)
             const filteredProjectList = projectList.filter(project => {
-                // Keep all local projects - they should always be visible
-                if (project.syncStatus !== "cloudOnlyNotSynced") {
-                    return true;
-                }
-
                 const projectUrlNormalized = normalizeUrl(project.gitOriginUrl);
                 if (!projectUrlNormalized) {
                     return true; // Can't filter without URL, keep it
                 }
 
-                // Hide remote OLD projects per RULE 1 & 2
-                if (oldProjectUrlsToHide.has(projectUrlNormalized)) {
-                    debugLog(`Swap filter: filtering out remote OLD project ${project.name}`);
+                // Hide NEW projects (remote OR local) when OLD is local with active swap
+                // This forces users through the swap flow rather than opening the new project directly
+                if (newProjectUrlsToHide.has(projectUrlNormalized)) {
+                    debugLog(`Swap filter: filtering out NEW project ${project.name} (syncStatus: ${project.syncStatus})`);
                     return false;
                 }
 
-                // Hide remote NEW projects per RULE 2
-                if (newProjectUrlsToHide.has(projectUrlNormalized)) {
-                    debugLog(`Swap filter: filtering out remote NEW project ${project.name}`);
+                // For local projects: keep all remaining (only NEW local projects are hidden above)
+                if (project.syncStatus !== "cloudOnlyNotSynced") {
+                    return true;
+                }
+
+                // Hide remote OLD projects per RULE 1
+                if (oldProjectUrlsToHide.has(projectUrlNormalized)) {
+                    debugLog(`Swap filter: filtering out remote OLD project ${project.name}`);
                     return false;
                 }
 
