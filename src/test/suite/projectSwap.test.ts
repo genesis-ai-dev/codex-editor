@@ -3439,7 +3439,7 @@ suite("Project Swap Tests", () => {
 
             for (const scenario of errorScenarios) {
                 // Simulate fetchRemoteProjects catch block behavior
-                let result: { projects: any[]; serverUnreachable: boolean };
+                let result: { projects: any[]; serverUnreachable: boolean; };
                 try {
                     throw scenario.error;
                 } catch {
