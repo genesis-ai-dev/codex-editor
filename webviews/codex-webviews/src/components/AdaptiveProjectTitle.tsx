@@ -19,7 +19,7 @@ export const AdaptiveProjectTitle: React.FC<AdaptiveProjectTitleProps> = ({
     className = "",
     style = {},
     minFontSize,
-    maxFontSize = 18,
+    maxFontSize = 16,
 }) => {
     const textRef = useRef<HTMLDivElement>(null);
     const [fontSize, setFontSize] = useState(maxFontSize);

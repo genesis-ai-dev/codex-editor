@@ -364,6 +364,8 @@ export type MessagesFromStartupFlowProvider =
     | {
         command: "metadata.checkResponse";
         data: {
+            exists: boolean;
+            hasCriticalData: boolean;
             sourceLanguage?: any;
             targetLanguage?: any;
             sourceTexts?: string[];
