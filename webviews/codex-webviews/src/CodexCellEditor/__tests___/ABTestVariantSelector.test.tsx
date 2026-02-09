@@ -61,8 +61,7 @@ describe("ABTestVariantSelector", () => {
 
         await waitFor(() => {
             expect(defaultProps.onVariantSelected).toHaveBeenCalledWith(
-                0,
-                expect.any(Number)
+                0
             );
         });
     });
@@ -75,8 +74,7 @@ describe("ABTestVariantSelector", () => {
 
         await waitFor(() => {
             expect(defaultProps.onVariantSelected).toHaveBeenCalledWith(
-                1,
-                expect.any(Number)
+                1
             );
         });
     });
@@ -103,7 +101,7 @@ describe("ABTestVariantSelector", () => {
         });
     });
 
-    it("should record selection time when variant is clicked", async () => {
+    it("should emit selected index when variant is clicked", async () => {
         render(<ABTestVariantSelector {...defaultProps} />);
 
         const variant = screen.getByText("Translation variant A");
@@ -111,15 +109,9 @@ describe("ABTestVariantSelector", () => {
 
         await waitFor(() => {
             expect(defaultProps.onVariantSelected).toHaveBeenCalledWith(
-                expect.any(Number),
                 expect.any(Number)
             );
         });
-
-        const call = defaultProps.onVariantSelected.mock.calls[0];
-        const selectionTime = call[1];
-        expect(selectionTime).toBeGreaterThanOrEqual(0);
-        expect(selectionTime).toBeLessThan(10000);
     });
 
     it("should pass correct index to onVariantSelected", async () => {
@@ -130,8 +122,7 @@ describe("ABTestVariantSelector", () => {
 
         await waitFor(() => {
             expect(defaultProps.onVariantSelected).toHaveBeenCalledWith(
-                1,
-                expect.any(Number)
+                1
             );
         });
     });

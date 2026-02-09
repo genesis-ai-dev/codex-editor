@@ -1451,7 +1451,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants, models } = typedEvent.content || {};
+        const { cellId, selectedIndex, selectedContent, testId, testName, variants, models } = typedEvent.content || {};
         const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 
         // Decrement pending A/B test count so normal source highlighting can resume
@@ -1477,7 +1477,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     testId,
                     cellId,
                     passed: !pickedWrong,
-                    selectionTimeMs,
                     correctIndex: attentionCheck.correctIndex,
                     decoyCellId: attentionCheck.decoyCellId
                 });
@@ -1510,7 +1509,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Regular A/B test (including model comparison)
             if (!isRecovery) {
                 const { recordVariantSelection } = await import("../../utils/abTestingUtils");
-                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, variantNames, testName);
+                await recordVariantSelection(testId, cellId, selectedIndex, variantNames, testName);
             }
         }
 
@@ -1526,7 +1525,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         }
 
-        debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
+        debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}`);
     },
 
     updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {

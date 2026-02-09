@@ -85,7 +85,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
 
     const currentABTest = abTestQueue.length > 0 ? abTestQueue[0] : null;
 
-    const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
+    const handleVariantSelected = (selectedIndex: number) => {
         if (!currentABTest) return;
 
         // Send selection to backend - backend handles all logic
@@ -96,7 +96,6 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 selectedIndex,
                 testId: currentABTest.testId,
                 testName: currentABTest.testName,
-                selectionTimeMs,
                 totalVariants: currentABTest.variants?.length ?? 0,
                 variants: currentABTest.variants,
                 // Pass model identifiers for server-initiated model comparison tests

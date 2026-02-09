@@ -766,7 +766,6 @@ export type EditorPostMessages =
             cellId: string;
             selectedIndex: number;
             testId: string;
-            selectionTimeMs: number;
             totalVariants?: number;
             selectedContent?: string;
             testName?: string;

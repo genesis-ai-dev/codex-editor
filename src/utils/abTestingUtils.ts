@@ -5,7 +5,6 @@ export async function recordVariantSelection(
     testId: string,
     cellId: string,
     selectedIndex: number,
-    selectionTimeMs: number,
     names?: string[],
     testName?: string
 ): Promise<void> {
@@ -38,7 +37,6 @@ export async function recordAttentionCheckResult(args: {
     testId: string;
     cellId: string;
     passed: boolean;
-    selectionTimeMs: number;
     correctIndex?: number;
     decoyCellId?: string;
 }): Promise<void> {

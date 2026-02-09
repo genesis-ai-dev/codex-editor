@@ -4616,7 +4616,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     testId: "test-123",
                     testName: "Example Count Test",
                     selectedContent: "Test variant B",
-                    selectionTimeMs: 1500,
                     totalVariants: 2,
                     variants: ["15 examples", "30 examples"]
                 }
@@ -4669,7 +4668,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 selectedIndex: 0,
                 testId: "test-789",
                 testName: "Test Name",
-                selectionTimeMs: 2000,
                 totalVariants: 2,
                 names: ["variant-a", "variant-b"]
             };
@@ -4682,7 +4680,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 testResult.testId,
                 testResult.cellId,
                 testResult.selectedIndex,
-                testResult.selectionTimeMs,
                 testResult.names,
                 undefined // Skip testName to prevent analytics call
             );

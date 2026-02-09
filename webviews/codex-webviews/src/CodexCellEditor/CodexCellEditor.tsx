@@ -577,7 +577,7 @@ const CodexCellEditor: React.FC = () => {
     );
 
     // A/B test variant selection handler
-    const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
+    const handleVariantSelected = (selectedIndex: number) => {
         if (!currentABTest) return;
 
         const selectedVariant = currentABTest.variants[selectedIndex];
@@ -590,7 +590,6 @@ const CodexCellEditor: React.FC = () => {
             currentABTest.testId,
             selectedIndex,
             currentABTest.variants.length,
-            selectionTimeMs,
             currentABTest.testName,
             currentABTest.names,
             currentABTest.models
@@ -628,7 +627,6 @@ const CodexCellEditor: React.FC = () => {
         testId: string | undefined,
         selectedIndex: number,
         totalVariants: number,
-        selectionTimeMs: number = 0,
         testName?: string,
         names?: string[],
         models?: string[]
@@ -682,7 +680,6 @@ const CodexCellEditor: React.FC = () => {
                     selectedContent: variant,
                     testId,
                     testName: testName || currentABTest?.testName,
-                    selectionTimeMs: selectionTimeMs || 0,
                     variants: names || currentABTest?.variants,
                     models: models || currentABTest?.models,
                 },
@@ -1421,7 +1418,7 @@ const CodexCellEditor: React.FC = () => {
             }
 
             // Otherwise, auto-apply first variant quietly (no modal)
-            applyVariantToCell(cellId, variants[0], testId, 0, count, 0, testName, names);
+            applyVariantToCell(cellId, variants[0], testId, 0, count, testName, names);
         },
 
         // Milestone-based pagination handlers
@@ -3090,7 +3087,7 @@ const CodexCellEditor: React.FC = () => {
                     testId={currentABTest.testId}
                     queuePosition={1}
                     queueTotal={abTestQueue.length}
-                    onVariantSelected={(idx, ms) => handleVariantSelected(idx, ms)}
+                    onVariantSelected={handleVariantSelected}
                     onDismiss={handleDismissABTest}
                 />
             )}

@@ -8,7 +8,7 @@ interface ABTestVariantSelectorProps {
     headerOverride?: string; // Custom header text (e.g., for recovery after attention check)
     queuePosition?: number; // 1-based index in the A/B test queue (e.g., 1)
     queueTotal?: number;    // Total tests in queue (e.g., 3)
-    onVariantSelected: (index: number, selectionTimeMs: number) => void;
+    onVariantSelected: (index: number) => void;
     onDismiss: () => void;
 }
 
@@ -22,16 +22,14 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
     onVariantSelected,
     onDismiss
 }) => {
-    const [startTime] = useState(Date.now());
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
     const [order] = useState<number[]>(() => variants.map((_, i) => i).sort(() => Math.random() - 0.5));
 
     const handleVariantSelect = (index: number) => {
         if (selectedIndex !== null) return; // Prevent double selection
 
-        const selectionTime = Date.now() - startTime;
         setSelectedIndex(index);
-        onVariantSelected(index, selectionTime);
+        onVariantSelected(index);
     };
 
     const stripHtmlTags = (html: string): string => {
