@@ -545,13 +545,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Enable scripts and set local resources in the webview
+        // Include the extension root to ensure all resources can be loaded
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
-                vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
-            ]
+            localResourceRoots: [this.context.extensionUri]
         };
 
         // Get text direction and check if it's a source file
@@ -1437,7 +1434,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
-        const styleResetUriWithBuster = `${styleResetUri.toString()}?id=${encodeURIComponent(document.uri.toString())}`;
         // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
@@ -1448,7 +1444,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "codicon.css"
             )
         );
-        const codiconsUriWithBuster = `${codiconsUri.toString()}?id=${encodeURIComponent(document.uri.toString())}`;
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -1459,8 +1454,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 "index.js"
             )
         );
-        // Force a unique URL to avoid SW caching across panels
-        const scriptUriWithBuster = `${scriptUri.toString()}?id=${encodeURIComponent(document.uri.toString())}`;
 
         const notebookData = this.getDocumentAsJson(document);
         const videoPath = notebookData.metadata?.videoUrl;
@@ -1477,8 +1470,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ https://*.workers.dev data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
-                <link href="${styleResetUriWithBuster}" rel="stylesheet" nonce="${nonce}">
-                <link href="${codiconsUriWithBuster}" rel="stylesheet" nonce="${nonce}" />
+                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
+                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
                 
                 <script nonce="${nonce}">
@@ -1496,7 +1489,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             </head>
             <body>
                 <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUriWithBuster}"></script>
+                <script nonce="${nonce}" src="${scriptUri}"></script>
                 
                 <style>
                     .floating-apply-validations-button {
