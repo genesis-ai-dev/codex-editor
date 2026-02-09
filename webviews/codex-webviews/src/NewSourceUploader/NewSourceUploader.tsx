@@ -59,6 +59,7 @@ const NewSourceUploader: React.FC = () => {
 
     const [isDirty, setIsDirty] = useState(false);
     const [systemMessage, setSystemMessage] = useState<string>("");
+    const [isWaitingForMessage, setIsWaitingForMessage] = useState(false);
 
     // State for managing alignment requests
     const [alignmentRequests, setAlignmentRequests] = useState<
@@ -195,6 +196,12 @@ const NewSourceUploader: React.FC = () => {
                     completedRequests.forEach((key) => newMap.delete(key));
                     return newMap;
                 });
+            } else if (message.command === "metadata.checkResponse") {
+                // Load system message from metadata when navigating to system-message step
+                const chatSystemMessage = message.data?.chatSystemMessage;
+                if (chatSystemMessage) {
+                    setSystemMessage(chatSystemMessage);
+                }
             } else if (message.command === "systemMessage.generated") {
                 // Handle generated system message
                 setSystemMessage(message.message || "");
@@ -432,7 +439,8 @@ const NewSourceUploader: React.FC = () => {
 
     const handleStartTranslating = useCallback(() => {
         // Navigate to system message step
-        // SystemMessageStep will auto-generate on mount if message is empty
+        // Request metadata to get current system message (may have been generated earlier)
+        vscode.postMessage({ command: "metadata.check" });
         setWizardState((prev) => ({
             ...prev,
             currentStep: "system-message",

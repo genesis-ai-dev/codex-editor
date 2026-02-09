@@ -2074,10 +2074,27 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     );
 
                     if (generatedMessage) {
-                        this.safeSendMessage({
-                            command: "systemMessage.generated",
-                            message: generatedMessage,
-                        });
+                        // Save the generated message to metadata.json immediately
+                        const { MetadataManager } = await import("../../utils/metadataManager");
+                        const saveResult = await MetadataManager.setChatSystemMessage(
+                            generatedMessage,
+                            workspaceFolders[0].uri
+                        );
+
+                        if (saveResult.success) {
+                            this.safeSendMessage({
+                                command: "systemMessage.generated",
+                                message: generatedMessage,
+                            });
+                        } else {
+                            // Still send the generated message even if save fails
+                            // User can manually save it later
+                            this.safeSendMessage({
+                                command: "systemMessage.generated",
+                                message: generatedMessage,
+                            });
+                            console.warn("Generated system message but failed to save:", saveResult.error);
+                        }
                     } else {
                         this.safeSendMessage({
                             command: "systemMessage.generateError",

@@ -23,6 +23,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
     
     // Icon positioning constants
     const ICON_LEFT_MARGIN = "3px";
@@ -60,6 +61,22 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     }, [onContinue]);
 
     const handleGenerate = () => {
+        // Show warning if there's existing text
+        if (systemMessage.trim()) {
+            setShowOverwriteWarning(true);
+            return;
+        }
+        
+        // Proceed with generation
+        setIsGenerating(true);
+        setError(null);
+        vscode.postMessage({
+            command: "systemMessage.generate",
+        } as MessagesToStartupFlowProvider);
+    };
+
+    const handleConfirmOverwrite = () => {
+        setShowOverwriteWarning(false);
         setIsGenerating(true);
         setError(null);
         vscode.postMessage({
@@ -68,9 +85,9 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     };
 
     const handleSave = () => {
+        // Require a message before continuing
         if (!systemMessage.trim()) {
-            // If empty, skip to continue without saving
-            onContinue();
+            setError("Please enter or generate a system message before continuing.");
             return;
         }
         setIsSaving(true);
@@ -142,6 +159,39 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     </div>
                 )}
 
+                {showOverwriteWarning && (
+                    <div
+                        style={{
+                            padding: "12px",
+                            backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                            border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                            borderRadius: "4px",
+                            fontSize: "14px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "8px",
+                        }}
+                    >
+                        <div style={{ color: "var(--vscode-warningForeground)" }}>
+                            Generating a new message will overwrite your current text. Do you want to proceed?
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                            <VSCodeButton
+                                appearance="secondary"
+                                onClick={() => setShowOverwriteWarning(false)}
+                            >
+                                Cancel
+                            </VSCodeButton>
+                            <VSCodeButton
+                                appearance="primary"
+                                onClick={handleConfirmOverwrite}
+                            >
+                                Overwrite and Generate
+                            </VSCodeButton>
+                        </div>
+                    </div>
+                )}
+
                 <div
                     style={{
                         display: "flex",
@@ -164,10 +214,13 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         onInput={(e: any) => setSystemMessage(e.target.value)}
                         placeholder="Enter or generate translation instructions for the AI..."
                         rows={12}
+                        disabled={isGenerating}
                         style={{
                             width: "100%",
                             fontFamily: "var(--vscode-editor-font-family)",
                             fontSize: "13px",
+                            opacity: isGenerating ? 0.6 : 1,
+                            cursor: isGenerating ? "not-allowed" : "text",
                         }}
                     />
                     <p style={{ margin: "3px 0 0 0", fontSize: "12px", opacity: 0.7 }}>
@@ -236,7 +289,8 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     borderTop: "1px solid var(--vscode-panel-border)",
                 }}
             >
-                {onSkip && (
+                {/* Skip button commented out - system message is required for AI translations */}
+                {/* {onSkip && (
                     <VSCodeButton
                         appearance="secondary"
                         onClick={handleSkip}
@@ -244,11 +298,11 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     >
                         Skip for Now
                     </VSCodeButton>
-                )}
+                )} */}
                 <VSCodeButton
                     appearance="primary"
                     onClick={handleSave}
-                    disabled={isGenerating || isSaving}
+                    disabled={isGenerating || isSaving || !systemMessage.trim()}
                     style={{
                         minWidth: "200px",
                     }}

@@ -122,6 +122,62 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         command: "projectInventory",
                         inventory: inventory,
                     });
+                } else if (message.command === "metadata.check") {
+                    // Handle metadata check request
+                    try {
+                        const workspaceFolders = vscode.workspace.workspaceFolders;
+                        if (!workspaceFolders || workspaceFolders.length === 0) {
+                            webviewPanel.webview.postMessage({
+                                command: "metadata.checkResponse",
+                                data: {
+                                    sourceLanguage: null,
+                                    targetLanguage: null,
+                                    sourceTexts: [],
+                                    chatSystemMessage: null,
+                                },
+                            });
+                            return;
+                        }
+
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                        const metadata = JSON.parse(metadataContent.toString());
+
+                        const sourceLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "source"
+                        );
+                        const targetLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "target"
+                        );
+                        const sourceTexts = metadata.ingredients
+                            ? Object.keys(metadata.ingredients)
+                            : [];
+                        const chatSystemMessage = metadata.chatSystemMessage || null;
+
+                        webviewPanel.webview.postMessage({
+                            command: "metadata.checkResponse",
+                            data: {
+                                sourceLanguage,
+                                targetLanguage,
+                                sourceTexts,
+                                chatSystemMessage,
+                            },
+                        });
+                    } catch (error) {
+                        console.error("Error checking metadata:", error);
+                        webviewPanel.webview.postMessage({
+                            command: "metadata.checkResponse",
+                            data: {
+                                sourceLanguage: null,
+                                targetLanguage: null,
+                                sourceTexts: [],
+                                chatSystemMessage: null,
+                            },
+                        });
+                    }
                 } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
                 } else if (message.command === "writeNotebooksWithAttachments") {
@@ -370,10 +426,27 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         );
 
                         if (generatedMessage) {
-                            webviewPanel.webview.postMessage({
-                                command: "systemMessage.generated",
-                                message: generatedMessage,
-                            });
+                            // Save the generated message to metadata.json immediately
+                            const { MetadataManager } = await import("../../utils/metadataManager");
+                            const saveResult = await MetadataManager.setChatSystemMessage(
+                                generatedMessage,
+                                workspaceFolders[0].uri
+                            );
+
+                            if (saveResult.success) {
+                                webviewPanel.webview.postMessage({
+                                    command: "systemMessage.generated",
+                                    message: generatedMessage,
+                                });
+                            } else {
+                                // Still send the generated message even if save fails
+                                // User can manually save it later
+                                webviewPanel.webview.postMessage({
+                                    command: "systemMessage.generated",
+                                    message: generatedMessage,
+                                });
+                                console.warn("Generated system message but failed to save:", saveResult.error);
+                            }
                         } else {
                             webviewPanel.webview.postMessage({
                                 command: "systemMessage.generateError",

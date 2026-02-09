@@ -120,6 +120,11 @@ export const InputCriticalProjectInfo = ({
                         <i className="codicon codicon-symbol-variable" style={{ fontSize: "72px" }}></i>
                         <VSCodeButton
                             onClick={() => {
+                                // Start generating system message in the background
+                                // This will be saved to metadata.json automatically by the provider
+                                vscode.postMessage({
+                                    command: "systemMessage.generate",
+                                } as MessagesToStartupFlowProvider);
                                 vscode.postMessage({ command: "openSourceUpload" });
                                 vscode.postMessage({
                                     command: "workspace.continue",
