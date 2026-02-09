@@ -202,9 +202,11 @@ const NewSourceUploader: React.FC = () => {
                 if (chatSystemMessage) {
                     setSystemMessage(chatSystemMessage);
                 }
+                setIsWaitingForMessage(false); // Clear waiting flag when we get response
             } else if (message.command === "systemMessage.generated") {
                 // Handle generated system message
                 setSystemMessage(message.message || "");
+                setIsWaitingForMessage(false); // Clear waiting flag when generation completes
             } else if (message.command === "targetFileError") {
                 // Handle target file error
                 const response = message as TargetFileErrorMessage;
@@ -440,6 +442,7 @@ const NewSourceUploader: React.FC = () => {
     const handleStartTranslating = useCallback(() => {
         // Navigate to system message step
         // Request metadata to get current system message (may have been generated earlier)
+        setIsWaitingForMessage(true); // Set flag that we're waiting for message
         vscode.postMessage({ command: "metadata.check" });
         setWizardState((prev) => ({
             ...prev,
@@ -642,6 +645,7 @@ const NewSourceUploader: React.FC = () => {
                         initialMessage={systemMessage}
                         onContinue={handleSystemMessageContinue}
                         onSkip={handleSystemMessageSkip}
+                        isWaitingForMessage={isWaitingForMessage}
                     />
                 </div>
             );

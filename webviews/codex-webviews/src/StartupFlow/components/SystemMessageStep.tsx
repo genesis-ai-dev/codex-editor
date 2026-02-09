@@ -7,6 +7,7 @@ export interface SystemMessageStepProps {
     initialMessage?: string;
     onContinue: () => void;
     onSkip?: () => void;
+    isWaitingForMessage?: boolean;
 }
 
 /**
@@ -18,6 +19,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
     initialMessage = "",
     onContinue,
     onSkip,
+    isWaitingForMessage = false,
 }) => {
     const [systemMessage, setSystemMessage] = useState<string>(initialMessage);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -214,13 +216,13 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         onInput={(e: any) => setSystemMessage(e.target.value)}
                         placeholder="Enter or generate translation instructions for the AI..."
                         rows={12}
-                        disabled={isGenerating}
+                        disabled={isGenerating || isWaitingForMessage}
                         style={{
                             width: "100%",
                             fontFamily: "var(--vscode-editor-font-family)",
                             fontSize: "13px",
-                            opacity: isGenerating ? 0.6 : 1,
-                            cursor: isGenerating ? "not-allowed" : "text",
+                            opacity: (isGenerating || isWaitingForMessage) ? 0.6 : 1,
+                            cursor: (isGenerating || isWaitingForMessage) ? "not-allowed" : "text",
                         }}
                     />
                     <p style={{ margin: "3px 0 0 0", fontSize: "12px", opacity: 0.7 }}>
