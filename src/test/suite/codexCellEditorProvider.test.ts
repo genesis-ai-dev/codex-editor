@@ -3690,7 +3690,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked LLM response";
+                return { text: "Mocked LLM response" };
             });
 
             // Stub status bar item
@@ -3832,7 +3832,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ text: "Mocked response" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -3935,7 +3935,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ text: "Mocked response" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -4039,7 +4039,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub MetadataManager.getChatSystemMessage to return custom system message
@@ -4184,7 +4184,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub status bar and notebook reader
@@ -4324,7 +4324,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Mock callLLM to capture messages
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub status bar and notebook reader
@@ -4473,7 +4473,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             let capturedMessages: any[] | null = null;
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { text: "Mocked response" };
             });
 
             // Stub status bar and notebook reader
@@ -4639,7 +4639,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     testId: "test-123",
                     testName: "Example Count Test",
                     selectedContent: "Test variant B",
-                    selectionTimeMs: 1500,
                     totalVariants: 2,
                     variants: ["15 examples", "30 examples"]
                 }
@@ -4692,7 +4691,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 selectedIndex: 0,
                 testId: "test-789",
                 testName: "Test Name",
-                selectionTimeMs: 2000,
                 totalVariants: 2,
                 names: ["variant-a", "variant-b"]
             };
@@ -4705,7 +4703,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 testResult.testId,
                 testResult.cellId,
                 testResult.selectedIndex,
-                testResult.selectionTimeMs,
                 testResult.names,
                 undefined // Skip testName to prevent analytics call
             );

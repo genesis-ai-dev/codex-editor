@@ -157,7 +157,7 @@ suite("Validated-only examples behavior", () => {
 
         // Stub callLLM to avoid network and return deterministic strings for AB variants
         const llmUtils = await import("../../utils/llmUtils");
-        const callStub = sinon.stub(llmUtils, "callLLM").resolves("PREDICTED");
+        const callStub = sinon.stub(llmUtils, "callLLM").resolves({ text: "PREDICTED" });
 
         // Stub status bar item used by llmCompletion
         const extModule = await import("../../extension");

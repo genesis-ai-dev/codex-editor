@@ -22,19 +22,12 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
+import { ABTestQueueItem } from "./abTestTypes";
 
 const icons: any = Quill.import("ui/icons");
 const vscode: any = (window as any).vscodeApi;
 
 registerQuillSpellChecker(Quill, vscode);
-
-interface ABTestState {
-    isActive: boolean;
-    variants: string[];
-    cellId: string;
-    testId: string;
-    testName?: string;
-}
 
 export interface EditorRef {
     quillRef: React.RefObject<Quill>;
@@ -87,57 +80,36 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
     const [spellChecker, setSpellChecker] = useState<QuillSpellChecker | null>(null);
     const [isEnabled, setIsEnabled] = useState(true);
     const [showHistory, setShowHistory] = useState(false);
-    const [abTestState, setAbTestState] = useState<ABTestState>({
-        isActive: false,
-        variants: [],
-        cellId: "",
-        testId: "",
-        testName: "",
-    });
+    // A/B test queue: items accumulate during batch, shown one at a time
+    const [abTestQueue, setAbTestQueue] = useState<ABTestQueueItem[]>([]);
 
-    // A/B Testing handlers
-    const handleShowABTestVariants = (data: {
-        variants: string[];
-        cellId: string;
-        testId: string;
-    }) => {
-        setAbTestState({
-            isActive: true,
-            variants: data.variants,
-            cellId: data.cellId,
-            testId: data.testId,
-        });
-    };
+    const currentABTest = abTestQueue.length > 0 ? abTestQueue[0] : null;
 
-    const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
-        if (!abTestState.isActive) return;
+    const handleVariantSelected = (selectedIndex: number) => {
+        if (!currentABTest) return;
 
         // Send selection to backend - backend handles all logic
         vscode.postMessage({
             command: "selectABTestVariant",
             content: {
-                cellId: abTestState.cellId,
+                cellId: currentABTest.cellId,
                 selectedIndex,
-                testId: abTestState.testId,
-                testName: abTestState.testName,
-                selectionTimeMs,
-                totalVariants: abTestState.variants?.length ?? 0,
-                variants: abTestState.variants,
+                testId: currentABTest.testId,
+                testName: currentABTest.testName,
+                totalVariants: currentABTest.variants?.length ?? 0,
+                variants: currentABTest.variants,
+                // Pass model identifiers for server-initiated model comparison tests
+                ...(currentABTest.models && currentABTest.models.length > 0 ? { models: currentABTest.models } : {}),
             },
         } as EditorPostMessages);
 
-        // Close the selector - backend will send new one if needed
-        handleDismissABTest();
+        // Remove completed test from the front of the queue — next one shows automatically
+        setAbTestQueue((prev) => prev.slice(1));
     };
 
     const handleDismissABTest = () => {
-        setAbTestState({
-            isActive: false,
-            variants: [],
-            cellId: "",
-            testId: "",
-            testName: "",
-        });
+        // Dismiss current test without selecting (skip it)
+        setAbTestQueue((prev) => prev.slice(1));
     };
 
     const updateHeaderLabel = () => {
@@ -171,25 +143,19 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                         );
                     }
                 } else if (event.data.type === "providerSendsABTestVariants") {
-                    // Handle A/B test variants: always show selector for user choice
-                    const { variants, cellId, testId, testName } = event.data.content as {
+                    // Handle A/B test variants: queue them up, show one at a time
+                    const { variants, cellId, testId, testName, models } = event.data.content as {
                         variants: string[];
                         cellId: string;
                         testId: string;
                         testName?: string;
+                        models?: string[];
                     };
-                    if (
-                        cellId === props.currentLineId &&
-                        Array.isArray(variants) &&
-                        variants.length > 1
-                    ) {
-                        setAbTestState({
-                            isActive: true,
-                            variants,
-                            cellId,
-                            testId,
-                            testName,
-                        });
+                    if (Array.isArray(variants) && variants.length > 1) {
+                        setAbTestQueue((prev) => [
+                            ...prev,
+                            { variants, cellId, testId, testName, models },
+                        ]);
                     }
                 }
                 updateHeaderLabel();
@@ -264,13 +230,15 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 }}
             />
 
-            {/* A/B Testing Overlay */}
-            {abTestState.isActive && (
+            {/* A/B Testing Overlay — shows first item in queue */}
+            {currentABTest && (
                 <ABTestVariantSelector
-                    key={abTestState.testId}
-                    variants={abTestState.variants}
-                    cellId={abTestState.cellId}
-                    testId={abTestState.testId}
+                    key={currentABTest.testId}
+                    variants={currentABTest.variants}
+                    cellId={currentABTest.cellId}
+                    testId={currentABTest.testId}
+                    queuePosition={1}
+                    queueTotal={abTestQueue.length}
                     onVariantSelected={handleVariantSelected}
                     onDismiss={handleDismissABTest}
                 />

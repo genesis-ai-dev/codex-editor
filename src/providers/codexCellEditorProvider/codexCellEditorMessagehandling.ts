@@ -836,6 +836,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "llmCompletion"; }>;
         debug("llmCompletion message received", { event, document, provider, webviewPanel });
 
+        // Fire-and-forget: record single-cell translation telemetry
+        import("../../utils/abTestingAnalytics").then(({ recordAbResult }) =>
+            recordAbResult({
+                category: "batch_vs_single",
+                options: ["single", "batch"],
+                winner: 0,
+            })
+        ).catch(() => { /* analytics must never block translation */ });
+
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
@@ -1442,9 +1451,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants } = typedEvent.content || {};
-        const variantNames: string[] | undefined = variants;
+        const { cellId, selectedIndex, selectedContent, testId, testName, variants, models } = typedEvent.content || {};
         const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
+
+        // Decrement pending A/B test count so normal source highlighting can resume
+        if (provider.pendingABTestCount > 0) {
+            provider.pendingABTestCount--;
+        }
+
+        // For model comparison tests, use model names as the analytics options;
+        // otherwise fall back to the variant text (existing behavior).
+        const isModelComparison = testName === "model_comparison" && Array.isArray(models) && models.length > 0;
+        const variantNames: string[] | undefined = isModelComparison ? models : variants;
 
         // Check if this was a pending attention check
         const attentionCheck = getAttentionCheck(testId);
@@ -1459,7 +1477,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     testId,
                     cellId,
                     passed: !pickedWrong,
-                    selectionTimeMs,
                     correctIndex: attentionCheck.correctIndex,
                     decoyCellId: attentionCheck.decoyCellId
                 });
@@ -1481,6 +1498,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             testName: "Recovery",
                         },
                     });
+                    provider.pendingABTestCount++;
                 }
                 return;
             }
@@ -1488,10 +1506,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // User picked correctly - apply and clear
             clearAttentionCheck(testId);
         } else {
-            // Regular A/B test
+            // Regular A/B test (including model comparison)
             if (!isRecovery) {
                 const { recordVariantSelection } = await import("../../utils/abTestingUtils");
-                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, variantNames, testName);
+                await recordVariantSelection(testId, cellId, selectedIndex, variantNames, testName);
             }
         }
 
@@ -1507,7 +1525,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         }
 
-        debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
+        debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}`);
     },
 
     updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {

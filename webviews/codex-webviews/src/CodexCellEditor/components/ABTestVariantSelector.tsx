@@ -6,7 +6,9 @@ interface ABTestVariantSelectorProps {
     cellId: string;
     testId: string;
     headerOverride?: string; // Custom header text (e.g., for recovery after attention check)
-    onVariantSelected: (index: number, selectionTimeMs: number) => void;
+    queuePosition?: number; // 1-based index in the A/B test queue (e.g., 1)
+    queueTotal?: number;    // Total tests in queue (e.g., 3)
+    onVariantSelected: (index: number) => void;
     onDismiss: () => void;
 }
 
@@ -15,19 +17,19 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
     cellId,
     testId,
     headerOverride,
+    queuePosition,
+    queueTotal,
     onVariantSelected,
     onDismiss
 }) => {
-    const [startTime] = useState(Date.now());
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
     const [order] = useState<number[]>(() => variants.map((_, i) => i).sort(() => Math.random() - 0.5));
 
     const handleVariantSelect = (index: number) => {
         if (selectedIndex !== null) return; // Prevent double selection
 
-        const selectionTime = Date.now() - startTime;
         setSelectedIndex(index);
-        onVariantSelected(index, selectionTime);
+        onVariantSelected(index);
     };
 
     const stripHtmlTags = (html: string): string => {
@@ -43,6 +45,11 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
             <div className="ab-test-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="ab-test-header">
                     <h3>{headerOverride || (selectedIndex === null ? 'Choose Translation' : 'Result')}</h3>
+                    {queueTotal != null && queueTotal > 1 && (
+                        <div className="ab-test-queue-badge">
+                            {queuePosition} of {queueTotal}
+                        </div>
+                    )}
                     {selectedIndex === null && !headerOverride ? (
                         <p>Pick the translation that reads best for this context.</p>
                     ) : selectedIndex !== null ? (

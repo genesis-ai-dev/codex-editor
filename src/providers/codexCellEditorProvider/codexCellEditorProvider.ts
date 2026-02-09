@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { fetchCompletionConfig } from "@/utils/llmUtils";
 import { CodexNotebookReader } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
-import { llmCompletion } from "../translationSuggestions/llmCompletion";
+import { llmCompletion, LLMCompletionResult } from "../translationSuggestions/llmCompletion";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import {
     QuillCellContent,
@@ -142,6 +142,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         reject: (error: any) => void;
     }[] = [];
     private isProcessingQueue: boolean = false;
+
+    // When > 0, A/B tests are awaiting user selection — source highlighting
+    // is driven by the webview's A/B queue instead of normal cell navigation.
+    public pendingABTestCount: number = 0;
 
     // New state for autocompletion process
     public autocompletionState: {
@@ -335,6 +339,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Only send highlight messages to source files when a codex file is active
                         const valueIsCodexFile = this.isCodexFile(value.uri);
                         if (valueIsCodexFile) {
+                            // When A/B tests are queued during batch, let the webview's
+                            // A/B queue drive source highlighting instead of batch navigation.
+                            const suppressSourceHighlight =
+                                this.pendingABTestCount > 0 &&
+                                this.autocompletionState.isProcessing;
+                            if (suppressSourceHighlight) {
+                                debug("Suppressing source highlight during A/B test queue");
+                                return;
+                            }
                             debug("Processing codex file highlight");
                             // Send highlight using cellId (primary) or globalReferences (if available)
                             for (const [panelUri, panel] of this.webviewPanels.entries()) {
@@ -1649,6 +1662,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Send state to webview
             this.broadcastAutocompletionState();
 
+            // Fire-and-forget: record batch translation telemetry (once per batch initiation)
+            import("../../utils/abTestingAnalytics").then(({ recordAbResult }) =>
+                recordAbResult({
+                    category: "batch_vs_single",
+                    options: ["single", "batch"],
+                    winner: 1,
+                })
+            ).catch(() => { /* analytics must never block translation */ });
+
             // Determine if LLM is ready (API key or auth token). We still run transcriptions even if not ready.
             let llmReady = true;
             try {
@@ -2549,10 +2571,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const sourceUri = getCorrespondingSourceUri(codexUri);
 
                 // Send highlight/clear messages and milestone jump to source files when a codex file is active
+                // When A/B tests are pending, source highlighting is driven by the
+                // webview's A/B queue (via setCurrentIdToGlobalState for the active test).
+                // Skip source-panel updates here so batch processing doesn't override it.
+                const suppressSourceHighlight = this.pendingABTestCount > 0 && this.autocompletionState.isProcessing;
+
                 for (const [panelUri, panel] of this.webviewPanels.entries()) {
                     const isSourceFile = this.isSourceText(panelUri);
                     // copy this to update target with merged cells
                     if (isSourceFile) {
+                        if (suppressSourceHighlight) {
+                            continue;
+                        }
+
                         // Check if this is the matching source file
                         const isMatchingSource = sourceUri && panelUri === sourceUri.toString();
 
@@ -3394,7 +3425,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         new vscode.CancellationTokenSource().token;
 
                     // Determine if this is a batch operation (chapter autocomplete or multiple cells queued)
-                    // A/B testing is disabled during batch operations to avoid interrupting the workflow
+                    // During batch, A/B tests are non-blocking: variant[0] is auto-applied and the queue continues
                     const isBatchOperation = this.autocompletionState.isProcessing ||
                         (this.singleCellQueueState.isProcessing && this.singleCellQueueState.totalCells > 1);
 
@@ -3415,8 +3446,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     }
 
                     // If multiple variants are present, send to the webview for selection
-                    if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, testName, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
+                    if (completionResult && Array.isArray(completionResult.variants) && completionResult.variants.length > 1) {
+                        const { variants, testId, testName, isAttentionCheck, correctIndex, decoyCellId, models } = completionResult;
 
                         // If variants are identical (ignoring whitespace), treat as single completion
                         try {
@@ -3440,21 +3471,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
                         }
 
+                        const actualTestId = testId || `${currentCellId}-${Date.now()}`;
+
+                        // If this is an attention check, register it so we can handle the response
+                        if (isAttentionCheck && typeof correctIndex === 'number') {
+                            const { registerAttentionCheck } = await import("./codexCellEditorMessagehandling");
+                            registerAttentionCheck(actualTestId, {
+                                cellId: currentCellId,
+                                correctIndex,
+                                correctVariant: variants[correctIndex],
+                                decoyCellId,
+                            });
+                            console.log(`[Attention Check] Registered for testId ${actualTestId}, correctIndex ${correctIndex}`);
+                        }
+
                         if (webviewPanel) {
-                            const actualTestId = testId || `${currentCellId}-${Date.now()}`;
-
-                            // If this is an attention check, register it so we can handle the response
-                            if (isAttentionCheck && typeof correctIndex === 'number') {
-                                const { registerAttentionCheck } = await import("./codexCellEditorMessagehandling");
-                                registerAttentionCheck(actualTestId, {
-                                    cellId: currentCellId,
-                                    correctIndex,
-                                    correctVariant: variants[correctIndex],
-                                    decoyCellId,
-                                });
-                                console.log(`[Attention Check] Registered for testId ${actualTestId}, correctIndex ${correctIndex}`);
-                            }
-
                             // Send variants to webview - frontend doesn't need attention check details
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
@@ -3463,21 +3494,38 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     cellId: currentCellId,
                                     testId: actualTestId,
                                     testName,
+                                    // Include model identifiers for server-initiated model comparison tests
+                                    ...(Array.isArray(models) && models.length > 0 ? { models } : {}),
                                 },
                             });
+                            this.pendingABTestCount++;
                         }
 
-                        // Mark single cell translation as complete so UI progress/spinners stop
-                        this.updateSingleCellTranslation(1.0);
+                        if (isBatchOperation) {
+                            // NON-BLOCKING path: don't write to the cell yet — the user
+                            // needs to pick a variant first via the A/B selector. The
+                            // selectABTestVariant handler will persist their choice.
+                            // The queue continues immediately without waiting.
+                            // Source panel scrolling is driven by the webview based on
+                            // which A/B test is currently displayed (not queued).
+                            this.updateSingleCellTranslation(1.0);
 
-                        // Do not update the cell value now; the frontend will apply the chosen variant
-                        // Return an empty string for consistency with callers expecting a string
+                            debug("LLM completion A/B variants sent (batch non-blocking, awaiting user selection)", {
+                                cellId: currentCellId,
+                                variantsCount: variants?.length,
+                            });
+                            return "";
+                        }
+
+                        // BLOCKING path (single-cell): do not update the cell value now;
+                        // the frontend will apply the chosen variant when the user selects one.
+                        this.updateSingleCellTranslation(1.0);
                         debug("LLM completion A/B variants sent", { cellId: currentCellId, variantsCount: variants?.length });
                         return "";
                     }
 
                     // Otherwise, handle as a single completion using the first variant
-                    const singleCompletion = (completionResult as any)?.variants?.[0] ?? "";
+                    const singleCompletion = completionResult?.variants?.[0] ?? "";
 
                     progress.report({ message: "Updating document...", increment: 40 });
 

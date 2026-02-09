@@ -351,7 +351,7 @@ export async function generateChatSystemMessage(
 
         const prompt = `Generate a concise, one-paragraph set of linguistic instructions critical for a linguistically informed translator to keep in mind at all times when translating from ${sourceLanguage.refName} to ${targetLanguage.refName}. Keep it to a single plaintext paragraph. Note key lexicosemantic, information structuring, register-relevant and other key distinctions necessary for grammatical, natural text in ${targetLanguage.refName} if the starting place is ${sourceLanguage.refName}. ${htmlInstruction} Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters. Do not include XML in your answer.`;
 
-        const response = await callLLM(
+        const result = await callLLM(
             [
                 {
                     role: "user",
@@ -361,7 +361,7 @@ export async function generateChatSystemMessage(
             llmConfig
         );
 
-        return response;
+        return result.text;
     } catch (error) {
         debug("[generateChatSystemMessage] Error generating message:", error);
         return null;

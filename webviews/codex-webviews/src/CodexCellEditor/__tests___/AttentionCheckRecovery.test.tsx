@@ -88,7 +88,7 @@ describe("Attention Check Recovery Flow", () => {
             expect(screen.getByText(decoyTranslation)).toBeInTheDocument();
         });
 
-        it("should call onVariantSelected with selection time when variant is clicked", async () => {
+        it("should call onVariantSelected with selected index when variant is clicked", async () => {
             const onVariantSelected = vi.fn();
             const props = {
                 variants: [correctTranslation, decoyTranslation],
@@ -105,8 +105,7 @@ describe("Attention Check Recovery Flow", () => {
 
             await waitFor(() => {
                 expect(onVariantSelected).toHaveBeenCalledWith(
-                    expect.any(Number), // index
-                    expect.any(Number)  // selectionTimeMs
+                    expect.any(Number) // index
                 );
             });
         });
@@ -231,7 +230,7 @@ describe("Attention Check Recovery Flow", () => {
             fireEvent.click(correctOption);
 
             await waitFor(() => {
-                expect(onVariantSelected).toHaveBeenCalledWith(0, expect.any(Number));
+                expect(onVariantSelected).toHaveBeenCalledWith(0);
             });
 
             // Verify the "Thanks" message appears
@@ -258,7 +257,7 @@ describe("Attention Check Recovery Flow", () => {
             fireEvent.click(decoyOption);
 
             await waitFor(() => {
-                expect(onVariantSelected).toHaveBeenCalledWith(1, expect.any(Number));
+                expect(onVariantSelected).toHaveBeenCalledWith(1);
             });
         });
 
