@@ -670,8 +670,6 @@ ChapterNavigationHeaderProps) {
                         isSourceText={isSourceText}
                         textDirection={textDirection}
                         onSetTextDirection={onSetTextDirection}
-                        cellDisplayMode={cellDisplayMode}
-                        onSetCellDisplayMode={onSetCellDisplayMode}
                         fontSize={fontSize}
                         onFontSizeChange={handleFontSizeChange}
                         metadata={metadata}
@@ -1085,39 +1083,6 @@ ChapterNavigationHeaderProps) {
                                 {showInlineBacktranslations ? "On" : "Off"}
                             </span>
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                            onClick={() => {
-                                const newMode =
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                        : CELL_DISPLAY_MODES.INLINE;
-                                onSetCellDisplayMode(newMode);
-                                vscode.postMessage({
-                                    command: "updateCellDisplayMode",
-                                    mode: newMode,
-                                });
-                            }}
-                            disabled={unsavedChanges}
-                            className="cursor-pointer"
-                        >
-                            <i
-                                className={`codicon ${
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "codicon-symbol-enum"
-                                        : "codicon-symbol-constant"
-                                } mr-2 h-4 w-4`}
-                            />
-                            <span>
-                                Display Mode (
-                                {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                    ? "Inline"
-                                    : "One Line"}
-                                )
-                            </span>
-                        </DropdownMenuItem>
-
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             onClick={() => {

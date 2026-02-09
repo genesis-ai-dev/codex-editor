@@ -3358,7 +3358,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 fontSize: 16,
                 showInlineBacktranslations: false,
                 fileDisplayName: "Test File",
-                cellDisplayMode: "one-line-per-cell" as const,
                 audioOnly: true,
                 corpusMarker: "NT",
             };
@@ -3368,7 +3367,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const after = JSON.parse(document.getText());
             const edits: FileEditHistory[] = after.metadata.edits || [];
 
-            // Verify edit entries exist for all fields
+            // cellDisplayMode is not persisted when it's the default (one-line-per-cell), so it should not appear in serialized metadata
+            assert.strictEqual(after.metadata.cellDisplayMode, undefined, "cellDisplayMode should be omitted when default");
+
+            // Verify edit entries exist for all fields (except cellDisplayMode when one-line-per-cell)
             const isEditPath = (e: FileEditHistory, path: readonly string[]) => EditMapUtils.equals(e.editMap, path);
 
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataVideoUrl())), "Should have videoUrl edit");
@@ -3377,7 +3379,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFontSize())), "Should have fontSize edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataShowInlineBacktranslations())), "Should have showInlineBacktranslations edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFileDisplayName())), "Should have fileDisplayName edit");
-            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCellDisplayMode())), "Should have cellDisplayMode edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataAudioOnly())), "Should have audioOnly edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCorpusMarker())), "Should have corpusMarker edit");
 

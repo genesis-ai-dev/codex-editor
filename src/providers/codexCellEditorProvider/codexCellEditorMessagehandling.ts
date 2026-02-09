@@ -1512,6 +1512,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode"; }>;
+        // One-line-per-cell is the default; we don't persist it in metadata.
+        if (typedEvent.mode === "one-line-per-cell") {
+            return;
+        }
         const updatedMetadata = {
             cellDisplayMode: typedEvent.mode,
         };
