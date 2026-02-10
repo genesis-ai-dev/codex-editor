@@ -382,7 +382,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const isSwapPending =
             !!project.projectSwap &&
             project.projectSwap.isOldProject &&
-            project.projectSwap?.swapStatus === "active";
+            project.projectSwap?.swapStatus === "active" &&
+            !project.projectSwap?.currentUserAlreadySwapped;
 
         if (isLocal) {
             return (
@@ -527,10 +528,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const isUpdateRequired = project.pendingUpdate?.required;
 
         const isApplyingForThisProject = isChangingStrategy;
+        const isUserAlreadySwapped = project.projectSwap?.currentUserAlreadySwapped;
         const swapNewName =
             project.projectSwap &&
             project.projectSwap.isOldProject &&
-            project.projectSwap?.swapStatus === "active"
+            project.projectSwap?.swapStatus === "active" &&
+            !isUserAlreadySwapped
                 ? project.projectSwap.newProjectName || project.projectSwap.newProjectUrl
                 : undefined;
 
@@ -581,6 +584,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         {effectiveSyncStatus === "serverUnreachable" && (
                             <Badge variant="outline" className="text-xs px-1 py-0 bg-red-50 text-red-700 border-red-300 whitespace-nowrap">
                                 Server Unreachable
+                            </Badge>
+                        )}
+                        {isUserAlreadySwapped && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-gray-50 text-gray-500 border-gray-300 whitespace-nowrap">
+                                Deprecated
                             </Badge>
                         )}
                         {isNewlyAdded && (

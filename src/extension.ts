@@ -830,6 +830,22 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
                 );
                 return; // Don't clear pending state - preserve for when connectivity returns
             }
+            if (recheck.userAlreadySwapped && recheck.activeEntry) {
+                // User already completed this swap - clear pending state and inform
+                const { clearSwapPendingState: clearPending } = await import("./providers/StartupFlow/performProjectSwap");
+                await clearPending(projectUri.fsPath);
+
+                const swapTargetLabel =
+                    recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
+                await vscode.window.showWarningMessage(
+                    `Already Swapped\n\n` +
+                    `You have already swapped to ${swapTargetLabel}.\n\n` +
+                    `This project is deprecated but can still be opened.`,
+                    { modal: true },
+                    "OK"
+                );
+                return;
+            }
             if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== pendingState.swapUUID) {
                 // Update local metadata with merged data
                 if (recheck.swapInfo) {

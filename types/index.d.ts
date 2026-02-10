@@ -1452,6 +1452,9 @@ export interface ProjectSwapInfo {
 
     /** Current swap status (from active swap entry) - "active" | "cancelled" */
     swapStatus?: "active" | "cancelled";
+
+    /** Whether the current user has already completed this swap - derived, not stored in metadata.json */
+    currentUserAlreadySwapped?: boolean;
 }
 
 /**

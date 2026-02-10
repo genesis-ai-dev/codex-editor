@@ -589,6 +589,18 @@ export async function checkProjectSwapRequired(
             const hasCompleted = await hasUserCompletedSwap(swapInfo, activeEntry, effectiveUsername);
             if (hasCompleted) {
                 debug("User already swapped; no swap required");
+
+                // Write the completion back to the old project's local files
+                // so subsequent checks (project list, re-opens) detect it locally
+                // without needing to fetch the NEW project's remote.
+                try {
+                    await writeUserSwapCompletionToOldProject(
+                        projectPath, activeEntry, effectiveUsername, swapInfo
+                    );
+                } catch (writeErr) {
+                    debug("Failed to write user swap completion (non-fatal):", writeErr);
+                }
+
                 return {
                     required: false,
                     reason: "User already swapped",
@@ -661,6 +673,101 @@ async function getSwapUserEntries(swapInfo: ProjectSwapInfo, activeEntry: Projec
     return (activeEntry.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
         normalizeSwapUserEntry(entry)
     );
+}
+
+/**
+ * Write user swap completion back to the OLD project's local files.
+ * This records that the current user has already completed the swap, so:
+ *   1. The "Project Swap Required" banner no longer appears for this user
+ *   2. Subsequent checkProjectSwapRequired calls detect it locally (no remote fetch needed)
+ *
+ * Writes to BOTH metadata.json and localProjectSwap.json for durability.
+ * Even though old project syncing is disabled, metadata.json serves as persistent local truth.
+ *
+ * @param projectPath - Path to the OLD project
+ * @param activeEntry - The active swap entry
+ * @param username - The username that completed the swap
+ * @param swapInfo - The full swap info (for updating entries)
+ */
+export async function writeUserSwapCompletionToOldProject(
+    projectPath: string,
+    activeEntry: ProjectSwapEntry,
+    username: string,
+    swapInfo: ProjectSwapInfo
+): Promise<void> {
+    const projectUri = vscode.Uri.file(projectPath);
+    const now = Date.now();
+
+    const userEntry: ProjectSwapUserEntry = {
+        userToSwap: username,
+        createdAt: now,
+        updatedAt: now,
+        executed: true,
+        swapCompletedAt: now,
+    };
+
+    debug(`Writing user swap completion for "${username}" to old project at ${projectPath}`);
+
+    // Helper: update swappedUsers in an entry array
+    const addUserToEntries = (entries: ProjectSwapEntry[]): ProjectSwapEntry[] =>
+        entries.map((entry) => {
+            if (entry.swapUUID !== activeEntry.swapUUID) {
+                return entry;
+            }
+            const existingUsers = entry.swappedUsers || [];
+            // Don't add duplicate if user already present
+            const alreadyPresent = existingUsers.some(
+                (u) => u.userToSwap === username && u.executed
+            );
+            if (alreadyPresent) {
+                return entry;
+            }
+            return {
+                ...entry,
+                swappedUsers: [...existingUsers, userEntry],
+                swappedUsersModifiedAt: now,
+            };
+        });
+
+    // 1. Write to metadata.json (durable local truth, even though it won't sync)
+    try {
+        const { MetadataManager } = await import("./metadataManager");
+        await MetadataManager.safeUpdateMetadata<import("../../types").ProjectMetadata>(
+            projectUri,
+            (meta) => {
+                if (!meta.meta?.projectSwap) {
+                    return meta;
+                }
+                const normalized = normalizeProjectSwapInfo(meta.meta.projectSwap);
+                const updatedEntries = addUserToEntries(normalized.swapEntries || []);
+                meta.meta.projectSwap = {
+                    swapEntries: sortSwapEntries(updatedEntries).map(orderEntryFields),
+                };
+                return meta;
+            }
+        );
+        debug("Wrote user swap completion to metadata.json");
+    } catch (e) {
+        debug("Failed to write user swap completion to metadata.json (non-fatal):", e);
+    }
+
+    // 2. Write to localProjectSwap.json (fast local cache)
+    try {
+        const { readLocalProjectSwapFile, writeLocalProjectSwapFile } = await import("./localProjectSettings");
+        const existingFile = await readLocalProjectSwapFile(projectUri);
+        if (existingFile?.remoteSwapInfo) {
+            const normalized = normalizeProjectSwapInfo(existingFile.remoteSwapInfo);
+            const updatedEntries = addUserToEntries(normalized.swapEntries || []);
+            await writeLocalProjectSwapFile({
+                ...existingFile,
+                remoteSwapInfo: { swapEntries: updatedEntries },
+                fetchedAt: Date.now(),
+            }, projectUri);
+            debug("Wrote user swap completion to localProjectSwap.json");
+        }
+    } catch (e) {
+        debug("Failed to write user swap completion to localProjectSwap.json (non-fatal):", e);
+    }
 }
 
 /**
