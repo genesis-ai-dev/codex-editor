@@ -6,6 +6,7 @@ import fs from "fs";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
+import { generateEditId } from "@/utils/editHistoryId";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
@@ -3653,3 +3654,170 @@ export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vsc
         console.error("Error running temp files recovery and duplicate merge migration:", error);
     }
 };
+
+/**
+ * Migration: Add deterministic IDs to all edit history entries and set activeEditId on cells.
+ *
+ * For each .codex and .source file:
+ * - Adds `id` (via generateEditId) to every edit missing one
+ * - Sets `activeEditId` on cell metadata to the latest value edit matching cell.value
+ * - Also handles file-level metadata edits
+ *
+ * Fully idempotent: generateEditId is deterministic, and already-populated fields are skipped.
+ */
+export const migration_addEditHistoryIds = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const migrationKey = "editHistoryIdsMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            debug("Edit history IDs migration already completed, skipping");
+            return;
+        }
+
+        debug("Running edit history IDs migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            debug("No codex or source files found, skipping edit history IDs migration");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Adding edit history IDs",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(file.fsPath)}`,
+                        increment: (100 / allFiles.length)
+                    });
+
+                    try {
+                        const wasMigrated = await addEditHistoryIdsToFile(file);
+                        processedFiles++;
+                        if (wasMigrated) {
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error adding edit history IDs to ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        debug(`Edit history IDs migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Edit history IDs migration complete: ${migratedFiles} files updated`
+            );
+        }
+
+    } catch (error) {
+        console.error("Error running edit history IDs migration:", error);
+    }
+};
+
+async function addEditHistoryIdsToFile(fileUri: vscode.Uri): Promise<boolean> {
+    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+    const text = new TextDecoder().decode(fileContent);
+
+    let notebook: any;
+    try {
+        notebook = JSON.parse(text);
+    } catch {
+        return false;
+    }
+
+    if (!notebook.cells || !Array.isArray(notebook.cells)) {
+        return false;
+    }
+
+    let changed = false;
+
+    // Process cell-level edits
+    for (const cell of notebook.cells) {
+        if (!cell.metadata?.edits || !Array.isArray(cell.metadata.edits)) {
+            continue;
+        }
+
+        for (const edit of cell.metadata.edits) {
+            if (!edit.id && edit.editMap && edit.timestamp != null && edit.author) {
+                edit.id = generateEditId(edit.value, edit.timestamp, edit.author);
+                changed = true;
+            }
+        }
+
+        // Set activeEditId if not already set: find latest value edit matching cell.value
+        if (!cell.metadata.activeEditId && cell.value != null) {
+            const valueEdits = cell.metadata.edits.filter(
+                (e: any) => Array.isArray(e.editMap) && e.editMap.length === 1 && e.editMap[0] === "value"
+            );
+            for (let i = valueEdits.length - 1; i >= 0; i--) {
+                if (valueEdits[i].value === cell.value && valueEdits[i].id) {
+                    cell.metadata.activeEditId = valueEdits[i].id;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Process file-level metadata edits
+    if (notebook.metadata?.edits && Array.isArray(notebook.metadata.edits)) {
+        for (const edit of notebook.metadata.edits) {
+            if (!edit.id && edit.editMap && edit.timestamp != null && edit.author) {
+                edit.id = generateEditId(edit.value, edit.timestamp, edit.author);
+                changed = true;
+            }
+        }
+    }
+
+    if (!changed) {
+        return false;
+    }
+
+    const updatedText = formatJsonForNotebookFile(notebook);
+    await atomicWriteUriText(fileUri, updatedText);
+    return true;
+}

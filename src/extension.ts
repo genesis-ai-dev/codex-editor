@@ -21,6 +21,7 @@ import {
     migration_addGlobalReferences,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
+    migration_addEditHistoryIds,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
@@ -627,6 +628,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_addGlobalReferences(context);
         await migration_cellIdsToUuid(context);
         await migration_recoverTempFilesAndMergeDuplicates(context);
+        await migration_addEditHistoryIds(context);
 
         // After migrations complete, trigger sync directly
         // (All migrations have finished executing since they're awaited sequentially)

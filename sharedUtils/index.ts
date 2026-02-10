@@ -51,11 +51,16 @@ export const getCellValueData = (cell: QuillCellContent) => {
     // Ensure editHistory exists and is an array
     const editHistory = cell.editHistory || [];
 
-    // Find the latest edit that matches the current cell content
-    const latestEditThatMatchesCellValue = editHistory
-        .slice()
-        .reverse()
-        .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
+    // Find the edit matching the current cell content: prefer activeEditId, fall back to value scan
+    let latestEditThatMatchesCellValue = cell.activeEditId
+        ? editHistory.find((edit) => edit.id === cell.activeEditId)
+        : undefined;
+    if (!latestEditThatMatchesCellValue) {
+        latestEditThatMatchesCellValue = editHistory
+            .slice()
+            .reverse()
+            .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
+    }
 
     // Get audio validation from attachments instead of edits
     let audioValidatedBy: ValidationEntry[] = [];
