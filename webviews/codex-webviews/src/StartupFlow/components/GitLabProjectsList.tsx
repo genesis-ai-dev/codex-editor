@@ -259,7 +259,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const pendingSwaps = React.useMemo(
         () => sortProjectsForDisplay((projectsWithProgress || []).filter((p) => 
             p.projectSwap?.isOldProject && 
-            p.projectSwap?.swapStatus === "active"
+            p.projectSwap?.swapStatus === "active" &&
+            !p.projectSwap?.currentUserAlreadySwapped
         )),
         [projectsWithProgress, sortProjectsForDisplay]
     );
@@ -267,7 +268,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const normalProjects = React.useMemo(
         () => (projectsWithProgress || []).filter((p) => 
             !p.pendingUpdate?.required && 
-            !(p.projectSwap?.isOldProject && p.projectSwap?.swapStatus === "active")
+            !(p.projectSwap?.isOldProject && p.projectSwap?.swapStatus === "active" && !p.projectSwap?.currentUserAlreadySwapped)
         ),
         [projectsWithProgress]
     );

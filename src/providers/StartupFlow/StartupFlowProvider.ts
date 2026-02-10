@@ -3604,6 +3604,37 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
+                    if (swapResult.userAlreadySwapped && swapResult.activeEntry) {
+                        // User has already completed this swap (detected from NEW project's remote).
+                        // writeUserSwapCompletionToOldProject was already called inside checkProjectSwapRequired.
+                        const swapTargetLabel =
+                            swapResult.activeEntry.newProjectName || swapResult.activeEntry.newProjectUrl || "the new project";
+                        const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                            `Already Swapped\n\n` +
+                            `You have already swapped to ${swapTargetLabel}.\n\n` +
+                            "You can open this deprecated project, delete the local copy, or cancel.",
+                            { modal: true },
+                            "Open Project",
+                            "Delete Local Project"
+                        );
+
+                        if (alreadySwappedChoice === "Delete Local Project") {
+                            const projectName = path.basename(projectPath);
+                            await this.performProjectDeletion(projectPath, projectName);
+                            return;
+                        }
+
+                        if (alreadySwappedChoice === "Open Project") {
+                            await MetadataManager.safeOpenFolder(projectUri);
+                        }
+
+                        // Refresh the project list to remove the swap banner
+                        if (this.webviewPanel) {
+                            this.sendList(this.webviewPanel);
+                        }
+                        return;
+                    }
+
                     if (!swapResult.required || !swapResult.activeEntry) {
                         // Swap no longer required (cancelled, completed, or erased).
                         // Update local metadata.json with the merged/authoritative swap data
@@ -3855,6 +3886,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 "The swap cannot be performed because the server is not reachable. " +
                                 "Please check your internet connection or try again later."
                             );
+                            return;
+                        }
+                        if (recheck.userAlreadySwapped && recheck.activeEntry) {
+                            debugLog("User already completed this swap during re-validation");
+                            const swapTargetLabel =
+                                recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
+                            await vscode.window.showWarningMessage(
+                                `Already Swapped\n\n` +
+                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                `This project is deprecated but can still be opened.`,
+                                { modal: true },
+                                "Open Project"
+                            );
+                            // Refresh the project list to remove the swap banner
+                            if (this.webviewPanel) {
+                                this.sendList(this.webviewPanel);
+                            }
                             return;
                         }
                         if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
@@ -5364,6 +5412,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Best effort - continue without username
             }
 
+            // Mark projects where the current user has already completed the swap.
+            // This uses locally persisted data (written by writeUserSwapCompletionToOldProject)
+            // so it doesn't require any remote API calls.
+            if (currentUsername) {
+                const { normalizeProjectSwapInfo, getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+                for (const project of filteredProjectList) {
+                    if (!project.projectSwap?.isOldProject || project.projectSwap.swapStatus !== "active") {
+                        continue;
+                    }
+                    // Check the active entry's swappedUsers for the current user
+                    const normalized = normalizeProjectSwapInfo(project.projectSwap);
+                    const activeEntry = getActiveSwapEntry(normalized);
+                    if (activeEntry?.swappedUsers?.some(
+                        (u: ProjectSwapUserEntry) => u.userToSwap === currentUsername && u.executed
+                    )) {
+                        project.projectSwap.currentUserAlreadySwapped = true;
+                    }
+                }
+            }
+
             safePostMessageToPanel(
                 webviewPanel,
                 {
@@ -5409,6 +5477,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         let projectDir: vscode.Uri | undefined;
+        // Track swap state for post-clone write-back
+        let userAlreadySwappedOnClone = false;
+        let activeSwapEntry: ProjectSwapEntry | undefined;
+        let cloneUsername: string | undefined;
 
         try {
             // Check remote metadata to warn if this is the old/deprecated project
@@ -5421,9 +5493,55 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
                     const normalizedSwapInfo = swapInfo ? normalizeProjectSwapInfo(swapInfo) : undefined;
                     const activeEntry = normalizedSwapInfo ? getActiveSwapEntry(normalizedSwapInfo) : undefined;
+                    activeSwapEntry = activeEntry;
 
                     // isOldProject is now in each entry, not at the top level
                     if (activeEntry?.isOldProject) {
+                        // Check if the current user has already completed this swap
+                        // by checking the NEW project's remote swappedUsers
+                        if (activeEntry.newProjectUrl) {
+                            try {
+                                const { getCurrentUsername, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
+                                const { findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
+                                cloneUsername = (await getCurrentUsername()) ?? undefined;
+                                const newProjectId = extractProjectIdFromUrl(activeEntry.newProjectUrl);
+                                if (cloneUsername && newProjectId) {
+                                    const newRemoteMeta = await fetchRemoteMetadata(newProjectId, false);
+                                    const newRemoteSwap = newRemoteMeta?.meta?.projectSwap;
+                                    if (newRemoteSwap) {
+                                        const normalizedNew = normalizeProjectSwapInfo(newRemoteSwap);
+                                        const matchingEntry = findSwapEntryByUUID(normalizedNew, activeEntry.swapUUID);
+                                        const swappedUsers = (matchingEntry?.swappedUsers || []).map(
+                                            (u: ProjectSwapUserEntry) => normalizeSwapUserEntry(u)
+                                        );
+                                        userAlreadySwappedOnClone = swappedUsers.some(
+                                            (u: ProjectSwapUserEntry) => u.userToSwap === cloneUsername && u.executed
+                                        );
+                                    }
+                                }
+                            } catch (e) {
+                                debugLog("Failed to check user swap completion on clone (non-fatal):", e);
+                            }
+                        }
+
+                        if (userAlreadySwappedOnClone) {
+                            // User already swapped - show informational modal
+                            const swapTargetLabel = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
+                            const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                                `Already Swapped\n\n` +
+                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                `This project is deprecated. You can still clone it if needed.`,
+                                { modal: true },
+                                "Clone Anyway",
+                                "Cancel"
+                            );
+                            if (alreadySwappedChoice !== "Clone Anyway") {
+                                return;
+                            }
+                            // User chose to clone anyway - skip the deprecation banner prompt
+                            skipDeprecatedPrompt = true;
+                        }
+
                         // ACTIVE swap - this project is currently deprecated
                         const deprecatedMessage = "This project has been deprecated.";
 
@@ -5628,6 +5746,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     undefined,
                     mediaStrategy
                 );
+
+                // If this is a deprecated project and user already swapped,
+                // write the completion info to the cloned project's local files.
+                // This ensures the swap banner doesn't appear for this project.
+                if (userAlreadySwappedOnClone && activeSwapEntry && cloneUsername) {
+                    try {
+                        const { writeUserSwapCompletionToOldProject } = await import("../../utils/projectSwapManager");
+                        await writeUserSwapCompletionToOldProject(
+                            projectDir.fsPath,
+                            activeSwapEntry,
+                            cloneUsername,
+                            { swapEntries: activeSwapEntry ? [activeSwapEntry] : [] }
+                        );
+                        debugLog("Wrote user swap completion to cloned deprecated project");
+                    } catch (writeErr) {
+                        debugLog("Failed to write user swap completion after clone (non-fatal):", writeErr);
+                    }
+                }
 
             } finally {
                 // Inform webview that cloning is complete
