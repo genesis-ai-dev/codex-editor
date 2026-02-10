@@ -3400,6 +3400,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     syncedCells++;
                 } catch (error) {
                     console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
+                    // Re-add the failed cell so it is retried on the next save
+                    this._dirtyCellIds.add(cellId);
                 }
             }
 

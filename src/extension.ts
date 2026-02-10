@@ -1262,13 +1262,12 @@ export async function deactivate() {
         }
     }
 
-    // Clear the global index manager reference to prevent stale usage.
-    // The underlying database connection is already disposed via context.subscriptions.
+    // Close the index manager's database connection and clear the global reference
     try {
         const { clearSQLiteIndexManager } = await import(
             "./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
         );
-        clearSQLiteIndexManager();
+        await clearSQLiteIndexManager();
     } catch (e) {
         console.error("[Deactivate] Error clearing index manager:", e);
     }

@@ -37,6 +37,9 @@ const MAX_DOWNLOAD_ATTEMPTS = 3;
 /** Cached binary path (set after first successful resolution) */
 let cachedBinaryPath: string | null = null;
 
+/** In-flight download promise — prevents concurrent download races */
+let downloadInProgress: Promise<string> | null = null;
+
 /**
  * Determine the platform key used in the prebuilt binary filename.
  *
@@ -160,26 +163,54 @@ function writeVersionFile(versionFilePath: string): void {
     fs.writeFileSync(versionFilePath, SQLITE3_VERSION, "utf8");
 }
 
+/** Maximum number of HTTP redirects to follow before giving up */
+const MAX_REDIRECTS = 10;
+
+/**
+ * Resolve a potentially relative redirect URL against the original request URL.
+ */
+function resolveRedirectUrl(from: string, location: string): string {
+    try {
+        // URL constructor handles both absolute and relative URLs when given a base
+        return new URL(location, from).href;
+    } catch {
+        return location;
+    }
+}
+
 /**
  * Download a file from a URL, following redirects. Returns the data as a Buffer.
+ *
+ * @param url        - Absolute URL to fetch
+ * @param redirects  - Internal counter to prevent infinite redirect loops
  */
-function downloadFile(url: string): Promise<Buffer> {
+function downloadFile(url: string, redirects = 0): Promise<Buffer> {
     return new Promise((resolve, reject) => {
+        if (redirects > MAX_REDIRECTS) {
+            reject(new Error(`Too many redirects (>${MAX_REDIRECTS}) — possible redirect loop`));
+            return;
+        }
+
         const protocol = url.startsWith("https") ? require("https") : require("http");
 
         protocol.get(url, { headers: { "User-Agent": "codex-editor" } }, (response: any) => {
             // Follow redirects (301, 302, 307, 308)
             if ([301, 302, 307, 308].includes(response.statusCode)) {
-                const redirectUrl = response.headers.location;
-                if (!redirectUrl) {
+                // Drain the redirect response body to free the socket
+                response.resume();
+
+                const location = response.headers.location;
+                if (!location) {
                     reject(new Error("Redirect without location header"));
                     return;
                 }
-                downloadFile(redirectUrl).then(resolve).catch(reject);
+                const redirectUrl = resolveRedirectUrl(url, location);
+                downloadFile(redirectUrl, redirects + 1).then(resolve).catch(reject);
                 return;
             }
 
             if (response.statusCode !== 200) {
+                response.resume();
                 reject(new Error(`Download failed: HTTP ${response.statusCode}`));
                 return;
             }
@@ -232,52 +263,50 @@ async function downloadBinary(
 
     console.log(`[SQLite] Downloading native binary from: ${downloadUrl}`);
 
-    // Download the tarball with retry + backoff
-    const data = await withRetry(() => downloadFile(downloadUrl), "Download");
-
-    // Write to temp file
-    fs.writeFileSync(tmpFile, data);
-
-    // Ensure storage directory exists
-    fs.mkdirSync(storageDir, { recursive: true });
-
-    // Extract: the tarball contains build/Release/node_sqlite3.node
-    // We extract with strip=2 to get just the .node file in storageDir
-    await tar.x({
-        file: tmpFile,
-        cwd: storageDir,
-        strip: 2, // strip "build/Release/" to put node_sqlite3.node directly in storageDir
-    });
-
-    // Clean up temp file
     try {
-        fs.unlinkSync(tmpFile);
-    } catch {
-        // Non-critical cleanup
+        // Download the tarball with retry + backoff
+        const data = await withRetry(() => downloadFile(downloadUrl), "Download");
+
+        // Write to temp file
+        fs.writeFileSync(tmpFile, data);
+
+        // Ensure storage directory exists
+        fs.mkdirSync(storageDir, { recursive: true });
+
+        // Extract: the tarball contains build/Release/node_sqlite3.node
+        // We extract with strip=2 to get just the .node file in storageDir
+        await tar.x({
+            file: tmpFile,
+            cwd: storageDir,
+            strip: 2, // strip "build/Release/" to put node_sqlite3.node directly in storageDir
+        });
+
+        // Verify the binary was extracted
+        if (!fs.existsSync(binaryPath)) {
+            throw new Error(
+                `Binary extraction failed: ${BINARY_NAME} not found at ${binaryPath}`
+            );
+        }
+
+        // Verify extracted binary is not corrupt (size sanity check)
+        const stat = fs.statSync(binaryPath);
+        if (stat.size < MIN_BINARY_SIZE_BYTES) {
+            // Remove the corrupt file so next startup retries from scratch
+            try { fs.unlinkSync(binaryPath); } catch { /* best-effort */ }
+            throw new Error(
+                `Downloaded binary appears corrupt (${stat.size} bytes, expected ≥ ${MIN_BINARY_SIZE_BYTES})`
+            );
+        }
+
+        // Write version marker so future startups know which version is cached
+        writeVersionFile(versionFilePath);
+
+        console.log(`[SQLite] Native binary v${SQLITE3_VERSION} installed at: ${binaryPath}`);
+        return binaryPath;
+    } finally {
+        // Always clean up the temp file, even on failure
+        try { fs.unlinkSync(tmpFile); } catch { /* file may not exist if download failed */ }
     }
-
-    // Verify the binary was extracted
-    if (!fs.existsSync(binaryPath)) {
-        throw new Error(
-            `Binary extraction failed: ${BINARY_NAME} not found at ${binaryPath}`
-        );
-    }
-
-    // Verify extracted binary is not corrupt (size sanity check)
-    const stat = fs.statSync(binaryPath);
-    if (stat.size < MIN_BINARY_SIZE_BYTES) {
-        // Remove the corrupt file so next startup retries from scratch
-        try { fs.unlinkSync(binaryPath); } catch { /* best-effort */ }
-        throw new Error(
-            `Downloaded binary appears corrupt (${stat.size} bytes, expected ≥ ${MIN_BINARY_SIZE_BYTES})`
-        );
-    }
-
-    // Write version marker so future startups know which version is cached
-    writeVersionFile(versionFilePath);
-
-    console.log(`[SQLite] Native binary v${SQLITE3_VERSION} installed at: ${binaryPath}`);
-    return binaryPath;
 }
 
 /**
@@ -316,35 +345,50 @@ export async function ensureSqliteNativeBinary(
         );
     }
 
-    // Download with blocking progress dialog
-    const result = await vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Setting up Codex Editor",
-            cancellable: false,
-        },
-        async (progress) => {
-            progress.report({
-                message: "Downloading search engine components... (one-time setup)",
-            });
+    // If another call is already downloading, piggyback on that promise
+    // to avoid concurrent extractions into the same directory
+    if (downloadInProgress) {
+        console.log("[SQLite] Download already in progress — waiting for it to finish");
+        return downloadInProgress;
+    }
 
-            try {
-                const downloadedPath = await downloadBinary(context, platformKey);
-                progress.report({ message: "Search engine ready!" });
-                return downloadedPath;
-            } catch (error) {
-                const msg = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(
-                    `Failed to download SQLite native binary: ${msg}. ` +
-                    `Database features (dictionary, search index) will be unavailable.`
-                );
-                throw error;
+    // Download with blocking progress dialog.
+    // Wrap in Promise.resolve() because vscode.window.withProgress returns Thenable, not Promise.
+    downloadInProgress = Promise.resolve(
+        vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Setting up Codex Editor",
+                cancellable: false,
+            },
+            async (progress) => {
+                progress.report({
+                    message: "Downloading search engine components... (one-time setup)",
+                });
+
+                try {
+                    const downloadedPath = await downloadBinary(context, platformKey);
+                    progress.report({ message: "Search engine ready!" });
+                    return downloadedPath;
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(
+                        `Failed to download SQLite native binary: ${msg}. ` +
+                        `Database features (dictionary, search index) will be unavailable.`
+                    );
+                    throw error;
+                }
             }
-        }
+        )
     );
 
-    cachedBinaryPath = result;
-    return result;
+    try {
+        const result = await downloadInProgress;
+        cachedBinaryPath = result;
+        return result;
+    } finally {
+        downloadInProgress = null;
+    }
 }
 
 /**

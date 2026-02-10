@@ -101,6 +101,10 @@ function normalizeMethod(
     fn: (statement: NativeStatement, params: any[]) => any
 ): (this: any, sql: string, ...args: any[]) => any {
     return function (this: any, sql: string, ...rest: any[]) {
+        if (!binding) {
+            throw new Error("SQLite native module not initialized. Call initNativeSqlite(binaryPath) first.");
+        }
+
         let errBack: ((err: Error) => void) | undefined;
         const args = rest.slice();
 
@@ -113,7 +117,7 @@ function normalizeMethod(
             };
         }
 
-        const statement = new binding!.Statement(this, sql, errBack);
+        const statement = new binding.Statement(this, sql, errBack);
         return fn.call(this, statement, args);
     };
 }
@@ -222,11 +226,20 @@ export function initNativeSqlite(binaryPath: string): void {
 
     console.log(`[SQLite] Loading native binding from: ${binaryPath}`);
 
-    // Use the real Node.js require (not webpack's __webpack_require__)
-    // to dynamically load the .node native addon at runtime.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, no-eval
-    const nodeRequire = eval("require") as NodeRequire;
-    const loadedBinding = nodeRequire(binaryPath) as NativeBinding;
+    let loadedBinding: NativeBinding;
+    try {
+        // Use the real Node.js require (not webpack's __webpack_require__)
+        // to dynamically load the .node native addon at runtime.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires, no-eval
+        const nodeRequire = eval("require") as NodeRequire;
+        loadedBinding = nodeRequire(binaryPath) as NativeBinding;
+    } catch (loadError) {
+        const msg = loadError instanceof Error ? loadError.message : String(loadError);
+        throw new Error(
+            `Failed to load SQLite native binary at ${binaryPath}: ${msg}. ` +
+            `The binary may be corrupt, missing, or incompatible with this platform/architecture.`
+        );
+    }
 
     if (!loadedBinding || !loadedBinding.Database) {
         throw new Error(
@@ -412,7 +425,11 @@ export class AsyncDatabase {
                     if (err) {
                         reject(err);
                     } else {
-                        rowCallback(row as T);
+                        try {
+                            rowCallback(row as T);
+                        } catch (callbackErr) {
+                            reject(callbackErr instanceof Error ? callbackErr : new Error(String(callbackErr)));
+                        }
                     }
                 },
                 (err: Error | null, count: number) => {
