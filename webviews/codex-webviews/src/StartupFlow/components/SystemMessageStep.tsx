@@ -275,7 +275,7 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                                     height: `${ICON_SIZE}px`,
                                     marginLeft: ICON_LEFT_MARGIN,
                                 }}></i>
-                                <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Generate Automatically</span>
+                                <span style={{ paddingLeft: TEXT_LEFT_PADDING }}>Generate</span>
                             </span>
                         )}
                     </VSCodeButton>
