@@ -47,7 +47,6 @@ import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/cod
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
-import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import {
     migration_addValidationsForUserEdits,
