@@ -288,7 +288,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
     | { command: "project.cleanupMediaFiles"; projectPath: string; }
     | { command: "project.fixAndOpen"; projectPath: string; }
-    | { command: "project.performSwap"; projectPath: string; };
+    | { command: "project.performSwap"; projectPath: string; }
+    | { command: "systemMessage.generate"; }
+    | { command: "systemMessage.save"; message: string; };
 
 export type GitLabProject = {
     id: number;
@@ -367,6 +369,10 @@ export type MessagesFromStartupFlowProvider =
         data: {
             exists: boolean;
             hasCriticalData: boolean;
+            sourceLanguage?: any;
+            targetLanguage?: any;
+            sourceTexts?: string[];
+            chatSystemMessage?: string | null;
         };
     }
     | { command: "setupIncompleteCriticalDataMissing"; }
@@ -385,7 +391,11 @@ export type MessagesFromStartupFlowProvider =
         isOldProject: boolean;
         newProjectName?: string;
         message: string;
-    };
+    }
+    | { command: "systemMessage.generated"; message: string; }
+    | { command: "systemMessage.generateError"; error: string; }
+    | { command: "systemMessage.saved"; }
+    | { command: "systemMessage.saveError"; error: string; };
 
 type DictionaryPostMessages =
     | {
