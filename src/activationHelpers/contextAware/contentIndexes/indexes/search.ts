@@ -460,7 +460,7 @@ export async function searchAllCells(
     // Normal search mode - search translation pairs with both source and target
     // Note: searchScope is "both" here since "source" and "target" return early above
     // Use the optimized SQLite method for complete pairs, then add incomplete pairs if needed
-    let translationPairs: TranslationPair[] = [];
+    let results: TranslationPair[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         // Determine search mode
@@ -495,7 +495,7 @@ export async function searchAllCells(
         }));
     }
 
-    let combinedResults: TranslationPair[] = translationPairs;
+    let combinedResults: TranslationPair[] = results;
 
     if (includeIncomplete) {
         // If we're including incomplete pairs, also search source-only cells
@@ -530,7 +530,7 @@ export async function searchAllCells(
             .filter((pair: TranslationPair) => matchesSelectedFiles(pair)) // Filter by selected files
             // Only include source-only cells that aren't already in translationPairs
             .filter((sourcePair: TranslationPair) => 
-                !translationPairs.some(tp => tp.cellId === sourcePair.cellId)
+                !results.some(result => result.cellId === sourcePair.cellId)
             );
 
         combinedResults = [...combinedResults, ...sourceOnlyCells];
