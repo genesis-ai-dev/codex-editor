@@ -10,6 +10,11 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "../../../components/ui/tooltip";
 
 interface ParsedProjectInfo {
     groups: string[];
@@ -34,9 +39,9 @@ interface ProjectCardProps {
         title: string;
         className: string;
     };
-    isProgressDataLoaded?: boolean;
     isAnyOperationApplying?: boolean;
     isOnline?: boolean;
+    currentUsername?: string;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({
@@ -51,34 +56,48 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     statusChangedProjects,
     parseProjectUrl,
     getStatusIcon,
-    isProgressDataLoaded = false,
     isAnyOperationApplying = false,
     isOnline = true,
+    currentUsername,
 }) => {
     const [mediaStrategy, setMediaStrategy] = useState<MediaFilesStrategy>(
         project.mediaStrategy || "auto-download"
     );
     const [pendingStrategy, setPendingStrategy] = useState<MediaFilesStrategy | null>(null);
     const [previousStrategy, setPreviousStrategy] = useState<MediaFilesStrategy | null>(null);
-    const [isHealing, setIsHealing] = useState<boolean>(false);
+    const [isUpdating, setIsUpdating] = useState<boolean>(false);
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [isOpening, setIsOpening] = useState<boolean>(false);
+    const [isVerifying, setIsVerifying] = useState<boolean>(false);
+    const [isRenaming, setIsRenaming] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
+    const [zipProgress, setZipProgress] = useState<number>(0);
     const [isCleaning, setIsCleaning] = useState<boolean>(false);
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
         useState<boolean>(false);
-    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(
+    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(
         project.syncStatus
     );
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
+
+    // Check if this project has an active swap that was initiated by the current user
+    // If so, the media strategy dropdown should be disabled (initiator must have auto-download)
+    const activeSwapEntry = project.projectSwap?.swapEntries?.find(
+        (entry) => entry.swapStatus === "active" && entry.isOldProject
+    );
+    const isSwapInitiator = activeSwapEntry && currentUsername && activeSwapEntry.swapInitiatedBy === currentUsername;
+    const disableMediaStrategyForSwap = isSwapInitiator;
+
     const disableControls =
         isAnyOperationApplying ||
         isChangingStrategy ||
-        isHealing ||
+        isUpdating ||
         isCloning ||
         isOpening ||
+        isVerifying ||
+        isRenaming ||
         isZipping ||
         isZippingMini ||
         isCleaning ||
@@ -173,9 +192,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 setPreviousStrategy(null); // Clear previous strategy after handling result
                 userInitiatedStrategyChangeRef.current = false;
             }
-            if (msg?.command === "project.healingInProgress") {
+            if (msg?.command === "project.updatingInProgress") {
                 if (msg.projectPath === project.path) {
-                    setIsHealing(msg.healing);
+                    setIsUpdating(msg.updating);
                 }
                 return;
             }
@@ -201,11 +220,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             if (msg?.command === "project.openingInProgress") {
                 if (msg.projectPath === project.path) {
                     setIsOpening(msg.opening);
+                    setIsVerifying(!!msg.verifying);
                     // Clear strategy applying state when opening completes
                     if (!msg.opening) {
                         setIsApplyingStrategyDuringOtherOp(false);
                         userInitiatedStrategyChangeRef.current = false;
                     }
+                }
+                return;
+            }
+            if (msg?.command === "project.renamingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsRenaming(msg.renaming);
                 }
                 return;
             }
@@ -215,6 +241,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         setIsZipping(msg.zipping);
                     } else if (msg.zipType === "mini") {
                         setIsZippingMini(msg.zipping);
+                    }
+                    // Update progress percentage
+                    if (msg.zipping && msg.percent !== undefined) {
+                        setZipProgress(msg.percent);
+                    } else if (!msg.zipping) {
+                        setZipProgress(0); // Reset on completion
                     }
                 }
                 return;
@@ -233,8 +265,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const renderMediaStrategyDropdown = () => {
         // Highlight dropdown when strategy is being changed/applied (either explicitly or during open/clone)
         const isStrategyHighlighted = isChangingStrategy || isApplyingStrategyDuringOtherOp;
+        // Disable media strategy changes if user is swap initiator (must keep auto-download until swap completes)
+        const isDisabled = disableControls || disableMediaStrategyForSwap;
 
-        return (
+        const dropdown = (
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button
@@ -243,10 +277,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         className={cn(
                             "h-6 text-xs px-2",
                             isStrategyHighlighted &&
-                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm",
+                            disableMediaStrategyForSwap && "opacity-60 cursor-not-allowed"
                         )}
-                        disabled={disableControls}
-                        title="Media Files Download Strategy"
+                        disabled={isDisabled}
                     >
                         {isChangingStrategy ? (
                             <>
@@ -268,7 +302,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             "text-xs cursor-pointer",
                             mediaStrategy === "auto-download" && "bg-accent"
                         )}
-                        disabled={disableControls}
+                        disabled={isDisabled}
                     >
                         <i className="codicon codicon-cloud-download mr-2" />
                         Auto Download Media
@@ -279,7 +313,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             "text-xs cursor-pointer",
                             mediaStrategy === "stream-and-save" && "bg-accent"
                         )}
-                        disabled={disableControls}
+                        disabled={isDisabled}
                     >
                         <i className="codicon codicon-cloud-upload mr-2" />
                         Stream & Save
@@ -290,7 +324,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             "text-xs cursor-pointer",
                             mediaStrategy === "stream-only" && "bg-accent"
                         )}
-                        disabled={disableControls}
+                        disabled={isDisabled}
                     >
                         <i className="codicon codicon-play-circle mr-2" />
                         Stream Only
@@ -298,36 +332,93 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 </DropdownMenuContent>
             </DropdownMenu>
         );
+
+        // Wrap in tooltip when disabled due to swap initiation
+        if (disableMediaStrategyForSwap) {
+            return (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <span className="inline-block">
+                            {dropdown}
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                        Media strategy locked - you initiated this swap and must keep Auto Download
+                    </TooltipContent>
+                </Tooltip>
+            );
+        }
+
+        return dropdown;
     };
 
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
         const isRemote = project.syncStatus === "cloudOnlyNotSynced";
+        const hasPendingUpdate = project.pendingUpdate?.required;
+        const isSwapPending =
+            !!project.projectSwap &&
+            project.projectSwap.isOldProject &&
+            project.projectSwap?.swapStatus === "active";
 
         if (isLocal) {
             return (
                 <div className="flex gap-1 items-center">
                     {renderMediaStrategyDropdown()}
                     <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        onClick={() => onOpenProject(project)}
+                        onClick={() => {
+                            if (isSwapPending) {
+                                vscode.postMessage({
+                                    command: "project.performSwap",
+                                    projectPath: project.path,
+                                });
+                            } else if (project.syncStatus === "orphaned") {
+                                vscode.postMessage({
+                                    command: "project.fixAndOpen",
+                                    projectPath: project.path,
+                                });
+                            } else {
+                                onOpenProject(project);
+                            }
+                        }}
                         className={cn(
                             "h-6 text-xs px-2",
-                            (isChangingStrategy || isOpening || isHealing) &&
+                            (isChangingStrategy || isOpening || isUpdating) &&
                                 "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
                     >
-                        {isHealing ? (
+                        {isUpdating ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Healing...
+                                Updating...
+                            </>
+                        ) : isVerifying ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Verifying...
                             </>
                         ) : isOpening ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
                                 Opening...
+                            </>
+                        ) : hasPendingUpdate ? (
+                            <>
+                                <i className="codicon codicon-sync mr-1" />
+                                Update
+                            </>
+                        ) : isSwapPending ? (
+                            <>
+                                <i className="codicon codicon-arrow-swap mr-1" />
+                                Swap Project
+                            </>
+                        ) : project.syncStatus === "orphaned" ? (
+                            <>
+                                <i className="codicon codicon-tools mr-1" />
+                                Fix & Open
                             </>
                         ) : (
                             <>
@@ -349,7 +440,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         size="sm"
                         onClick={() => onCloneProject({ ...project, mediaStrategy })}
                         className={cn(
-                            "h-6 text-xs px-2",
+                            "h-6 text-xs px-2 border",
                             (isChangingStrategy || isCloning) &&
                                 "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
@@ -382,8 +473,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         const isExpanded = expandedProjects[project.name];
         const isNewlyAdded = newlyAddedProjects.has(project.name);
         const isStatusChanged = statusChangedProjects.has(project.name);
+        const isUpdateRequired = project.pendingUpdate?.required;
 
         const isApplyingForThisProject = isChangingStrategy;
+        const swapNewName =
+            project.projectSwap &&
+            project.projectSwap.isOldProject &&
+            project.projectSwap?.swapStatus === "active"
+                ? project.projectSwap.newProjectName || project.projectSwap.newProjectUrl
+                : undefined;
+
         return (
             <div
                 key={`${project.name}-${project.gitOriginUrl || "no-url"}`}
@@ -391,7 +490,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     "flex items-center justify-between py-2 px-3 transition-colors duration-200 border-b last:border-b-0",
                     !isApplyingForThisProject && "hover:bg-muted/30",
                     isNewlyAdded && "bg-blue-50/50",
-                    isStatusChanged && "bg-green-50/50"
+                            isStatusChanged && "bg-green-50/50",
+                            disableControls && "opacity-50 pointer-events-none"
                 )}
             >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -407,12 +507,24 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         />
                     </div>
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="font-normal truncate transition-colors duration-200 text-sm">
-                            {project.name || cleanName}
-                        </span>
+                        <div className="flex flex-col min-w-0">
+                            <span className="font-normal truncate transition-colors duration-200 text-sm">
+                                {project.name || cleanName}
+                            </span>
+                            {swapNewName && (
+                                <span className="text-xs text-muted-foreground truncate">
+                                    New project: {swapNewName}
+                                </span>
+                            )}
+                        </div>
                         {isUnpublished && (
                             <Badge variant="outline" className="text-xs px-1 py-0">
-                                Unpublished
+                                Unsynced
+                            </Badge>
+                        )}
+                        {project.syncStatus === "orphaned" && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-amber-50 text-amber-700 border-amber-300 whitespace-nowrap">
+                                Remote Missing
                             </Badge>
                         )}
                         {isNewlyAdded && (
@@ -431,29 +543,19 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 Updated
                             </Badge>
                         )}
+                        {isUpdateRequired && (
+                            <Badge
+                                variant="default"
+                                className="text-xs bg-amber-500 text-amber-50 border-amber-500"
+                                title={project.pendingUpdate?.reason || "Project administrator requires update"}
+                            >
+                                Update required
+                            </Badge>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    {project.completionPercentage !== undefined ? (
-                        <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-muted-foreground">
-                                {project.completionPercentage.toFixed(0)}%
-                            </span>
-                            <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-green-500 transition-all duration-500 ease-out"
-                                    style={{
-                                        width: `${Math.min(project.completionPercentage, 100)}%`,
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    ) : !isProgressDataLoaded ? (
-                        <div className="flex items-center gap-1">
-                            <Skeleton className="h-3 w-5" />
-                            <Skeleton className="h-1.5 w-12" />
-                        </div>
-                    ) : null}
+                    {/* Progress data currently disabled */}
                     {renderProjectActions(project)}
                     {(displayUrl || onDeleteProject) && (
                         <Button
@@ -485,7 +587,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (!project) return null;
         const { cleanName,displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isExpanded = expandedProjects[project.name];
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+        // Include orphaned (Remote Missing) projects as local since they exist on disk
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
 
         if (!isExpanded || (!displayUrl && !onDeleteProject)) return null;
 
@@ -568,37 +671,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     size="sm"
                                     onClick={() => {
                                         vscode.postMessage({
-                                            command: "project.heal",
-                                            projectName: project.name,
-                                            projectPath: project.path,
-                                            gitOriginUrl: project.gitOriginUrl,
-                                        });
-                                    }}
-                                    className={cn(
-                                        "h-6 text-xs text-yellow-600 hover:text-yellow-700",
-                                        isHealing &&
-                                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
-                                    )}
-                                    disabled={disableControls || !isOnline}
-                                    title="Heal project by backing up, re-cloning, and merging local changes"
-                                >
-                                    {isHealing ? (
-                                        <>
-                                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                            Cloning...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <i className="codicon codicon-heart mr-1" />
-                                            Heal
-                                        </>
-                                    )}
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                        vscode.postMessage({
                                             command: "zipProject",
                                             projectName: project.name,
                                             projectPath: project.path,
@@ -615,7 +687,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     {isZipping ? (
                                         <>
                                             <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                            Zipping...
+                                            {zipProgress > 0 ? `${zipProgress}%` : "Zipping..."}
                                         </>
                                     ) : (
                                         <>
@@ -644,7 +716,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     {isZippingMini ? (
                                         <>
                                             <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                            Zipping...
+                                            {zipProgress > 0 ? `${zipProgress}%` : "Zipping..."}
                                         </>
                                     ) : (
                                         <>

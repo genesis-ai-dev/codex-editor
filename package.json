@@ -9,12 +9,12 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.16.0",
+    "version": "0.19.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
     },
-    "categories": [ 
+    "categories": [
         "Other"
     ],
     "activationEvents": [
@@ -162,18 +162,33 @@
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor-extension.submitProgressReport",
-                "title": "Submit Progress Report",
+                "command": "codex-editor.initiateRemoteUpdating",
+                "title": "Initiate Remote Update",
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.initiateRemoteHealing",
-                "title": "Initiate Remote Healing",
+                "command": "codex-editor.viewRemoteUpdatingList",
+                "title": "View Remote Update List",
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.viewRemoteHealingList",
-                "title": "View Remote Healing List",
+                "command": "codex-editor.initiateProjectSwap",
+                "title": "Project Swap - Initiate Swap (Step 2)",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.initiateSwapCopy",
+                "title": "Project Swap - Copy to New Project (Step 1)",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.viewProjectSwapStatus",
+                "title": "Project Swap - View Status",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.cancelProjectSwap",
+                "title": "Project Swap - Cancel Swap",
                 "category": "Codex Editor"
             },
             {
@@ -821,13 +836,13 @@
                     },
                     "codex-editor-extension.llmEndpoint": {
                         "type": "string",
-                        "default": "https://api.openai.com/v1",
-                        "description": "The endpoint for the completion API. Currently only supports OpenAI API, or openai-compatible local endpoints such as LM Studio, etc."
+                        "default": "https://api.frontierrnd.com/api/v1",
+                        "description": "The endpoint for the completion API. Defaults to Frontier API. Supports OpenAI-compatible endpoints."
                     },
                     "codex-editor-extension.wsEndpoint": {
                         "type": "string",
-                        "default": "wss://api.openai.com/v1/chat/completions",
-                        "description": "The endpoint for the realtime chat API. Currently only supports OpenAI API."
+                        "default": "wss://api.frontierrnd.com/api/v1/realtime",
+                        "description": "The endpoint for the realtime chat API."
                     },
                     "codex-editor-extension.model": {
                         "title": "LLM Model",
@@ -1039,6 +1054,7 @@
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
         "@testing-library/webdriverio": "^3.0.0",
+        "@types/archiver": "^7.0.0",
         "@types/copy-webpack-plugin": "^8.0.1",
         "@types/diff": "^5.2.3",
         "@types/glob": "^7.1.1",
@@ -1112,6 +1128,7 @@
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "animejs": "^3.2.1",
+        "archiver": "^7.0.1",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
         "copy-webpack-plugin": "^12.0.2",

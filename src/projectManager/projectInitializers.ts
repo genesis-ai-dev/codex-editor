@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { getProjectMetadata } from "../utils";
 import { LanguageProjectStatus } from "codex-types";
 import * as path from "path";
+import git from "isomorphic-git";
+import fs from "fs";
 import {
     createProjectCommentFiles,
     createProjectNotebooks,
@@ -109,8 +111,19 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                 }
                 const projectFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
                 const fileData = await vscode.workspace.fs.readFile(projectFilePath);
-                const metadata = JSON.parse(fileData.toString());
+                // Auto-fix metadata structure (scope, name) using shared utility
+                try {
+                    const { validateAndFixProjectMetadata } = await import("./utils/projectUtils");
+                    await validateAndFixProjectMetadata(workspaceFolder.uri);
+                } catch (e) {
+                    console.error("Failed to auto-fix metadata:", e);
+                }
+
+                // Read metadata (refreshed)
+                const fileDataRefreshed = await vscode.workspace.fs.readFile(projectFilePath);
+                const metadata = JSON.parse(fileDataRefreshed.toString());
                 const projectScope = metadata?.type?.flavorType?.currentScope;
+
                 if (!projectScope) {
                     vscode.window.showErrorMessage(
                         "Failed to initialize new project: project scope not found."
@@ -152,6 +165,69 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                 }
 
                 progress.report({ increment: 50, message: "Setting up GitHub repository..." });
+
+                // Check and initialize git if missing
+                try {
+                    const workspacePath = workspaceFolder.uri.fsPath;
+                    let isGitInitialized = false;
+                    try {
+                        await git.resolveRef({
+                            fs,
+                            dir: workspacePath,
+                            ref: "HEAD",
+                        });
+                        isGitInitialized = true;
+                    } catch {
+                        // Not initialized
+                    }
+
+                    if (!isGitInitialized) {
+                        await git.init({
+                            fs,
+                            dir: workspacePath,
+                            defaultBranch: "main",
+                        });
+
+                        // Dynamically import to avoid circular dependency
+                        const { ensureGitConfigsAreUpToDate, ensureGitDisabledInSettings } = await import("./utils/projectUtils");
+                        await ensureGitConfigsAreUpToDate();
+                        await ensureGitDisabledInSettings();
+
+                        await git.add({
+                            fs,
+                            dir: workspacePath,
+                            filepath: "metadata.json",
+                        });
+
+                        if (fs.existsSync(path.join(workspacePath, ".gitignore"))) {
+                            await git.add({ fs, dir: workspacePath, filepath: ".gitignore" });
+                        }
+                        if (fs.existsSync(path.join(workspacePath, ".gitattributes"))) {
+                            await git.add({ fs, dir: workspacePath, filepath: ".gitattributes" });
+                        }
+
+                        const { getAuthApi } = await import("../extension");
+                        const authApi = getAuthApi();
+                        let userInfo;
+                        if (authApi?.getAuthStatus()?.isAuthenticated) {
+                            userInfo = await authApi.getUserInfo();
+                        }
+
+                        await git.commit({
+                            fs,
+                            dir: workspacePath,
+                            message: "Initial commit",
+                            author: {
+                                name: userInfo?.username || "Codex User",
+                                email: userInfo?.email || "user@example.com"
+                            }
+                        });
+                        console.log("Initialized git repository and created initial commit.");
+                    }
+                } catch (error) {
+                    console.error("Error initializing git repository:", error);
+                    vscode.window.showErrorMessage(`Failed to initialize git repository: ${error}`);
+                }
 
                 const shouldOverWrite =
                     overwriteSelection === ConfirmationOptions.Yes ||

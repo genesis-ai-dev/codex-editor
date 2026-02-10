@@ -59,14 +59,16 @@ suite("VTT round-trip integration (mock VTT fixtures)", function () {
         assert.strictEqual(targetImport.success, true, "Expected target VTT import success");
         assert.ok(targetImport.notebookPair, "Expected target notebookPair from VTT importer");
 
-        const targetCells = sourceImport.notebookPair!.codex.cells.map((cell) => ({
-            kind: 1,
-            languageId: "html",
-            value: cell.content ?? "",
-            metadata: cell.metadata,
-        })) as CustomNotebookCellData[];
+        const targetCells: CustomNotebookCellData[] = sourceImport.notebookPair!.codex.cells.map(
+            (cell) => ({
+                kind: 1,
+                languageId: "html",
+                value: cell.content ?? "",
+                metadata: cell.metadata as CustomNotebookCellData["metadata"],
+            })
+        );
         const milestoneTarget = targetCells.find(
-            (cell: CustomNotebookCellData) => cell.metadata?.type === CodexCellTypes.MILESTONE
+            (cell) => cell.metadata?.type === CodexCellTypes.MILESTONE
         );
         assert.ok(milestoneTarget, "Expected milestone cell in target notebook");
 
@@ -74,13 +76,13 @@ suite("VTT round-trip integration (mock VTT fixtures)", function () {
         const aligned = await subtitlesCellAligner(targetCells, [], importedContent);
 
         const preservedMilestone = aligned.find(
-            (cell: AlignedCell) => cell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE
+            (cell) => cell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE
         );
         assert.ok(preservedMilestone, "Expected milestone cell to be preserved during alignment");
 
         const milestoneId = milestoneTarget.metadata?.id;
         const paratextFromMilestone = aligned.find(
-            (cell: AlignedCell) =>
+            (cell) =>
                 cell.isParatext === true &&
                 cell.importedContent?.parentId === milestoneId &&
                 cell.importedContent?.content?.trim() === "1"
@@ -97,7 +99,7 @@ suite("VTT round-trip integration (mock VTT fixtures)", function () {
             }
         });
 
-        const alignedTextCell = aligned.find((cell: AlignedCell) => {
+        const alignedTextCell = aligned.find((cell) => {
             const start = cell.notebookCell?.metadata?.data?.startTime;
             return typeof start === "number" && cell.notebookCell?.metadata?.type === CodexCellTypes.TEXT;
         });
