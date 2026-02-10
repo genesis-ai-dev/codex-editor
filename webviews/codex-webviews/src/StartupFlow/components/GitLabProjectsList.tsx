@@ -25,6 +25,7 @@ interface GitLabProjectsListProps {
     onOpenProject: (project: ProjectWithSyncStatus) => void;
     onDeleteProject?: (project: ProjectWithSyncStatus) => void;
     isLoading: boolean;
+    isRefreshing?: boolean;
     vscode: any;
     disableAllActions?: boolean;
     currentUsername?: string;
@@ -61,6 +62,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     onOpenProject,
     onDeleteProject,
     isLoading,
+    isRefreshing = false,
     vscode,
     disableAllActions = false,
     currentUsername,
@@ -465,6 +467,13 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 vscode={vscode}
                 disabled={isLocked}
             />
+
+            {isRefreshing && (
+                <div className="flex items-center gap-2 px-3 py-1.5 mx-3 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-md animate-pulse">
+                    <i className="codicon codicon-loading codicon-modifier-spin" />
+                    Reconnected — refreshing projects list...
+                </div>
+            )}
 
             {isLoading ? (
                 <div className="p-3 space-y-3 flex-1 overflow-y-auto">

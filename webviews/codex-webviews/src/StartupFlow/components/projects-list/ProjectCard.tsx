@@ -482,35 +482,53 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         }
 
         if (isRemote) {
+            const isOfflineClone = !isOnline;
+            const cloneButton = (
+                <Button
+                    variant={isOfflineClone ? "destructive" : "secondary"}
+                    size="sm"
+                    onClick={() => {
+                        if (isOfflineClone) return;
+                        setIsCloning(true);
+                        onCloneProject({ ...project, mediaStrategy });
+                    }}
+                    className={cn(
+                        "h-6 text-xs px-2 border",
+                        isOfflineClone && "opacity-70 cursor-not-allowed",
+                        (isChangingStrategy || isCloning) &&
+                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                    )}
+                    disabled={disableControls || isOfflineClone}
+                >
+                    {isCloning ? (
+                        <>
+                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                            Cloning...
+                        </>
+                    ) : (
+                        <>
+                            <i className={cn("codicon mr-1", isOfflineClone ? "codicon-cloud-offline" : "codicon-arrow-circle-down")} />
+                            Clone
+                        </>
+                    )}
+                </Button>
+            );
+
             return (
                 <div className="flex gap-1 items-center">
                     {renderMediaStrategyDropdown()}
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                            setIsCloning(true);
-                            onCloneProject({ ...project, mediaStrategy });
-                        }}
-                        className={cn(
-                            "h-6 text-xs px-2 border",
-                            (isChangingStrategy || isCloning) &&
-                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
-                        )}
-                        disabled={disableControls}
-                    >
-                        {isCloning ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Cloning...
-                            </>
-                        ) : (
-                            <>
-                                <i className="codicon codicon-arrow-circle-down mr-1" />
-                                Clone
-                            </>
-                        )}
-                    </Button>
+                    {isOfflineClone ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="inline-block">{cloneButton}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                                Can't clone while offline
+                            </TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        cloneButton
+                    )}
                 </div>
             );
         }
