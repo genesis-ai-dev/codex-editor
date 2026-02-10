@@ -171,9 +171,17 @@ export class SQLiteIndexManager {
 
                 // Open the existing file directly - no buffer loading needed
                 this.db = await AsyncDatabase.open(this.dbPath);
+
+                // Apply production PRAGMAs on every open (not just schema creation).
+                // WAL is persisted in the file, but all other PRAGMAs are per-connection.
+                await this.applyProductionPragmas();
+
                 stepStart = this.trackProgress("Parse database structure", stepStart);
 
                 debug("Loaded existing index database");
+
+                // Run a quick integrity check to catch corruption early
+                await this.quickIntegrityCheck();
 
                 // Ensure schema is up to date
                 await this.ensureSchema();
@@ -208,6 +216,7 @@ export class SQLiteIndexManager {
                 stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
                 debug("Creating new index database");
                 this.db = await AsyncDatabase.open(this.dbPath);
+                await this.applyProductionPragmas();
 
                 await this.createSchema();
 
@@ -222,6 +231,7 @@ export class SQLiteIndexManager {
             stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
             debug("Creating new index database");
             this.db = await AsyncDatabase.open(this.dbPath);
+            await this.applyProductionPragmas();
 
             await this.createSchema();
 
@@ -235,12 +245,71 @@ export class SQLiteIndexManager {
         this.trackProgress("AI learning space ready", loadStart);
     }
 
+    /**
+     * Apply production-grade PRAGMAs to every database connection.
+     * WAL mode is persisted in the file, but all other PRAGMAs are per-connection
+     * and must be re-applied every time the database is opened.
+     */
+    private async applyProductionPragmas(): Promise<void> {
+        if (!this.db) return;
+
+        // WAL mode — best for read-heavy workloads with occasional writes.
+        // Persisted in the file, but safe to re-issue (no-op if already WAL).
+        await this.db.exec("PRAGMA journal_mode = WAL");
+
+        // synchronous=NORMAL is safe with WAL (data survives process crashes;
+        // only an OS crash can lose the most recent transaction).
+        // Default is FULL which doubles fsync overhead for negligible safety gain with WAL.
+        await this.db.exec("PRAGMA synchronous = NORMAL");
+
+        // 8 MB page cache — covers typical hot working set for 1500+ cell documents
+        await this.db.exec("PRAGMA cache_size = -8000");
+
+        // Store temp tables and indexes in memory (faster sorts / GROUP BY)
+        await this.db.exec("PRAGMA temp_store = MEMORY");
+
+        // Enable foreign key enforcement
+        await this.db.exec("PRAGMA foreign_keys = ON");
+
+        // Busy timeout: wait up to 5 seconds for locks instead of failing immediately.
+        // Prevents SQLITE_BUSY when another connection/process touches the file.
+        this.db.configure("busyTimeout", 5000);
+
+        debug("[SQLiteIndex] Production PRAGMAs applied (WAL, sync=NORMAL, cache=8MB, busyTimeout=5s)");
+    }
+
+    /**
+     * Run a lightweight integrity check on startup.
+     * PRAGMA quick_check is much faster than full integrity_check (~100ms vs seconds)
+     * and catches the most common corruption patterns (page-level checksums, freelist).
+     * If corruption is detected, the database file is deleted so the caller can recreate it.
+     */
+    private async quickIntegrityCheck(): Promise<void> {
+        if (!this.db) return;
+
+        try {
+            const result = await this.db.get<{ integrity_check: string }>(
+                "PRAGMA quick_check(1)"
+            );
+            if (result && result.integrity_check !== "ok") {
+                console.error(`[SQLiteIndex] Integrity check failed: ${result.integrity_check}`);
+                throw new Error(`database corruption detected by quick_check: ${result.integrity_check}`);
+            }
+            debug("[SQLiteIndex] Quick integrity check passed");
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            // If this is our own corruption error or any DB error, let the caller's
+            // corruption handler take over (it will delete + recreate)
+            throw new Error(`database corruption: ${msg}`);
+        }
+    }
+
     private async createSchema(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
         const schemaStart = globalThis.performance.now();
 
-        // Optimize database for faster creation (OUTSIDE of transaction)
+        // Temporarily override PRAGMAs for fast bulk creation (OUTSIDE of transaction)
         debug("Optimizing database settings for fast creation...");
         await this.db.exec("PRAGMA synchronous = OFF");        // Disable fsync for speed
         await this.db.exec("PRAGMA journal_mode = MEMORY");     // Use memory journal
@@ -535,6 +604,7 @@ export class SQLiteIndexManager {
                 if (this.dbPath) {
                     try { await vscode.workspace.fs.delete(vscode.Uri.file(this.dbPath)); } catch { /* ignore */ }
                     this.db = await AsyncDatabase.open(this.dbPath);
+                    await this.applyProductionPragmas();
                 } else {
                     throw new Error("Database path not set");
                 }
@@ -589,6 +659,9 @@ export class SQLiteIndexManager {
         }
 
         await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+
+        // Reclaim space left by dropped tables
+        await this.vacuum();
     }
 
     private async getSchemaVersion(): Promise<number> {
@@ -1504,31 +1577,35 @@ export class SQLiteIndexManager {
         };
     }
 
-    // Update word index for a cell
+    // Update word index for a cell — batched in a single transaction for performance.
+    // Previously each word was a separate auto-committed INSERT (N+1 problem);
+    // wrapping in a transaction reduces disk I/O from N fsync calls to 1.
     async updateWordIndex(cellId: string, content: string): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        // Clear existing words for this cell (cell_id is now TEXT)
-        await this.db.run("DELETE FROM words WHERE cell_id = ?", [cellId]);
-
-        // Add new words
+        // Tokenize and count
         const words = content
             .toLowerCase()
             .split(/\s+/)
             .filter((w) => w.length > 0);
         const wordCounts = new Map<string, number>();
-
-        words.forEach((word, position) => {
+        for (const word of words) {
             wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
-        });
-
-        let position = 0;
-        for (const [word, frequency] of wordCounts) {
-            await this.db.run(
-                "INSERT INTO words (word, cell_id, position, frequency) VALUES (?, ?, ?, ?)",
-                [word, cellId, position++, frequency]
-            );
         }
+
+        await this.runInTransaction(async () => {
+            // Clear existing words for this cell
+            await this.db!.run("DELETE FROM words WHERE cell_id = ?", [cellId]);
+
+            // Batch insert all words inside the same transaction
+            let position = 0;
+            for (const [word, frequency] of wordCounts) {
+                await this.db!.run(
+                    "INSERT INTO words (word, cell_id, position, frequency) VALUES (?, ?, ?, ?)",
+                    [word, cellId, position++, frequency]
+                );
+            }
+        });
     }
 
     /**
@@ -2312,6 +2389,16 @@ export class SQLiteIndexManager {
         this.currentProgressStartTime = null;
         this.progressTimings = [];
 
+        // Checkpoint WAL to merge it back into the main database file before closing.
+        // TRUNCATE mode resets the WAL file to zero bytes, keeping the directory tidy.
+        if (this.db) {
+            try {
+                await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+            } catch {
+                // Non-critical — WAL will be checkpointed on next open
+            }
+        }
+
         // Close database connection
         if (this.db) {
             try {
@@ -2322,6 +2409,42 @@ export class SQLiteIndexManager {
                 console.error("[SQLiteIndex] Error during database close:", error);
                 this.db = null;
             }
+        }
+    }
+
+    /**
+     * Checkpoint the WAL file to keep it from growing unboundedly.
+     * Call after large batch operations (sync, rebuild, etc.).
+     */
+    async walCheckpoint(): Promise<void> {
+        if (!this.db) return;
+        try {
+            await this.db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+            debug("[SQLiteIndex] WAL checkpoint completed");
+        } catch (error) {
+            // Non-critical — SQLite's autocheckpoint will handle it eventually
+            debug("[SQLiteIndex] WAL checkpoint failed (non-critical):", error);
+        }
+    }
+
+    /**
+     * Reclaim disk space by rebuilding the database file.
+     * VACUUM rewrites the entire DB into a compact form, eliminating free pages
+     * left by deleted rows. This is an expensive operation (~seconds for large DBs)
+     * and should only be called infrequently (e.g., after schema recreation, large
+     * deletions, or on explicit user request).
+     *
+     * NOTE: VACUUM cannot run inside a transaction and temporarily doubles disk usage.
+     */
+    async vacuum(): Promise<void> {
+        if (!this.db) return;
+        try {
+            const start = globalThis.performance.now();
+            await this.db.exec("VACUUM");
+            const elapsed = globalThis.performance.now() - start;
+            debug(`[SQLiteIndex] VACUUM completed in ${elapsed.toFixed(0)}ms`);
+        } catch (error) {
+            console.warn("[SQLiteIndex] VACUUM failed (non-critical):", error);
         }
     }
 
@@ -3017,26 +3140,20 @@ export class SQLiteIndexManager {
             }>(sql, [limit]);
             const results = [];
 
+            // The SQL already filters with "AND c.t_is_fully_validated = 1" when
+            // onlyValidated is true, so no per-row isTargetCellFullyValidated check is needed.
             for (const row of rows) {
-                // Additional validation check if needed
-                let isFullyValidated = true;
-                if (onlyValidated) {
-                    isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id);
-                }
-
-                if (isFullyValidated) {
-                    results.push({
-                        cellId: row.cell_id,
-                        cell_id: row.cell_id,
-                        sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                        targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
-                        content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                        uri: row.uri,
-                        line: row.line,
-                        score: row.score,
-                        cell_type: 'source' // For compatibility
-                    });
-                }
+                results.push({
+                    cellId: row.cell_id,
+                    cell_id: row.cell_id,
+                    sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                    targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                    content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                    uri: row.uri,
+                    line: row.line,
+                    score: row.score,
+                    cell_type: 'source' // For compatibility
+                });
             }
 
             return results;
@@ -3091,11 +3208,16 @@ export class SQLiteIndexManager {
         // FTS5 query with validation filtering
         // Use UNION to combine FTS5 MATCH results with LIKE substring matching
         // (FTS5 MATCH can't be combined with OR in WHERE clause)
+        // Include t_content/t_raw_content in SELECT to avoid per-row target lookups (N+1).
+        // Add validation filter directly in SQL instead of per-row isTargetCellFullyValidated.
+        const validationFilter = onlyValidated ? "AND c.t_is_fully_validated = 1" : "";
         const sql = `
             SELECT DISTINCT
                 cell_id,
                 source_content,
                 raw_source_content,
+                target_content,
+                raw_target_content,
                 line,
                 uri,
                 score
@@ -3105,6 +3227,8 @@ export class SQLiteIndexManager {
                     c.cell_id,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
+                    c.t_content as target_content,
+                    c.t_raw_content as raw_target_content,
                     c.s_line_number as line,
                     COALESCE(s_file.file_path, t_file.file_path) as uri,
                     bm25(cells_fts) as score
@@ -3118,6 +3242,7 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL 
                     AND c.t_content != ''
+                    ${validationFilter}
                 
                 UNION
                 
@@ -3126,6 +3251,8 @@ export class SQLiteIndexManager {
                     c.cell_id,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
+                    c.t_content as target_content,
+                    c.t_raw_content as raw_target_content,
                     c.s_line_number as line,
                     COALESCE(s_file.file_path, t_file.file_path) as uri,
                     0.0 as score
@@ -3137,6 +3264,7 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL 
                     AND c.t_content != ''
+                    ${validationFilter}
             )
             ORDER BY score ASC
             LIMIT ?
@@ -3147,69 +3275,42 @@ export class SQLiteIndexManager {
         try {
             // Use both FTS5 query and LIKE pattern for substring matching
             // Bind parameters depend on searchSourceOnly
-            let rows: Array<{
+            // Row type now includes target_content/raw_target_content from the SQL
+            type SearchRow = {
                 cell_id: string;
                 source_content: string;
                 raw_source_content: string | null;
+                target_content: string | null;
+                raw_target_content: string | null;
                 uri: string | null;
                 line: number | null;
                 score: number;
-            }>;
+            };
+            let rows: SearchRow[];
             if (searchSourceOnly) {
-                rows = await this.db!.all<{
-                    cell_id: string;
-                    source_content: string;
-                    raw_source_content: string | null;
-                    uri: string | null;
-                    line: number | null;
-                    score: number;
-                }>(sql, [cleanQuery, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
+                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, limit]);
             } else {
-                rows = await this.db!.all<{
-                    cell_id: string;
-                    source_content: string;
-                    raw_source_content: string | null;
-                    uri: string | null;
-                    line: number | null;
-                    score: number;
-                }>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
+                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
+            // Validation and target content are now filtered/included at the SQL level —
+            // no per-row isTargetCellFullyValidated or target content lookup needed.
             for (const row of rows) {
-                // Check if target content is validated (only if onlyValidated is true)
-                let isFullyValidated = true;
-                if (onlyValidated) {
-                    isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id);
-                }
+                const targetContent = row.target_content ?? '';
+                const rawTargetContent = row.raw_target_content ?? '';
 
-                if (isFullyValidated) {
-                    // Get the target content for this cell
-                    const targetRow = await this.db!.get<{ content: string; raw_content: string }>(`
-                        SELECT t_content as content, t_raw_content as raw_content 
-                        FROM cells 
-                        WHERE cell_id = ? AND t_content IS NOT NULL AND t_content != ''
-                        LIMIT 1
-                    `, [row.cell_id]);
-
-                    const targetContent = targetRow?.content ?? '';
-                    const rawTargetContent = targetRow?.raw_content ?? '';
-
-                    if (targetContent) { // Only include if we found target content
-                        results.push({
-                            cellId: row.cell_id,
-                            cell_id: row.cell_id,
-                            sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                            targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
-                            content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                            uri: row.uri,
-                            line: row.line,
-                            score: row.score,
-                            cell_type: 'source' // For compatibility
-                        });
-                    }
-
-                    // Stop when we have enough results
-                    if (results.length >= limit) break;
+                if (targetContent) {
+                    results.push({
+                        cellId: row.cell_id,
+                        cell_id: row.cell_id,
+                        sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                        content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        uri: row.uri,
+                        line: row.line,
+                        score: row.score,
+                        cell_type: 'source' // For compatibility
+                    });
                 }
             }
         } catch (error) {

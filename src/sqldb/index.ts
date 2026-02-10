@@ -148,8 +148,12 @@ export const initializeDictionary = async (
         console.error("Error checking/adding columns to entries table:", error);
     }
 
-    // Set WAL mode for better concurrent performance
-    await db.exec("PRAGMA journal_mode=WAL");
+    // Apply production PRAGMAs — must be set on every connection open
+    await db.exec("PRAGMA journal_mode = WAL");        // Best for read-heavy workloads
+    await db.exec("PRAGMA synchronous = NORMAL");      // Safe with WAL; 2x faster than FULL
+    await db.exec("PRAGMA cache_size = -4000");        // 4 MB page cache (dictionary is smaller)
+    await db.exec("PRAGMA temp_store = MEMORY");       // In-memory temp tables
+    db.configure("busyTimeout", 5000);                 // Wait 5s for locks instead of failing
 
     return db;
 };
@@ -226,7 +230,10 @@ export const bulkAddWords = async (db: AsyncDatabase, entries: DictionaryEntry[]
 };
 
 export const getWords = async (db: AsyncDatabase): Promise<string[]> => {
-    const rows = await db.all<{ head_word: string }>("SELECT head_word FROM entries");
+    // Cap at 50,000 entries to prevent unbounded memory usage on very large dictionaries
+    const rows = await db.all<{ head_word: string }>(
+        "SELECT head_word FROM entries ORDER BY head_word LIMIT 50000"
+    );
     return rows.map((r) => r.head_word);
 };
 
@@ -341,25 +348,30 @@ export const getPagedWords = async ({
     pageSize: number;
     searchQuery?: string;
 }): Promise<{ entries: DictionaryEntry[]; total: number }> => {
+    // Escape SQL LIKE wildcards in user input to prevent pattern manipulation
+    const escapedSearch = searchQuery
+        ? searchQuery.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+        : undefined;
+
     // Get total count
-    const countRow = searchQuery
+    const countRow = escapedSearch
         ? await db.get<{ count: number }>(
-              "SELECT COUNT(*) as count FROM entries WHERE head_word LIKE ?",
-              [`%${searchQuery}%`]
+              "SELECT COUNT(*) as count FROM entries WHERE head_word LIKE ? ESCAPE '\\'",
+              [`%${escapedSearch}%`]
           )
         : await db.get<{ count: number }>("SELECT COUNT(*) as count FROM entries");
     const total = countRow?.count ?? 0;
 
     // Get page of words
     const offset = (page - 1) * pageSize;
-    const rows = searchQuery
+    const rows = escapedSearch
         ? await db.all<Record<string, any>>(
               `SELECT id, head_word, definition, is_user_entry, author_id 
                FROM entries 
-               WHERE head_word LIKE ? 
+               WHERE head_word LIKE ? ESCAPE '\\' 
                ORDER BY head_word 
                LIMIT ? OFFSET ?`,
-              [`%${searchQuery}%`, pageSize, offset]
+              [`%${escapedSearch}%`, pageSize, offset]
           )
         : await db.all<Record<string, any>>(
               `SELECT id, head_word, definition, is_user_entry, author_id 
