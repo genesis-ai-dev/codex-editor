@@ -4,6 +4,11 @@ import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
+import { checkProjectAdminPermissions } from "../../../utils/projectAdminPermissionChecker";
+import { isFeatureEnabled } from "../../../utils/remoteUpdatingManager";
+import { normalizeUpdateEntry } from "../../../utils/remoteUpdatingManager";
+import { normalizeProjectSwapInfo } from "../../../utils/projectSwapManager";
+import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry, RemoteUpdatingEntry } from "../../../../types";
 import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomNotebookMetadata } from "../../../../types";
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
@@ -112,6 +117,206 @@ function mergeValidatedByLists(
 
     // Return stable order by username to minimize diffs
     return Array.from(byUser.values()).sort((a, b) => a.username.localeCompare(b.username));
+}
+
+/**
+ * Merges projectSwap from base, ours, and theirs with intelligent handling:
+ * - Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
+ * - Rule 2: Merge swapEntries by swapUUID (unique identifier for each swap)
+ * - Rule 3: For matching entries, merge swappedUsers arrays
+ * 
+ * All swap info is now contained in each entry (swapUUID, isOldProject, oldProjectUrl, etc.)
+ */
+function mergeProjectSwap(
+    baseSwap: ProjectSwapInfo | undefined,
+    ourSwap: ProjectSwapInfo | undefined,
+    theirSwap: ProjectSwapInfo | undefined
+): ProjectSwapInfo | undefined {
+    // If neither ours nor theirs has projectSwap, return undefined
+    if (!ourSwap && !theirSwap) {
+        return undefined;
+    }
+
+    // If only one side has it, use that (with normalization)
+    if (!ourSwap && theirSwap) {
+        return normalizeProjectSwapInfo(theirSwap);
+    }
+    if (ourSwap && !theirSwap) {
+        return normalizeProjectSwapInfo(ourSwap);
+    }
+
+    // Both have projectSwap - merge intelligently
+    const normalizedOurs = normalizeProjectSwapInfo(ourSwap!);
+    const normalizedTheirs = normalizeProjectSwapInfo(theirSwap!);
+    const normalizedBase = baseSwap ? normalizeProjectSwapInfo(baseSwap) : undefined;
+
+    // Rule 2: Merge swapEntries by swapUUID (the unique identifier for each swap)
+    const ourEntries = normalizedOurs.swapEntries || [];
+    const theirEntries = normalizedTheirs.swapEntries || [];
+    const baseEntries = normalizedBase?.swapEntries || [];
+
+    // Collect all unique swapUUIDs
+    const allSwapUUIDs = new Set<string>();
+    ourEntries.forEach(e => allSwapUUIDs.add(e.swapUUID));
+    theirEntries.forEach(e => allSwapUUIDs.add(e.swapUUID));
+
+    const mergedEntries: ProjectSwapEntry[] = [];
+
+    for (const swapUUID of allSwapUUIDs) {
+        const ourEntry = ourEntries.find(e => e.swapUUID === swapUUID);
+        const theirEntry = theirEntries.find(e => e.swapUUID === swapUUID);
+        const baseEntry = baseEntries.find(e => e.swapUUID === swapUUID);
+
+        let mergedEntry: ProjectSwapEntry;
+
+        if (!ourEntry && theirEntry) {
+            // Only theirs has this entry - use their value for isOldProject
+            // Each swap entry is independent (chained swaps: A→B then B→C have different isOldProject values)
+            // The correct value will be set by updateSwapMetadata when the user performs the swap
+            mergedEntry = { ...theirEntry };
+        } else if (ourEntry && !theirEntry) {
+            // Only ours has this entry
+            mergedEntry = { ...ourEntry };
+        } else if (ourEntry && theirEntry) {
+            // Both have this entry - merge them
+            // Start with the one that has later swapModifiedAt
+            if (ourEntry.swapModifiedAt >= theirEntry.swapModifiedAt) {
+                mergedEntry = { ...ourEntry };
+            } else {
+                mergedEntry = { ...theirEntry };
+                // Rule 1: ALWAYS preserve local isOldProject in each entry
+                mergedEntry.isOldProject = ourEntry.isOldProject;
+            }
+
+            // For status, if ANY version has "cancelled", it's cancelled (can't un-cancel)
+            if (ourEntry.swapStatus === "cancelled" || theirEntry.swapStatus === "cancelled") {
+                mergedEntry.swapStatus = "cancelled";
+                // Take cancelledBy/cancelledAt from whichever has it
+                mergedEntry.cancelledBy = ourEntry.cancelledBy || theirEntry.cancelledBy;
+                mergedEntry.cancelledAt = ourEntry.cancelledAt || theirEntry.cancelledAt;
+            }
+
+            // Use latest swapModifiedAt (for entry-level changes: status, cancellation, URLs)
+            mergedEntry.swapModifiedAt = Math.max(
+                ourEntry.swapModifiedAt || 0,
+                theirEntry.swapModifiedAt || 0
+            );
+
+            // Rule 3: Merge swappedUsers arrays
+            mergedEntry.swappedUsers = mergeSwappedUsers(
+                baseEntry?.swappedUsers,
+                ourEntry.swappedUsers,
+                theirEntry.swappedUsers
+            );
+
+            // Compute swappedUsersModifiedAt as max of both (for user completion changes)
+            const ourUsersModified = ourEntry.swappedUsersModifiedAt ?? 0;
+            const theirUsersModified = theirEntry.swappedUsersModifiedAt ?? 0;
+            const maxUsersModified = Math.max(ourUsersModified, theirUsersModified);
+            if (maxUsersModified > 0) {
+                mergedEntry.swappedUsersModifiedAt = maxUsersModified;
+            }
+        } else {
+            // Neither has it (shouldn't happen but handle gracefully)
+            continue;
+        }
+
+        mergedEntries.push(mergedEntry);
+    }
+
+    // Sort entries by swapInitiatedAt descending (newest first)
+    mergedEntries.sort((a, b) => b.swapInitiatedAt - a.swapInitiatedAt);
+
+    return {
+        swapEntries: mergedEntries,
+    };
+}
+
+/**
+ * Merges swappedUsers arrays from base, ours, and theirs
+ * Users are uniquely identified by userToSwap + createdAt (both together)
+ * Similar to how initiateRemoteUpdatingFor entries are merged
+ */
+function mergeSwappedUsers(
+    baseUsers: ProjectSwapUserEntry[] | undefined,
+    ourUsers: ProjectSwapUserEntry[] | undefined,
+    theirUsers: ProjectSwapUserEntry[] | undefined
+): ProjectSwapUserEntry[] {
+    const baseList = baseUsers || [];
+    const ourList = ourUsers || [];
+    const theirList = theirUsers || [];
+
+    // Generate unique key for user entry: userToSwap + createdAt
+    const getUserKey = (e: ProjectSwapUserEntry): string => `${e.userToSwap}::${e.createdAt}`;
+
+    // Map by userToSwap + createdAt (composite key)
+    const userMap = new Map<string, { base?: ProjectSwapUserEntry; ours?: ProjectSwapUserEntry; theirs?: ProjectSwapUserEntry; }>();
+
+    baseList.forEach(e => {
+        const key = getUserKey(e);
+        if (!userMap.has(key)) userMap.set(key, {});
+        userMap.get(key)!.base = e;
+    });
+    ourList.forEach(e => {
+        const key = getUserKey(e);
+        if (!userMap.has(key)) userMap.set(key, {});
+        userMap.get(key)!.ours = e;
+    });
+    theirList.forEach(e => {
+        const key = getUserKey(e);
+        if (!userMap.has(key)) userMap.set(key, {});
+        userMap.get(key)!.theirs = e;
+    });
+
+    const mergedList: ProjectSwapUserEntry[] = [];
+
+    for (const [, { base, ours, theirs }] of userMap) {
+        let merged: ProjectSwapUserEntry;
+
+        if (!ours && !theirs) {
+            continue; // Shouldn't happen
+        } else if (!ours && theirs) {
+            merged = { ...theirs };
+        } else if (ours && !theirs) {
+            merged = { ...ours };
+        } else {
+            // Both exist - take the one with latest updatedAt
+            if ((ours!.updatedAt || 0) >= (theirs!.updatedAt || 0)) {
+                merged = { ...ours! };
+            } else {
+                merged = { ...theirs! };
+            }
+
+            // If ANY version has executed: true, keep it
+            if (ours!.executed || theirs!.executed || base?.executed) {
+                merged.executed = true;
+            }
+
+            // Use latest updatedAt
+            merged.updatedAt = Math.max(
+                ours!.updatedAt || 0,
+                theirs!.updatedAt || 0
+            );
+
+            // Preserve earliest createdAt
+            merged.createdAt = Math.min(
+                ours!.createdAt || Infinity,
+                theirs!.createdAt || Infinity,
+                base?.createdAt || Infinity
+            );
+            if (merged.createdAt === Infinity) {
+                merged.createdAt = Date.now();
+            }
+
+            // Take swapCompletedAt if either has it
+            merged.swapCompletedAt = ours!.swapCompletedAt || theirs!.swapCompletedAt || base?.swapCompletedAt;
+        }
+
+        mergedList.push(merged);
+    }
+
+    // Sort by createdAt for stable output
+    return mergedList.sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /**
@@ -252,7 +457,7 @@ export type ResolveConflictOptions = {
      * When true (default), re-read the on-disk file to refresh conflict.ours before merging.
      * This is useful for sync, so recent user edits aren't lost.
      *
-     * When false, uses the provided conflict.ours as-is (required for heal, where ours is a snapshot).
+     * When false, uses the provided conflict.ours as-is (required for update, where ours is a snapshot).
      */
     refreshOursFromDisk?: boolean;
 };
@@ -427,11 +632,14 @@ function resolveMetadataConflictsUsingEditHistory(
         if (edits.length === 0) continue;
 
         // Find the most recent edit for this path, ignoring preview-only edits
-        // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
+        // Tie-breaker: when timestamps are equal, prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
         const sorted = edits.sort((a, b) => {
             const timeDiff = b.timestamp - a.timestamp;
             if (timeDiff !== 0) return timeDiff;
-            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            // Same timestamp: prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
+            const aIsMigration = a.type === EditType.MIGRATION;
+            const bIsMigration = b.type === EditType.MIGRATION;
+            if (aIsMigration !== bIsMigration) return bIsMigration ? 1 : -1;
             const aIsUser = a.type === EditType.USER_EDIT;
             const bIsUser = b.type === EditType.USER_EDIT;
             const aIsInitial = a.type === EditType.INITIAL_IMPORT;
@@ -629,11 +837,14 @@ function resolveMetadataConflictsUsingEditHistoryForFile(
         if (edits.length === 0) continue;
 
         // Find the most recent edit for this path
-        // Tie-breaker: when timestamps are equal, prefer USER_EDIT over INITIAL_IMPORT
+        // Tie-breaker: when timestamps are equal, prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
         const sorted = edits.sort((a, b) => {
             const timeDiff = b.timestamp - a.timestamp;
             if (timeDiff !== 0) return timeDiff;
-            // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+            // Same timestamp: prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
+            const aIsMigration = a.type === EditType.MIGRATION;
+            const bIsMigration = b.type === EditType.MIGRATION;
+            if (aIsMigration !== bIsMigration) return bIsMigration ? 1 : -1;
             const aIsUser = a.type === EditType.USER_EDIT;
             const bIsUser = b.type === EditType.USER_EDIT;
             const aIsInitial = a.type === EditType.INITIAL_IMPORT;
@@ -1576,7 +1787,7 @@ async function resolveSmartEditsConflict(
 }
 
 /**
- * Resolves conflicts in metadata.json, specifically merging the remote healing list
+ * Resolves conflicts in metadata.json, specifically merging the remote updating list
  */
 async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<string> {
     try {
@@ -1649,7 +1860,10 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 const sorted = edits.sort((a, b) => {
                     const timeDiff = b.timestamp - a.timestamp;
                     if (timeDiff !== 0) return timeDiff;
-                    // Same timestamp: prefer USER_EDIT over INITIAL_IMPORT
+                    // Same timestamp: prefer MIGRATION, then USER_EDIT over INITIAL_IMPORT
+                    const aIsMigration = a.type === EditType.MIGRATION;
+                    const bIsMigration = b.type === EditType.MIGRATION;
+                    if (aIsMigration !== bIsMigration) return bIsMigration ? 1 : -1;
                     const aIsUser = a.type === EditType.USER_EDIT;
                     const bIsUser = b.type === EditType.USER_EDIT;
                     const aIsInitial = a.type === EditType.INITIAL_IMPORT;
@@ -1673,39 +1887,62 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             resolvedMetadata = JSON.parse(JSON.stringify(ours));
         }
 
-        // 1. Resolve initiateRemoteHealingFor (Complex Merge Logic)
-        // Helper to extract healing list
-        const getList = (obj: any) => (obj?.meta?.initiateRemoteHealingFor || []) as any[];
+        // 1. Resolve initiateRemoteUpdatingFor (Complex Merge Logic)
+        // Helper to extract and normalize updating list
+        const getList = (obj: any): RemoteUpdatingEntry[] => {
+            const rawList = (obj?.meta?.initiateRemoteUpdatingFor || []) as any[];
+            // Normalize entries to ensure defaults/validation
+            return rawList.map(entry => normalizeUpdateEntry(entry));
+        };
 
         const baseList = getList(base);
         const ourList = getList(ours);
         const theirList = getList(theirs);
 
-        // Map all entries by userToHeal
-        const allUsers = new Set<string>();
+        // Map all entries by signature (userToUpdate + addedBy + createdAt)
+        // This allows multiple entries per user (e.g., multiple update requirements over time)
+        const allSignatures = new Set<string>();
         const entryMap = new Map<string, { base?: any, ours?: any, theirs?: any; }>();
 
-        // Helper to normalize entry to object (filtering out strings)
-        const normalize = (entry: any): any => {
-            if (typeof entry === 'string' || entry === null || typeof entry !== 'object') {
-                return null;
-            }
-            return entry;
+        // Generate signature for an entry (matches markUserAsUpdatedInRemoteList logic)
+        // Uses createdAt as the unique timestamp component of the signature
+        const generateSignature = (entry: RemoteUpdatingEntry): string => {
+            const user = entry?.userToUpdate || "";
+            const addedBy = entry?.addedBy || "";
+            const createdAt = entry?.createdAt || 0;
+            return `${user}:${addedBy}:${createdAt}`;
         };
 
         // Populate map
-        const processList = (list: any[], source: 'base' | 'ours' | 'theirs') => {
+        const processList = (list: RemoteUpdatingEntry[], source: 'base' | 'ours' | 'theirs') => {
             if (!Array.isArray(list)) return;
-            for (const item of list) {
-                const entry = normalize(item);
-                if (!entry || !entry.userToHeal) continue;
+            for (const entry of list) {
+                if (!entry || typeof entry !== 'object') continue;
 
-                const username = entry.userToHeal;
-                allUsers.add(username);
-                if (!entryMap.has(username)) {
-                    entryMap.set(username, {});
+                const username = entry.userToUpdate;
+                if (!username) continue;
+
+                // Defensive: Ensure createdAt exists for consistent signature generation
+                // Priority: createdAt > updatedAt > Date.now() (last resort)
+                if (!entry.createdAt) {
+                    if (entry.updatedAt) {
+                        entry.createdAt = entry.updatedAt;
+                        console.warn(`[Merge] Entry missing createdAt, using updatedAt (${entry.updatedAt}) for user: ${username}`);
+                    } else {
+                        // Both createdAt and updatedAt are missing - use current timestamp
+                        // This ensures unique signatures and prevents entries from colliding
+                        entry.createdAt = Date.now();
+                        entry.updatedAt = entry.createdAt;
+                        console.warn(`[Merge] Entry missing both createdAt and updatedAt, using Date.now() (${entry.createdAt}) for user: ${username}`);
+                    }
                 }
-                entryMap.get(username)![source] = entry;
+
+                const signature = generateSignature(entry);
+                allSignatures.add(signature);
+                if (!entryMap.has(signature)) {
+                    entryMap.set(signature, {});
+                }
+                entryMap.get(signature)![source] = entry;
             }
         };
 
@@ -1713,10 +1950,53 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         processList(ourList, 'ours');
         processList(theirList, 'theirs');
 
-        const mergedHealingList: any[] = [];
+        const mergedUpdatingList: any[] = [];
 
-        for (const username of allUsers) {
-            const { base: baseEntry, ours: ourEntry, theirs: theirEntry } = entryMap.get(username)!;
+        // Cache permission check result before the loop (avoids repeated API calls)
+        // Only needed if feature is enabled and there might be entries with clearEntry flag
+        let cachedPermissionCheck: { hasPermission: boolean; error?: string; currentUser?: string; } | null = null;
+        const featureEnabled = isFeatureEnabled('ENABLE_ENTRY_CLEARING');
+        if (featureEnabled) {
+            try {
+                cachedPermissionCheck = await checkProjectAdminPermissions();
+            } catch (error) {
+                console.error(`[Merge] Error checking clear entry permission:`, error);
+                cachedPermissionCheck = { hasPermission: false, error: String(error) };
+            }
+        }
+
+        // Helper to check if entry should be cleared (permanently removed)
+        // Only clear if: feature is enabled, clearEntry flag is true, and user has permission
+        // Uses cached permission check to avoid repeated API calls
+        const shouldClearEntry = (entry: any): boolean => {
+            // Check feature flag first
+            if (!featureEnabled) {
+                // Feature is disabled - remove any clearEntry flags
+                delete entry.clearEntry;
+                return false;
+            }
+
+            if (entry?.clearEntry !== true) {
+                return false;
+            }
+
+            // Use cached permission check
+            if (!cachedPermissionCheck || !cachedPermissionCheck.hasPermission) {
+                console.warn(
+                    `[Merge] User lacks permission to clear entry for ${entry.userToUpdate}. ` +
+                    `Preserving entry and removing clearEntry flag. Reason: ${cachedPermissionCheck?.error || 'Unknown'}`
+                );
+                // Remove clearEntry flag since user doesn't have permission
+                delete entry.clearEntry;
+                return false;
+            }
+
+            console.log(`[Merge] User ${cachedPermissionCheck.currentUser} has permission to clear entry for ${entry.userToUpdate}`);
+            return true;
+        };
+
+        for (const signature of allSignatures) {
+            const { base: baseEntry, ours: ourEntry, theirs: theirEntry } = entryMap.get(signature)!;
 
             // If only one side exists/modified, take it. If both, resolve.
             let finalEntry: any;
@@ -1752,13 +2032,40 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                     }
                 }
             } else {
-                // Both exist.
-                // Compare updated timestamps
+                // Both exist - need to merge boolean flags intelligently
+
+                // Start with the entry that has the latest updatedAt timestamp
                 if ((ourEntry.updatedAt || 0) >= (theirEntry.updatedAt || 0)) {
-                    finalEntry = ourEntry;
+                    finalEntry = { ...ourEntry };
                 } else {
-                    finalEntry = theirEntry;
+                    finalEntry = { ...theirEntry };
                 }
+
+                // 3-way merge for boolean flags: if ANY version (base, ours, theirs) has true, take true
+                // This ensures important state changes (executed, cancelled, clearEntry) are never lost
+                const booleanFields = ['executed', 'cancelled', 'clearEntry'];
+                for (const field of booleanFields) {
+                    if (baseEntry?.[field] === true || ourEntry?.[field] === true || theirEntry?.[field] === true) {
+                        finalEntry[field] = true;
+                    }
+                }
+
+                // For cancelledBy, take the value from whichever entry has cancelled: true
+                if (finalEntry.cancelled) {
+                    finalEntry.cancelledBy =
+                        (ourEntry?.cancelled ? ourEntry.cancelledBy : undefined) ||
+                        (theirEntry?.cancelled ? theirEntry.cancelledBy : undefined) ||
+                        (baseEntry?.cancelled ? baseEntry.cancelledBy : undefined) ||
+                        finalEntry.cancelledBy ||
+                        '';
+                }
+
+                // Use the latest updatedAt from any of the three versions
+                finalEntry.updatedAt = Math.max(
+                    baseEntry?.updatedAt || 0,
+                    ourEntry?.updatedAt || 0,
+                    theirEntry?.updatedAt || 0
+                );
 
                 // Ensure createdAt is preserved from base or oldest
                 const oldestCreated = Math.min(
@@ -1772,9 +2079,27 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             }
 
             if (finalEntry) {
-                mergedHealingList.push(finalEntry);
+                // Check if entry should be cleared (permanently removed) - uses cached permission check
+                if (shouldClearEntry(finalEntry)) {
+                    // Skip this entry completely - no history preservation
+                    console.log(`[Merge] Clearing entry for ${finalEntry.userToUpdate} from history (clearEntry: true)`);
+                    continue;
+                }
+
+                // Entry is normalized, push to merged list
+                mergedUpdatingList.push(finalEntry);
             }
         }
+
+        // 1.5. Resolve projectSwap (Complex Merge Logic)
+        // Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
+        // Rule 2: Merge swapEntries by swapUUID (unique identifier for each swap)
+        // Rule 3: For matching entries, merge swappedUsers arrays
+        const mergedProjectSwap = mergeProjectSwap(
+            base?.meta?.projectSwap,
+            ours?.meta?.projectSwap,
+            theirs?.meta?.projectSwap
+        );
 
         // 2. Generic 3-Way Merge for the rest of the file
         // This ensures we don't lose other metadata changes from remote
@@ -1800,8 +2125,13 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             ]);
 
             for (const key of keys) {
-                // Skip initiateRemoteHealingFor - already handled above
-                if (path.length === 1 && path[0] === 'meta' && key === 'initiateRemoteHealingFor') {
+                // Skip initiateRemoteUpdatingFor - already handled above
+                if (path.length === 1 && path[0] === 'meta' && key === 'initiateRemoteUpdatingFor') {
+                    continue; // Skip, already merged above
+                }
+
+                // Skip projectSwap - already handled by specialized merge above
+                if (path.length === 1 && path[0] === 'meta' && key === 'projectSwap') {
                     continue; // Skip, already merged above
                 }
 
@@ -1835,25 +2165,30 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             return result;
         };
 
-        // Apply the merged healing list to resolved metadata
+        // Apply the merged updating list to resolved metadata
         if (!resolvedMetadata.meta) {
             resolvedMetadata.meta = {};
         }
-        resolvedMetadata.meta.initiateRemoteHealingFor = mergedHealingList;
+        resolvedMetadata.meta.initiateRemoteUpdatingFor = mergedUpdatingList;
 
-        // Merge other fields (excluding edits and initiateRemoteHealingFor which are already handled)
+        // Merge other fields (excluding edits and initiateRemoteUpdatingFor which are already handled)
         const otherFieldsMerged = mergeObjects(base, ours, theirs);
 
         // Combine: use edit history result as base, then overlay other merged fields
-        // But preserve edits and initiateRemoteHealingFor from our specialized merges
+        // But preserve edits, initiateRemoteUpdatingFor, and projectSwap from our specialized merges
         const finalResult = {
             ...otherFieldsMerged,
             edits: resolvedMetadata.edits, // From edit history merge
             meta: {
                 ...otherFieldsMerged.meta,
-                initiateRemoteHealingFor: mergedHealingList // From specialized merge
+                initiateRemoteUpdatingFor: mergedUpdatingList, // From specialized merge (new field name)
+                projectSwap: mergedProjectSwap, // From specialized merge
             }
         };
+        // Remove projectSwap if it's undefined or null (mergeProjectSwap returns undefined when nothing to merge)
+        if (finalResult.meta && (finalResult.meta.projectSwap === undefined || finalResult.meta.projectSwap === null)) {
+            delete finalResult.meta.projectSwap;
+        }
 
         return JSON.stringify(finalResult, null, 4);
 
@@ -2173,7 +2508,7 @@ export async function resolveConflictFiles(
             };
 
             // Ensure all parent directories exist before resolving/writing files.
-            // This is critical for heal, where locally-created directories may not exist in a fresh clone.
+            // This is critical for update, where locally-created directories may not exist in a fresh clone.
             try {
                 const uniqueDirs = new Set<string>();
                 for (const conflict of conflicts) {
