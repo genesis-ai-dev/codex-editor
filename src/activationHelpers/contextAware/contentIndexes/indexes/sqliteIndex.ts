@@ -1268,7 +1268,7 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
-            ORDER BY score DESC
+            ORDER BY score ASC
             LIMIT ?
         `);
 
@@ -1735,7 +1735,7 @@ export class SQLiteIndexManager {
             params.push(cellType);
         }
 
-        sql += ` ORDER BY score DESC LIMIT ?`;
+        sql += ` ORDER BY score ASC LIMIT ?`;
         params.push(limit);
 
         const stmt = this.db.prepare(sql);
@@ -1912,7 +1912,7 @@ export class SQLiteIndexManager {
                 params.push(cellType);
             }
 
-            sql += ` ORDER BY score DESC LIMIT ?`;
+            sql += ` ORDER BY score ASC LIMIT ?`;
             params.push(limit);
         }
 
@@ -3029,85 +3029,36 @@ export class SQLiteIndexManager {
             return results;
         }
 
-        // Debug: Check if we have any complete pairs in the database at all
-        const debugStmt = this.db.prepare(`
-            SELECT COUNT(*) as complete_pairs_count
-            FROM cells c
-            WHERE c.s_content IS NOT NULL 
-                AND c.s_content != ''
-                AND c.t_content IS NOT NULL 
-                AND c.t_content != ''
-        `);
-
-        let totalCompletePairs = 0;
-        try {
-            debugStmt.step();
-            totalCompletePairs = (debugStmt.getAsObject().complete_pairs_count as number) || 0;
-        } finally {
-            debugStmt.free();
-        }
-
-        // Use FTS5 with character-level n-grams (bigrams/trigrams) for fuzzy matching
-        // Extract words and generate character-level bigrams/trigrams from each word
-        const words = query
-            .trim()
-            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
-            .replace(/\s+/g, ' ') // Normalize whitespace
+        // Tokenize query - keep single characters for short queries
+        const trimmedQuery = query.trim();
+        const words = trimmedQuery
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
             .trim()
             .split(/\s+/)
-            .filter(token => token.length > 1); // Filter out single characters
+            .filter(token => token.length > 0);
 
+        // If no valid words after tokenization, return empty (don't fall back to random results)
         if (words.length === 0) {
-            return this.searchCompleteTranslationPairs('', limit, returnRawContent);
+            return [];
         }
 
-        // Generate character-level n-grams (bigrams and trigrams) from each word
-        const generateCharNGrams = (text: string, n: number): string[] => {
-            const grams: string[] = [];
-            if (text.length < n) return [];
-            for (let i = 0; i <= text.length - n; i++) {
-                grams.push(text.slice(i, i + n));
-            }
-            return grams;
-        };
-
-        // Common 2-char sequences that are too generic (filter out for performance)
-        const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
-
+        // Generate search terms for FTS5
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word (exact match is most important)
+            // Always add the full word
             searchTerms.push(word);
 
-            // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
-            // This helps with partial matching when FTS5 tokenizes words
-            if (word.length >= 2 && word.length <= 4) {
-                searchTerms.push(word + '*'); // Prefix wildcard for FTS5
-            }
-
-            // Generate n-grams for partial matching
-            // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
-            if (word.length >= 3) {
-                // Add character trigrams (3-char sequences) - more specific than bigrams
-                const trigrams = generateCharNGrams(word, 3);
-                searchTerms.push(...trigrams);
-            }
-
-            // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
+            // For words 2+ chars, add prefix wildcard for partial matching
             if (word.length >= 2) {
-                const bigrams = generateCharNGrams(word, 2);
-                const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
-                searchTerms.push(...filteredBigrams);
+                searchTerms.push(word + '*');
             }
         }
 
-        // Limit total terms to avoid huge queries (keep most relevant)
-        // Prioritize: full words first, then trigrams, then bigrams
-        const maxTerms = 50; // Reasonable limit for FTS5 performance
+        // Build FTS5 query - use OR matching, limit terms for performance
+        const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-
-        // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
-        const cleanQuery = finalTerms.join(' OR ');
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
 
         // Simple substring match for the original query - ensures "ccc" matches "cccb"
         // Escape % and _ for LIKE (SQL wildcards)
@@ -3177,7 +3128,7 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL 
                     AND c.t_content != ''
             )
-            ORDER BY score DESC
+            ORDER BY score ASC
             LIMIT ?
         `;
 
@@ -3306,67 +3257,36 @@ export class SQLiteIndexManager {
             return results;
         }
 
-        // Use FTS5 with character-level n-grams (bigrams/trigrams) for fuzzy matching
-        // Extract words and generate character-level bigrams/trigrams from each word
-        const words = query
-            .trim()
-            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
-            .replace(/\s+/g, ' ') // Normalize whitespace
+        // Tokenize query - keep single characters for short queries
+        const trimmedQuery = query.trim();
+        const words = trimmedQuery
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
             .trim()
             .split(/\s+/)
-            .filter(token => token.length > 1); // Filter out single characters
+            .filter(token => token.length > 0);
 
+        // If no valid words after tokenization, return empty (don't fall back to random results)
         if (words.length === 0) {
-            return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated, searchSourceOnly);
+            return [];
         }
 
-        // Generate character-level n-grams (bigrams and trigrams) from each word
-        const generateCharNGrams = (text: string, n: number): string[] => {
-            const grams: string[] = [];
-            if (text.length < n) return [];
-            for (let i = 0; i <= text.length - n; i++) {
-                grams.push(text.slice(i, i + n));
-            }
-            return grams;
-        };
-
-        // Common 2-char sequences that are too generic (filter out for performance)
-        const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
-
+        // Generate search terms for FTS5
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word (exact match is most important)
+            // Always add the full word
             searchTerms.push(word);
 
-            // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
-            // This helps with partial matching when FTS5 tokenizes words
-            if (word.length >= 2 && word.length <= 4) {
-                searchTerms.push(word + '*'); // Prefix wildcard for FTS5
-            }
-
-            // Generate n-grams for partial matching
-            // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
-            if (word.length >= 3) {
-                // Add character trigrams (3-char sequences) - more specific than bigrams
-                const trigrams = generateCharNGrams(word, 3);
-                searchTerms.push(...trigrams);
-            }
-
-            // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
+            // For words 2+ chars, add prefix wildcard for partial matching
             if (word.length >= 2) {
-                const bigrams = generateCharNGrams(word, 2);
-                const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
-                searchTerms.push(...filteredBigrams);
+                searchTerms.push(word + '*');
             }
         }
 
-        // Limit total terms to avoid huge queries (keep most relevant)
-        // Prioritize: full words first, then trigrams, then bigrams
-        const maxTerms = 50; // Reasonable limit for FTS5 performance
+        // Build FTS5 query - use OR matching, limit terms for performance
+        const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-
-        // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
-        const cleanQuery = finalTerms.join(' OR ');
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
 
         // Simple substring match for the original query - ensures "ccc" matches "cccb"
         // Escape % and _ for LIKE (SQL wildcards)
@@ -3433,7 +3353,7 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL 
                     AND c.t_content != ''
             )
-            ORDER BY score DESC
+            ORDER BY score ASC
             LIMIT ?
         `;
 
