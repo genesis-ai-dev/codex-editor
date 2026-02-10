@@ -60,16 +60,16 @@ export function registerProviders(context: vscode.ExtensionContext) {
     const parallelProvider = new ParallelProvider(context);
 
     disposables.push(
-        vscode.window.registerWebviewViewProvider("codex-editor.navigation", navigationProvider),
+        vscode.window.registerWebviewViewProvider("codex-editor.navigation", navigationProvider, { webviewOptions: { retainContextWhenHidden: true } }),
         GlobalProvider.getInstance().registerProvider("codex-editor.navigation", navigationProvider as any),
 
-        vscode.window.registerWebviewViewProvider("codex-editor.mainMenu", mainMenuProvider),
+        vscode.window.registerWebviewViewProvider("codex-editor.mainMenu", mainMenuProvider, { webviewOptions: { retainContextWhenHidden: true } }),
         GlobalProvider.getInstance().registerProvider("codex-editor.mainMenu", mainMenuProvider as any),
 
-        vscode.window.registerWebviewViewProvider("comments-sidebar", commentsProvider),
+        vscode.window.registerWebviewViewProvider("comments-sidebar", commentsProvider, { webviewOptions: { retainContextWhenHidden: true } }),
         GlobalProvider.getInstance().registerProvider("comments-sidebar", commentsProvider as any),
 
-        vscode.window.registerWebviewViewProvider("search-passages-sidebar", parallelProvider),
+        vscode.window.registerWebviewViewProvider("search-passages-sidebar", parallelProvider, { webviewOptions: { retainContextWhenHidden: true } }),
         GlobalProvider.getInstance().registerProvider("search-passages-sidebar", parallelProvider as any),
 
         // Register search passages command
