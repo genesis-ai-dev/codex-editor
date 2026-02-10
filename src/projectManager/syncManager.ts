@@ -1149,7 +1149,7 @@ export class SyncManager {
         const indexManager = getSQLiteIndexManager();
 
         if (indexManager) {
-            const currentDocCount = indexManager.documentCount;
+            const currentDocCount = await indexManager.getDocumentCount();
             debug(`[FallbackSync] Current index has ${currentDocCount} documents`);
 
             if (currentDocCount > 0) {

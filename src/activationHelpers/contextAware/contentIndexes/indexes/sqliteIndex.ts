@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import initSqlJs, { Database, SqlJsStatic } from "fts5-sql-bundle";
+import { AsyncDatabase } from "../../../../utils/nativeSqlite";
 import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
@@ -18,10 +18,8 @@ const debug = (message: string, ...args: any[]) => {
 export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index column for O(1) milestone lookup
 
 export class SQLiteIndexManager {
-    private sql: SqlJsStatic | null = null;
-    private db: Database | null = null;
-    private saveDebounceTimer: NodeJS.Timeout | null = null;
-    private readonly SAVE_DEBOUNCE_MS = 0;
+    private db: AsyncDatabase | null = null;
+    private dbPath: string | null = null;
     private progressTimings: ActivationTiming[] = [];
     private currentProgressTimer: NodeJS.Timeout | null = null;
     private currentProgressStartTime: number | null = null;
@@ -126,21 +124,8 @@ export class SQLiteIndexManager {
         const initStart = globalThis.performance.now();
         let stepStart = initStart;
 
-        // Initialize SQL.js
+        // No WASM initialization needed - native SQLite binary is downloaded on first run
         stepStart = this.trackProgress("AI initializing learning engine", stepStart);
-        const sqlWasmPath = vscode.Uri.joinPath(
-            context.extensionUri,
-            "out/node_modules/fts5-sql-bundle/dist/sql-wasm.wasm"
-        );
-
-        this.sql = await initSqlJs({
-            locateFile: (file: string) => sqlWasmPath.fsPath,
-        });
-
-        if (!this.sql) {
-            throw new Error("Failed to initialize SQL.js");
-        }
-
         stepStart = this.trackProgress("AI learning engine ready", stepStart);
 
         // Load or create database
@@ -158,59 +143,93 @@ export class SQLiteIndexManager {
             throw new Error("No workspace folder found");
         }
 
-        const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
+        const dbUri = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
+        this.dbPath = dbUri.fsPath;
+
+        // Ensure the .project directory exists
+        const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
+        try {
+            await vscode.workspace.fs.createDirectory(projectDir);
+        } catch {
+            // Directory might already exist
+        }
 
         stepStart = this.trackProgress("Check for existing database", stepStart);
 
+        // Check if the database file exists and is valid
+        let dbExists = false;
         try {
-            const fileContent = await vscode.workspace.fs.readFile(dbPath);
-            stepStart = this.trackProgress("AI accessing previous learning", stepStart);
+            await vscode.workspace.fs.stat(dbUri);
+            dbExists = true;
+        } catch {
+            dbExists = false;
+        }
 
-            this.db = new this.sql!.Database(fileContent);
-            stepStart = this.trackProgress("Parse database structure", stepStart);
+        if (dbExists) {
+            try {
+                stepStart = this.trackProgress("AI accessing previous learning", stepStart);
 
-            debug("Loaded existing index database");
+                // Open the existing file directly - no buffer loading needed
+                this.db = await AsyncDatabase.open(this.dbPath);
+                stepStart = this.trackProgress("Parse database structure", stepStart);
 
-            // Ensure schema is up to date
-            await this.ensureSchema();
-        } catch (error) {
-            stepStart = this.trackProgress("Handle database error", stepStart);
+                debug("Loaded existing index database");
 
-            // Check if this is a corruption error
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            const isCorruption = errorMessage.includes("database disk image is malformed") ||
-                errorMessage.includes("file is not a database") ||
-                errorMessage.includes("database is locked") ||
-                errorMessage.includes("database corruption");
+                // Ensure schema is up to date
+                await this.ensureSchema();
+            } catch (error) {
+                stepStart = this.trackProgress("Handle database error", stepStart);
 
-            if (isCorruption) {
-                debug(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
-                debug("[SQLiteIndex] Deleting corrupt database and creating new one");
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const isCorruption = errorMessage.includes("database disk image is malformed") ||
+                    errorMessage.includes("file is not a database") ||
+                    errorMessage.includes("database is locked") ||
+                    errorMessage.includes("database corruption");
 
-                // Delete the corrupted database file
-                try {
-                    await vscode.workspace.fs.delete(dbPath);
-                    stepStart = this.trackProgress("Delete corrupted database", stepStart);
-                } catch (deleteError) {
-                    debug("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
+                if (isCorruption) {
+                    debug(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
+                    debug("[SQLiteIndex] Deleting corrupt database and creating new one");
+
+                    // Close the potentially corrupted connection
+                    if (this.db) {
+                        try { await this.db.close(); } catch { /* ignore */ }
+                        this.db = null;
+                    }
+
+                    try {
+                        await vscode.workspace.fs.delete(dbUri);
+                        stepStart = this.trackProgress("Delete corrupted database", stepStart);
+                    } catch (deleteError) {
+                        debug("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
+                    }
                 }
-            } else {
-                debug("Database file not found or other error, creating new database");
-            }
 
+                // Create a fresh database
+                stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
+                debug("Creating new index database");
+                this.db = await AsyncDatabase.open(this.dbPath);
+
+                await this.createSchema();
+
+                if (!(await this.validateSchemaIntegrity())) {
+                    throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+                }
+
+                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+            }
+        } else {
+            // No existing database - create a new one
             stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
             debug("Creating new index database");
-            this.db = new this.sql!.Database();
+            this.db = await AsyncDatabase.open(this.dbPath);
 
             await this.createSchema();
 
-            // Validate schema before setting version to ensure reliability
-            if (!this.validateSchemaIntegrity()) {
+            if (!(await this.validateSchemaIntegrity())) {
                 throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
             }
 
-            this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-            await this.saveDatabase();
+            await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
         }
 
         this.trackProgress("AI learning space ready", loadStart);
@@ -223,19 +242,18 @@ export class SQLiteIndexManager {
 
         // Optimize database for faster creation (OUTSIDE of transaction)
         debug("Optimizing database settings for fast creation...");
-        this.db.run("PRAGMA synchronous = OFF");        // Disable fsync for speed
-        this.db.run("PRAGMA journal_mode = MEMORY");     // Use memory journal
-        this.db.run("PRAGMA temp_store = MEMORY");       // Store temp data in memory
-        this.db.run("PRAGMA cache_size = -64000");       // 64MB cache
-        this.db.run("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
+        await this.db.exec("PRAGMA synchronous = OFF");        // Disable fsync for speed
+        await this.db.exec("PRAGMA journal_mode = MEMORY");     // Use memory journal
+        await this.db.exec("PRAGMA temp_store = MEMORY");       // Store temp data in memory
+        await this.db.exec("PRAGMA cache_size = -64000");       // 64MB cache
+        await this.db.exec("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
 
         // Batch all schema creation in a single transaction for massive speedup
-        await this.runInTransaction(() => {
+        await this.runInTransaction(async () => {
             // Create all tables in batch
             debug("Creating database tables...");
 
-            // Sync metadata table
-            this.db!.run(`
+            await this.db!.exec(`
                 CREATE TABLE IF NOT EXISTS sync_metadata (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     file_path TEXT NOT NULL UNIQUE,
@@ -247,11 +265,8 @@ export class SQLiteIndexManager {
                     git_commit_hash TEXT,
                     created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                     updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-                )
-            `);
+                );
 
-            // Files table
-            this.db!.run(`
                 CREATE TABLE IF NOT EXISTS files (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     file_path TEXT NOT NULL UNIQUE,
@@ -262,18 +277,11 @@ export class SQLiteIndexManager {
                     total_words INTEGER DEFAULT 0,
                     created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                     updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-                )
-            `);
+                );
 
-            // Cells table - restructured to combine source and target in same row
-            this.db!.run(`
                 CREATE TABLE IF NOT EXISTS cells (
                     cell_id TEXT PRIMARY KEY,
-                    
-                    -- Cell type (text, paratext, milestone, style)
                     cell_type TEXT,
-                    
-                    -- Source columns
                     s_file_id INTEGER,
                     s_content TEXT,
                     s_raw_content_hash TEXT,
@@ -282,8 +290,6 @@ export class SQLiteIndexManager {
                     s_raw_content TEXT,
                     s_created_at INTEGER,
                     s_updated_at INTEGER,
-                    
-                    -- Target columns  
                     t_file_id INTEGER,
                     t_content TEXT,
                     t_raw_content_hash TEXT,
@@ -291,30 +297,18 @@ export class SQLiteIndexManager {
                     t_word_count INTEGER DEFAULT 0,
                     t_raw_content TEXT,
                     t_created_at INTEGER,
-                    
-                    -- Target metadata (optimized fields only)
                     t_current_edit_timestamp INTEGER,
                     t_validation_count INTEGER DEFAULT 0,
                     t_validated_by TEXT,
                     t_is_fully_validated BOOLEAN DEFAULT FALSE,
-                    
-                    -- Audio validation metadata (separate from text validation)
                     t_audio_validation_count INTEGER DEFAULT 0,
                     t_audio_validated_by TEXT,
                     t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
-                    
-                    -- Milestone index for O(1) lookup (0-based milestone index, NULL if no milestone)
                     milestone_index INTEGER,
-                    
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
-                )
-            `);
+                );
 
-            // Translation pairs table removed in schema v8 - source/target are now in same row
-
-            // Words table
-            this.db!.run(`
                 CREATE TABLE IF NOT EXISTS words (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     word TEXT NOT NULL,
@@ -323,38 +317,34 @@ export class SQLiteIndexManager {
                     frequency INTEGER DEFAULT 1,
                     created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                     FOREIGN KEY (cell_id) REFERENCES cells(cell_id) ON DELETE CASCADE
-                )
-            `);
+                );
 
-            debug("Creating full-text search index...");
-            // FTS5 virtual table - separate entries for source and target content
-            this.db!.run(`
                 CREATE VIRTUAL TABLE IF NOT EXISTS cells_fts USING fts5(
                     cell_id,
                     content,
                     raw_content,
                     content_type,
                     tokenize='porter unicode61'
-                )
+                );
             `);
         });
 
         debug("Creating database indexes (deferred)...");
-        // Create indexes in a separate optimized transaction
-        await this.runInTransaction(() => {
-            // Create essential indexes only - defer others until after data insertion
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_s_file_id ON cells(s_file_id)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_file_id ON cells(t_file_id)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_milestone_index ON cells(milestone_index)");
+        await this.runInTransaction(async () => {
+            await this.db!.exec(`
+                CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path);
+                CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path);
+                CREATE INDEX IF NOT EXISTS idx_cells_s_file_id ON cells(s_file_id);
+                CREATE INDEX IF NOT EXISTS idx_cells_t_file_id ON cells(t_file_id);
+                CREATE INDEX IF NOT EXISTS idx_cells_milestone_index ON cells(milestone_index);
+            `);
         });
 
         debug("Creating database triggers...");
-        // Create triggers in batch
-        await this.runInTransaction(() => {
-            // Timestamp triggers
-            this.db!.run(`
+        // Create triggers in batch - note: each trigger must be a separate exec() since
+        // SQLite's exec() processes one statement at a time for triggers with BEGIN/END
+        await this.runInTransaction(async () => {
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS update_sync_metadata_timestamp 
                 AFTER UPDATE ON sync_metadata
                 BEGIN
@@ -362,8 +352,7 @@ export class SQLiteIndexManager {
                     WHERE id = NEW.id;
                 END
             `);
-
-            this.db!.run(`
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS update_files_timestamp 
                 AFTER UPDATE ON files
                 BEGIN
@@ -371,8 +360,7 @@ export class SQLiteIndexManager {
                     WHERE id = NEW.id;
                 END
             `);
-
-            this.db!.run(`
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS update_cells_s_timestamp 
                 AFTER UPDATE OF s_content, s_raw_content ON cells
                 BEGIN
@@ -380,12 +368,8 @@ export class SQLiteIndexManager {
                     WHERE cell_id = NEW.cell_id;
                 END
             `);
-
             // Target timestamp trigger removed - timestamps now handled in application logic
-            // to preserve actual edit timestamps from JSON metadata instead of database operation time
-
-            // FTS synchronization triggers - handle source and target separately
-            this.db!.run(`
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS cells_fts_source_insert 
                 AFTER INSERT ON cells
                 WHEN NEW.s_content IS NOT NULL
@@ -394,8 +378,7 @@ export class SQLiteIndexManager {
                     VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
                 END
             `);
-
-            this.db!.run(`
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS cells_fts_target_insert 
                 AFTER INSERT ON cells
                 WHEN NEW.t_content IS NOT NULL
@@ -404,8 +387,7 @@ export class SQLiteIndexManager {
                     VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
                 END
             `);
-
-            this.db!.run(`
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS cells_fts_source_update 
                 AFTER UPDATE OF s_content, s_raw_content ON cells
                 WHEN NEW.s_content IS NOT NULL
@@ -414,8 +396,7 @@ export class SQLiteIndexManager {
                     VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
                 END
             `);
-
-            this.db!.run(`
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS cells_fts_target_update 
                 AFTER UPDATE OF t_content, t_raw_content ON cells
                 WHEN NEW.t_content IS NOT NULL
@@ -424,8 +405,7 @@ export class SQLiteIndexManager {
                     VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
                 END
             `);
-
-            this.db!.run(`
+            await this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS cells_fts_delete 
                 AFTER DELETE ON cells
                 BEGIN
@@ -436,10 +416,10 @@ export class SQLiteIndexManager {
 
         // Restore normal database settings for production use (OUTSIDE of transaction)
         debug("Restoring production database settings...");
-        this.db.run("PRAGMA synchronous = NORMAL");      // Restore safe sync mode
-        this.db.run("PRAGMA journal_mode = WAL");        // Use WAL mode for better concurrency
-        this.db.run("PRAGMA foreign_keys = ON");         // Re-enable foreign key constraints
-        this.db.run("PRAGMA cache_size = -8000");        // Reasonable cache size (8MB)
+        await this.db.exec("PRAGMA synchronous = NORMAL");      // Restore safe sync mode
+        await this.db.exec("PRAGMA journal_mode = WAL");        // Use WAL mode for better concurrency
+        await this.db.exec("PRAGMA foreign_keys = ON");         // Re-enable foreign key constraints
+        await this.db.exec("PRAGMA cache_size = -8000");        // Reasonable cache size (8MB)
 
         const schemaEndTime = globalThis.performance.now();
         const totalTime = schemaEndTime - schemaStart;
@@ -458,27 +438,20 @@ export class SQLiteIndexManager {
         debug("Creating deferred indexes for optimal performance...");
         const indexStart = globalThis.performance.now();
 
-        await this.runInTransaction(() => {
-            // Create remaining indexes that benefit from having data first
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms)");
-
-            // Additional indexes for the new cell structure (main ones already created)
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_s_content_hash ON cells(s_raw_content_hash)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_content_hash ON cells(t_raw_content_hash)");
-
-            // Performance indexes for extracted metadata
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_is_fully_validated ON cells(t_is_fully_validated)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_current_edit_timestamp ON cells(t_current_edit_timestamp)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_validation_count ON cells(t_validation_count)");
-
-            // Performance indexes for audio validation metadata
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_audio_is_fully_validated ON cells(t_audio_is_fully_validated)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_audio_validation_count ON cells(t_audio_validation_count)");
-
-            // Keep word index (will need updating for new structure)
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id)");
+        await this.runInTransaction(async () => {
+            await this.db!.exec(`
+                CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash);
+                CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms);
+                CREATE INDEX IF NOT EXISTS idx_cells_s_content_hash ON cells(s_raw_content_hash);
+                CREATE INDEX IF NOT EXISTS idx_cells_t_content_hash ON cells(t_raw_content_hash);
+                CREATE INDEX IF NOT EXISTS idx_cells_t_is_fully_validated ON cells(t_is_fully_validated);
+                CREATE INDEX IF NOT EXISTS idx_cells_t_current_edit_timestamp ON cells(t_current_edit_timestamp);
+                CREATE INDEX IF NOT EXISTS idx_cells_t_validation_count ON cells(t_validation_count);
+                CREATE INDEX IF NOT EXISTS idx_cells_t_audio_is_fully_validated ON cells(t_audio_is_fully_validated);
+                CREATE INDEX IF NOT EXISTS idx_cells_t_audio_validation_count ON cells(t_audio_validation_count);
+                CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);
+                CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id);
+            `);
 
             // Translation pairs indexes removed in schema v8 - table no longer exists
         });
@@ -496,7 +469,7 @@ export class SQLiteIndexManager {
         try {
             // Check current schema version
             stepStart = this.trackProgress("Check database schema version", stepStart);
-            const currentVersion = this.getSchemaVersion();
+            const currentVersion = await this.getSchemaVersion();
             debug(`Current schema version: ${currentVersion}`);
 
 
@@ -508,11 +481,11 @@ export class SQLiteIndexManager {
                 await this.createSchema();
 
                 // Validate schema before setting version to ensure reliability
-                if (!this.validateSchemaIntegrity()) {
+                if (!(await this.validateSchemaIntegrity())) {
                     throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
                 }
 
-                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
                 this.trackProgress("✨ AI learning structure organized", stepStart);
                 debug(`New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
             } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
@@ -556,15 +529,22 @@ export class SQLiteIndexManager {
                 stepStart = this.trackProgress("Recreate corrupted database", stepStart);
 
                 // Force recreate the database
-                this.db = new this.sql!.Database();
+                if (this.db) {
+                    try { await this.db.close(); } catch { /* ignore */ }
+                }
+                if (this.dbPath) {
+                    try { await vscode.workspace.fs.delete(vscode.Uri.file(this.dbPath)); } catch { /* ignore */ }
+                    this.db = await AsyncDatabase.open(this.dbPath);
+                } else {
+                    throw new Error("Database path not set");
+                }
                 await this.createSchema();
 
-                // Validate schema before setting version to ensure reliability
-                if (!this.validateSchemaIntegrity()) {
+                if (!(await this.validateSchemaIntegrity())) {
                     throw new Error(`Schema validation failed after corruption recovery for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
                 }
 
-                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
 
                 this.trackProgress("Database corruption recovery complete", stepStart);
                 debug("Successfully recreated database after corruption");
@@ -581,31 +561,20 @@ export class SQLiteIndexManager {
         debug("Dropping all existing tables...");
 
         // Get all table names first
-        const tablesStmt = this.db.prepare(`
+        const tableRows = await this.db.all<{ name: string }>(`
             SELECT name FROM sqlite_master 
             WHERE type='table' AND name NOT LIKE 'sqlite_%'
         `);
-
-        const tableNames: string[] = [];
-        try {
-            while (tablesStmt.step()) {
-                tableNames.push(tablesStmt.getAsObject().name as string);
-            }
-        } finally {
-            tablesStmt.free();
-        }
+        const tableNames = tableRows.map(r => r.name);
 
         // Drop all tables in a transaction
-        await this.runInTransaction(() => {
-            // Drop FTS table first if it exists
+        await this.runInTransaction(async () => {
             if (tableNames.includes('cells_fts')) {
-                this.db!.run("DROP TABLE IF EXISTS cells_fts");
+                await this.db!.run("DROP TABLE IF EXISTS cells_fts");
             }
-
-            // Drop other tables
             for (const tableName of tableNames) {
                 if (tableName !== 'cells_fts') {
-                    this.db!.run(`DROP TABLE IF EXISTS ${tableName}`);
+                    await this.db!.run(`DROP TABLE IF EXISTS ${tableName}`);
                 }
             }
         });
@@ -613,91 +582,57 @@ export class SQLiteIndexManager {
         debug("Creating fresh schema...");
         await this.createSchema();
 
-        // Yield control after schema creation
         await new Promise(resolve => setImmediate(resolve));
 
-        // Validate schema before setting version to ensure reliability
-        if (!this.validateSchemaIntegrity()) {
+        if (!(await this.validateSchemaIntegrity())) {
             throw new Error(`Schema validation failed after recreation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
         }
 
-        this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+        await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
     }
 
-    private getSchemaVersion(): number {
+    private async getSchemaVersion(): Promise<number> {
         if (!this.db) return 0;
 
         try {
-            // Check if any tables exist at all (new database check)
-            const checkAnyTable = this.db.prepare(`
-                SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'
-            `);
+            const countRow = await this.db.get<{ count: number }>(
+                "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'"
+            );
+            if (!countRow || countRow.count === 0) return 0;
 
-            let tableCount = 0;
-            try {
-                checkAnyTable.step();
-                tableCount = checkAnyTable.getAsObject().count as number;
-            } finally {
-                checkAnyTable.free();
-            }
+            const tableRow = await this.db.get<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_info'"
+            );
+            if (!tableRow) return -1;
 
-            if (tableCount === 0) return 0; // Completely new database
-
-            // Check if schema_info table exists
-            const checkTable = this.db.prepare(`
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='schema_info'
-            `);
-
-            let hasTable = false;
-            try {
-                if (checkTable.step()) {
-                    hasTable = checkTable.getAsObject().name === 'schema_info';
-                }
-            } finally {
-                checkTable.free();
-            }
-
-            if (!hasTable) return -1; // Unknown version if no schema_info table but other tables exist
-
-            const stmt = this.db.prepare("SELECT version FROM schema_info WHERE id = 1 LIMIT 1");
-            try {
-                if (stmt.step()) {
-                    const result = stmt.getAsObject();
-                    return (result.version as number) || -1;
-                }
-                return -1; // No version found
-            } finally {
-                stmt.free();
-            }
+            const versionRow = await this.db.get<{ version: number }>(
+                "SELECT version FROM schema_info WHERE id = 1 LIMIT 1"
+            );
+            return versionRow?.version ?? -1;
         } catch {
-            return -1; // Fallback to unknown version
+            return -1;
         }
     }
 
 
-    setSchemaVersion(version: number): void {
+    async setSchemaVersion(version: number): Promise<void> {
         if (!this.db) return;
 
-        // Create schema_info table if it doesn't exist
-        this.db.run(`
+        await this.db.run(`
             CREATE TABLE IF NOT EXISTS schema_info (
                 id INTEGER PRIMARY KEY CHECK(id = 1),
                 version INTEGER NOT NULL
             )
         `);
 
-        // Clean up any duplicate rows and insert the new version
-        // Use a transaction to ensure atomicity
-        this.db.run("BEGIN TRANSACTION");
+        await this.db.run("BEGIN TRANSACTION");
         try {
-            // Clean up any existing duplicate rows from old schema
-            this.db.run("DELETE FROM schema_info");
-            this.db.run("INSERT INTO schema_info (id, version) VALUES (1, ?)", [version]);
-            this.db.run("COMMIT");
+            await this.db.run("DELETE FROM schema_info");
+            await this.db.run("INSERT INTO schema_info (id, version) VALUES (1, ?)", [version]);
+            await this.db.run("COMMIT");
             debug(`Schema version updated to ${version}`);
         } catch (error) {
-            this.db.run("ROLLBACK");
+            await this.db.run("ROLLBACK");
             console.error("Failed to set schema version:", error);
             throw error;
         }
@@ -723,7 +658,7 @@ export class SQLiteIndexManager {
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
         const contentHash = this.computeContentHash(fileContent.toString());
 
-        const stmt = this.db.prepare(`
+        const result = await this.db!.get<{id: number}>(`
             INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(file_path) DO UPDATE SET
@@ -731,29 +666,21 @@ export class SQLiteIndexManager {
                 content_hash = excluded.content_hash,
                 updated_at = strftime('%s', 'now') * 1000
             RETURNING id
-        `);
-
-        try {
-            stmt.bind([filePath, fileType, lastModifiedMs, contentHash]);
-            stmt.step();
-            const result = stmt.getAsObject();
-            return result.id as number;
-        } finally {
-            stmt.free();
-        }
+        `, [filePath, fileType, lastModifiedMs, contentHash]);
+        return result?.id ?? 0;
     }
 
     // Synchronous version for use within transactions
-    upsertFileSync(
+    async upsertFileSync(
         filePath: string,
         fileType: "source" | "codex",
         lastModifiedMs: number
-    ): number {
+    ): Promise<number> {
         if (!this.db) throw new Error("Database not initialized");
 
         const contentHash = this.computeContentHash(filePath + lastModifiedMs);
 
-        const stmt = this.db.prepare(`
+        const result = await this.db!.get<{id: number}>(`
             INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(file_path) DO UPDATE SET
@@ -761,16 +688,8 @@ export class SQLiteIndexManager {
                 content_hash = excluded.content_hash,
                 updated_at = strftime('%s', 'now') * 1000
             RETURNING id
-        `);
-
-        try {
-            stmt.bind([filePath, fileType, lastModifiedMs, contentHash]);
-            stmt.step();
-            const result = stmt.getAsObject();
-            return result.id as number;
-        } finally {
-            stmt.free();
-        }
+        `, [filePath, fileType, lastModifiedMs, contentHash]);
+        return result?.id ?? 0;
     }
 
     async upsertCell(
@@ -796,21 +715,11 @@ export class SQLiteIndexManager {
         const currentTimestamp = Date.now();
 
         // Check if cell exists and if content changed
-        const checkStmt = this.db.prepare(`
+        const existingCell = await this.db!.get<{ cell_id: string; hash: string | null; }>(`
             SELECT cell_id, ${cellType === 'source' ? 's_raw_content_hash' : 't_raw_content_hash'} as hash 
             FROM cells 
             WHERE cell_id = ?
-        `);
-
-        let existingCell: { cell_id: string; hash: string | null; } | null = null;
-        try {
-            checkStmt.bind([cellId]);
-            if (checkStmt.step()) {
-                existingCell = checkStmt.getAsObject() as any;
-            }
-        } finally {
-            checkStmt.free();
-        }
+        `, [cellId]);
 
         const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
         const isNew = !existingCell;
@@ -890,19 +799,10 @@ export class SQLiteIndexManager {
                 // If no content, t_created_at remains NULL (will be set when first content is added)
             } else {
                 // Existing target cell: check if t_created_at is NULL and we're adding first content
-                const checkCreatedStmt = this.db.prepare(`
+                const createdAtRow = await this.db!.get<{t_created_at: number | null}>(`
                     SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
-                `);
-
-                let currentCreatedAt: number | null = null;
-                try {
-                    checkCreatedStmt.bind([cellId]);
-                    if (checkCreatedStmt.step()) {
-                        currentCreatedAt = checkCreatedStmt.getAsObject().t_created_at as number | null;
-                    }
-                } finally {
-                    checkCreatedStmt.free();
-                }
+                `, [cellId]);
+                const currentCreatedAt = createdAtRow?.t_created_at ?? null;
 
                 // If t_created_at is NULL and we're adding content, set it to current edit timestamp
                 if (currentCreatedAt === null && content && content.trim() !== '') {
@@ -922,26 +822,19 @@ export class SQLiteIndexManager {
         // Created_at logic is handled above based on cell type and content presence
 
         // Upsert the cell
-        const upsertStmt = this.db.prepare(`
+        await this.db!.run(`
             INSERT INTO cells (cell_id, ${columns.join(', ')})
             VALUES (?, ${values.map(() => '?').join(', ')})
             ON CONFLICT(cell_id) DO UPDATE SET
                 ${columns.map(col => `${col} = excluded.${col}`).join(', ')}
-        `);
+        `, [cellId, ...values]);
 
-        try {
-            upsertStmt.bind([cellId, ...values]);
-            upsertStmt.step();
-
-            this.debouncedSave();
-            return { id: cellId, isNew, contentChanged };
-        } finally {
-            upsertStmt.free();
-        }
+        this.debouncedSave();
+        return { id: cellId, isNew, contentChanged };
     }
 
     // Synchronous version for use within transactions
-    upsertCellSync(
+    async upsertCellSync(
         cellId: string,
         fileId: number,
         cellType: "source" | "target",
@@ -950,7 +843,7 @@ export class SQLiteIndexManager {
         metadata?: any,
         rawContent?: string,
         milestoneIndex?: number | null
-    ): { id: string; isNew: boolean; contentChanged: boolean; } {
+    ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         if (!this.db) throw new Error("Database not initialized");
 
         // Use rawContent if provided, otherwise fall back to content
@@ -964,21 +857,11 @@ export class SQLiteIndexManager {
         const currentTimestamp = Date.now();
 
         // Check if cell exists and if content changed
-        const checkStmt = this.db.prepare(`
+        const existingCell = await this.db!.get<{ cell_id: string; hash: string | null; }>(`
             SELECT cell_id, ${cellType === 'source' ? 's_raw_content_hash' : 't_raw_content_hash'} as hash 
             FROM cells 
             WHERE cell_id = ?
-        `);
-
-        let existingCell: { cell_id: string; hash: string | null; } | null = null;
-        try {
-            checkStmt.bind([cellId]);
-            if (checkStmt.step()) {
-                existingCell = checkStmt.getAsObject() as any;
-            }
-        } finally {
-            checkStmt.free();
-        }
+        `, [cellId]);
 
         const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
         const isNew = !existingCell;
@@ -1058,19 +941,10 @@ export class SQLiteIndexManager {
                 // If no content, t_created_at remains NULL (will be set when first content is added)
             } else {
                 // Existing target cell: check if t_created_at is NULL and we're adding first content
-                const checkCreatedStmt = this.db.prepare(`
+                const createdAtRow = await this.db!.get<{t_created_at: number | null}>(`
                     SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
-                `);
-
-                let currentCreatedAt: number | null = null;
-                try {
-                    checkCreatedStmt.bind([cellId]);
-                    if (checkCreatedStmt.step()) {
-                        currentCreatedAt = checkCreatedStmt.getAsObject().t_created_at as number | null;
-                    }
-                } finally {
-                    checkCreatedStmt.free();
-                }
+                `, [cellId]);
+                const currentCreatedAt = createdAtRow?.t_created_at ?? null;
 
                 // If t_created_at is NULL and we're adding content, set it to current edit timestamp
                 if (currentCreatedAt === null && content && content.trim() !== '') {
@@ -1090,22 +964,15 @@ export class SQLiteIndexManager {
         // Created_at logic is handled above based on cell type and content presence
 
         // Upsert the cell
-        const upsertStmt = this.db.prepare(`
+        await this.db!.run(`
             INSERT INTO cells (cell_id, ${columns.join(', ')})
             VALUES (?, ${values.map(() => '?').join(', ')})
             ON CONFLICT(cell_id) DO UPDATE SET
                 ${columns.map(col => `${col} = excluded.${col}`).join(', ')}
-        `);
+        `, [cellId, ...values]);
 
-        try {
-            upsertStmt.bind([cellId, ...values]);
-            upsertStmt.step();
-
-            // Note: Don't call debouncedSave() in sync version as it's async
-            return { id: cellId, isNew, contentChanged };
-        } finally {
-            upsertStmt.free();
-        }
+        // Note: Don't call debouncedSave() in sync version as it's async
+        return { id: cellId, isNew, contentChanged };
     }
 
     // Add a single document (DEPRECATED - use FileSyncManager instead)
@@ -1137,13 +1004,12 @@ export class SQLiteIndexManager {
         if (!this.db) throw new Error("Database not initialized");
 
         // Use a transaction for better performance and make it non-blocking
-        await this.runInTransaction(() => {
+        await this.runInTransaction(async () => {
             // Delete in reverse dependency order to avoid foreign key issues
-            this.db!.run("DELETE FROM cells_fts");
-            // translation_pairs table no longer exists in schema v8
-            this.db!.run("DELETE FROM words");
-            this.db!.run("DELETE FROM cells");
-            this.db!.run("DELETE FROM files");
+            await this.db!.run("DELETE FROM cells_fts");
+            await this.db!.run("DELETE FROM words");
+            await this.db!.run("DELETE FROM cells");
+            await this.db!.run("DELETE FROM files");
         });
 
         // Use setImmediate to make the save operation non-blocking
@@ -1154,22 +1020,22 @@ export class SQLiteIndexManager {
 
     // Get document count
     get documentCount(): number {
+        // Deprecated: Use getDocumentCount() instead for async access
+        // This getter is kept for backward compatibility but will be removed
+        throw new Error("documentCount getter is deprecated. Use async getDocumentCount() instead.");
+    }
+
+    async getDocumentCount(): Promise<number> {
         if (!this.db) return 0;
 
-        const stmt = this.db.prepare("SELECT COUNT(DISTINCT cell_id) as count FROM cells");
-        try {
-            stmt.step();
-            const result = stmt.getAsObject();
-            return (result.count as number) || 0;
-        } finally {
-            stmt.free();
-        }
+        const row = await this.db.get<{ count: number }>("SELECT COUNT(DISTINCT cell_id) as count FROM cells");
+        return (row?.count as number) || 0;
     }
 
     /**
      * Get database instance for advanced operations (use with caution)
      */
-    get database(): Database | null {
+    get database(): AsyncDatabase | null {
         return this.db;
     }
 
@@ -1186,7 +1052,7 @@ export class SQLiteIndexManager {
      * @param options.isParallelPassagesWebview - If true, this search is for the search passages webview display (default: false)
      * @returns Array of search results with raw or sanitized content based on options
      */
-    search(query: string, options?: any): any[] {
+    async search(query: string, options?: any): Promise<any[]> {
         if (!this.db) return [];
 
         const limit = options?.limit || 50;
@@ -1249,7 +1115,22 @@ export class SQLiteIndexManager {
             return [];
         }
 
-        const stmt = this.db.prepare(`
+        // Always search using the sanitized content column for better matching
+        const ftsSearchQuery = `content: ${ftsQuery}`;
+        const rows = await this.db!.all<{
+            cell_id: string;
+            content: string;
+            content_type: string;
+            s_content: string;
+            s_raw_content: string;
+            s_line_number: number;
+            t_content: string;
+            t_raw_content: string;
+            t_line_number: number;
+            s_file_path: string;
+            t_file_path: string;
+            score: number;
+        }>(`
             SELECT 
                 cells_fts.cell_id,
                 cells_fts.content,
@@ -1270,80 +1151,71 @@ export class SQLiteIndexManager {
             WHERE cells_fts MATCH ?
             ORDER BY score DESC
             LIMIT ?
-        `);
+        `, [ftsSearchQuery, limit]);
 
         const results = [];
-        try {
-            // Always search using the sanitized content column for better matching
-            const ftsSearchQuery = `content: ${ftsQuery}`;
-            stmt.bind([ftsSearchQuery, limit]);
-            while (stmt.step()) {
-                const row = stmt.getAsObject();
+        for (const row of rows) {
+            // Determine the content type from FTS entry
+            const contentType = row.content_type as string; // 'source' or 'target'
 
-                // Determine the content type from FTS entry
-                const contentType = row.content_type as string; // 'source' or 'target'
+            // Get the appropriate content and metadata based on content type
+            let content, rawContent, line, uri, metadata;
 
-                // Get the appropriate content and metadata based on content type
-                let content, rawContent, line, uri, metadata;
-
-                if (contentType === 'source') {
-                    content = row.s_content;
-                    rawContent = row.s_raw_content;
-                    line = row.s_line_number;
-                    uri = row.s_file_path;
-                    metadata = {}; // Metadata now in dedicated columns
-                } else {
-                    content = row.t_content;
-                    rawContent = row.t_raw_content;
-                    line = row.t_line_number;
-                    uri = row.t_file_path;
-                    metadata = {}; // Metadata now in dedicated columns
-                }
-
-                // Verify both columns contain data - no fallbacks
-                if (!content || !rawContent) {
-                    debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data:`, {
-                        content: !!content,
-                        raw_content: !!rawContent,
-                        content_type: contentType
-                    });
-                    continue; // Skip this result
-                }
-
-                // Choose which content to return based on use case
-                const contentToReturn = returnRawContent ? rawContent : content;
-
-                // Format result to match MiniSearch output (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
-                const result: any = {
-                    id: row.cell_id,
-                    cellId: row.cell_id,
-                    score: row.score,
-                    match: {}, // MiniSearch compatibility (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
-                    uri: uri,
-                    line: line,
-                };
-
-                // Add content based on cell type - always provide both versions for transparency
-                if (contentType === "source") {
-                    result.sourceContent = contentToReturn;
-                    result.content = contentToReturn;
-                    // Always provide both versions for debugging/transparency
-                    result.sanitizedContent = content;
-                    result.rawContent = rawContent;
-                } else {
-                    result.targetContent = contentToReturn;
-                    // Always provide both versions for debugging/transparency
-                    result.sanitizedTargetContent = content;
-                    result.rawTargetContent = rawContent;
-                }
-
-                // Add metadata fields
-                Object.assign(result, metadata);
-
-                results.push(result);
+            if (contentType === 'source') {
+                content = row.s_content;
+                rawContent = row.s_raw_content;
+                line = row.s_line_number;
+                uri = row.s_file_path;
+                metadata = {}; // Metadata now in dedicated columns
+            } else {
+                content = row.t_content;
+                rawContent = row.t_raw_content;
+                line = row.t_line_number;
+                uri = row.t_file_path;
+                metadata = {}; // Metadata now in dedicated columns
             }
-        } finally {
-            stmt.free();
+
+            // Verify both columns contain data - no fallbacks
+            if (!content || !rawContent) {
+                debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data:`, {
+                    content: !!content,
+                    raw_content: !!rawContent,
+                    content_type: contentType
+                });
+                continue; // Skip this result
+            }
+
+            // Choose which content to return based on use case
+            const contentToReturn = returnRawContent ? rawContent : content;
+
+            // Format result to match MiniSearch output (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
+            const result: any = {
+                id: row.cell_id,
+                cellId: row.cell_id,
+                score: row.score,
+                match: {}, // MiniSearch compatibility (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
+                uri: uri,
+                line: line,
+            };
+
+            // Add content based on cell type - always provide both versions for transparency
+            if (contentType === "source") {
+                result.sourceContent = contentToReturn;
+                result.content = contentToReturn;
+                // Always provide both versions for debugging/transparency
+                result.sanitizedContent = content;
+                result.rawContent = rawContent;
+            } else {
+                result.targetContent = contentToReturn;
+                // Always provide both versions for debugging/transparency
+                result.sanitizedTargetContent = content;
+                result.rawTargetContent = rawContent;
+            }
+
+            // Add metadata fields
+            Object.assign(result, metadata);
+
+            results.push(result);
         }
 
         return results;
@@ -1358,15 +1230,30 @@ export class SQLiteIndexManager {
      * @param options - Search options (same as search method)
      * @returns Array of search results with sanitized content (no HTML tags)
      */
-    searchSanitized(query: string, options?: any): any[] {
-        return this.search(query, { ...options, returnRawContent: false });
+    async searchSanitized(query: string, options?: any): Promise<any[]> {
+        return await this.search(query, { ...options, returnRawContent: false });
     }
 
     // Get document by ID (for source text index compatibility)
     async getById(cellId: string): Promise<any | null> {
         if (!this.db) return null;
 
-        const stmt = this.db.prepare(`
+        const row = await this.db.get<{
+            cell_id: string;
+            s_content: string;
+            s_raw_content: string;
+            s_file_path: string;
+            t_content: string;
+            t_raw_content: string;
+            t_current_edit_timestamp: number | null;
+            t_validation_count: number;
+            t_validated_by: string | null;
+            t_is_fully_validated: boolean;
+            t_audio_validation_count: number;
+            t_audio_validated_by: string | null;
+            t_audio_is_fully_validated: boolean;
+            t_file_path: string;
+        }>(`
             SELECT 
                 c.cell_id,
                 -- Source columns
@@ -1388,41 +1275,34 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE c.cell_id = ?
-        `);
+        `, [cellId]);
 
-        try {
-            stmt.bind([cellId]);
-            if (stmt.step()) {
-                const row = stmt.getAsObject();
+        if (row) {
+            // Construct metadata from dedicated columns
+            const sourceMetadata = {};
+            const targetMetadata = {
+                currentEditTimestamp: row.t_current_edit_timestamp || null,
+                validationCount: row.t_validation_count || 0,
+                validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
+                isFullyValidated: Boolean(row.t_is_fully_validated),
+                audioValidationCount: row.t_audio_validation_count || 0,
+                audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
+                audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
+            };
 
-                // Construct metadata from dedicated columns
-                const sourceMetadata = {};
-                const targetMetadata = {
-                    currentEditTimestamp: row.t_current_edit_timestamp || null,
-                    validationCount: row.t_validation_count || 0,
-                    validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
-                    isFullyValidated: Boolean(row.t_is_fully_validated),
-                    audioValidationCount: row.t_audio_validation_count || 0,
-                    audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
-                    audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
-                };
-
-                return {
-                    cellId: cellId,
-                    content: row.s_raw_content || row.s_content || "", // Prefer source raw content
-                    versions: [], // Versions now tracked in dedicated columns
-                    sourceContent: row.s_content,
-                    targetContent: row.t_content,
-                    sourceRawContent: row.s_raw_content,
-                    targetRawContent: row.t_raw_content,
-                    source_file_path: row.s_file_path,
-                    target_file_path: row.t_file_path,
-                    source_metadata: sourceMetadata,
-                    target_metadata: targetMetadata,
-                };
-            }
-        } finally {
-            stmt.free();
+            return {
+                cellId: cellId,
+                content: row.s_raw_content || row.s_content || "", // Prefer source raw content
+                versions: [], // Versions now tracked in dedicated columns
+                sourceContent: row.s_content,
+                targetContent: row.t_content,
+                sourceRawContent: row.s_raw_content,
+                targetRawContent: row.t_raw_content,
+                source_file_path: row.s_file_path,
+                target_file_path: row.t_file_path,
+                source_metadata: sourceMetadata,
+                target_metadata: targetMetadata,
+            };
         }
 
         return null;
@@ -1437,7 +1317,7 @@ export class SQLiteIndexManager {
     ): Promise<{ [k: string]: { content: string; versions: string[]; }; }> {
         if (!this.db) return {};
 
-        const build = (pathA?: string, pathB?: string) => {
+        const build = async (pathA?: string, pathB?: string): Promise<{ [k: string]: { content: string; versions: string[]; }; }> => {
             const result: { [k: string]: { content: string; versions: string[]; }; } = {};
             let sql = `
                 SELECT c.cell_id AS cell_id,
@@ -1459,17 +1339,11 @@ export class SQLiteIndexManager {
                 }
             }
 
-            const stmt = this.db!.prepare(sql);
-            try {
-                stmt.bind(params);
-                while (stmt.step()) {
-                    const row = stmt.getAsObject();
-                    const cellId = String(row.cell_id);
-                    const content = String(row.content || "");
-                    result[cellId] = { content, versions: [] };
-                }
-            } finally {
-                stmt.free();
+            const rows = await this.db!.all<{ cell_id: string; content: string }>(sql, params);
+            for (const row of rows) {
+                const cellId = String(row.cell_id);
+                const content = String(row.content || "");
+                result[cellId] = { content, versions: [] };
             }
             return result;
         };
@@ -1478,17 +1352,17 @@ export class SQLiteIndexManager {
         if (sourceFilePath) {
             const isUri = sourceFilePath.startsWith("file:");
             const fsPathVariant = isUri ? vscode.Uri.parse(sourceFilePath).fsPath : undefined;
-            result = build(sourceFilePath, fsPathVariant);
+            result = await build(sourceFilePath, fsPathVariant);
             if (Object.keys(result).length === 0) {
                 // Retry with swapped order just in case
-                result = build(fsPathVariant, sourceFilePath);
+                result = await build(fsPathVariant, sourceFilePath);
             }
             if (Object.keys(result).length === 0) {
                 // Fallback to unfiltered
-                result = build();
+                result = await build();
             }
         } else {
-            result = build();
+            result = await build();
         }
 
         return result;
@@ -1498,7 +1372,26 @@ export class SQLiteIndexManager {
     async getCellById(cellId: string, cellType?: "source" | "target"): Promise<any | null> {
         if (!this.db) return null;
 
-        const stmt = this.db.prepare(`
+        const row = await this.db.get<{
+            cell_id: string;
+            s_content: string;
+            s_raw_content: string;
+            s_line_number: number;
+            s_file_path: string;
+            s_file_type: string;
+            t_content: string;
+            t_raw_content: string;
+            t_line_number: number;
+            t_current_edit_timestamp: number | null;
+            t_validation_count: number;
+            t_validated_by: string | null;
+            t_is_fully_validated: boolean;
+            t_audio_validation_count: number;
+            t_audio_validated_by: string | null;
+            t_audio_is_fully_validated: boolean;
+            t_file_path: string;
+            t_file_type: string;
+        }>(`
             SELECT 
                 c.cell_id,
                 -- Source columns
@@ -1524,27 +1417,45 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE c.cell_id = ?
-        `);
+        `, [cellId]);
 
-        try {
-            stmt.bind([cellId]);
-            if (stmt.step()) {
-                const row = stmt.getAsObject();
+        if (row) {
+            // Construct metadata from dedicated columns
+            const sourceMetadata = {};
+            const targetMetadata = {
+                currentEditTimestamp: row.t_current_edit_timestamp || null,
+                validationCount: row.t_validation_count || 0,
+                validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
+                isFullyValidated: Boolean(row.t_is_fully_validated),
+                audioValidationCount: row.t_audio_validation_count || 0,
+                audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
+                audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
+            };
 
-                // Construct metadata from dedicated columns
-                const sourceMetadata = {};
-                const targetMetadata = {
-                    currentEditTimestamp: row.t_current_edit_timestamp || null,
-                    validationCount: row.t_validation_count || 0,
-                    validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
-                    isFullyValidated: Boolean(row.t_is_fully_validated),
-                    audioValidationCount: row.t_audio_validation_count || 0,
-                    audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
-                    audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
+            // Return data based on requested cell type
+            if (cellType === "source" && row.s_content) {
+                return {
+                    cellId: row.cell_id,
+                    content: row.s_content,
+                    rawContent: row.s_raw_content,
+                    cell_type: "source",
+                    uri: row.s_file_path,
+                    line: row.s_line_number,
+                    ...sourceMetadata,
                 };
-
-                // Return data based on requested cell type
-                if (cellType === "source" && row.s_content) {
+            } else if (cellType === "target" && row.t_content) {
+                return {
+                    cellId: row.cell_id,
+                    content: row.t_content,
+                    rawContent: row.t_raw_content,
+                    cell_type: "target",
+                    uri: row.t_file_path,
+                    line: row.t_line_number,
+                    ...targetMetadata,
+                };
+            } else if (!cellType) {
+                // Return source if available, otherwise target
+                if (row.s_content) {
                     return {
                         cellId: row.cell_id,
                         content: row.s_content,
@@ -1554,7 +1465,7 @@ export class SQLiteIndexManager {
                         line: row.s_line_number,
                         ...sourceMetadata,
                     };
-                } else if (cellType === "target" && row.t_content) {
+                } else if (row.t_content) {
                     return {
                         cellId: row.cell_id,
                         content: row.t_content,
@@ -1564,33 +1475,8 @@ export class SQLiteIndexManager {
                         line: row.t_line_number,
                         ...targetMetadata,
                     };
-                } else if (!cellType) {
-                    // Return source if available, otherwise target
-                    if (row.s_content) {
-                        return {
-                            cellId: row.cell_id,
-                            content: row.s_content,
-                            rawContent: row.s_raw_content,
-                            cell_type: "source",
-                            uri: row.s_file_path,
-                            line: row.s_line_number,
-                            ...sourceMetadata,
-                        };
-                    } else if (row.t_content) {
-                        return {
-                            cellId: row.cell_id,
-                            content: row.t_content,
-                            rawContent: row.t_raw_content,
-                            cell_type: "target",
-                            uri: row.t_file_path,
-                            line: row.t_line_number,
-                            ...targetMetadata,
-                        };
-                    }
                 }
             }
-        } finally {
-            stmt.free();
         }
 
         return null;
@@ -1623,7 +1509,7 @@ export class SQLiteIndexManager {
         if (!this.db) throw new Error("Database not initialized");
 
         // Clear existing words for this cell (cell_id is now TEXT)
-        this.db.run("DELETE FROM words WHERE cell_id = ?", [cellId]);
+        await this.db.run("DELETE FROM words WHERE cell_id = ?", [cellId]);
 
         // Add new words
         const words = content
@@ -1636,19 +1522,12 @@ export class SQLiteIndexManager {
             wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
         });
 
-        const stmt = this.db.prepare(
-            "INSERT INTO words (word, cell_id, position, frequency) VALUES (?, ?, ?, ?)"
-        );
-
-        try {
-            let position = 0;
-            for (const [word, frequency] of wordCounts) {
-                stmt.bind([word, cellId, position++, frequency]);
-                stmt.step();
-                stmt.reset();
-            }
-        } finally {
-            stmt.free();
+        let position = 0;
+        for (const [word, frequency] of wordCounts) {
+            await this.db.run(
+                "INSERT INTO words (word, cell_id, position, frequency) VALUES (?, ?, ?, ?)",
+                [word, cellId, position++, frequency]
+            );
         }
     }
 
@@ -1738,37 +1617,40 @@ export class SQLiteIndexManager {
         sql += ` ORDER BY score DESC LIMIT ?`;
         params.push(limit);
 
-        const stmt = this.db.prepare(sql);
+        const rows = await this.db.all<{
+            cell_id: string;
+            content: string;
+            raw_content: string;
+            word_count: number;
+            line: number;
+            file_path: string;
+            file_type: string;
+            cell_type: string;
+            score: number;
+        }>(sql, params);
+
         const results = [];
-
-        try {
-            stmt.bind(params);
-            while (stmt.step()) {
-                const row = stmt.getAsObject();
-
-                // Verify content exists
-                if (!row.content) {
-                    debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
-                    continue;
-                }
-
-                results.push({
-                    cellId: row.cell_id,
-                    cell_id: row.cell_id,
-                    content: returnRawContent ? (row.raw_content || row.content) : row.content,
-                    rawContent: row.raw_content,
-                    sourceContent: row.cell_type === 'source' ? row.content : undefined,
-                    targetContent: row.cell_type === 'target' ? row.content : undefined,
-                    cell_type: row.cell_type,
-                    uri: row.file_path,
-                    line: row.line,
-                    score: row.score,
-                    word_count: row.word_count,
-                    file_type: row.file_type
-                });
+        for (const row of rows) {
+            // Verify content exists
+            if (!row.content) {
+                debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
+                continue;
             }
-        } finally {
-            stmt.free();
+
+            results.push({
+                cellId: row.cell_id,
+                cell_id: row.cell_id,
+                content: returnRawContent ? (row.raw_content || row.content) : row.content,
+                rawContent: row.raw_content,
+                sourceContent: row.cell_type === 'source' ? row.content : undefined,
+                targetContent: row.cell_type === 'target' ? row.content : undefined,
+                cell_type: row.cell_type,
+                uri: row.file_path,
+                line: row.line,
+                score: row.score,
+                word_count: row.word_count,
+                file_type: row.file_type
+            });
         }
 
         return results;
@@ -1916,37 +1798,40 @@ export class SQLiteIndexManager {
             params.push(limit);
         }
 
-        const stmt = this.db.prepare(sql);
+        const rows = await this.db!.all<{
+            cell_id: string;
+            content: string;
+            raw_content: string;
+            cell_type: string;
+            uri: string;
+            line: number;
+            score: number;
+            word_count: number;
+            file_type: string;
+        }>(sql, params);
+
         const results = [];
-
-        try {
-            stmt.bind(params);
-            while (stmt.step()) {
-                const row = stmt.getAsObject();
-
-                // Verify content exists
-                if (!row.content) {
-                    debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
-                    continue;
-                }
-
-                results.push({
-                    cellId: row.cell_id,
-                    cell_id: row.cell_id,
-                    content: row.content,
-                    rawContent: row.raw_content,
-                    sourceContent: row.cell_type === 'source' ? row.content : undefined,
-                    targetContent: row.cell_type === 'target' ? row.content : undefined,
-                    cell_type: row.cell_type,
-                    uri: row.uri,
-                    line: row.line,
-                    score: row.score,
-                    word_count: row.word_count,
-                    file_type: row.file_type
-                });
+        for (const row of rows) {
+            // Verify content exists
+            if (!row.content) {
+                debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
+                continue;
             }
-        } finally {
-            stmt.free();
+
+            results.push({
+                cellId: row.cell_id,
+                cell_id: row.cell_id,
+                content: row.content,
+                rawContent: row.raw_content,
+                sourceContent: row.cell_type === 'source' ? row.content : undefined,
+                targetContent: row.cell_type === 'target' ? row.content : undefined,
+                cell_type: row.cell_type,
+                uri: row.uri,
+                line: row.line,
+                score: row.score,
+                word_count: row.word_count,
+                file_type: row.file_type
+            });
         }
 
         return results;
@@ -1955,7 +1840,13 @@ export class SQLiteIndexManager {
     async getFileStats(): Promise<Map<string, any>> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const stmt = this.db.prepare(`
+        const rows = await this.db!.all<{
+            id: number;
+            file_path: string;
+            file_type: string;
+            cell_count: number;
+            total_words: number;
+        }>(`
             SELECT 
                 f.id, f.file_path, f.file_type,
                 COUNT(CASE WHEN c.s_file_id = f.id THEN 1 END) + 
@@ -1968,13 +1859,8 @@ export class SQLiteIndexManager {
         `);
 
         const stats = new Map();
-        try {
-            while (stmt.step()) {
-                const row = stmt.getAsObject();
-                stats.set(row.file_path as string, row);
-            }
-        } finally {
-            stmt.free();
+        for (const row of rows) {
+            stats.set(row.file_path, row);
         }
 
         return stats;
@@ -1991,7 +1877,15 @@ export class SQLiteIndexManager {
     }> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const stmt = this.db.prepare(`
+        const result = await this.db!.get<{
+            total_cells: number;
+            cells_with_raw_content: number;
+            cells_with_different_content: number;
+            avg_content_length: number;
+            avg_raw_content_length: number;
+            cells_with_missing_content: number;
+            cells_with_missing_raw_content: number;
+        }>(`
             SELECT 
                 COUNT(*) as total_cells,
                 (COUNT(s_raw_content) + COUNT(t_raw_content)) as cells_with_raw_content,
@@ -2006,21 +1900,27 @@ export class SQLiteIndexManager {
             FROM cells
         `);
 
-        try {
-            stmt.step();
-            const result = stmt.getAsObject();
+        if (!result) {
             return {
-                totalCells: (result.total_cells as number) || 0,
-                cellsWithRawContent: (result.cells_with_raw_content as number) || 0,
-                cellsWithDifferentContent: (result.cells_with_different_content as number) || 0,
-                avgContentLength: (result.avg_content_length as number) || 0,
-                avgRawContentLength: (result.avg_raw_content_length as number) || 0,
-                cellsWithMissingContent: (result.cells_with_missing_content as number) || 0,
-                cellsWithMissingRawContent: (result.cells_with_missing_raw_content as number) || 0,
+                totalCells: 0,
+                cellsWithRawContent: 0,
+                cellsWithDifferentContent: 0,
+                avgContentLength: 0,
+                avgRawContentLength: 0,
+                cellsWithMissingContent: 0,
+                cellsWithMissingRawContent: 0,
             };
-        } finally {
-            stmt.free();
         }
+
+        return {
+            totalCells: result.total_cells || 0,
+            cellsWithRawContent: result.cells_with_raw_content || 0,
+            cellsWithDifferentContent: result.cells_with_different_content || 0,
+            avgContentLength: result.avg_content_length || 0,
+            avgRawContentLength: result.avg_raw_content_length || 0,
+            cellsWithMissingContent: result.cells_with_missing_content || 0,
+            cellsWithMissingRawContent: result.cells_with_missing_raw_content || 0,
+        };
     }
 
     // Get translation pair statistics for validation
@@ -2034,7 +1934,11 @@ export class SQLiteIndexManager {
         if (!this.db) throw new Error("Database not initialized");
 
         // Count translation pairs from combined source/target rows (schema v8+)
-        const pairsStmt = this.db.prepare(`
+        const pairsResult = await this.db!.get<{
+            total_pairs: number;
+            complete_pairs: number;
+            incomplete_pairs: number;
+        }>(`
             SELECT 
                 COUNT(*) as total_pairs,
                 SUM(CASE WHEN s_content IS NOT NULL AND s_content != '' AND t_content IS NOT NULL AND t_content != '' THEN 1 ELSE 0 END) as complete_pairs,
@@ -2043,22 +1947,12 @@ export class SQLiteIndexManager {
             WHERE s_content IS NOT NULL OR t_content IS NOT NULL
         `);
 
-        let totalPairs = 0;
-        let completePairs = 0;
-        let incompletePairs = 0;
-
-        try {
-            pairsStmt.step();
-            const result = pairsStmt.getAsObject();
-            totalPairs = (result.total_pairs as number) || 0;
-            completePairs = (result.complete_pairs as number) || 0;
-            incompletePairs = (result.incomplete_pairs as number) || 0;
-        } finally {
-            pairsStmt.free();
-        }
+        const totalPairs = pairsResult?.total_pairs || 0;
+        const completePairs = pairsResult?.complete_pairs || 0;
+        const incompletePairs = pairsResult?.incomplete_pairs || 0;
 
         // Count orphaned source cells (source cells with no corresponding target)
-        const orphanedSourceStmt = this.db.prepare(`
+        const orphanedSourceResult = await this.db!.get<{ count: number }>(`
             SELECT COUNT(*) as count
             FROM cells c
             WHERE c.s_content IS NOT NULL 
@@ -2066,16 +1960,10 @@ export class SQLiteIndexManager {
             AND (c.t_content IS NULL OR c.t_content = '')
         `);
 
-        let orphanedSourceCells = 0;
-        try {
-            orphanedSourceStmt.step();
-            orphanedSourceCells = (orphanedSourceStmt.getAsObject().count as number) || 0;
-        } finally {
-            orphanedSourceStmt.free();
-        }
+        const orphanedSourceCells = orphanedSourceResult?.count || 0;
 
         // Count orphaned target cells (target cells with no corresponding source)
-        const orphanedTargetStmt = this.db.prepare(`
+        const orphanedTargetResult = await this.db!.get<{ count: number }>(`
             SELECT COUNT(*) as count
             FROM cells c
             WHERE c.t_content IS NOT NULL 
@@ -2083,13 +1971,7 @@ export class SQLiteIndexManager {
             AND (c.s_content IS NULL OR c.s_content = '')
         `);
 
-        let orphanedTargetCells = 0;
-        try {
-            orphanedTargetStmt.step();
-            orphanedTargetCells = (orphanedTargetStmt.getAsObject().count as number) || 0;
-        } finally {
-            orphanedTargetStmt.free();
-        }
+        const orphanedTargetCells = orphanedTargetResult?.count || 0;
 
         return {
             totalPairs,
@@ -2113,7 +1995,13 @@ export class SQLiteIndexManager {
         const problematicCells: Array<{ cellId: string, issue: string; }> = [];
 
         // Check for cells with missing source content (target content can be legitimately blank)
-        const checkStmt = this.db.prepare(`
+        const checkRows = await this.db!.all<{
+            cell_id: string;
+            s_content: string | null;
+            s_raw_content: string | null;
+            t_content: string | null;
+            t_raw_content: string | null;
+        }>(`
             SELECT cell_id, s_content, s_raw_content, t_content, t_raw_content
             FROM cells 
             WHERE (s_content IS NOT NULL AND s_content != '' AND (s_raw_content IS NULL OR s_raw_content = ''))
@@ -2121,42 +2009,31 @@ export class SQLiteIndexManager {
             OR (s_content IS NULL OR s_content = '')
         `);
 
-        try {
-            while (checkStmt.step()) {
-                const row = checkStmt.getAsObject();
-                const cellId = row.cell_id as string;
+        for (const row of checkRows) {
+            const cellId = row.cell_id;
 
-                // Check source content consistency
-                if (row.s_content && row.s_content !== '' && (!row.s_raw_content || row.s_raw_content === '')) {
-                    issues.push(`Cell ${cellId} has source content but missing source raw_content`);
-                    problematicCells.push({ cellId, issue: 'missing source raw_content' });
-                }
-
-                // Check target content consistency (only if target has content)
-                if (row.t_content && row.t_content !== '' && (!row.t_raw_content || row.t_raw_content === '')) {
-                    issues.push(`Cell ${cellId} has target content but missing target raw_content`);
-                    problematicCells.push({ cellId, issue: 'missing target raw_content' });
-                }
-
-                // Check for missing source content (this is always problematic - source cells should have content)
-                if (!row.s_content || row.s_content === '') {
-                    issues.push(`Cell ${cellId} has no source content (source cells must have content)`);
-                    problematicCells.push({ cellId, issue: 'missing source content' });
-                }
+            // Check source content consistency
+            if (row.s_content && row.s_content !== '' && (!row.s_raw_content || row.s_raw_content === '')) {
+                issues.push(`Cell ${cellId} has source content but missing source raw_content`);
+                problematicCells.push({ cellId, issue: 'missing source raw_content' });
             }
-        } finally {
-            checkStmt.free();
+
+            // Check target content consistency (only if target has content)
+            if (row.t_content && row.t_content !== '' && (!row.t_raw_content || row.t_raw_content === '')) {
+                issues.push(`Cell ${cellId} has target content but missing target raw_content`);
+                problematicCells.push({ cellId, issue: 'missing target raw_content' });
+            }
+
+            // Check for missing source content (this is always problematic - source cells should have content)
+            if (!row.s_content || row.s_content === '') {
+                issues.push(`Cell ${cellId} has no source content (source cells must have content)`);
+                problematicCells.push({ cellId, issue: 'missing source content' });
+            }
         }
 
         // Get total cell count
-        const countStmt = this.db.prepare("SELECT COUNT(*) as total FROM cells");
-        let totalCells = 0;
-        try {
-            countStmt.step();
-            totalCells = countStmt.getAsObject().total as number;
-        } finally {
-            countStmt.free();
-        }
+        const countResult = await this.db!.get<{ total: number }>("SELECT COUNT(*) as total FROM cells");
+        const totalCells = countResult?.total || 0;
 
         return {
             isValid: issues.length === 0,
@@ -2175,39 +2052,27 @@ export class SQLiteIndexManager {
     }> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const version = this.getSchemaVersion();
+        const version = await this.getSchemaVersion();
 
         // Get all tables
-        const tablesStmt = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'");
+        const tablesRows = await this.db!.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'");
         const tables: string[] = [];
-        try {
-            while (tablesStmt.step()) {
-                tables.push(tablesStmt.getAsObject().name as string);
-            }
-        } finally {
-            tablesStmt.free();
+        for (const row of tablesRows) {
+            tables.push(row.name);
         }
 
         // Get cells table columns
-        const cellsColumnsStmt = this.db.prepare("PRAGMA table_info(cells)");
+        const cellsColumnsRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells)");
         const cellsColumns: string[] = [];
-        try {
-            while (cellsColumnsStmt.step()) {
-                cellsColumns.push(cellsColumnsStmt.getAsObject().name as string);
-            }
-        } finally {
-            cellsColumnsStmt.free();
+        for (const row of cellsColumnsRows) {
+            cellsColumns.push(row.name);
         }
 
         // Get FTS table columns
-        const ftsColumnsStmt = this.db.prepare("PRAGMA table_info(cells_fts)");
+        const ftsColumnsRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells_fts)");
         const ftsColumns: string[] = [];
-        try {
-            while (ftsColumnsStmt.step()) {
-                ftsColumns.push(ftsColumnsStmt.getAsObject().name as string);
-            }
-        } finally {
-            ftsColumnsStmt.free();
+        for (const row of ftsColumnsRows) {
+            ftsColumns.push(row.name);
         }
 
         return { version, tables, cellsColumns, ftsColumns };
@@ -2217,7 +2082,7 @@ export class SQLiteIndexManager {
  * Validate that the database schema was created correctly with all expected components
  * This validation is version-agnostic and works with whatever the current schema version is
  */
-    private validateSchemaIntegrity(): boolean {
+    private async validateSchemaIntegrity(): Promise<boolean> {
         if (!this.db) {
             debug("Schema validation failed: No database connection");
             return false;
@@ -2255,14 +2120,10 @@ export class SQLiteIndexManager {
             ];
 
             // Check tables exist
-            const tablesStmt = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'");
+            const tablesRows = await this.db!.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'");
             const actualTables: string[] = [];
-            try {
-                while (tablesStmt.step()) {
-                    actualTables.push(tablesStmt.getAsObject().name as string);
-                }
-            } finally {
-                tablesStmt.free();
+            for (const row of tablesRows) {
+                actualTables.push(row.name);
             }
 
             for (const expectedTable of requiredCoreTables) {
@@ -2273,14 +2134,10 @@ export class SQLiteIndexManager {
             }
 
             // Check cells table has correct v8 structure
-            const cellsColumnsStmt = this.db.prepare("PRAGMA table_info(cells)");
+            const cellsColumnsRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells)");
             const actualCellsColumns: string[] = [];
-            try {
-                while (cellsColumnsStmt.step()) {
-                    actualCellsColumns.push(cellsColumnsStmt.getAsObject().name as string);
-                }
-            } finally {
-                cellsColumnsStmt.free();
+            for (const row of cellsColumnsRows) {
+                actualCellsColumns.push(row.name);
             }
 
             for (const expectedColumn of expectedCellsColumns) {
@@ -2291,14 +2148,10 @@ export class SQLiteIndexManager {
             }
 
             // Check essential indexes exist
-            const indexesStmt = this.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'");
+            const indexesRows = await this.db!.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'");
             const actualIndexes: string[] = [];
-            try {
-                while (indexesStmt.step()) {
-                    actualIndexes.push(indexesStmt.getAsObject().name as string);
-                }
-            } finally {
-                indexesStmt.free();
+            for (const row of indexesRows) {
+                actualIndexes.push(row.name);
             }
 
             for (const expectedIndex of expectedIndexes) {
@@ -2310,9 +2163,7 @@ export class SQLiteIndexManager {
 
             // Verify FTS table is properly set up
             try {
-                const ftsTestStmt = this.db.prepare("SELECT * FROM cells_fts LIMIT 0");
-                ftsTestStmt.step(); // This will fail if FTS table is malformed
-                ftsTestStmt.free();
+                await this.db!.all("SELECT * FROM cells_fts LIMIT 0");
             } catch (error) {
                 debug(`Schema validation failed: FTS table malformed - ${error}`);
                 return false;
@@ -2320,12 +2171,10 @@ export class SQLiteIndexManager {
 
             // Test that basic database operations work
             try {
-                this.db.run("BEGIN");
+                await this.db!.run("BEGIN");
                 // Test basic table functionality
-                const testStmt = this.db.prepare("SELECT COUNT(*) FROM files");
-                testStmt.step();
-                testStmt.free();
-                this.db.run("ROLLBACK");
+                await this.db!.get("SELECT COUNT(*) FROM files");
+                await this.db!.run("ROLLBACK");
             } catch (error) {
                 debug(`Schema validation failed: Basic table operations failed - ${error}`);
                 return false;
@@ -2340,27 +2189,20 @@ export class SQLiteIndexManager {
         }
     }
 
+    /**
+     * No-op: Native SQLite writes to disk automatically via WAL mode.
+     * Kept as a debounced no-op for backward compatibility with callers.
+     */
     private debouncedSave = debounce(async () => {
-        try {
-            await this.saveDatabase();
-        } catch (error) {
-            console.error("Error in debounced save:", error);
-        }
-    }, this.SAVE_DEBOUNCE_MS);
+        // No-op: native SQLite writes to disk automatically
+    }, 0);
 
-    // Force immediate save for critical updates (like during queued translations)
+    /**
+     * No-op: Native SQLite writes to disk automatically.
+     * Kept for backward compatibility with callers like FileSyncManager.
+     */
     async forceSave(): Promise<void> {
-        if (this.saveDebounceTimer) {
-            clearTimeout(this.saveDebounceTimer);
-            this.saveDebounceTimer = null;
-        }
-
-        try {
-            await this.saveDatabase();
-        } catch (error) {
-            console.error("Error in force save:", error);
-            throw error;
-        }
+        // No-op: native SQLite writes to disk automatically via WAL mode
     }
 
     // Force FTS index to rebuild/refresh for immediate search visibility
@@ -2369,11 +2211,11 @@ export class SQLiteIndexManager {
 
         try {
             // Force FTS5 to rebuild its index
-            this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
+            await this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
         } catch (error) {
             // If rebuild fails, try optimize instead
             try {
-                this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
+                await this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
             } catch (optimizeError) {
                 // If both fail, silently continue - the triggers should handle synchronization
             }
@@ -2386,7 +2228,7 @@ export class SQLiteIndexManager {
 
         // Execute a dummy query to ensure any autocommit transactions are flushed
         try {
-            this.db.run("BEGIN IMMEDIATE; COMMIT;");
+            await this.db.run("BEGIN IMMEDIATE; COMMIT;");
         } catch (error) {
             // Database might already be in a transaction, that's fine
         }
@@ -2413,7 +2255,7 @@ export class SQLiteIndexManager {
 
                 // Manually sync this specific cell to FTS if triggers didn't work
                 // Use sanitized content for the content field (for searching) and raw content for raw_content field
-                this.db!.run(`
+                await this.db!.run(`
                     INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
                     VALUES (?, ?, ?, ?)
                 `, [cellId, sanitizedContent, actualRawContent, cellType]);
@@ -2430,57 +2272,32 @@ export class SQLiteIndexManager {
     async isCellInFTSIndex(cellId: string): Promise<boolean> {
         if (!this.db) return false;
 
-        const stmt = this.db.prepare("SELECT cell_id FROM cells_fts WHERE cell_id = ? LIMIT 1");
-        try {
-            stmt.bind([cellId]);
-            return stmt.step();
-        } finally {
-            stmt.free();
-        }
+        const row = await this.db!.get<{ cell_id: string }>("SELECT cell_id FROM cells_fts WHERE cell_id = ? LIMIT 1", [cellId]);
+        return !!row;
     }
 
     // Debug method to get FTS index count vs regular table count
     async getFTSDebugInfo(): Promise<{ cellsCount: number; ftsCount: number; }> {
         if (!this.db) return { cellsCount: 0, ftsCount: 0 };
 
-        const cellsStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells");
-        const ftsStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells_fts");
+        const cellsResult = await this.db!.get<{ count: number }>("SELECT COUNT(*) as count FROM cells");
+        const ftsResult = await this.db!.get<{ count: number }>("SELECT COUNT(*) as count FROM cells_fts");
 
-        let cellsCount = 0;
-        let ftsCount = 0;
-
-        try {
-            cellsStmt.step();
-            cellsCount = cellsStmt.getAsObject().count as number;
-
-            ftsStmt.step();
-            ftsCount = ftsStmt.getAsObject().count as number;
-        } finally {
-            cellsStmt.free();
-            ftsStmt.free();
-        }
+        const cellsCount = cellsResult?.count || 0;
+        const ftsCount = ftsResult?.count || 0;
 
         return { cellsCount, ftsCount };
     }
 
+    /**
+     * No-op: Native native SQLite writes to disk automatically via WAL mode.
+     * Previously, this serialized the entire in-memory database (103MB+) to a Uint8Array
+     * and rewrote the entire file to disk. With native SQLite, only modified 4KB pages
+     * are flushed to disk automatically.
+     * @deprecated Native SQLite handles persistence automatically
+     */
     async saveDatabase(): Promise<void> {
-        if (!this.db) return;
-
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) return;
-
-        const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
-        const data = this.db.export();
-
-        // Ensure .project directory exists
-        const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
-        try {
-            await vscode.workspace.fs.createDirectory(projectDir);
-        } catch {
-            // Directory might already exist
-        }
-
-        await vscode.workspace.fs.writeFile(dbPath, data);
+        // No-op: native SQLite writes incrementally to disk via WAL mode
     }
 
     async close(): Promise<void> {
@@ -2490,45 +2307,35 @@ export class SQLiteIndexManager {
             this.currentProgressTimer = null;
         }
 
-        if (this.saveDebounceTimer) {
-            clearTimeout(this.saveDebounceTimer);
-            this.saveDebounceTimer = null;
-        }
-
         // Reset progress tracking state to prevent memory leaks
         this.currentProgressName = null;
         this.currentProgressStartTime = null;
         this.progressTimings = [];
 
-        // Save and close database
+        // Close database connection
         if (this.db) {
             try {
-                await this.saveDatabase();
-                this.db.close();
+                await this.db.close();
                 this.db = null;
                 debug("Database connection closed and resources cleaned up");
             } catch (error) {
                 console.error("[SQLiteIndex] Error during database close:", error);
-                // Still close the database even if save fails
-                if (this.db) {
-                    this.db.close();
-                    this.db = null;
-                }
+                this.db = null;
             }
         }
     }
 
     // Transaction helper for batch operations
-    async runInTransaction<T>(callback: () => T): Promise<T> {
+    async runInTransaction<T>(callback: () => T | Promise<T>): Promise<T> {
         if (!this.db) throw new Error("Database not initialized");
 
-        this.db.run("BEGIN TRANSACTION");
+        await this.db.run("BEGIN TRANSACTION");
         try {
-            const result = callback();
-            this.db.run("COMMIT");
+            const result = await callback();
+            await this.db.run("COMMIT");
             return result;
         } catch (error) {
-            this.db.run("ROLLBACK");
+            await this.db.run("ROLLBACK");
             throw error;
         }
     }
@@ -2655,21 +2462,15 @@ export class SQLiteIndexManager {
                 const newContentHash = createHash("sha256").update(fileContent).digest("hex");
 
                 // Check sync metadata
-                const syncStmt = this.db.prepare(`
+                const existingRecord = await this.db!.get<{
+                    content_hash: string;
+                    last_modified_ms: number;
+                    file_size: number;
+                }>(`
                     SELECT content_hash, last_modified_ms, file_size 
                     FROM sync_metadata 
                     WHERE file_path = ?
-                `);
-
-                let existingRecord: { content_hash: string; last_modified_ms: number; file_size: number; } | null = null;
-                try {
-                    syncStmt.bind([filePath]);
-                    if (syncStmt.step()) {
-                        existingRecord = syncStmt.getAsObject() as any;
-                    }
-                } finally {
-                    syncStmt.free();
-                }
+                `, [filePath]);
 
                 if (!existingRecord) {
                     needsSync.push(filePath);
@@ -2730,7 +2531,7 @@ export class SQLiteIndexManager {
     ): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const stmt = this.db.prepare(`
+        await this.db!.run(`
             INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
             VALUES (?, ?, ?, ?, ?, strftime('%s', 'now') * 1000)
             ON CONFLICT(file_path) DO UPDATE SET
@@ -2739,14 +2540,7 @@ export class SQLiteIndexManager {
                 last_modified_ms = excluded.last_modified_ms,
                 last_synced_ms = strftime('%s', 'now') * 1000,
                 updated_at = strftime('%s', 'now') * 1000
-        `);
-
-        try {
-            stmt.bind([filePath, fileType, contentHash, fileSize, lastModifiedMs]);
-            stmt.step();
-        } finally {
-            stmt.free();
-        }
+        `, [filePath, fileType, contentHash, fileSize, lastModifiedMs]);
     }
 
     /**
@@ -2762,7 +2556,14 @@ export class SQLiteIndexManager {
     }> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const stmt = this.db.prepare(`
+        const result = await this.db!.get<{
+            total_files: number;
+            source_files: number;
+            codex_files: number;
+            avg_file_size: number;
+            oldest_sync_ms: number | null;
+            newest_sync_ms: number | null;
+        }>(`
             SELECT 
                 COUNT(*) as total_files,
                 COUNT(CASE WHEN file_type = 'source' THEN 1 END) as source_files,
@@ -2773,20 +2574,25 @@ export class SQLiteIndexManager {
             FROM sync_metadata
         `);
 
-        try {
-            stmt.step();
-            const result = stmt.getAsObject();
+        if (!result) {
             return {
-                totalFiles: (result.total_files as number) || 0,
-                sourceFiles: (result.source_files as number) || 0,
-                codexFiles: (result.codex_files as number) || 0,
-                avgFileSize: (result.avg_file_size as number) || 0,
-                oldestSync: result.oldest_sync_ms ? new Date(result.oldest_sync_ms as number) : null,
-                newestSync: result.newest_sync_ms ? new Date(result.newest_sync_ms as number) : null,
+                totalFiles: 0,
+                sourceFiles: 0,
+                codexFiles: 0,
+                avgFileSize: 0,
+                oldestSync: null,
+                newestSync: null,
             };
-        } finally {
-            stmt.free();
         }
+
+        return {
+            totalFiles: result.total_files || 0,
+            sourceFiles: result.source_files || 0,
+            codexFiles: result.codex_files || 0,
+            avgFileSize: result.avg_file_size || 0,
+            oldestSync: result.oldest_sync_ms ? new Date(result.oldest_sync_ms) : null,
+            newestSync: result.newest_sync_ms ? new Date(result.newest_sync_ms) : null,
+        };
     }
 
     /**
@@ -2797,29 +2603,17 @@ export class SQLiteIndexManager {
 
         if (existingFilePaths.length === 0) {
             // If no files exist, clear all sync metadata
-            const stmt = this.db.prepare("DELETE FROM sync_metadata");
-            try {
-                stmt.step();
-                return this.db.getRowsModified();
-            } finally {
-                stmt.free();
-            }
+            const result = await this.db!.run("DELETE FROM sync_metadata");
+            return result.changes;
         }
 
         // Create placeholders for IN clause
         const placeholders = existingFilePaths.map(() => '?').join(',');
-        const stmt = this.db.prepare(`
+        const result = await this.db!.run(`
             DELETE FROM sync_metadata 
             WHERE file_path NOT IN (${placeholders})
-        `);
-
-        try {
-            stmt.bind(existingFilePaths);
-            stmt.step();
-            return this.db.getRowsModified();
-        } finally {
-            stmt.free();
-        }
+        `, existingFilePaths);
+        return result.changes;
     }
 
     /**
@@ -2836,19 +2630,10 @@ export class SQLiteIndexManager {
         debug("Starting source cell deduplication...");
 
         // First, identify the "unknown" file ID
-        const unknownFileStmt = this.db.prepare(`
+        const unknownFileRow = await this.db!.get<{ id: number }>(`
             SELECT id FROM files WHERE file_path = 'unknown' AND file_type = 'source'
         `);
-
-        let unknownFileId: number | null = null;
-        try {
-            unknownFileStmt.bind([]);
-            if (unknownFileStmt.step()) {
-                unknownFileId = (unknownFileStmt.getAsObject() as any).id;
-            }
-        } finally {
-            unknownFileStmt.free();
-        }
+        const unknownFileId: number | null = unknownFileRow?.id ?? null;
 
         if (!unknownFileId) {
             debug("No 'unknown' source file found - no deduplication needed");
@@ -2873,19 +2658,12 @@ export class SQLiteIndexManager {
             )
         `;
 
-        const duplicateStmt = this.db.prepare(duplicateQuery);
+        const duplicateRows = await this.db!.all<{ cell_id: string }>(duplicateQuery, [unknownFileId, unknownFileId]);
         const duplicatesToRemove: Array<{ cellId: string; }> = [];
-
-        try {
-            duplicateStmt.bind([unknownFileId, unknownFileId]);
-            while (duplicateStmt.step()) {
-                const row = duplicateStmt.getAsObject() as any;
-                duplicatesToRemove.push({
-                    cellId: row.cell_id
-                });
-            }
-        } finally {
-            duplicateStmt.free();
+        for (const row of duplicateRows) {
+            duplicatesToRemove.push({
+                cellId: row.cell_id
+            });
         }
 
         debug(`Found ${duplicatesToRemove.length} duplicate cells to remove from 'unknown' file`);
@@ -2896,62 +2674,42 @@ export class SQLiteIndexManager {
 
         // Remove duplicates from 'unknown' file in batches
         let duplicatesRemoved = 0;
-        await this.runInTransaction(() => {
-            // Remove cells from FTS first (both source and target entries)
+        await this.runInTransaction(async () => {
             for (const duplicate of duplicatesToRemove) {
                 try {
-                    this.db!.run("DELETE FROM cells_fts WHERE cell_id = ? AND content_type = 'source'", [duplicate.cellId]);
+                    await this.db!.run("DELETE FROM cells_fts WHERE cell_id = ? AND content_type = 'source'", [duplicate.cellId]);
                 } catch (error) {
                     // Continue even if FTS delete fails
                 }
             }
 
-            // Update cells to remove source data from 'unknown' file
-            const updateStmt = this.db!.prepare(`
-                UPDATE cells 
-                SET s_file_id = NULL,
-                    s_content = NULL,
-                    s_raw_content = NULL,
-                    s_line_number = NULL,
-
-                    s_word_count = NULL,
-                    s_raw_content_hash = NULL,
-                    s_content_hash = NULL,
-
-                    s_updated_at = datetime('now')
-                WHERE cell_id = ? AND s_file_id = ?
-            `);
-            try {
-                for (const duplicate of duplicatesToRemove) {
-                    updateStmt.bind([duplicate.cellId, unknownFileId]);
-                    updateStmt.step();
-                    duplicatesRemoved++;
-                    updateStmt.reset();
-                }
-            } finally {
-                updateStmt.free();
+            for (const duplicate of duplicatesToRemove) {
+                await this.db!.run(`
+                    UPDATE cells 
+                    SET s_file_id = NULL,
+                        s_content = NULL,
+                        s_raw_content = NULL,
+                        s_line_number = NULL,
+                        s_word_count = NULL,
+                        s_raw_content_hash = NULL,
+                        s_updated_at = datetime('now')
+                    WHERE cell_id = ? AND s_file_id = ?
+                `, [duplicate.cellId, unknownFileId]);
+                duplicatesRemoved++;
             }
         });
 
         // Check if 'unknown' file now has any remaining cells
-        const remainingCellsStmt = this.db.prepare(`
-            SELECT COUNT(*) as count FROM cells WHERE s_file_id = ? OR t_file_id = ?
-        `);
-
-        let remainingCells = 0;
-        try {
-            remainingCellsStmt.bind([unknownFileId, unknownFileId]);
-            if (remainingCellsStmt.step()) {
-                remainingCells = (remainingCellsStmt.getAsObject() as any).count;
-            }
-        } finally {
-            remainingCellsStmt.free();
-        }
+        const remainingRow = await this.db.get<{ count: number }>(
+            "SELECT COUNT(*) as count FROM cells WHERE s_file_id = ? OR t_file_id = ?",
+            [unknownFileId, unknownFileId]
+        );
+        const remainingCells = remainingRow?.count ?? 0;
 
         // If no cells remain, remove the 'unknown' file entry
         let unknownFileRemoved = false;
         if (remainingCells === 0) {
-            this.db.run("DELETE FROM files WHERE id = ?", [unknownFileId]);
+            await this.db!.run("DELETE FROM files WHERE id = ?", [unknownFileId]);
             unknownFileRemoved = true;
             debug("Removed empty 'unknown' file entry");
         }
@@ -3002,35 +2760,37 @@ export class SQLiteIndexManager {
                 LIMIT ?
             `;
 
-            const stmt = this.db.prepare(sql);
+            const rows = await this.db!.all<{
+                cell_id: string;
+                source_content: string;
+                raw_source_content: string | null;
+                target_content: string;
+                raw_target_content: string | null;
+                uri: string | null;
+                line: number | null;
+                score: number;
+            }>(sql, [limit]);
             const results = [];
 
-            try {
-                stmt.bind([limit]);
-                while (stmt.step()) {
-                    const row = stmt.getAsObject();
-
-                    results.push({
-                        cellId: row.cell_id,
-                        cell_id: row.cell_id,
-                        sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                        targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
-                        content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                        uri: row.uri,
-                        line: row.line,
-                        score: row.score,
-                        cell_type: 'source' // For compatibility
-                    });
-                }
-            } finally {
-                stmt.free();
+            for (const row of rows) {
+                results.push({
+                    cellId: row.cell_id,
+                    cell_id: row.cell_id,
+                    sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                    targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                    content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                    uri: row.uri,
+                    line: row.line,
+                    score: row.score,
+                    cell_type: 'source' // For compatibility
+                });
             }
 
             return results;
         }
 
         // Debug: Check if we have any complete pairs in the database at all
-        const debugStmt = this.db.prepare(`
+        const debugRow = await this.db!.get<{ complete_pairs_count: number }>(`
             SELECT COUNT(*) as complete_pairs_count
             FROM cells c
             WHERE c.s_content IS NOT NULL 
@@ -3038,14 +2798,7 @@ export class SQLiteIndexManager {
                 AND c.t_content IS NOT NULL 
                 AND c.t_content != ''
         `);
-
-        let totalCompletePairs = 0;
-        try {
-            debugStmt.step();
-            totalCompletePairs = (debugStmt.getAsObject().complete_pairs_count as number) || 0;
-        } finally {
-            debugStmt.free();
-        }
+        const totalCompletePairs = debugRow?.complete_pairs_count ?? 0;
 
         // Use FTS5 with character-level n-grams (bigrams/trigrams) for fuzzy matching
         // Extract words and generate character-level bigrams/trigrams from each word
@@ -3181,24 +2934,49 @@ export class SQLiteIndexManager {
             LIMIT ?
         `;
 
-        const stmt = this.db.prepare(sql);
         const results = [];
 
         try {
             // Use both FTS5 query and LIKE pattern for substring matching
             // Bind parameters depend on searchSourceOnly
+            let rows: Array<{
+                cell_id: string;
+                source_content: string;
+                raw_source_content: string | null;
+                target_content: string;
+                raw_target_content: string | null;
+                uri: string | null;
+                line: number | null;
+                score: number;
+            }>;
             if (searchSourceOnly) {
-                stmt.bind([cleanQuery, likePattern, likePattern, limit]);
+                rows = await this.db!.all<{
+                    cell_id: string;
+                    source_content: string;
+                    raw_source_content: string | null;
+                    target_content: string;
+                    raw_target_content: string | null;
+                    uri: string | null;
+                    line: number | null;
+                    score: number;
+                }>(sql, [cleanQuery, likePattern, likePattern, limit]);
             } else {
-                stmt.bind([cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
+                rows = await this.db!.all<{
+                    cell_id: string;
+                    source_content: string;
+                    raw_source_content: string | null;
+                    target_content: string;
+                    raw_target_content: string | null;
+                    uri: string | null;
+                    line: number | null;
+                    score: number;
+                }>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
-            while (stmt.step()) {
-                const row = stmt.getAsObject();
-
+            for (const row of rows) {
                 // Target content is now directly available from the main query
-                const targetContent = row.target_content as string;
-                const rawTargetContent = row.raw_target_content as string;
+                const targetContent = row.target_content;
+                const rawTargetContent = row.raw_target_content;
 
                 // Both source and target content are guaranteed to exist due to the WHERE clause
                 results.push({
@@ -3216,8 +2994,6 @@ export class SQLiteIndexManager {
         } catch (error) {
             console.error(`[searchCompleteTranslationPairs] FTS5 query failed: ${error}`);
             return [];
-        } finally {
-            stmt.free();
         }
 
 
@@ -3271,36 +3047,38 @@ export class SQLiteIndexManager {
                 LIMIT ?
             `;
 
-            const stmt = this.db.prepare(sql);
+            const rows = await this.db!.all<{
+                cell_id: string;
+                source_content: string;
+                raw_source_content: string | null;
+                target_content: string;
+                raw_target_content: string | null;
+                uri: string | null;
+                line: number | null;
+                score: number;
+            }>(sql, [limit]);
             const results = [];
 
-            try {
-                stmt.bind([limit]);
-                while (stmt.step()) {
-                    const row = stmt.getAsObject();
-
-                    // Additional validation check if needed
-                    let isFullyValidated = true;
-                    if (onlyValidated) {
-                        isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id as string);
-                    }
-
-                    if (isFullyValidated) {
-                        results.push({
-                            cellId: row.cell_id,
-                            cell_id: row.cell_id,
-                            sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                            targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
-                            content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                            uri: row.uri,
-                            line: row.line,
-                            score: row.score,
-                            cell_type: 'source' // For compatibility
-                        });
-                    }
+            for (const row of rows) {
+                // Additional validation check if needed
+                let isFullyValidated = true;
+                if (onlyValidated) {
+                    isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id);
                 }
-            } finally {
-                stmt.free();
+
+                if (isFullyValidated) {
+                    results.push({
+                        cellId: row.cell_id,
+                        cell_id: row.cell_id,
+                        sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                        content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        uri: row.uri,
+                        line: row.line,
+                        score: row.score,
+                        cell_type: 'source' // For compatibility
+                    });
+                }
             }
 
             return results;
@@ -3437,48 +3215,57 @@ export class SQLiteIndexManager {
             LIMIT ?
         `;
 
-        const stmt = this.db.prepare(sql);
         const results = [];
 
         try {
             // Use both FTS5 query and LIKE pattern for substring matching
             // Bind parameters depend on searchSourceOnly
+            let rows: Array<{
+                cell_id: string;
+                source_content: string;
+                raw_source_content: string | null;
+                uri: string | null;
+                line: number | null;
+                score: number;
+            }>;
             if (searchSourceOnly) {
-                stmt.bind([cleanQuery, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
+                rows = await this.db!.all<{
+                    cell_id: string;
+                    source_content: string;
+                    raw_source_content: string | null;
+                    uri: string | null;
+                    line: number | null;
+                    score: number;
+                }>(sql, [cleanQuery, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
             } else {
-                stmt.bind([cleanQuery, likePattern, likePattern, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
+                rows = await this.db!.all<{
+                    cell_id: string;
+                    source_content: string;
+                    raw_source_content: string | null;
+                    uri: string | null;
+                    line: number | null;
+                    score: number;
+                }>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit * 3]); // Get more results to account for validation filtering
             }
 
-            while (stmt.step()) {
-                const row = stmt.getAsObject();
-
+            for (const row of rows) {
                 // Check if target content is validated (only if onlyValidated is true)
                 let isFullyValidated = true;
                 if (onlyValidated) {
-                    isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id as string);
+                    isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id);
                 }
 
                 if (isFullyValidated) {
                     // Get the target content for this cell
-                    const targetStmt = this.db.prepare(`
+                    const targetRow = await this.db!.get<{ content: string; raw_content: string }>(`
                         SELECT t_content as content, t_raw_content as raw_content 
                         FROM cells 
                         WHERE cell_id = ? AND t_content IS NOT NULL AND t_content != ''
                         LIMIT 1
-                    `);
+                    `, [row.cell_id]);
 
-                    let targetContent = '';
-                    let rawTargetContent = '';
-                    try {
-                        targetStmt.bind([row.cell_id]);
-                        if (targetStmt.step()) {
-                            const targetRow = targetStmt.getAsObject();
-                            targetContent = targetRow.content as string;
-                            rawTargetContent = targetRow.raw_content as string;
-                        }
-                    } finally {
-                        targetStmt.free();
-                    }
+                    const targetContent = targetRow?.content ?? '';
+                    const rawTargetContent = targetRow?.raw_content ?? '';
 
                     if (targetContent) { // Only include if we found target content
                         results.push({
@@ -3501,8 +3288,6 @@ export class SQLiteIndexManager {
         } catch (error) {
             console.error(`[searchCompleteTranslationPairsWithValidation] FTS5 query failed: ${error}`);
             return [];
-        } finally {
-            stmt.free();
         }
 
         return results;
@@ -3517,22 +3302,17 @@ export class SQLiteIndexManager {
         if (!this.db) return false;
 
         // Get the target cell's validation status from dedicated columns
-        const stmt = this.db.prepare(`
-            SELECT t_is_fully_validated FROM cells 
-            WHERE cell_id = ? AND t_content IS NOT NULL
-            LIMIT 1
-        `);
-
         try {
-            stmt.bind([cellId]);
-            if (stmt.step()) {
-                const row = stmt.getAsObject();
+            const row = await this.db!.get<{ t_is_fully_validated: number | null }>(`
+                SELECT t_is_fully_validated FROM cells 
+                WHERE cell_id = ? AND t_content IS NOT NULL
+                LIMIT 1
+            `, [cellId]);
+            if (row) {
                 return Boolean(row.t_is_fully_validated);
             }
         } catch (error) {
             console.error(`[isTargetCellFullyValidated] Error checking validation for ${cellId}:`, error);
-        } finally {
-            stmt.free();
         }
 
         return false;
@@ -3545,22 +3325,17 @@ export class SQLiteIndexManager {
         if (!this.db) return false;
 
         // Get the target cell's audio validation status from dedicated columns
-        const stmt = this.db.prepare(`
-            SELECT t_audio_is_fully_validated FROM cells 
-            WHERE cell_id = ? AND t_content IS NOT NULL
-            LIMIT 1
-        `);
-
         try {
-            stmt.bind([cellId]);
-            if (stmt.step()) {
-                const row = stmt.getAsObject();
+            const row = await this.db!.get<{ t_audio_is_fully_validated: number | null }>(`
+                SELECT t_audio_is_fully_validated FROM cells 
+                WHERE cell_id = ? AND t_content IS NOT NULL
+                LIMIT 1
+            `, [cellId]);
+            if (row) {
                 return Boolean(row.t_audio_is_fully_validated);
             }
         } catch (error) {
             console.error(`[isTargetCellAudioFullyValidated] Error checking audio validation for ${cellId}:`, error);
-        } finally {
-            stmt.free();
         }
 
         return false;
@@ -3596,27 +3371,17 @@ export class SQLiteIndexManager {
         const currentThreshold = this.getValidationThreshold();
 
         // Update all target cells based on current validation count vs threshold
-        const updateStmt = this.db.prepare(`
+        const result = await this.db!.run(`
             UPDATE cells 
             SET t_is_fully_validated = CASE 
                 WHEN t_validation_count >= ? THEN 1 
                 ELSE 0 
             END
             WHERE t_content IS NOT NULL AND t_content != ''
-        `);
+        `, [currentThreshold]);
+        const updatedCells = result.changes;
 
-        try {
-            updateStmt.bind([currentThreshold]);
-            updateStmt.step();
-            const updatedCells = this.db.getRowsModified();
-
-            // Save changes to disk
-            await this.saveDatabase();
-
-            return { updatedCells };
-        } finally {
-            updateStmt.free();
-        }
+        return { updatedCells };
     }
 
     /**
@@ -3629,26 +3394,16 @@ export class SQLiteIndexManager {
         const currentThreshold = this.getAudioValidationThreshold();
 
         // Update all target cells based on current audio validation count vs threshold
-        const updateStmt = this.db.prepare(`
+        const result = await this.db!.run(`
             UPDATE cells 
             SET t_audio_is_fully_validated = CASE 
                 WHEN t_audio_validation_count >= ? THEN 1 
                 ELSE 0 
             END
-        `);
+        `, [currentThreshold]);
+        const updatedCells = result.changes;
 
-        try {
-            updateStmt.bind([currentThreshold]);
-            updateStmt.step();
-            const updatedCells = this.db.getRowsModified();
-
-            // Save changes to disk
-            await this.saveDatabase();
-
-            return { updatedCells };
-        } finally {
-            updateStmt.free();
-        }
+        return { updatedCells };
     }
 
     /**
@@ -3842,33 +3597,24 @@ export class SQLiteIndexManager {
     }> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const currentVersion = this.getSchemaVersion();
+        const currentVersion = await this.getSchemaVersion();
 
         // Get all schema_info rows
-        const schemaInfoStmt = this.db.prepare("SELECT * FROM schema_info");
-        const schemaInfoRows: any[] = [];
+        let schemaInfoRows: any[] = [];
         try {
-            while (schemaInfoStmt.step()) {
-                schemaInfoRows.push(schemaInfoStmt.getAsObject());
-            }
+            schemaInfoRows = await this.db!.all<any>("SELECT * FROM schema_info");
         } catch {
             // Table might not exist
-        } finally {
-            schemaInfoStmt.free();
         }
 
         // Check if cells table exists and its structure
         let cellsTableExists = false;
         const cellsColumns: string[] = [];
         try {
-            const cellsColumnsStmt = this.db.prepare("PRAGMA table_info(cells)");
-            try {
-                while (cellsColumnsStmt.step()) {
-                    cellsTableExists = true;
-                    cellsColumns.push(cellsColumnsStmt.getAsObject().name as string);
-                }
-            } finally {
-                cellsColumnsStmt.free();
+            const cellsColumnRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells)");
+            for (const row of cellsColumnRows) {
+                cellsTableExists = true;
+                cellsColumns.push(row.name);
             }
         } catch {
             // Table might not exist
@@ -3910,7 +3656,15 @@ export class SQLiteIndexManager {
         if (!this.db) throw new Error("Database not initialized");
 
         // Get general stats
-        const statsStmt = this.db.prepare(`
+        const result = await this.db!.get<{
+            total_cells: number;
+            cells_with_source_line_numbers: number;
+            cells_with_target_line_numbers: number;
+            cells_with_null_source_line_numbers: number;
+            cells_with_null_target_line_numbers: number;
+            target_cells_with_content: number;
+            target_cells_without_content: number;
+        }>(`
             SELECT 
                 COUNT(*) as total_cells,
                 COUNT(c.s_line_number) as cells_with_source_line_numbers,
@@ -3922,34 +3676,26 @@ export class SQLiteIndexManager {
             FROM cells c
         `);
 
-        let stats = {
-            totalCells: 0,
-            cellsWithSourceLineNumbers: 0,
-            cellsWithTargetLineNumbers: 0,
-            cellsWithNullSourceLineNumbers: 0,
-            cellsWithNullTargetLineNumbers: 0,
-            targetCellsWithContent: 0,
-            targetCellsWithoutContent: 0
+        const stats = {
+            totalCells: result?.total_cells ?? 0,
+            cellsWithSourceLineNumbers: result?.cells_with_source_line_numbers ?? 0,
+            cellsWithTargetLineNumbers: result?.cells_with_target_line_numbers ?? 0,
+            cellsWithNullSourceLineNumbers: result?.cells_with_null_source_line_numbers ?? 0,
+            cellsWithNullTargetLineNumbers: result?.cells_with_null_target_line_numbers ?? 0,
+            targetCellsWithContent: result?.target_cells_with_content ?? 0,
+            targetCellsWithoutContent: result?.target_cells_without_content ?? 0
         };
 
-        try {
-            statsStmt.step();
-            const result = statsStmt.getAsObject();
-            stats = {
-                totalCells: (result.total_cells as number) || 0,
-                cellsWithSourceLineNumbers: (result.cells_with_source_line_numbers as number) || 0,
-                cellsWithTargetLineNumbers: (result.cells_with_target_line_numbers as number) || 0,
-                cellsWithNullSourceLineNumbers: (result.cells_with_null_source_line_numbers as number) || 0,
-                cellsWithNullTargetLineNumbers: (result.cells_with_null_target_line_numbers as number) || 0,
-                targetCellsWithContent: (result.target_cells_with_content as number) || 0,
-                targetCellsWithoutContent: (result.target_cells_without_content as number) || 0
-            };
-        } finally {
-            statsStmt.free();
-        }
-
         // Get sample cells with line numbers
-        const sampleStmt = this.db.prepare(`
+        const sampleRows = await this.db!.all<{
+            cell_id: string;
+            source_line_number: number | null;
+            target_line_number: number | null;
+            source_file_path: string | null;
+            target_file_path: string | null;
+            has_source_content: number;
+            has_target_content: number;
+        }>(`
             SELECT 
                 c.cell_id,
                 c.s_line_number as source_line_number,
@@ -3976,21 +3722,16 @@ export class SQLiteIndexManager {
             hasTargetContent: boolean;
         }> = [];
 
-        try {
-            while (sampleStmt.step()) {
-                const row = sampleStmt.getAsObject();
-                sampleCells.push({
-                    cellId: row.cell_id as string,
-                    sourceLineNumber: row.source_line_number as number | null,
-                    targetLineNumber: row.target_line_number as number | null,
-                    sourceFilePath: row.source_file_path as string | null,
-                    targetFilePath: row.target_file_path as string | null,
-                    hasSourceContent: Boolean(row.has_source_content),
-                    hasTargetContent: Boolean(row.has_target_content)
-                });
-            }
-        } finally {
-            sampleStmt.free();
+        for (const row of sampleRows) {
+            sampleCells.push({
+                cellId: row.cell_id,
+                sourceLineNumber: row.source_line_number,
+                targetLineNumber: row.target_line_number,
+                sourceFilePath: row.source_file_path,
+                targetFilePath: row.target_file_path,
+                hasSourceContent: Boolean(row.has_source_content),
+                hasTargetContent: Boolean(row.has_target_content)
+            });
         }
 
         return {
@@ -4030,7 +3771,14 @@ export class SQLiteIndexManager {
         if (!this.db) throw new Error("Database not initialized");
 
         // Get general stats about target cell timestamps
-        const statsStmt = this.db.prepare(`
+        const result = await this.db!.get<{
+            total_target_cells: number;
+            target_cells_with_content: number;
+            target_cells_with_created_at: number;
+            target_cells_with_edit_timestamp: number;
+            target_cells_with_content_but_no_created_at: number;
+            target_cells_without_content_but_with_created_at: number;
+        }>(`
             SELECT 
                 COUNT(*) as total_target_cells,
                 SUM(CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END) as target_cells_with_content,
@@ -4042,32 +3790,22 @@ export class SQLiteIndexManager {
             WHERE c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL
         `);
 
-        let stats = {
-            totalTargetCells: 0,
-            targetCellsWithContent: 0,
-            targetCellsWithCreatedAt: 0,
-            targetCellsWithEditTimestamp: 0,
-            targetCellsWithContentButNoCreatedAt: 0,
-            targetCellsWithoutContentButWithCreatedAt: 0
+        const stats = {
+            totalTargetCells: result?.total_target_cells ?? 0,
+            targetCellsWithContent: result?.target_cells_with_content ?? 0,
+            targetCellsWithCreatedAt: result?.target_cells_with_created_at ?? 0,
+            targetCellsWithEditTimestamp: result?.target_cells_with_edit_timestamp ?? 0,
+            targetCellsWithContentButNoCreatedAt: result?.target_cells_with_content_but_no_created_at ?? 0,
+            targetCellsWithoutContentButWithCreatedAt: result?.target_cells_without_content_but_with_created_at ?? 0
         };
 
-        try {
-            statsStmt.step();
-            const result = statsStmt.getAsObject();
-            stats = {
-                totalTargetCells: (result.total_target_cells as number) || 0,
-                targetCellsWithContent: (result.target_cells_with_content as number) || 0,
-                targetCellsWithCreatedAt: (result.target_cells_with_created_at as number) || 0,
-                targetCellsWithEditTimestamp: (result.target_cells_with_edit_timestamp as number) || 0,
-                targetCellsWithContentButNoCreatedAt: (result.target_cells_with_content_but_no_created_at as number) || 0,
-                targetCellsWithoutContentButWithCreatedAt: (result.target_cells_without_content_but_with_created_at as number) || 0
-            };
-        } finally {
-            statsStmt.free();
-        }
-
         // Get sample target cells to inspect timestamps
-        const sampleStmt = this.db.prepare(`
+        const sampleRows = await this.db!.all<{
+            cell_id: string;
+            has_content: number;
+            created_at: number | null;
+            edit_timestamp: number | null;
+        }>(`
             SELECT 
                 c.cell_id,
                 CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END as has_content,
@@ -4088,24 +3826,24 @@ export class SQLiteIndexManager {
             editTimestampDate: string | null;
         }> = [];
 
-        try {
-            while (sampleStmt.step()) {
-                const row = sampleStmt.getAsObject();
-                sampleCells.push({
-                    cellId: row.cell_id as string,
-                    hasContent: Boolean(row.has_content),
-                    createdAt: row.created_at as number | null,
-                    editTimestamp: row.edit_timestamp as number | null,
-                    createdAtDate: row.created_at ? new Date(row.created_at as number).toISOString() : null,
-                    editTimestampDate: row.edit_timestamp ? new Date(row.edit_timestamp as number).toISOString() : null
-                });
-            }
-        } finally {
-            sampleStmt.free();
+        for (const row of sampleRows) {
+            sampleCells.push({
+                cellId: row.cell_id,
+                hasContent: Boolean(row.has_content),
+                createdAt: row.created_at,
+                editTimestamp: row.edit_timestamp,
+                createdAtDate: row.created_at ? new Date(row.created_at).toISOString() : null,
+                editTimestampDate: row.edit_timestamp ? new Date(row.edit_timestamp).toISOString() : null
+            });
         }
 
         // Find timestamp consistency issues
-        const issuesStmt = this.db.prepare(`
+        const issuesRows = await this.db!.all<{
+            cell_id: string;
+            has_content: number;
+            created_at: number | null;
+            edit_timestamp: number | null;
+        }>(`
             SELECT 
                 c.cell_id,
                 CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END as has_content,
@@ -4134,32 +3872,27 @@ export class SQLiteIndexManager {
             editTimestamp: number | null;
         }> = [];
 
-        try {
-            while (issuesStmt.step()) {
-                const row = issuesStmt.getAsObject();
-                const hasContent = Boolean(row.has_content);
-                const createdAt = row.created_at as number | null;
-                const editTimestamp = row.edit_timestamp as number | null;
+        for (const row of issuesRows) {
+            const hasContent = Boolean(row.has_content);
+            const createdAt = row.created_at;
+            const editTimestamp = row.edit_timestamp;
 
-                let issue = '';
-                if (hasContent && !createdAt) {
-                    issue = 'Has content but missing t_created_at';
-                } else if (!hasContent && createdAt) {
-                    issue = 'No content but has t_created_at (should be NULL)';
-                } else if (hasContent && !editTimestamp) {
-                    issue = 'Has content but missing t_current_edit_timestamp';
-                }
-
-                timestampConsistencyIssues.push({
-                    cellId: row.cell_id as string,
-                    issue,
-                    hasContent,
-                    createdAt,
-                    editTimestamp
-                });
+            let issue = '';
+            if (hasContent && !createdAt) {
+                issue = 'Has content but missing t_created_at';
+            } else if (!hasContent && createdAt) {
+                issue = 'No content but has t_created_at (should be NULL)';
+            } else if (hasContent && !editTimestamp) {
+                issue = 'Has content but missing t_current_edit_timestamp';
             }
-        } finally {
-            issuesStmt.free();
+
+            timestampConsistencyIssues.push({
+                cellId: row.cell_id,
+                issue,
+                hasContent,
+                createdAt,
+                editTimestamp
+            });
         }
 
         return {

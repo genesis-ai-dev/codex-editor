@@ -1,33 +1,26 @@
 import * as vscode from "vscode";
 import { StatusBarItem } from "vscode";
-import initSqlJs, { Database, SqlJsStatic } from "fts5-sql-bundle";
 import path from "path";
 import { parseAndImportJSONL } from "./parseAndImportJSONL";
 import crypto from "crypto";
 import { DictionaryEntry } from "types";
+import { AsyncDatabase } from "../utils/nativeSqlite";
 
-export function getDefinitions(db: Database, headWord: string): string[] {
-    const stmt = db.prepare("SELECT definition FROM entries WHERE head_word = ?");
-    stmt.bind([headWord]);
-
-    const results: string[] = [];
-    while (stmt.step()) {
-        const row = stmt.getAsObject();
-        if (row["definition"]) {
-            results.push(row["definition"] as string);
-        }
-    }
-    stmt.free();
-    return results;
+export async function getDefinitions(db: AsyncDatabase, headWord: string): Promise<string[]> {
+    const rows = await db.all<{ definition: string }>(
+        "SELECT definition FROM entries WHERE head_word = ?",
+        [headWord]
+    );
+    return rows.filter((r) => r.definition).map((r) => r.definition);
 }
 
 const dictionaryDbPath = [".project", "dictionary.sqlite"];
 
-export async function lookupWord(db: Database) {
+export async function lookupWord(db: AsyncDatabase) {
     try {
         const word = await vscode.window.showInputBox({ prompt: "Enter a word to look up" });
         if (word) {
-            const definitions = getDefinitions(db, word);
+            const definitions = await getDefinitions(db, word);
             if (definitions.length > 0) {
                 await vscode.window.showQuickPick(definitions, {
                     placeHolder: `Definitions for "${word}"`,
@@ -41,80 +34,44 @@ export async function lookupWord(db: Database) {
     }
 }
 
-export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
-    // Initialize fts5-sql-bundle
-    let SQL: SqlJsStatic | undefined;
-    try {
-        const sqlWasmPath = vscode.Uri.joinPath(context.extensionUri, "out/node_modules/fts5-sql-bundle/dist/sql-wasm.wasm");
-
-        SQL = await initSqlJs({
-            locateFile: (file: string) => {
-
-                return sqlWasmPath.fsPath;
-            },
-        });
-
-        if (!SQL) {
-            throw new Error("Failed to initialize fts5-sql-bundle");
-        }
-
-
-    } catch (error) {
-        console.error("Error initializing fts5-sql-bundle:", error);
-        vscode.window.showErrorMessage(`Failed to initialize fts5-sql-bundle: ${error}`);
-        return;
-    }
-
-    // Load or create the database file
+/**
+ * Initialize the dictionary database using native SQLite (downloaded on first run).
+ * Opens the file directly (no WASM, no in-memory buffer).
+ */
+export const initializeDictionary = async (
+    context: vscode.ExtensionContext
+): Promise<AsyncDatabase | undefined> => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         return;
     }
+
+    // Ensure the .project directory exists
+    const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
+    try {
+        await vscode.workspace.fs.createDirectory(projectDir);
+    } catch (dirError) {
+        // Directory might already exist, which is fine
+        console.debug("[Dictionary DB] .project directory already exists or could not be created:", dirError);
+    }
+
     const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...dictionaryDbPath);
 
-    let fileBuffer: Uint8Array;
+    let db: AsyncDatabase;
 
     try {
-        // NOTE: Use a stream to read the database file to avoid memory issues that can arise from large files and crashes the app
-        const fileContent = await vscode.workspace.fs.readFile(dbPath);
-        fileBuffer = fileContent;
-
+        // Open (or create) the database file directly - no buffer loading needed
+        db = await AsyncDatabase.open(dbPath.fsPath);
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const isFileNotFound = error instanceof vscode.FileSystemError && error.code === 'FileNotFound';
-        const isCorruption = errorMessage.includes("database disk image is malformed") ||
-            errorMessage.includes("file is not a database") ||
-            errorMessage.includes("database is locked") ||
-            errorMessage.includes("database corruption");
+        console.error("[Dictionary DB] Failed to open database:", error);
+        vscode.window.showErrorMessage(`Failed to open dictionary database: ${error}`);
+        return;
+    }
 
-        if (isFileNotFound) {
-            console.info("[Dictionary DB] Dictionary database file not found - creating new database");
-        } else if (isCorruption) {
-            console.warn(`[Dictionary DB] Database corruption detected: ${errorMessage}`);
-            console.warn("[Dictionary DB] Deleting corrupt database and creating new one");
-
-            // Delete the corrupted database file
-            try {
-                await vscode.workspace.fs.delete(dbPath);
-            } catch (deleteError) {
-                console.warn("[Dictionary DB] Could not delete corrupted database file:", deleteError);
-            }
-        } else {
-            console.error("[Dictionary DB] Unexpected error reading dictionary file:", {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                dbPath: dbPath.fsPath,
-                errorType: error instanceof Error ? error.constructor.name : typeof error
-            });
-            // For unexpected errors, still try to create a new database
-            console.info("[Dictionary DB] Attempting to create new database despite error");
-        }
-
-        // Create new database for all error cases (file not found, corruption, or unexpected errors)
-        const newDb = new SQL.Database();
-        // Create your table structure
-        newDb.run(`
-            CREATE TABLE entries (
+    // Ensure schema exists by using CREATE TABLE IF NOT EXISTS
+    try {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS entries (
                 id TEXT PRIMARY KEY,
                 head_word TEXT NOT NULL DEFAULT '',
                 definition TEXT,
@@ -123,102 +80,84 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
                 createdAt TEXT NOT NULL DEFAULT (datetime('now')),
                 updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
             );
-    
-            CREATE INDEX idx_entries_head_word ON entries(head_word);
+            CREATE INDEX IF NOT EXISTS idx_entries_head_word ON entries(head_word);
         `);
-        // Save the new database to file
-        fileBuffer = newDb.export();
-
-        // Ensure the .project directory exists
-        const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
-        try {
-            await vscode.workspace.fs.createDirectory(projectDir);
-        } catch (dirError) {
-            // Directory might already exist, which is fine
-            console.debug("[Dictionary DB] .project directory already exists or could not be created:", dirError);
-        }
-
-        // Write the new database file
-        try {
-            await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
-            console.info("[Dictionary DB] New dictionary database created successfully");
-        } catch (writeError) {
-            console.error("[Dictionary DB] Failed to write new database file:", {
-                error: writeError instanceof Error ? writeError.message : String(writeError),
-                stack: writeError instanceof Error ? writeError.stack : undefined,
-                dbPath: dbPath.fsPath
-            });
-            // Don't return here - still try to use the in-memory database
-        }
-    }
-
-    // Create/load the database
-    const db = new SQL.Database(fileBuffer);
-
-    // After loading the database
-    try {
-        const columnCheckStmt = db.prepare("PRAGMA table_info(entries)");
-        const columns = [];
-        while (columnCheckStmt.step()) {
-            const columnInfo = columnCheckStmt.getAsObject();
-            columns.push(columnInfo.name);
-        }
-        columnCheckStmt.free();
-
-        if (!columns.includes("createdAt")) {
-            db.run("ALTER TABLE entries ADD COLUMN createdAt TEXT");
-            db.run("UPDATE entries SET createdAt = datetime('now') WHERE createdAt IS NULL");
-        }
-        if (!columns.includes("updatedAt")) {
-            db.run("ALTER TABLE entries ADD COLUMN updatedAt TEXT");
-            db.run("UPDATE entries SET updatedAt = datetime('now') WHERE updatedAt IS NULL");
-        }
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const isCorruption = errorMessage.includes("database disk image is malformed") ||
+        const isCorruption =
+            errorMessage.includes("database disk image is malformed") ||
             errorMessage.includes("file is not a database") ||
             errorMessage.includes("database is locked") ||
             errorMessage.includes("database corruption");
 
         if (isCorruption) {
-            console.error("[Dictionary DB] Database corruption detected during schema update:", errorMessage);
-            console.warn("[Dictionary DB] Recreating corrupted database");
+            console.error("[Dictionary DB] Database corruption detected:", errorMessage);
+            console.warn("[Dictionary DB] Deleting corrupt database and recreating");
 
-            // Recreate the database from scratch
-            const newDb = new SQL.Database();
-            newDb.run(`
-                CREATE TABLE entries (
-                    id TEXT PRIMARY KEY,
-                    head_word TEXT NOT NULL DEFAULT '',
-                    definition TEXT,
-                    is_user_entry INTEGER NOT NULL DEFAULT 0,
-                    author_id TEXT,
-                    createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-                    updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+            await db.close();
+
+            // Delete the corrupted database file
+            try {
+                await vscode.workspace.fs.delete(dbPath);
+            } catch (deleteError) {
+                console.warn("[Dictionary DB] Could not delete corrupted database file:", deleteError);
+            }
+
+            // Recreate
+            try {
+                db = await AsyncDatabase.open(dbPath.fsPath);
+                await db.exec(`
+                    CREATE TABLE IF NOT EXISTS entries (
+                        id TEXT PRIMARY KEY,
+                        head_word TEXT NOT NULL DEFAULT '',
+                        definition TEXT,
+                        is_user_entry INTEGER NOT NULL DEFAULT 0,
+                        author_id TEXT,
+                        createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+                        updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_entries_head_word ON entries(head_word);
+                `);
+                vscode.window.showWarningMessage(
+                    "Dictionary database was corrupted and has been recreated. You may need to re-import your dictionary entries."
                 );
-        
-                CREATE INDEX idx_entries_head_word ON entries(head_word);
-            `);
-
-            // Save the new database to file
-            const newFileBuffer = newDb.export();
-            await vscode.workspace.fs.writeFile(dbPath, newFileBuffer);
-
-
-            vscode.window.showWarningMessage("Dictionary database was corrupted and has been recreated. You may need to re-import your dictionary entries.");
-
-            // Return the new database
-            return newDb;
+            } catch (recreateError) {
+                console.error("[Dictionary DB] Failed to recreate database:", recreateError);
+                return;
+            }
         } else {
-            console.error("Error checking/adding columns to entries table:", error);
-            vscode.window.showErrorMessage(`Failed to update database schema: ${error}`);
+            console.error("Error checking/creating entries table:", error);
+            vscode.window.showErrorMessage(`Failed to initialize database schema: ${error}`);
         }
     }
+
+    // Schema migration: ensure columns exist
+    try {
+        const columns = await db.all<{ name: string }>("PRAGMA table_info(entries)");
+        const columnNames = columns.map((c) => c.name);
+
+        if (!columnNames.includes("createdAt")) {
+            await db.run("ALTER TABLE entries ADD COLUMN createdAt TEXT");
+            await db.run("UPDATE entries SET createdAt = datetime('now') WHERE createdAt IS NULL");
+        }
+        if (!columnNames.includes("updatedAt")) {
+            await db.run("ALTER TABLE entries ADD COLUMN updatedAt TEXT");
+            await db.run("UPDATE entries SET updatedAt = datetime('now') WHERE updatedAt IS NULL");
+        }
+    } catch (error) {
+        console.error("Error checking/adding columns to entries table:", error);
+    }
+
+    // Set WAL mode for better concurrent performance
+    await db.exec("PRAGMA journal_mode=WAL");
 
     return db;
 };
 
-export const registerLookupWordCommand = (db: Database, context: vscode.ExtensionContext) => {
+/** @deprecated Use initializeDictionary instead. Kept as alias for backward compatibility. */
+export const initializeSqlJs = initializeDictionary;
+
+export const registerLookupWordCommand = (db: AsyncDatabase, context: vscode.ExtensionContext) => {
     const disposable = vscode.commands.registerCommand("extension.lookupWord", () => {
         return lookupWord(db);
     });
@@ -232,93 +171,75 @@ export const addWord = async ({
     authorId,
     isUserEntry = true,
 }: {
-    db: Database;
+    db: AsyncDatabase;
     headWord: string;
     definition: string;
     authorId: string;
     isUserEntry?: boolean;
 }) => {
-
-    const stmt = db.prepare(
+    const id = crypto.randomUUID();
+    await db.run(
         `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id, createdAt, updatedAt) 
          VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
          ON CONFLICT(id) DO UPDATE SET 
              definition = excluded.definition,
              is_user_entry = excluded.is_user_entry,
              author_id = excluded.author_id,
-             updatedAt = datetime('now')`
+             updatedAt = datetime('now')`,
+        [id, headWord, definition, isUserEntry ? 1 : 0, authorId]
     );
-    try {
-        const id = crypto.randomUUID();
-        stmt.bind([id, headWord, definition, isUserEntry ? 1 : 0, authorId]);
-        stmt.step();
 
-        if (isUserEntry) {
-            await exportUserEntries(db);
+    if (isUserEntry) {
+        await exportUserEntries(db);
+    }
+};
+
+export const bulkAddWords = async (db: AsyncDatabase, entries: DictionaryEntry[]) => {
+    try {
+        await db.run("BEGIN TRANSACTION");
+        for (const entry of entries) {
+            await db.run(
+                `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id, createdAt, updatedAt) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET 
+                     definition = excluded.definition,
+                     is_user_entry = excluded.is_user_entry,
+                     author_id = excluded.author_id,
+                     updatedAt = datetime('now')`,
+                [
+                    entry.id,
+                    entry.headWord,
+                    entry.definition ?? "",
+                    entry.isUserEntry ? 1 : 0,
+                    entry.authorId ?? "",
+                    entry.createdAt ?? "",
+                    entry.updatedAt ?? "",
+                ]
+            );
         }
-    } finally {
-        stmt.free();
-    }
-};
-
-export const bulkAddWords = async (db: Database, entries: DictionaryEntry[]) => {
-    const stmt = db.prepare(
-        `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id, createdAt, updatedAt) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET 
-             definition = excluded.definition,
-             is_user_entry = excluded.is_user_entry,
-             author_id = excluded.author_id,
-             updatedAt = datetime('now')`
-    );
-    try {
-        db.run("BEGIN TRANSACTION");
-        entries.forEach((entry) => {
-            stmt.bind([
-                entry.id,
-                entry.headWord,
-                entry.definition ?? "",
-                entry.isUserEntry ? 1 : 0,
-                entry.authorId ?? "",
-                entry.createdAt ?? "",
-                entry.updatedAt ?? "",
-            ]);
-            stmt.step();
-            stmt.reset();
-        });
-        db.run("COMMIT");
-        await saveDatabase(db);
+        await db.run("COMMIT");
+        // No saveDatabase() needed - native SQLite writes to disk automatically
     } catch (error) {
-        db.run("ROLLBACK");
+        await db.run("ROLLBACK");
         throw error;
-    } finally {
-        stmt.free();
     }
 };
 
-export const getWords = (db: Database) => {
-    const stmt = db.prepare("SELECT head_word FROM entries");
-    const words: string[] = [];
-    while (stmt.step()) {
-        words.push(stmt.getAsObject()["head_word"] as string);
-    }
-    stmt.free();
-    return words;
+export const getWords = async (db: AsyncDatabase): Promise<string[]> => {
+    const rows = await db.all<{ head_word: string }>("SELECT head_word FROM entries");
+    return rows.map((r) => r.head_word);
 };
 
-export const getEntry = (db: Database, headWord: string, caseSensitive = false) => {
-    let query = "SELECT * FROM entries WHERE head_word = ?";
+export const getEntry = async (db: AsyncDatabase, headWord: string, caseSensitive = false): Promise<boolean> => {
+    let query = "SELECT 1 FROM entries WHERE head_word = ?";
     if (!caseSensitive) {
         query += " COLLATE NOCASE";
     }
-    const stmt = db.prepare(query);
-    stmt.bind([headWord]);
-    const entry = stmt.step();
-    stmt.free();
-    return entry;
+    const row = await db.get(query, [headWord]);
+    return !!row;
 };
 
-export async function importWiktionaryJSONL(db: Database) {
+export async function importWiktionaryJSONL(db: AsyncDatabase) {
     try {
         const options: vscode.OpenDialogOptions = {
             canSelectMany: false,
@@ -345,13 +266,7 @@ export async function importWiktionaryJSONL(db: Database) {
                         progress.report({ increment: progressValue * 100, message: "Importing..." });
                     });
                     progress.report({ increment: 100, message: "Import completed!" });
-                    const fileBuffer = db.export();
-                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                    if (!workspaceFolder) {
-                        return;
-                    }
-                    const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...dictionaryDbPath);
-                    await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
+                    // No db.export() or writeFile needed - native SQLite writes to disk automatically
                     vscode.window.showInformationMessage("Wiktionary JSONL import completed.");
                 }
             );
@@ -371,158 +286,114 @@ export const updateWord = async ({
     authorId,
     isUserEntry = true,
 }: {
-    db: Database;
+    db: AsyncDatabase;
     id: string;
     definition: string;
     headWord: string;
     authorId: string;
     isUserEntry?: boolean;
 }) => {
-
-    const stmt = db.prepare(`
-        UPDATE entries 
+    const result = await db.run(
+        `UPDATE entries 
         SET head_word = ?,
             definition = ?,
             is_user_entry = ?,
             author_id = ?,
             updatedAt = datetime('now')
-        WHERE id = ?
-    `);
-    try {
-        stmt.bind([headWord, definition, isUserEntry ? 1 : 0, authorId, id]);
-        const result = stmt.step();
-        const rowsModified = db.getRowsModified();
-        if (rowsModified === 0) {
-            console.warn(`No rows were updated. Check if the id ${id} exists.`);
-        }
-    } catch (error) {
-        console.error("Error executing update statement:", error);
-    } finally {
-        stmt.free();
+        WHERE id = ?`,
+        [headWord, definition, isUserEntry ? 1 : 0, authorId, id]
+    );
+
+    if (result.changes === 0) {
+        console.warn(`No rows were updated. Check if the id ${id} exists.`);
     }
+
     if (isUserEntry) {
         await exportUserEntries(db);
     }
 };
 
-export const deleteWord = async ({ db, id }: { db: Database; id: string; }) => {
+export const deleteWord = async ({ db, id }: { db: AsyncDatabase; id: string }) => {
     // First check if it's a user entry
-    const checkStmt = db.prepare("SELECT is_user_entry FROM entries WHERE id = ?");
-    let isUserEntry = false;
-    try {
-        checkStmt.bind([id]);
-        if (checkStmt.step()) {
-            isUserEntry = !!checkStmt.get()[0];
-        }
-    } finally {
-        checkStmt.free();
-    }
+    const row = await db.get<{ is_user_entry: number }>(
+        "SELECT is_user_entry FROM entries WHERE id = ?",
+        [id]
+    );
+    const isUserEntry = !!row?.is_user_entry;
 
     // Delete the entry
-    const deleteStmt = db.prepare("DELETE FROM entries WHERE id = ?");
-    try {
-        deleteStmt.bind([id]);
-        deleteStmt.step();
+    await db.run("DELETE FROM entries WHERE id = ?", [id]);
 
-        // If it was a user entry, trigger export
-        if (isUserEntry) {
-            await exportUserEntries(db);
-        }
-    } finally {
-        deleteStmt.free();
+    // If it was a user entry, trigger export
+    if (isUserEntry) {
+        await exportUserEntries(db);
     }
 };
 
-export const getPagedWords = ({
+export const getPagedWords = async ({
     db,
     page,
     pageSize,
     searchQuery,
 }: {
-    db: Database;
+    db: AsyncDatabase;
     page: number;
     pageSize: number;
     searchQuery?: string;
-}): { entries: DictionaryEntry[]; total: number; } => {
-    let total = 0;
-    const entries: DictionaryEntry[] = [];
-
+}): Promise<{ entries: DictionaryEntry[]; total: number }> => {
     // Get total count
-    const countStmt = searchQuery
-        ? db.prepare("SELECT COUNT(*) as count FROM entries WHERE head_word LIKE ?")
-        : db.prepare("SELECT COUNT(*) as count FROM entries");
-
-    try {
-        if (searchQuery) {
-            countStmt.bind([`%${searchQuery}%`]);
-        }
-        countStmt.step();
-        total = countStmt.getAsObject().count as number;
-    } finally {
-        countStmt.free();
-    }
+    const countRow = searchQuery
+        ? await db.get<{ count: number }>(
+              "SELECT COUNT(*) as count FROM entries WHERE head_word LIKE ?",
+              [`%${searchQuery}%`]
+          )
+        : await db.get<{ count: number }>("SELECT COUNT(*) as count FROM entries");
+    const total = countRow?.count ?? 0;
 
     // Get page of words
     const offset = (page - 1) * pageSize;
-    const stmt = searchQuery
-        ? db.prepare(`
-            SELECT id, head_word, definition, is_user_entry, author_id 
-            FROM entries 
-            WHERE head_word LIKE ? 
-            ORDER BY head_word 
-            LIMIT ? OFFSET ?`)
-        : db.prepare(`
-            SELECT id, head_word, definition, is_user_entry, author_id 
-            FROM entries 
-            ORDER BY head_word 
-            LIMIT ? OFFSET ?`);
+    const rows = searchQuery
+        ? await db.all<Record<string, any>>(
+              `SELECT id, head_word, definition, is_user_entry, author_id 
+               FROM entries 
+               WHERE head_word LIKE ? 
+               ORDER BY head_word 
+               LIMIT ? OFFSET ?`,
+              [`%${searchQuery}%`, pageSize, offset]
+          )
+        : await db.all<Record<string, any>>(
+              `SELECT id, head_word, definition, is_user_entry, author_id 
+               FROM entries 
+               ORDER BY head_word 
+               LIMIT ? OFFSET ?`,
+              [pageSize, offset]
+          );
 
-    try {
-        if (searchQuery) {
-            stmt.bind([`%${searchQuery}%`, pageSize, offset]);
-        } else {
-            stmt.bind([pageSize, offset]);
-        }
-
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
-            entries.push({
-                id: row.id as string,
-                headWord: row.head_word as string,
-                definition: row.definition as string,
-                authorId: row.author_id as string,
-                isUserEntry: row.is_user_entry === 1,
-            });
-        }
-    } finally {
-        stmt.free();
-    }
+    const entries: DictionaryEntry[] = rows.map((row) => ({
+        id: row.id as string,
+        headWord: row.head_word as string,
+        definition: row.definition as string,
+        authorId: row.author_id as string,
+        isUserEntry: row.is_user_entry === 1,
+    }));
 
     return { entries, total };
 };
 
-export const exportUserEntries = async (db: Database) => {
-    const stmt = db.prepare(
+export const exportUserEntries = async (db: AsyncDatabase) => {
+    const rows = await db.all<Record<string, any>>(
         "SELECT id, head_word, definition, author_id, is_user_entry, createdAt, updatedAt FROM entries WHERE is_user_entry = 1"
     );
-    const entries: DictionaryEntry[] = [];
 
-    try {
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
-            entries.push({
-                id: row.id as string,
-                headWord: row.head_word as string,
-                definition: row.definition as string,
-                authorId: row.author_id as string,
-                isUserEntry: row.is_user_entry === 1,
-                createdAt: row.createdAt as string,
-                updatedAt: row.updatedAt as string,
-            });
-        }
-    } finally {
-        stmt.free();
-    }
+    const entries: DictionaryEntry[] = rows.map((row) => ({
+        id: row.id as string,
+        headWord: row.head_word as string,
+        definition: row.definition as string,
+        authorId: row.author_id as string,
+        isUserEntry: row.is_user_entry === 1,
+        createdAt: row.createdAt as string,
+        updatedAt: row.updatedAt as string,
+    }));
 
     // Convert entries to JSONL format
     const jsonlContent = entries.map((entry) => JSON.stringify(entry)).join("\n");
@@ -538,7 +409,6 @@ export const exportUserEntries = async (db: Database) => {
         await vscode.workspace.fs.createDirectory(filesDir);
     } catch (error) {
         // Directory might already exist, which is fine
-
     }
 
     const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
@@ -548,7 +418,7 @@ export const exportUserEntries = async (db: Database) => {
     }
 };
 
-export const ingestJsonlDictionaryEntries = async (db: Database) => {
+export const ingestJsonlDictionaryEntries = async (db: AsyncDatabase) => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         return;
@@ -570,32 +440,23 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
             .filter((line: string) => line)
             .map((line: string) => JSON.parse(line));
 
-
         await bulkAddWords(db, entries);
     } catch (error) {
         // Check if it's a file not found error
-        if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-
+        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
             return;
         }
         console.error("Error reading dictionary file:", error);
     }
 };
 
-// Function to save the database to file
-export const saveDatabase = async (db: Database) => {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
-        console.error("Cannot save database: No workspace folder found.");
-        return;
-    }
-    const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...dictionaryDbPath);
-    try {
-        const fileBuffer = db.export();
-        await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
-
-    } catch (error) {
-        console.error("Error saving database:", error);
-        vscode.window.showErrorMessage(`Failed to save dictionary database: ${error}`);
-    }
+/**
+ * No longer needed with native SQLite - the database writes to disk automatically.
+ * Kept as a no-op for backward compatibility.
+ * @deprecated Native SQLite writes incrementally to disk; no explicit save needed.
+ */
+export const saveDatabase = async (_db: AsyncDatabase) => {
+    // No-op: native SQLite writes to disk automatically via WAL mode.
+    // This function previously serialized the entire in-memory database and wrote
+    // the full buffer to disk. With native SQLite, only modified pages are flushed.
 };

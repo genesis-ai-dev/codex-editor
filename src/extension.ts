@@ -24,11 +24,12 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
-import { Database } from "fts5-sql-bundle";
+import { AsyncDatabase, initNativeSqlite, isNativeSqliteReady } from "./utils/nativeSqlite";
+import { ensureSqliteNativeBinary } from "./utils/sqliteNativeBinaryManager";
 import {
     importWiktionaryJSONL,
     ingestJsonlDictionaryEntries,
-    initializeSqlJs,
+    initializeDictionary,
     registerLookupWordCommand,
 } from "./sqldb";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
@@ -170,7 +171,7 @@ function finishRealtimeStep(): number {
 
 declare global {
     // eslint-disable-next-line
-    var db: Database | undefined;
+    var db: AsyncDatabase | undefined;
 }
 
 let client: LanguageClient | undefined;
@@ -430,8 +431,25 @@ export async function activate(context: vscode.ExtensionContext) {
 
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
-        // Initialize SqlJs with real-time progress since it loads WASM files
-        // Only initialize database if we have a workspace (database is for project content)
+        // Download the native SQLite binary if not already present.
+        // This blocks with a progress notification on first run (~2 MB download).
+        const sqliteBinaryStart = globalThis.performance.now();
+        try {
+            const binaryPath = await ensureSqliteNativeBinary(context);
+            console.log("[SQLite] Binary path resolved:", binaryPath);
+            initNativeSqlite(binaryPath);
+            console.log("[SQLite] Native module initialized successfully");
+        } catch (error: any) {
+            console.error("[SQLite] Failed to set up native binary:", error?.message || error);
+            console.error("[SQLite] Stack:", error?.stack);
+            vscode.window.showWarningMessage(
+                "SQLite native module could not be loaded. Dictionary and search features will be unavailable."
+            );
+            // Database features (dictionary, content index) will be unavailable
+        }
+        stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
+
+        // Initialize native SQLite dictionary — only if we have a workspace AND SQLite is ready
         const workspaceFolders = vscode.workspace.workspaceFolders;
 
         // Check for pending swap downloads (after workspace is ready)
@@ -440,13 +458,13 @@ export async function activate(context: vscode.ExtensionContext) {
                 console.error("[Extension] Error checking pending swap downloads:", err);
             });
         }
-        if (workspaceFolders && workspaceFolders.length > 0) {
+        if (workspaceFolders && workspaceFolders.length > 0 && isNativeSqliteReady()) {
             startRealtimeStep("AI preparing search capabilities");
             try {
-                global.db = await initializeSqlJs(context);
+                global.db = await initializeDictionary(context);
 
             } catch (error) {
-                console.error("Error initializing SqlJs:", error);
+                console.error("Error initializing dictionary:", error);
             }
             stepStart = finishRealtimeStep();
             if (global.db) {
@@ -458,6 +476,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 registerLookupWordCommand(global.db, context);
                 ingestJsonlDictionaryEntries(global.db);
             }
+        } else if (workspaceFolders && workspaceFolders.length > 0 && !isNativeSqliteReady()) {
+            console.warn("[Extension] Skipping dictionary init — SQLite native module not available");
+            stepStart = trackTiming("AI search capabilities (skipped - no SQLite)", globalThis.performance.now());
         } else {
             // No workspace, skip database initialization
             stepStart = trackTiming("AI search capabilities (skipped - no workspace)", globalThis.performance.now());
@@ -867,9 +888,13 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
-        startRealtimeStep("AI learning your project structure");
-        await createIndexWithContext(context);
-        finishRealtimeStep();
+        if (isNativeSqliteReady()) {
+            startRealtimeStep("AI learning your project structure");
+            await createIndexWithContext(context);
+            finishRealtimeStep();
+        } else {
+            console.warn("[Extension] Skipping content index creation — SQLite native module not available");
+        }
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
@@ -1222,7 +1247,7 @@ export function deactivate() {
         return client.stop();
     }
     if (global.db) {
-        global.db.close();
+        global.db.close().catch(console.error);
     }
 
     // Clean up the global index manager

@@ -1088,7 +1088,6 @@
         "crypto-browserify": "^3.12.1",
         "encoding": "^0.1.13",
         "eslint": "^7.27.0",
-        "fts5-sql-bundle": "^1.0.2",
         "glob": "^7.1.4",
         "html-loader": "^5.1.0",
         "https-browserify": "^1.0.0",
@@ -1121,7 +1120,6 @@
         "webpack-cli": "^6.0.1"
     },
     "dependencies": {
-        "@types/better-sqlite3": "^7.6.11",
         "@types/csv-parse": "^1.2.5",
         "@types/xml2js": "^0.4.14",
         "@vscode/codicons": "^0.0.36",
@@ -1137,7 +1135,6 @@
         "diff": "^7.0.0",
         "events": "^3.3.0",
         "fitty": "^2.4.2",
-        "fts5-sql-bundle": "^1.0.2",
         "hog-features": "^1.0.0",
         "i": "^0.3.7",
         "immutability-helper": "^3.1.1",

@@ -71,7 +71,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
 
             // Stub database sync to capture what would be saved
             let capturedAfterMerge: any = null;
-            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").callsFake(async function (this: any) {
                 capturedAfterMerge = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
                 return Promise.resolve();
             });
@@ -164,7 +164,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
 
             // Mock the database sync to capture the data that would be stored
             let capturedCellData: any = null;
-            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").callsFake(async function (this: any) {
                 // Capture the cell data that would be synced to database
                 capturedCellData = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
                 return Promise.resolve();
@@ -247,7 +247,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
 
             // Mock database sync to capture data
             let capturedCellData: any = null;
-            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").callsFake(async function (this: any) {
                 capturedCellData = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
                 return Promise.resolve();
             });
@@ -333,7 +333,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
             // Mock database sync to capture data - capture ALL syncs
             const allSyncedData: any[] = [];
 
-            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").callsFake(async function (this: any) {
                 // Deep clone to avoid reference issues
                 const cellData = JSON.parse(JSON.stringify(this._documentData.cells.find((c: any) => c.metadata?.id === cellId)));
 
@@ -455,7 +455,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
 
             // Mock database sync to capture data
             let capturedCellDataAfterRevalidate: any = null;
-            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").callsFake(async function (this: any) {
                 // Deep clone to avoid reference issues
                 capturedCellDataAfterRevalidate = JSON.parse(JSON.stringify(this._documentData.cells.find((c: any) => c.metadata?.id === cellId)));
                 return Promise.resolve();
@@ -526,7 +526,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
 
             // Mock database sync to capture data
             let capturedCellData: any = null;
-            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+            const syncStub = sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").callsFake(async function (this: any) {
                 capturedCellData = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
                 return Promise.resolve();
             });
@@ -609,7 +609,7 @@ suite("Audio Validation Database Integration Test Suite", () => {
 
             // Mock database sync to capture data - use a fresh array for this test
             const capturedData: any[] = [];
-            const syncStub = sinon.stub(document as any, "syncAllCellsToDatabase").callsFake(async function (this: any) {
+            const syncStub = sinon.stub(document as any, "syncDirtyCellsToDatabase").callsFake(async function (this: any) {
                 const cellData = this._documentData.cells.find((c: any) => c.metadata?.id === cellId);
                 if (cellData) {
                     // Only capture data for the specific cell we're testing

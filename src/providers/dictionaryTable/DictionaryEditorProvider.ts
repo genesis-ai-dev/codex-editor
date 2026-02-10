@@ -9,7 +9,7 @@ import {
 } from "../../../types";
 import { getWorkSpaceUri } from "../../utils";
 import { isEqual } from "lodash";
-import { Database } from "fts5-sql-bundle";
+import { AsyncDatabase } from "../../utils/nativeSqlite";
 import {
     getWords,
     getDefinitions,
@@ -133,7 +133,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                         } as DictionaryReceiveMessages);
                         break;
                     }
-                    const db = (global as any).db as Database;
+                    const db = (global as any).db as AsyncDatabase;
                     if (!db) {
                         throw new Error("SQLite database not initialized");
                     }
@@ -228,7 +228,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         dictionary: Dictionary,
         webviewPanel: vscode.WebviewPanel
     ) {
-        const db = (global as any).db as Database;
+        const db = (global as any).db as AsyncDatabase;
         if (!db) {
             throw new Error("SQLite database not initialized");
         }
@@ -380,12 +380,12 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         pageSize: number,
         searchQuery?: string
     ): Promise<FetchPageResult> {
-        const db = (global as any).db as Database;
+        const db = (global as any).db as AsyncDatabase;
         if (!db) {
             throw new Error("SQLite database not initialized");
         }
 
-        const { entries, total } = getPagedWords({ db, page, pageSize, searchQuery });
+        const { entries, total } = await getPagedWords({ db, page, pageSize, searchQuery });
         // const entries: DictionaryEntry[] = words.map((word) => {
         //     const definitions = getDefinitions(db, word);
         //     return {

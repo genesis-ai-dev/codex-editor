@@ -1,9 +1,9 @@
-import { Database } from "fts5-sql-bundle";
 import * as vscode from "vscode";
 import { bulkAddWords } from ".";
 import { DictionaryEntry } from "types";
 import crypto from "crypto";
 import { TextDecoder } from 'util';
+import { AsyncDatabase } from "../utils/nativeSqlite";
 
 interface WiktionaryEntry {
     word: string;
@@ -18,7 +18,7 @@ const generateId = () => {
 
 export async function parseAndImportJSONL(
     filePath: string,
-    db: Database,
+    db: AsyncDatabase,
     progressCallback?: (progress: number) => void
 ): Promise<void> {
     const wordsBuffer: DictionaryEntry[] = [];
@@ -65,7 +65,7 @@ export async function parseAndImportJSONL(
 
                 // Insert in batches
                 if (wordsBuffer.length >= BATCH_SIZE) {
-                    bulkAddWords(db, wordsBuffer);
+                    await bulkAddWords(db, wordsBuffer);
                     wordsBuffer.length = 0;
                 }
 
@@ -82,7 +82,7 @@ export async function parseAndImportJSONL(
 
         // Insert any remaining entries
         if (wordsBuffer.length > 0) {
-            bulkAddWords(db, wordsBuffer);
+            await bulkAddWords(db, wordsBuffer);
         }
     } catch (err) {
         console.error('Error reading file:', err);

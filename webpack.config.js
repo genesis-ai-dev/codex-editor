@@ -6,7 +6,7 @@
 
 const path = require("path");
 const webpack = require("webpack");
-const CopyWebpackPlugin = require("copy-webpack-plugin");
+
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -27,10 +27,10 @@ const extensionConfig = {
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file
-        "fts5-sql-bundle": "commonjs fts5-sql-bundle",
         vm: "commonjs vm",
         encoding: "commonjs encoding",
         // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
+        // Note: sqlite3 native binary is downloaded on demand at runtime, not bundled
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
@@ -85,18 +85,11 @@ const extensionConfig = {
                 include: /node_modules/,
                 type: "javascript/auto",
             },
-            {
-                test: /\.wasm$/,
-                type: "asset/resource",
-            },
         ],
     },
     devtool: "nosources-source-map",
     infrastructureLogging: {
         level: "log", // enables logging required for problem matchers
-    },
-    experiments: {
-        asyncWebAssembly: true,
     },
     plugins: [
         new webpack.ProvidePlugin({
@@ -104,26 +97,6 @@ const extensionConfig = {
         }),
         new webpack.DefinePlugin({
             "process.env.NODE_ENV": JSON.stringify("production"),
-        }),
-        new CopyWebpackPlugin({
-            patterns: [
-                {
-                    from: "node_modules/fts5-sql-bundle/dist/sql-wasm.wasm",
-                    to: "node_modules/fts5-sql-bundle/dist/sql-wasm.wasm",
-                },
-                {
-                    from: "node_modules/fts5-sql-bundle/dist/sql-wasm.js",
-                    to: "node_modules/fts5-sql-bundle/dist/sql-wasm.js",
-                },
-                {
-                    from: "node_modules/fts5-sql-bundle/dist/index.js",
-                    to: "node_modules/fts5-sql-bundle/dist/index.js",
-                },
-                {
-                    from: "node_modules/fts5-sql-bundle/package.json",
-                    to: "node_modules/fts5-sql-bundle/package.json",
-                },
-            ],
         }),
     ],
     optimization: {

@@ -243,9 +243,9 @@ export class FileSyncManager {
             const contentHash = createHash("sha256").update(fileContent).digest("hex");
 
             // Use synchronous database operations within a transaction for speed
-            await this.sqliteIndex.runInTransaction(() => {
+            await this.sqliteIndex.runInTransaction(async () => {
                 // Update/insert the file in the main files table
-                const fileId = this.sqliteIndex.upsertFileSync(
+                const fileId = await this.sqliteIndex.upsertFileSync(
                     filePath,
                     fileType,
                     fileStat.mtime
@@ -286,7 +286,7 @@ export class FileSyncManager {
                     }
                     // Paratext, milestone, and child cells: no line numbers, no position increment
 
-                    this.sqliteIndex.upsertCellSync(
+                    await this.sqliteIndex.upsertCellSync(
                         cellId,
                         fileId,
                         fileType === 'source' ? 'source' : 'target',
@@ -297,8 +297,8 @@ export class FileSyncManager {
                     );
                 }
 
-                // Update sync metadata (this could be async but we'll keep it in transaction)
-                const stmt = this.sqliteIndex.database?.prepare(`
+                // Update sync metadata
+                await this.sqliteIndex.database?.run(`
                     INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
                     VALUES (?, ?, ?, ?, ?, strftime('%s', 'now') * 1000)
                     ON CONFLICT(file_path) DO UPDATE SET
@@ -307,16 +307,7 @@ export class FileSyncManager {
                         last_modified_ms = excluded.last_modified_ms,
                         last_synced_ms = strftime('%s', 'now') * 1000,
                         updated_at = strftime('%s', 'now') * 1000
-                `);
-
-                if (stmt) {
-                    try {
-                        stmt.bind([filePath, fileType, contentHash, fileStat.size, fileStat.mtime]);
-                        stmt.step();
-                    } finally {
-                        stmt.free();
-                    }
-                }
+                `, [filePath, fileType, contentHash, fileStat.size, fileStat.mtime]);
             });
 
         } catch (error) {
