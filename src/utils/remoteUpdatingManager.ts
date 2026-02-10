@@ -122,6 +122,8 @@ interface RemoteProjectRequirementsResult {
     swapReason?: string;
     swapInfo?: ProjectSwapInfo;
     currentUsername?: string;
+    /** The remote metadata that was fetched (for version checks, etc.) */
+    remoteMetadata?: ProjectMetadata;
 }
 
 // Cache for remote metadata checks to avoid repeated API calls
@@ -493,6 +495,7 @@ export async function checkRemoteProjectRequirements(
             swapReason,
             swapInfo,
             currentUsername,
+            remoteMetadata,
         };
     } catch (error) {
         debug("Error checking remote project requirements:", error);
