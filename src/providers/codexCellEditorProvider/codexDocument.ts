@@ -736,6 +736,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this.invalidateMilestoneIndexCache();
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
+        this._dirtyCellIds.clear(); // Discard stale dirty IDs — document is back to saved state
         this._onDidChangeForWebview.fire({
             content: this.getText(),
             edits: [],
@@ -2518,6 +2519,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     );
                     edit.validatedBy = finalValidatedBy;
                     changesDetected = true;
+                    if (cell.metadata?.id) {
+                        this._dirtyCellIds.add(cell.metadata.id);
+                    }
                 }
             }
         }
@@ -3183,6 +3187,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     delete cell.metadata.selectedAudioId;
                     delete cell.metadata.selectionTimestamp;
                     hasChanges = true;
+                    if (cell.metadata?.id) {
+                        this._dirtyCellIds.add(cell.metadata.id);
+                    }
                 }
             }
 

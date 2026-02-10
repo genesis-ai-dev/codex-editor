@@ -3188,6 +3188,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Mark the document as dirty manually since we bypassed the normal update methods
             (document as any)._isDirty = true;
+            (document as any)._dirtyCellIds.add(previousCellId);
 
             // 6. Mark current cell as merged by updating its data
             const currentCellData = document.getCellData(currentCellId) || {};

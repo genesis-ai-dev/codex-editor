@@ -28,6 +28,12 @@ const SQLITE_STORAGE_DIR = "sqlite3-native";
 /** The expected filename inside the tarball: build/Release/node_sqlite3.node */
 const BINARY_NAME = "node_sqlite3.node";
 
+/** Minimum expected binary size in bytes — real binaries are ~2 MB; anything below this is corrupt/truncated */
+const MIN_BINARY_SIZE_BYTES = 500_000;
+
+/** Maximum download attempts before giving up */
+const MAX_DOWNLOAD_ATTEMPTS = 3;
+
 /** Cached binary path (set after first successful resolution) */
 let cachedBinaryPath: string | null = null;
 
@@ -101,6 +107,60 @@ function getBinaryStoragePath(context: vscode.ExtensionContext): string {
 }
 
 /**
+ * Get the path to the version marker file next to the binary.
+ */
+function getVersionFilePath(context: vscode.ExtensionContext): string {
+    return path.join(
+        context.globalStorageUri.fsPath,
+        SQLITE_STORAGE_DIR,
+        "version.txt"
+    );
+}
+
+/**
+ * Check whether a cached binary matches the expected version and is not corrupted.
+ * Returns true when the binary should be re-downloaded.
+ */
+function shouldRedownload(binaryPath: string, versionFilePath: string): boolean {
+    // Version mismatch → re-download
+    try {
+        const storedVersion = fs.readFileSync(versionFilePath, "utf8").trim();
+        if (storedVersion !== SQLITE3_VERSION) {
+            console.log(
+                `[SQLite] Version mismatch (cached: ${storedVersion}, expected: ${SQLITE3_VERSION}) — will re-download`
+            );
+            return true;
+        }
+    } catch {
+        // version.txt missing or unreadable → treat as outdated
+        console.log("[SQLite] version.txt missing or unreadable — will re-download");
+        return true;
+    }
+
+    // Size check → corruption guard
+    try {
+        const stat = fs.statSync(binaryPath);
+        if (stat.size < MIN_BINARY_SIZE_BYTES) {
+            console.log(
+                `[SQLite] Binary too small (${stat.size} bytes) — likely corrupt, will re-download`
+            );
+            return true;
+        }
+    } catch {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Write the version marker after a successful download.
+ */
+function writeVersionFile(versionFilePath: string): void {
+    fs.writeFileSync(versionFilePath, SQLITE3_VERSION, "utf8");
+}
+
+/**
  * Download a file from a URL, following redirects. Returns the data as a Buffer.
  */
 function downloadFile(url: string): Promise<Buffer> {
@@ -108,8 +168,8 @@ function downloadFile(url: string): Promise<Buffer> {
         const protocol = url.startsWith("https") ? require("https") : require("http");
 
         protocol.get(url, { headers: { "User-Agent": "codex-editor" } }, (response: any) => {
-            // Follow redirects (301, 302)
-            if (response.statusCode === 301 || response.statusCode === 302) {
+            // Follow redirects (301, 302, 307, 308)
+            if ([301, 302, 307, 308].includes(response.statusCode)) {
                 const redirectUrl = response.headers.location;
                 if (!redirectUrl) {
                     reject(new Error("Redirect without location header"));
@@ -133,6 +193,29 @@ function downloadFile(url: string): Promise<Buffer> {
 }
 
 /**
+ * Retry a function up to `MAX_DOWNLOAD_ATTEMPTS` times with exponential backoff
+ * (1 s, 2 s, 4 s, …). Rethrows the last error on exhaustion.
+ */
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            if (attempt < MAX_DOWNLOAD_ATTEMPTS) {
+                const delayMs = Math.pow(2, attempt - 1) * 1000; // 1 s, 2 s, 4 s
+                console.warn(
+                    `[SQLite] ${label} attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS} failed: ${lastError.message} — retrying in ${delayMs}ms…`
+                );
+                await new Promise((r) => setTimeout(r, delayMs));
+            }
+        }
+    }
+    throw lastError;
+}
+
+/**
  * Download and extract the SQLite native binary to extension storage.
  */
 async function downloadBinary(
@@ -144,12 +227,13 @@ async function downloadBinary(
     const downloadUrl = getBinaryDownloadUrl(platformKey);
     const storageDir = path.join(context.globalStorageUri.fsPath, SQLITE_STORAGE_DIR);
     const binaryPath = path.join(storageDir, BINARY_NAME);
+    const versionFilePath = getVersionFilePath(context);
     const tmpFile = path.join(os.tmpdir(), `sqlite3-native-${Date.now()}.tar.gz`);
 
     console.log(`[SQLite] Downloading native binary from: ${downloadUrl}`);
 
-    // Download the tarball
-    const data = await downloadFile(downloadUrl);
+    // Download the tarball with retry + backoff
+    const data = await withRetry(() => downloadFile(downloadUrl), "Download");
 
     // Write to temp file
     fs.writeFileSync(tmpFile, data);
@@ -179,7 +263,20 @@ async function downloadBinary(
         );
     }
 
-    console.log(`[SQLite] Native binary installed at: ${binaryPath}`);
+    // Verify extracted binary is not corrupt (size sanity check)
+    const stat = fs.statSync(binaryPath);
+    if (stat.size < MIN_BINARY_SIZE_BYTES) {
+        // Remove the corrupt file so next startup retries from scratch
+        try { fs.unlinkSync(binaryPath); } catch { /* best-effort */ }
+        throw new Error(
+            `Downloaded binary appears corrupt (${stat.size} bytes, expected ≥ ${MIN_BINARY_SIZE_BYTES})`
+        );
+    }
+
+    // Write version marker so future startups know which version is cached
+    writeVersionFile(versionFilePath);
+
+    console.log(`[SQLite] Native binary v${SQLITE3_VERSION} installed at: ${binaryPath}`);
     return binaryPath;
 }
 
@@ -193,16 +290,18 @@ async function downloadBinary(
 export async function ensureSqliteNativeBinary(
     context: vscode.ExtensionContext
 ): Promise<string> {
-    // Return cached path if available
-    if (cachedBinaryPath && fs.existsSync(cachedBinaryPath)) {
+    const binaryPath = getBinaryStoragePath(context);
+    const versionFilePath = getVersionFilePath(context);
+
+    // Fast path: in-memory cache still valid (same process, already verified)
+    if (cachedBinaryPath && cachedBinaryPath === binaryPath && fs.existsSync(cachedBinaryPath)) {
         return cachedBinaryPath;
     }
 
-    // Check if binary already exists in storage
-    const binaryPath = getBinaryStoragePath(context);
-    if (fs.existsSync(binaryPath)) {
+    // Check if binary already exists in storage AND matches expected version/integrity
+    if (fs.existsSync(binaryPath) && !shouldRedownload(binaryPath, versionFilePath)) {
         cachedBinaryPath = binaryPath;
-        console.log(`[SQLite] Using cached native binary: ${binaryPath}`);
+        console.log(`[SQLite] Using cached native binary v${SQLITE3_VERSION}: ${binaryPath}`);
         return binaryPath;
     }
 

@@ -1233,7 +1233,7 @@ async function cancelSwap(projectUri: vscode.Uri, _pendingState: any): Promise<v
     vscode.window.showInformationMessage("Project swap cancelled.");
 }
 
-export function deactivate() {
+export async function deactivate() {
     // Clean up real-time progress timer
     if (currentStepTimer) {
         clearInterval(currentStepTimer);
@@ -1243,19 +1243,35 @@ export function deactivate() {
     if (clientCommandsDisposable) {
         clientCommandsDisposable.dispose();
     }
+
+    // Stop the language client (no early return — continue to remaining cleanup)
     if (client) {
-        return client.stop();
-    }
-    if (global.db) {
-        global.db.close().catch(console.error);
+        try {
+            await client.stop();
+        } catch (e) {
+            console.error("[Deactivate] Error stopping language client:", e);
+        }
     }
 
-    // Clean up the global index manager
-    import("./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager").then(
-        ({ clearSQLiteIndexManager }) => {
-            clearSQLiteIndexManager();
+    // Close the global dictionary database
+    if (global.db) {
+        try {
+            await global.db.close();
+        } catch (e) {
+            console.error("[Deactivate] Error closing database:", e);
         }
-    ).catch(console.error);
+    }
+
+    // Clear the global index manager reference to prevent stale usage.
+    // The underlying database connection is already disposed via context.subscriptions.
+    try {
+        const { clearSQLiteIndexManager } = await import(
+            "./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+        );
+        clearSQLiteIndexManager();
+    } catch (e) {
+        console.error("[Deactivate] Error clearing index manager:", e);
+    }
 }
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {
