@@ -33,6 +33,7 @@ export const InputCriticalProjectInfo = ({
                     setCurrentStep("target");
                     return;
                 } else if (metadata.sourceLanguage && metadata.targetLanguage) {
+                    // Both languages exist - continue to workspace
                     vscode.postMessage({
                         command: "workspace.continue",
                     } as MessagesToStartupFlowProvider);
@@ -62,6 +63,7 @@ export const InputCriticalProjectInfo = ({
             setCurrentStep("target");
         } else {
             setTargetLanguage(language);
+            // After target language is selected, move to complete step
             setCurrentStep("complete");
         }
     };
@@ -118,6 +120,11 @@ export const InputCriticalProjectInfo = ({
                         <i className="codicon codicon-symbol-variable" style={{ fontSize: "72px" }}></i>
                         <VSCodeButton
                             onClick={() => {
+                                // Start generating system message in the background
+                                // This will be saved to metadata.json automatically by the provider
+                                vscode.postMessage({
+                                    command: "systemMessage.generate",
+                                } as MessagesToStartupFlowProvider);
                                 vscode.postMessage({ command: "openSourceUpload" });
                                 vscode.postMessage({
                                     command: "workspace.continue",
