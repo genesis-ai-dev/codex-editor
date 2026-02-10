@@ -19,6 +19,27 @@ export async function uriExists(uri: vscode.Uri): Promise<boolean> {
     }
 }
 
+export async function uriExistsWithFs(fs: NotebookFs, uri: vscode.Uri): Promise<boolean> {
+    try {
+        await fs.stat(uri);
+        return true;
+    } catch (error) {
+        if (error instanceof vscode.FileSystemError) {
+            if (error.code === "FileNotFound" || error.code === "EntryNotFound") {
+                return false;
+            }
+            throw error;
+        }
+        if (typeof error === "object" && error !== null && "message" in error) {
+            const message = String((error as { message?: unknown; }).message ?? "");
+            if (message.includes("FileNotFound") || message.includes("EntryNotFound")) {
+                return false;
+            }
+        }
+        throw error;
+    }
+}
+
 /**
  * Read UTF-8 text from a URI.
  */
@@ -46,16 +67,25 @@ export async function atomicWriteUriTextWithFs(
     text: string
 ): Promise<void> {
     const encoder = new TextEncoder();
+    const targetExists = await uriExistsWithFs(fs, uri);
+
+    if (targetExists) {
+        await fs.writeFile(uri, encoder.encode(text));
+        return;
+    }
+
     const dirPath = uri.path.slice(0, Math.max(0, uri.path.lastIndexOf("/")));
     const dirUri = uri.with({ path: dirPath || "/" });
     const baseName = path.posix.basename(uri.path);
     const tmpName = `${baseName}.tmp-${Date.now()}-${randomUUID()}`;
     const tmpUri = vscode.Uri.joinPath(dirUri, tmpName);
+    let tempFileCreated = false;
 
 
     try {
         // Write to temp file first
         await fs.writeFile(tmpUri, encoder.encode(text));
+        tempFileCreated = true;
 
         // Atomically rename temp file over target
         await fs.rename(tmpUri, uri, { overwrite: true });
@@ -69,18 +99,17 @@ export async function atomicWriteUriTextWithFs(
             }
         }
 
-        // If rename failed but temp file was created, clean it up
-
-        // Check if temp file exists before attempting to delete
-        try {
-            await fs.stat(tmpUri);
-            await fs.delete(tmpUri);
-        } catch (statErr) {
-            console.log(
-                `Temp file ${tmpUri.fsPath} did not exist after write failure:`,
-                statErr
-            );
-            // temp file did not exist, nothing to clean up
+        if (tempFileCreated) {
+            // If rename failed but temp file was created, clean it up.
+            // Best-effort delete: ignore if temp file is already gone.
+            try {
+                await fs.delete(tmpUri);
+            } catch (deleteErr) {
+                console.log(
+                    `Temp file ${tmpUri.fsPath} did not exist after write failure:`,
+                    deleteErr
+                );
+            }
         }
 
 

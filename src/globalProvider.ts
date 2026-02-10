@@ -28,6 +28,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
 
     // Common webview resolution
     public resolveWebviewView(webviewView: vscode.WebviewView) {
+        console.log(`[WebviewPerf] resolveWebviewView called for: ${this.getWebviewId()}`);
         this._view = webviewView;
 
         webviewView.webview.options = {

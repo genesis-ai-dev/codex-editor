@@ -387,17 +387,19 @@ export async function searchAllCells(
     includeIncomplete: boolean = true,
     options?: any
 ): Promise<TranslationPair[]> {
-    const searchScope = options?.searchScope || "both"; // "both" | "source" | "target"
-    const selectedFiles = options?.selectedFiles || []; // Array of file URIs to filter by
+    const searchScope = options?.searchScope || "both";
+    const selectedFiles = options?.selectedFiles || [];
+    const isParallelPassagesWebview = options?.isParallelPassagesWebview || false;
 
+    // Helper to check if a pair matches selected files filter
     function matchesSelectedFiles(pair: TranslationPair): boolean {
         if (!selectedFiles || selectedFiles.length === 0) return true;
-        
+
         const sourceUri = pair.sourceCell?.uri || "";
         const targetUri = pair.targetCell?.uri || "";
         const normalizedSource = normalizeUri(sourceUri);
         const normalizedTarget = normalizeUri(targetUri);
-        
+
         return selectedFiles.some((selectedUri: string) => {
             const normalizedSelected = normalizeUri(selectedUri);
             return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
@@ -461,19 +463,21 @@ export async function searchAllCells(
     let translationPairs: TranslationPair[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
-        // Use the optimized searchCompleteTranslationPairsWithValidation method
-        const searchLimit = includeIncomplete ? k * 2 : k; // Request more if we need to add incomplete pairs
-        // For UI search, search both source and target when searchScope is "both", otherwise source-only
-        const searchSourceOnly = searchScope === "both" ? false : true;
+        // Determine search mode
+        const searchSourceOnly = searchScope === "source";
+        const searchLimit = k * 2;
+
+        // Search complete pairs first
         const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
             query,
             searchLimit,
-            options?.isParallelPassagesWebview || false,
-            false, // onlyValidated - show all complete pairs
+            isParallelPassagesWebview,
+            false, // onlyValidated
             searchSourceOnly
         );
-        
-        translationPairs = searchResults.map((result) => ({
+
+        // Convert to TranslationPair format
+        results = searchResults.map((result) => ({
             cellId: result.cellId || result.cell_id,
             cellLabel: result.cellLabel ?? result.cell_label ?? null,
             sourceCell: {
@@ -532,23 +536,26 @@ export async function searchAllCells(
         combinedResults = [...combinedResults, ...sourceOnlyCells];
     }
 
-    // Filter by selected files if specified (using helper function defined above)
-    let filteredResults = combinedResults;
-    if (selectedFiles && selectedFiles.length > 0) {
-        filteredResults = combinedResults.filter(matchesSelectedFiles);
+    // Apply file filtering once at the end
+    if (selectedFiles.length > 0) {
+        results = results.filter(matchesSelectedFiles);
     }
 
-    // Remove duplicates based on cellId
-    const uniqueResults = filteredResults.filter(
-        (v, i, a) => a.findIndex((t) => t.cellId === v.cellId) === i
-    );
-
-    // Sort results by relevance (assuming higher score means more relevant)
-    uniqueResults.sort((a, b) => {
-        const scoreA = "score" in a ? (a.score as number) : 0;
-        const scoreB = "score" in b ? (b.score as number) : 0;
-        return scoreB - scoreA;
+    // Remove duplicates and sort by score
+    const seen = new Set<string>();
+    results = results.filter((pair) => {
+        if (seen.has(pair.cellId)) return false;
+        seen.add(pair.cellId);
+        return true;
     });
 
-    return uniqueResults.slice(0, k);
+    // Sort by score - BM25 scores are negative (more negative = better match)
+    // So we sort ascending to put better matches first
+    results.sort((a, b) => {
+        const scoreA = "score" in a ? (a.score as number) : 0;
+        const scoreB = "score" in b ? (b.score as number) : 0;
+        return scoreA - scoreB;
+    });
+
+    return results.slice(0, k);
 } 
