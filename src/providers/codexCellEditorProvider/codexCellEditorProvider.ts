@@ -727,7 +727,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Check authentication status
             let isAuthenticated = false;
             try {
-                if (authApi) {
+                // For localhost development, skip auth check
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const endpoint = (config.get("llmEndpoint") as string) || "";
+                const isLocalhost = endpoint.includes("localhost") || endpoint.includes("127.0.0.1");
+
+                if (isLocalhost) {
+                    isAuthenticated = true;
+                } else if (authApi) {
                     const authStatus = authApi.getAuthStatus();
                     isAuthenticated = authStatus?.isAuthenticated ?? false;
                 }
@@ -834,7 +841,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     const memberList = await fetchProjectMembers(projectId);
                                     if (memberList) {
                                         const currentUserMember = memberList.find(
-                                            (m: { username: string; email: string; accessLevel: number }) => m.username === userInfo.username || m.email === userInfo.email
+                                            (m: { username: string; email: string; accessLevel: number; }) => m.username === userInfo.username || m.email === userInfo.email
                                         );
                                         if (currentUserMember) {
                                             userAccessLevel = currentUserMember.accessLevel;
@@ -863,6 +870,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
+                });
+
+                // Record the initial position so subsequent updateWebview() calls
+                // (e.g. from "getContent") see a tracked position and send
+                // refreshCurrentPage instead of duplicating the initial content.
+                this.currentMilestoneSubsectionMap.set(docUri, {
+                    milestoneIndex: initialMilestoneIndex,
+                    subsectionIndex: initialSubsectionIndex,
                 });
             }
 
@@ -3378,12 +3393,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         this.singleCellQueueCancellation?.token ||
                         new vscode.CancellationTokenSource().token;
 
+                    // Determine if this is a batch operation (chapter autocomplete or multiple cells queued)
+                    // A/B testing is disabled during batch operations to avoid interrupting the workflow
+                    const isBatchOperation = this.autocompletionState.isProcessing ||
+                        (this.singleCellQueueState.isProcessing && this.singleCellQueueState.totalCells > 1);
+
                     // Perform LLM completion (always returns AB-style result)
                     const completionResult = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
-                        cancellationToken
+                        cancellationToken,
+                        true, // returnHTML
+                        isBatchOperation
                     );
 
                     // Check for cancellation before updating document - this is crucial to prevent cell population
@@ -3394,7 +3416,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, testName, names } = completionResult as any;
+                        const { variants, testId, testName, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
 
                         // If variants are identical (ignoring whitespace), treat as single completion
                         try {
@@ -3418,21 +3440,31 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
                         }
 
-                        // Win rates are tracked in cloud analytics, not shown in UI
-
                         if (webviewPanel) {
-                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
+                            const actualTestId = testId || `${currentCellId}-${Date.now()}`;
+
+                            // If this is an attention check, register it so we can handle the response
+                            if (isAttentionCheck && typeof correctIndex === 'number') {
+                                const { registerAttentionCheck } = await import("./codexCellEditorMessagehandling");
+                                registerAttentionCheck(actualTestId, {
+                                    cellId: currentCellId,
+                                    correctIndex,
+                                    correctVariant: variants[correctIndex],
+                                    decoyCellId,
+                                });
+                                console.log(`[Attention Check] Registered for testId ${actualTestId}, correctIndex ${correctIndex}`);
+                            }
+
+                            // Send variants to webview - frontend doesn't need attention check details
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
                                     variants,
                                     cellId: currentCellId,
-                                    testId: testId || `${currentCellId}-${Date.now()}`,
+                                    testId: actualTestId,
                                     testName,
-                                    names,
-                                    abProbability: Math.max(0, Math.min(1, abProb)),
                                 },
-                            } as any);
+                            });
                         }
 
                         // Mark single cell translation as complete so UI progress/spinners stop

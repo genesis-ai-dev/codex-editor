@@ -767,10 +767,12 @@ export type EditorPostMessages =
             selectedIndex: number;
             testId: string;
             selectionTimeMs: number;
-            totalVariants: number;
+            totalVariants?: number;
+            selectedContent?: string;
+            testName?: string;
+            variants?: string[];
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
     | { command: "openLoginFlow"; }
     | {
         command: "requestCellsForMilestone";
@@ -1851,7 +1853,11 @@ export type CellLabelImporterReceiveMessages = {
     importSource?: string;
 };
 
-export type CodexMigrationMatchMode = "globalReferences" | "timestamps" | "sequential";
+export type CodexMigrationMatchMode =
+    | "globalReferences"
+    | "timestamps"
+    | "sequential"
+    | "lineNumber";
 
 export interface MigrationMatchResult {
     fromCellId: string;
@@ -1870,6 +1876,12 @@ export type CodexMigrationToolPostMessages =
             toFilePath: string;
             matchMode: CodexMigrationMatchMode;
             forceOverride: boolean;
+            /** 1-based starting line in the source file (lineNumber mode only). */
+            fromStartLine?: number;
+            /** 1-based starting line in the target file (lineNumber mode only). */
+            toStartLine?: number;
+            /** Maximum number of cells to migrate (lineNumber mode only). Omit or 0 for no limit. */
+            maxCells?: number;
         };
     }
     | { command: "cancel"; };
@@ -2131,8 +2143,7 @@ type EditorReceiveMessages =
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
-    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; abProbability?: number; }; }
-    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
