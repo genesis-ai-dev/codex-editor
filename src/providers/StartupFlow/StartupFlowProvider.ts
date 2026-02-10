@@ -2602,6 +2602,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // Auth extension might not be installed, ignore silently
                     debugLog("Could not notify auth extension of connectivity restored:", error);
                 }
+                // CRITICAL: After auth revalidation, refresh the project list.
+                // Without this, stale "serverUnreachable" or incorrectly-set "orphaned"
+                // statuses persist until the user manually refreshes.
+                if (this.webviewPanel) {
+                    debugLog("Connectivity restored - refreshing project list");
+                    await this.sendList(this.webviewPanel);
+                }
                 break;
             case "extension.installFrontier":
                 debugLog("Opening extensions view");
@@ -5833,8 +5840,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         try {
             const remoteProjects = await this.frontierApi.listProjects(false);
 
-            // Keep full project names with UUID for proper identification
-            // (Previously stripped the UUID suffix, but now keeping it for differentiation)
+            // DEFENSIVE: If the API returned null/undefined instead of an array,
+            // treat as unreachable. This guards against command execution returning
+            // unexpected values (e.g., if the auth extension swallows an error).
+            if (!Array.isArray(remoteProjects)) {
+                debugLog("listProjects returned non-array value, treating as server unreachable:", typeof remoteProjects);
+                return { projects: [], serverUnreachable: true };
+            }
 
             return { projects: remoteProjects, serverUnreachable: false };
         } catch (error) {
