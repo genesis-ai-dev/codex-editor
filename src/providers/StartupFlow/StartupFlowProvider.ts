@@ -1446,11 +1446,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             currentUsername?: string | null;
                         }
                         | undefined;
+                    // Separate variable to hold the remote metadata for version checks
+                    let fetchedRemoteMetadata: { meta?: { requiredExtensions?: { codexEditor?: string; frontierAuthentication?: string }; [key: string]: unknown }; [key: string]: unknown } | undefined;
                     try {
                         debugLog("Checking remote update requirement for project:", projectPath);
                         const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
                         // Pass true for bypassCache to ensure we verify connectivity before deciding to update
-                        remoteProjectRequirements = await checkRemoteProjectRequirements(projectPath, undefined, true);
+                        const remoteResult = await checkRemoteProjectRequirements(projectPath, undefined, true);
+                        remoteProjectRequirements = remoteResult;
+                        // Capture the remote metadata for version checks (available since remote was fetched)
+                        fetchedRemoteMetadata = (remoteResult as { remoteMetadata?: typeof fetchedRemoteMetadata }).remoteMetadata;
 
                         if (remoteProjectRequirements.updateRequired) {
                             debugLog("Remote update required for user:", remoteProjectRequirements.currentUsername);
@@ -1477,6 +1482,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
 
                         if (shouldUpdate) {
+                            // ── Version gate: block update if extensions are outdated ──
+                            // Checks both local and remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
+                            try {
+                                const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
+                                const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
+                                    remoteMetadata: fetchedRemoteMetadata,
+                                    operationLabel: "To update the project",
+                                });
+                                if (!versionCheck.allowed) {
+                                    // Modal was already shown – abort the update (and opening)
+                                    return;
+                                }
+                            } catch (versionErr) {
+                                debugLog("Version check for update failed (non-fatal, allowing update):", versionErr);
+                            }
+
                             remoteUpdateWasPerformed = true;
 
                             // Inform webview that updating is starting (not opening)
@@ -3608,6 +3629,49 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } as any);
 
                 try {
+                    // ── Version gate: block swap if extensions are outdated ──
+                    // Checks old project's local + remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
+                    try {
+                        const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
+
+                        // Fetch the old project's remote metadata for version comparison
+                        let oldProjectRemoteMetadata: ProjectMetadata | undefined;
+                        try {
+                            const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
+                            const gitModule = await import("isomorphic-git");
+                            const fsModule = await import("fs");
+                            const remotes = await gitModule.listRemotes({ fs: fsModule, dir: projectPath });
+                            const origin = remotes.find((r) => r.remote === "origin");
+                            if (origin?.url) {
+                                const projId = extractProjectIdFromUrl(origin.url);
+                                if (projId) {
+                                    const remoteMeta = await fetchRemoteMetadata(projId, false);
+                                    if (remoteMeta) {
+                                        oldProjectRemoteMetadata = remoteMeta as ProjectMetadata;
+                                    }
+                                }
+                            }
+                        } catch (remoteFetchErr) {
+                            debugLog("Failed to fetch old project remote metadata for version check (non-fatal):", remoteFetchErr);
+                        }
+
+                        const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
+                            remoteMetadata: oldProjectRemoteMetadata,
+                            operationLabel: "To swap the project",
+                        });
+                        if (!versionCheck.allowed) {
+                            // Modal was already shown – unlock UI and abort
+                            this.safeSendMessage({
+                                command: "project.swappingInProgress",
+                                projectPath,
+                                swapping: false,
+                            } as any);
+                            return;
+                        }
+                    } catch (versionErr) {
+                        debugLog("Version check failed (non-fatal, allowing swap):", versionErr);
+                    }
+
                     const projectUri = vscode.Uri.file(projectPath);
 
                     // Use checkProjectSwapRequired for authoritative swap status.
@@ -3730,6 +3794,28 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (projectId) {
                             const currentUsername = await getCurrentUsername();
                             const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+
+                            // ── Version gate: also check the NEW project's remote requirements ──
+                            if (remoteMetadata) {
+                                try {
+                                    const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
+                                    const remoteVersionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
+                                        remoteMetadata,
+                                        operationLabel: "To swap the project",
+                                    });
+                                    if (!remoteVersionCheck.allowed) {
+                                        this.safeSendMessage({
+                                            command: "project.swappingInProgress",
+                                            projectPath,
+                                            swapping: false,
+                                        } as any);
+                                        return;
+                                    }
+                                } catch (remoteVersionErr) {
+                                    debugLog("Remote version check failed (non-fatal):", remoteVersionErr);
+                                }
+                            }
+
                             const remoteSwap = remoteMetadata?.meta?.projectSwap;
                             if (remoteSwap) {
                                 // Find matching entry by swapUUID
