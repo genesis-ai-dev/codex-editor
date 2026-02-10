@@ -1089,6 +1089,75 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
     );
 
     if (action === "Continue Swap") {
+        // Re-validate swap is still active before executing
+        try {
+            const { checkProjectSwapRequired } = await import("./utils/projectSwapManager");
+            const recheck = await checkProjectSwapRequired(projectUri.fsPath, undefined, true);
+            if (recheck.remoteUnreachable) {
+                await vscode.window.showWarningMessage(
+                    "Server Unreachable\n\n" +
+                    "The swap cannot be completed because the server is not reachable. " +
+                    "Please check your internet connection or try again later.\n\n" +
+                    "The pending swap state has been preserved and will resume when connectivity is restored.",
+                    { modal: true },
+                    "OK"
+                );
+                return; // Don't clear pending state - preserve for when connectivity returns
+            }
+            if (recheck.userAlreadySwapped && recheck.activeEntry) {
+                // User already completed this swap - clear pending state and inform
+                const { clearSwapPendingState: clearPending } = await import("./providers/StartupFlow/performProjectSwap");
+                await clearPending(projectUri.fsPath);
+
+                const swapTargetLabel =
+                    recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
+                await vscode.window.showWarningMessage(
+                    `Already Swapped\n\n` +
+                    `You have already swapped to ${swapTargetLabel}.\n\n` +
+                    `This project is deprecated but can still be opened.`,
+                    { modal: true },
+                    "OK"
+                );
+                return;
+            }
+            if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== pendingState.swapUUID) {
+                // Update local metadata with merged data
+                if (recheck.swapInfo) {
+                    try {
+                        const { sortSwapEntries, orderEntryFields } = await import("./utils/projectSwapManager");
+                        await MetadataManager.safeUpdateMetadata(
+                            projectUri,
+                            (meta: any) => {
+                                if (!meta.meta) { meta.meta = {}; }
+                                const sorted = sortSwapEntries(recheck.swapInfo!.swapEntries || []);
+                                meta.meta.projectSwap = { swapEntries: sorted.map(orderEntryFields) };
+                                return meta;
+                            }
+                        );
+                    } catch { /* non-fatal */ }
+                }
+
+                // Clean up localProjectSwap.json
+                try {
+                    const { deleteLocalProjectSwapFile } = await import("./utils/localProjectSettings");
+                    await deleteLocalProjectSwapFile(projectUri);
+                } catch { /* non-fatal */ }
+
+                const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
+                await clearSwapPendingState(projectUri.fsPath);
+
+                await vscode.window.showWarningMessage(
+                    "Swap Cancelled\n\n" +
+                    "The project swap has been cancelled or is no longer required.",
+                    { modal: true },
+                    "OK"
+                );
+                return;
+            }
+        } catch {
+            // Non-fatal - proceed with swap if re-check fails
+        }
+
         // Mark as ready and trigger swap
         await saveSwapPendingState(projectUri.fsPath, {
             ...pendingState,

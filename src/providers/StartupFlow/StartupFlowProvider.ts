@@ -3,6 +3,7 @@ import {
     MessagesFromStartupFlowProvider,
     GitLabProject,
     ProjectWithSyncStatus,
+    ProjectSyncStatus,
     LocalProject,
     ProjectManagerMessageFromWebview,
     ProjectMetadata,
@@ -1425,11 +1426,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             currentUsername?: string | null;
                         }
                         | undefined;
+                    // Separate variable to hold the remote metadata for version checks
+                    let fetchedRemoteMetadata: { meta?: { requiredExtensions?: { codexEditor?: string; frontierAuthentication?: string }; [key: string]: unknown }; [key: string]: unknown } | undefined;
                     try {
                         debugLog("Checking remote update requirement for project:", projectPath);
                         const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
                         // Pass true for bypassCache to ensure we verify connectivity before deciding to update
-                        remoteProjectRequirements = await checkRemoteProjectRequirements(projectPath, undefined, true);
+                        const remoteResult = await checkRemoteProjectRequirements(projectPath, undefined, true);
+                        remoteProjectRequirements = remoteResult;
+                        // Capture the remote metadata for version checks (available since remote was fetched)
+                        fetchedRemoteMetadata = (remoteResult as { remoteMetadata?: typeof fetchedRemoteMetadata }).remoteMetadata;
 
                         if (remoteProjectRequirements.updateRequired) {
                             debugLog("Remote update required for user:", remoteProjectRequirements.currentUsername);
@@ -1456,6 +1462,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
 
                         if (shouldUpdate) {
+                            // ── Version gate: block update if extensions are outdated ──
+                            // Checks both local and remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
+                            try {
+                                const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
+                                const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
+                                    remoteMetadata: fetchedRemoteMetadata,
+                                    operationLabel: "To update the project",
+                                });
+                                if (!versionCheck.allowed) {
+                                    // Modal was already shown – abort the update (and opening)
+                                    return;
+                                }
+                            } catch (versionErr) {
+                                debugLog("Version check for update failed (non-fatal, allowing update):", versionErr);
+                            }
+
                             remoteUpdateWasPerformed = true;
 
                             // Inform webview that updating is starting (not opening)
@@ -1577,9 +1599,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
 
                         const { checkProjectSwapRequired } = await import("../../utils/projectSwapManager");
+                        // Always bypass cache on project open to get fresh remote data.
+                        // This ensures we detect cancellations, new swaps, and user completions
+                        // that happened since we last checked.
                         const localSwapCheck = await checkProjectSwapRequired(
                             projectPath,
-                            remoteProjectRequirements?.currentUsername || undefined
+                            remoteProjectRequirements?.currentUsername || undefined,
+                            true // bypassCache: always check remote on project open
                         );
                         // Use Awaited to get the return type of checkProjectSwapRequired
                         type SwapCheckResult = Awaited<ReturnType<typeof checkProjectSwapRequired>>;
@@ -1588,6 +1614,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 ? localSwapCheck
                                 : { required: true, reason: "Remote swap required", swapInfo: remoteProjectRequirements.swapInfo, activeEntry: localSwapCheck.activeEntry })
                             : localSwapCheck;
+
+                        // If swap is not required and we have merged data from remote,
+                        // update local metadata.json with the authoritative swap status.
+                        // This ensures local metadata reflects cancellations from remote.
+                        if (!swapCheck.required && swapCheck.swapInfo && localSwapCheck.swapInfo) {
+                            try {
+                                const { sortSwapEntries, orderEntryFields } = await import("../../utils/projectSwapManager");
+                                const projectUri = vscode.Uri.file(projectPath);
+                                await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                    projectUri,
+                                    (meta) => {
+                                        if (!meta.meta) {
+                                            meta.meta = {} as any;
+                                        }
+                                        const sorted = sortSwapEntries(localSwapCheck.swapInfo!.swapEntries || []);
+                                        meta.meta!.projectSwap = {
+                                            swapEntries: sorted.map(orderEntryFields),
+                                        };
+                                        return meta;
+                                    }
+                                );
+                                debugLog("Updated local metadata.json with merged swap status from remote");
+                            } catch (metaUpdateErr) {
+                                debugLog("Failed to update local metadata with remote swap status (non-fatal):", metaUpdateErr);
+                            }
+                        }
 
                         if (swapCheck.userAlreadySwapped && swapCheck.activeEntry) {
                             const activeEntry = swapCheck.activeEntry;
@@ -1713,6 +1765,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (swapCheck.required && swapCheck.activeEntry && !skipSwapPrompt) {
                             debugLog("Project swap required for project");
 
+                            // If the remote server is unreachable, we can't perform the swap.
+                            // Show a modal and let the user open the project offline.
+                            if (localSwapCheck.remoteUnreachable) {
+                                const activeEntry = swapCheck.activeEntry;
+                                const newProjectName = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
+                                const offlineChoice = await vscode.window.showWarningMessage(
+                                    `Server Unreachable\n\n` +
+                                    `A project swap to "${newProjectName}" has been requested, but the server cannot be reached at this time.\n\n` +
+                                    `You can open this project and work offline, but the swap cannot be performed until the server is available again. ` +
+                                    `It may be best to wait for the server to come back up or for your internet connection to be restored.`,
+                                    { modal: true },
+                                    "Open Project Offline",
+                                );
+                                if (offlineChoice !== "Open Project Offline") {
+                                    return; // User cancelled
+                                }
+                                // Fall through to normal project open (skip swap)
+                            } else {
                             const activeEntry = swapCheck.activeEntry;
                             const newProjectUrl = activeEntry.newProjectUrl;
                             const newProjectName = activeEntry.newProjectName;
@@ -1729,6 +1799,61 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 if (swapDecision === "openDeprecated") {
                                     // Continue opening without swapping
                                 } else {
+                                    // Re-validate swap is still active before executing
+                                    // (it could have been cancelled by another user since we checked)
+                                    try {
+                                        const recheck = await checkProjectSwapRequired(projectPath, remoteProjectRequirements?.currentUsername || undefined, true);
+                                        if (recheck.remoteUnreachable) {
+                                            debugLog("Server unreachable during re-validation - cannot perform swap");
+                                            await vscode.window.showWarningMessage(
+                                                "Server Unreachable\n\n" +
+                                                "The swap cannot be performed because the server is not reachable. " +
+                                                "Please check your internet connection or try again later.\n\n" +
+                                                "Opening project without swapping.",
+                                                { modal: true },
+                                                "OK"
+                                            );
+                                            break; // Fall through to normal open
+                                        }
+                                        if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
+                                            debugLog("Swap no longer required (cancelled or changed since check) - aborting swap");
+
+                                            // Update local metadata with merged data
+                                            if (recheck.swapInfo) {
+                                                try {
+                                                    const { sortSwapEntries: sortEntries, orderEntryFields: orderFields } = await import("../../utils/projectSwapManager");
+                                                    await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                                        vscode.Uri.file(projectPath),
+                                                        (meta) => {
+                                                            if (!meta.meta) { meta.meta = {} as any; }
+                                                            const sorted = sortEntries(recheck.swapInfo!.swapEntries || []);
+                                                            meta.meta!.projectSwap = { swapEntries: sorted.map(orderFields) };
+                                                            return meta;
+                                                        }
+                                                    );
+                                                } catch { /* non-fatal */ }
+                                            }
+
+                                            // Clean up localProjectSwap.json
+                                            try {
+                                                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                                                await deleteLocalProjectSwapFile(vscode.Uri.file(projectPath));
+                                            } catch { /* non-fatal */ }
+
+                                            await vscode.window.showWarningMessage(
+                                                "Swap Cancelled\n\n" +
+                                                "The project swap has been cancelled or is no longer required.\n\n" +
+                                                "Opening the project normally.",
+                                                { modal: true },
+                                                "OK"
+                                            );
+                                            // Fall through to normal open
+                                            break;
+                                        }
+                                    } catch (recheckErr) {
+                                        debugLog("Failed to re-validate swap (proceeding anyway):", recheckErr);
+                                    }
+
                                     swapWasPerformed = true;
 
                                     // Show notification and perform swap
@@ -1775,6 +1900,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     }
                                 }
                             }
+                        } // end else (server reachable)
                         }
                     } catch (swapErr) {
                         debugLog("Project swap check/execution failed:", swapErr);
@@ -2476,6 +2602,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } catch (error) {
                     // Auth extension might not be installed, ignore silently
                     debugLog("Could not notify auth extension of connectivity restored:", error);
+                }
+                // CRITICAL: After auth revalidation, refresh the project list.
+                // Without this, stale "serverUnreachable" or incorrectly-set "orphaned"
+                // statuses persist until the user manually refreshes.
+                if (this.webviewPanel) {
+                    debugLog("Connectivity restored - refreshing project list");
+                    await this.sendList(this.webviewPanel);
                 }
                 break;
             case "extension.installFrontier":
@@ -3376,6 +3509,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
+                // Notify webview that fix operation is in progress (locks UI)
+                this.safeSendMessage({
+                    command: "project.fixingInProgress",
+                    projectPath,
+                    fixing: true,
+                } as any);
+
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const gitPath = vscode.Uri.joinPath(projectUri, ".git");
@@ -3575,6 +3715,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } catch (error) {
                     console.error("Error fixing project:", error);
                     vscode.window.showErrorMessage(`Failed to fix project: ${error instanceof Error ? error.message : String(error)}`);
+                } finally {
+                    // Always unlock the UI, regardless of outcome (success, cancel, error)
+                    this.safeSendMessage({
+                        command: "project.fixingInProgress",
+                        projectPath,
+                        fixing: false,
+                    } as any);
                 }
                 break;
             }
@@ -3585,66 +3732,167 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
-                try {
-                    const projectUri = vscode.Uri.file(projectPath);
-                    const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
-                    const { normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
-                    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                // Notify webview that swap operation is in progress (locks UI)
+                this.safeSendMessage({
+                    command: "project.swappingInProgress",
+                    projectPath,
+                    swapping: true,
+                } as any);
 
-                    // Gather swap info from all sources
-                    const metadataSwapInfo = metadataResult.metadata?.meta?.projectSwap;
-                    let localSwapFileInfo: ProjectSwapInfo | undefined;
+                try {
+                    // ── Version gate: block swap if extensions are outdated ──
+                    // Checks old project's local + remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
                     try {
-                        const localSwapFile = await readLocalProjectSwapFile(projectUri);
-                        if (localSwapFile?.remoteSwapInfo) {
-                            localSwapFileInfo = localSwapFile.remoteSwapInfo;
+                        const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
+
+                        // Fetch the old project's remote metadata for version comparison
+                        let oldProjectRemoteMetadata: ProjectMetadata | undefined;
+                        try {
+                            const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
+                            const gitModule = await import("isomorphic-git");
+                            const fsModule = await import("fs");
+                            const remotes = await gitModule.listRemotes({ fs: fsModule, dir: projectPath });
+                            const origin = remotes.find((r) => r.remote === "origin");
+                            if (origin?.url) {
+                                const projId = extractProjectIdFromUrl(origin.url);
+                                if (projId) {
+                                    const remoteMeta = await fetchRemoteMetadata(projId, false);
+                                    if (remoteMeta) {
+                                        oldProjectRemoteMetadata = remoteMeta as ProjectMetadata;
+                                    }
+                                }
+                            }
+                        } catch (remoteFetchErr) {
+                            debugLog("Failed to fetch old project remote metadata for version check (non-fatal):", remoteFetchErr);
                         }
-                    } catch {
-                        // Non-fatal
+
+                        const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
+                            remoteMetadata: oldProjectRemoteMetadata,
+                            operationLabel: "To swap the project",
+                        });
+                        if (!versionCheck.allowed) {
+                            // Modal was already shown – unlock UI and abort
+                            this.safeSendMessage({
+                                command: "project.swappingInProgress",
+                                projectPath,
+                                swapping: false,
+                            } as any);
+                            return;
+                        }
+                    } catch (versionErr) {
+                        debugLog("Version check failed (non-fatal, allowing swap):", versionErr);
                     }
 
-                    // MERGE entries from all sources by swapUUID, keeping the most recent swapModifiedAt
-                    // This ensures we use cancelled status if it's more recent than active status
-                    const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
-                    const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+                    const projectUri = vscode.Uri.file(projectPath);
 
-                    const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
-                    const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
-                        const key = entry.swapUUID;
-                        const existing = mergedEntriesMap.get(key);
-                        if (!existing) {
-                            mergedEntriesMap.set(key, entry);
-                        } else {
-                            // Compare swapModifiedAt timestamps - use the more recent one
-                            const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
-                            const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
-                            if (newModified > existingModified) {
-                                mergedEntriesMap.set(key, entry);
-                            }
+                    // Use checkProjectSwapRequired for authoritative swap status.
+                    // This fetches remote, merges all sources, applies "cancelled is sticky",
+                    // and cleans up localProjectSwap.json when appropriate.
+                    const { checkProjectSwapRequired, normalizeProjectSwapInfo, getActiveSwapEntry, findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
+                    const swapResult = await checkProjectSwapRequired(projectPath, undefined, true);
+
+                    if (swapResult.remoteUnreachable && swapResult.required) {
+                        // Server unreachable - can't perform swap, but let user open offline.
+                        const offlineChoice = await vscode.window.showWarningMessage(
+                            "Server Unreachable\n\n" +
+                            "A project swap has been requested, but the swap requires an internet connection.\n\n" +
+                            "You can open this project and work offline. The swap will be available when connectivity is restored.",
+                            { modal: true },
+                            "Open Project Offline"
+                        );
+                        if (offlineChoice === "Open Project Offline") {
+                            await MetadataManager.safeOpenFolder(projectUri);
                         }
-                    };
-
-                    for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
-                    for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
-
-                    const mergedEntries = Array.from(mergedEntriesMap.values());
-                    const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
-                        ? { swapEntries: mergedEntries }
-                        : (localSwapFileInfo || metadataSwapInfo);
-
-                    if (!effectiveSwapInfo) {
-                        vscode.window.showErrorMessage("Cannot perform swap: Project swap metadata missing.");
                         return;
                     }
 
-                    const swapInfo = effectiveSwapInfo;
+                    if (swapResult.userAlreadySwapped && swapResult.activeEntry) {
+                        // User has already completed this swap (detected from NEW project's remote).
+                        // writeUserSwapCompletionToOldProject was already called inside checkProjectSwapRequired.
+                        const swapTargetLabel =
+                            swapResult.activeEntry.newProjectName || swapResult.activeEntry.newProjectUrl || "the new project";
+                        const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                            `Already Swapped\n\n` +
+                            `You have already swapped to ${swapTargetLabel}.\n\n` +
+                            "You can open this deprecated project, delete the local copy, or cancel.",
+                            { modal: true },
+                            "Open Project",
+                            "Delete Local Project"
+                        );
+
+                        if (alreadySwappedChoice === "Delete Local Project") {
+                            const projectName = path.basename(projectPath);
+                            await this.performProjectDeletion(projectPath, projectName);
+                            return;
+                        }
+
+                        if (alreadySwappedChoice === "Open Project") {
+                            await MetadataManager.safeOpenFolder(projectUri);
+                        }
+
+                        // Refresh the project list to remove the swap banner
+                        if (this.webviewPanel) {
+                            this.sendList(this.webviewPanel);
+                        }
+                        return;
+                    }
+
+                    if (!swapResult.required || !swapResult.activeEntry) {
+                        // Swap no longer required (cancelled, completed, or erased).
+                        // Update local metadata.json with the merged/authoritative swap data
+                        // and clean up localProjectSwap.json.
+                        if (swapResult.swapInfo) {
+                            try {
+                                const { sortSwapEntries, orderEntryFields } = await import("../../utils/projectSwapManager");
+                                await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                    projectUri,
+                                    (meta) => {
+                                        if (!meta.meta) {
+                                            meta.meta = {} as any;
+                                        }
+                                        // Write the merged entries (with cancelled status, cancellation details, etc.)
+                                        const sorted = sortSwapEntries(swapResult.swapInfo!.swapEntries || []);
+                                        meta.meta!.projectSwap = {
+                                            swapEntries: sorted.map(orderEntryFields),
+                                        };
+                                        return meta;
+                                    }
+                                );
+                                debugLog("Updated local metadata.json with authoritative swap status (cancelled)");
+                            } catch (metaErr) {
+                                debugLog("Failed to update local metadata.json (non-fatal):", metaErr);
+                            }
+                        }
+
+                        // Delete localProjectSwap.json - no longer needed
+                        try {
+                            const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                            await deleteLocalProjectSwapFile(projectUri);
+                            debugLog("Deleted localProjectSwap.json (swap no longer active)");
+                        } catch {
+                            // Non-fatal - file may not exist
+                        }
+
+                        // Show modal so user can open the project
+                        const choice = await vscode.window.showWarningMessage(
+                            "Swap Cancelled\n\n" +
+                            "The project swap has been cancelled or is no longer required.\n\n" +
+                            "You can open this project normally.",
+                            { modal: true },
+                            "Open Project"
+                        );
+                        if (choice === "Open Project") {
+                            await MetadataManager.safeOpenFolder(projectUri);
+                        }
+                        return;
+                    }
+
+                    const activeEntry = swapResult.activeEntry;
+                    const swapInfo = swapResult.swapInfo!;
+                    const metadataResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
                     const projectName = metadataResult.metadata?.projectName || path.basename(projectPath);
 
-                    // Normalize swap info to get active entry
-                    const normalizedSwap = normalizeProjectSwapInfo(swapInfo);
-                    const activeEntry = getActiveSwapEntry(normalizedSwap);
-
-                    if (!activeEntry?.newProjectUrl) {
+                    if (!activeEntry.newProjectUrl) {
                         vscode.window.showErrorMessage("Cannot perform swap: No target project URL found.");
                         return;
                     }
@@ -3657,6 +3905,28 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (projectId) {
                             const currentUsername = await getCurrentUsername();
                             const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+
+                            // ── Version gate: also check the NEW project's remote requirements ──
+                            if (remoteMetadata) {
+                                try {
+                                    const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
+                                    const remoteVersionCheck = await ensureExtensionVersionsForSwapOrUpdate(projectPath, {
+                                        remoteMetadata,
+                                        operationLabel: "To swap the project",
+                                    });
+                                    if (!remoteVersionCheck.allowed) {
+                                        this.safeSendMessage({
+                                            command: "project.swappingInProgress",
+                                            projectPath,
+                                            swapping: false,
+                                        } as any);
+                                        return;
+                                    }
+                                } catch (remoteVersionErr) {
+                                    debugLog("Remote version check failed (non-fatal):", remoteVersionErr);
+                                }
+                            }
+
                             const remoteSwap = remoteMetadata?.meta?.projectSwap;
                             if (remoteSwap) {
                                 // Find matching entry by swapUUID
@@ -3830,6 +4100,72 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Fall through to continue with swap below
                     }
 
+                    // Re-validate swap is still active before executing
+                    try {
+                        const { checkProjectSwapRequired: recheckSwap } = await import("../../utils/projectSwapManager");
+                        const recheck = await recheckSwap(projectPath, undefined, true);
+                        if (recheck.remoteUnreachable) {
+                            debugLog("Server unreachable during re-validation - cannot perform swap");
+                            vscode.window.showWarningMessage(
+                                "The swap cannot be performed because the server is not reachable. " +
+                                "Please check your internet connection or try again later."
+                            );
+                            return;
+                        }
+                        if (recheck.userAlreadySwapped && recheck.activeEntry) {
+                            debugLog("User already completed this swap during re-validation");
+                            const swapTargetLabel =
+                                recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
+                            await vscode.window.showWarningMessage(
+                                `Already Swapped\n\n` +
+                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                `This project is deprecated but can still be opened.`,
+                                { modal: true },
+                                "Open Project"
+                            );
+                            // Refresh the project list to remove the swap banner
+                            if (this.webviewPanel) {
+                                this.sendList(this.webviewPanel);
+                            }
+                            return;
+                        }
+                        if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
+                            debugLog("Swap no longer required (cancelled or changed) - aborting");
+
+                            // Update local metadata with merged data
+                            if (recheck.swapInfo) {
+                                try {
+                                    const { sortSwapEntries: sortRecheck, orderEntryFields: orderRecheck } = await import("../../utils/projectSwapManager");
+                                    await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                        projectUri,
+                                        (meta) => {
+                                            if (!meta.meta) { meta.meta = {} as any; }
+                                            const sorted = sortRecheck(recheck.swapInfo!.swapEntries || []);
+                                            meta.meta!.projectSwap = { swapEntries: sorted.map(orderRecheck) };
+                                            return meta;
+                                        }
+                                    );
+                                } catch { /* non-fatal */ }
+                            }
+
+                            // Clean up localProjectSwap.json
+                            try {
+                                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                                await deleteLocalProjectSwapFile(projectUri);
+                            } catch { /* non-fatal */ }
+
+                            await vscode.window.showWarningMessage(
+                                "Swap Cancelled\n\n" +
+                                "The project swap has been cancelled or is no longer required.",
+                                { modal: true },
+                                "Open Project"
+                            );
+                            return;
+                        }
+                    } catch (recheckErr) {
+                        debugLog("Failed to re-validate swap (proceeding anyway):", recheckErr);
+                    }
+
                     // No downloads needed or prerequisites met - proceed with swap
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
@@ -3862,6 +4198,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         `Project swap failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
                         `Please contact your project administrator for assistance.\n\nError: ${error instanceof Error ? error.message : String(error)}`
                     );
+                } finally {
+                    // Always unlock the UI, regardless of outcome (success, cancel, error)
+                    this.safeSendMessage({
+                        command: "project.swappingInProgress",
+                        projectPath,
+                        swapping: false,
+                    } as any);
                 }
                 break;
             }
@@ -5014,16 +5357,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 console.error("Error fetching local projects:", localProjectsResult.reason);
             }
 
-            const remoteProjects =
-                remoteProjectsResult.status === "fulfilled" ? remoteProjectsResult.value : [];
+            const remoteResult =
+                remoteProjectsResult.status === "fulfilled"
+                    ? remoteProjectsResult.value
+                    : { projects: [] as GitLabProject[], serverUnreachable: true };
             if (remoteProjectsResult.status === "rejected") {
                 console.error("Error fetching remote projects:", remoteProjectsResult.reason);
             }
 
+            const remoteProjects = remoteResult.projects;
+            const remoteServerUnreachable = remoteResult.serverUnreachable;
 
             const projectList: ProjectWithSyncStatus[] = [];
 
-            // Process remote projects
+            // Process remote projects (only if server was reachable)
             for (const project of remoteProjects) {
                 projectList.push({
                     name: project.name,
@@ -5097,12 +5444,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
-                    // If local project has a git remote but is NOT in the remote list,
-                    // mark it as "orphaned" (remote missing or inaccessible).
-                    // If no git remote, it's a pure local project.
+                    // Local project has a git remote but is NOT in the remote list.
+                    // CRITICAL: Distinguish between "server unreachable" and "project genuinely missing".
+                    // If the server was unreachable (network error, expired cert, 500, etc.),
+                    // we must NOT mark projects as orphaned -- that would trigger destructive
+                    // actions like "Fix & Open" which deletes .git and renames folders.
+                    let status: ProjectSyncStatus;
+                    if (!project.gitOriginUrl) {
+                        status = "localOnlyNotSynced";
+                    } else if (remoteServerUnreachable) {
+                        // Server was unreachable -- don't mark as orphaned.
+                        // Use "serverUnreachable" so the UI shows appropriate messaging.
+                        status = "serverUnreachable";
+                    } else {
+                        // Server responded successfully but this project was not in the list.
+                        // This means the remote project was genuinely deleted/missing.
+                        status = "orphaned";
+                    }
                     projectList.push({
                         ...project,
-                        syncStatus: project.gitOriginUrl ? "orphaned" : "localOnlyNotSynced",
+                        syncStatus: status,
                     });
                 }
             }
@@ -5118,9 +5479,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             );
 
             // Build set of local project URLs (projects that are downloaded)
+            // Include "serverUnreachable" since these are also local projects (just can't verify remote)
             const localDownloadedUrls = new Set(
                 projectList
-                    .filter(p => p.syncStatus === "downloadedAndSynced" || p.syncStatus === "localOnlyNotSynced" || p.syncStatus === "orphaned")
+                    .filter(p => p.syncStatus === "downloadedAndSynced" || p.syncStatus === "localOnlyNotSynced" || p.syncStatus === "orphaned" || p.syncStatus === "serverUnreachable")
                     .map(p => normalizeUrl(p.gitOriginUrl))
                     .filter(Boolean)
             );
@@ -5130,8 +5492,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // RULE 1: Hide OLD remote projects when NEW is local AND swap is ACTIVE
             //         (User should complete swap on the new project, not clone the old one)
             //
-            // RULE 2: Hide NEW remote projects when OLD is local AND swap is ACTIVE
-            //         (User needs to complete swap from old→new, not clone new separately)
+            // RULE 2: Hide NEW projects (remote OR local) when OLD is local AND swap is ACTIVE
+            //         (User needs to complete swap from old→new, not open new separately
+            //          which could cause them to skip the swap and leave unmerged work behind)
             //
             // RULE 3: When swap is COMPLETED/CANCELLED, show BOTH projects
             //         (User may want access to both versions)
@@ -5163,13 +5526,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     continue;
                 }
 
-                // RULE 1: LOCAL OLD project with ACTIVE swap → hide NEW remote
+                // RULE 1: LOCAL OLD project with ACTIVE swap → hide NEW project (remote OR local)
                 // isOldProject must be explicitly true (not undefined or false)
+                // Hiding the new project forces users through the swap flow on the old project,
+                // preventing them from opening the new project and skipping the swap
                 if (activeEntry.isOldProject === true && activeEntry.newProjectUrl) {
                     const newProjectNormalized = normalizeUrl(activeEntry.newProjectUrl);
                     if (newProjectNormalized) {
                         newProjectUrlsToHide.add(newProjectNormalized);
-                        debugLog(`Swap filter: hiding NEW remote ${newProjectNormalized} (OLD local ${project.name} has active swap)`);
+                        debugLog(`Swap filter: hiding NEW project ${newProjectNormalized} (OLD local ${project.name} has active swap)`);
                     }
 
                     // Also check: if NEW project is already local, hide OLD remote too
@@ -5200,28 +5565,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
-            // Apply filtering: only hide REMOTE (cloudOnlyNotSynced) projects
-            // Local projects are NEVER hidden by swap rules
+            // Apply filtering:
+            // - Hide NEW projects (remote OR local) when OLD is local with active swap (RULE 2)
+            // - Hide OLD remote projects when NEW is local with active swap (RULE 1)
+            // - Local OLD projects are never hidden (they carry the swap banner)
             const filteredProjectList = projectList.filter(project => {
-                // Keep all local projects - they should always be visible
-                if (project.syncStatus !== "cloudOnlyNotSynced") {
-                    return true;
-                }
-
                 const projectUrlNormalized = normalizeUrl(project.gitOriginUrl);
                 if (!projectUrlNormalized) {
                     return true; // Can't filter without URL, keep it
                 }
 
-                // Hide remote OLD projects per RULE 1 & 2
-                if (oldProjectUrlsToHide.has(projectUrlNormalized)) {
-                    debugLog(`Swap filter: filtering out remote OLD project ${project.name}`);
+                // Hide NEW projects (remote OR local) when OLD is local with active swap
+                // This forces users through the swap flow rather than opening the new project directly
+                if (newProjectUrlsToHide.has(projectUrlNormalized)) {
+                    debugLog(`Swap filter: filtering out NEW project ${project.name} (syncStatus: ${project.syncStatus})`);
                     return false;
                 }
 
-                // Hide remote NEW projects per RULE 2
-                if (newProjectUrlsToHide.has(projectUrlNormalized)) {
-                    debugLog(`Swap filter: filtering out remote NEW project ${project.name}`);
+                // For local projects: keep all remaining (only NEW local projects are hidden above)
+                if (project.syncStatus !== "cloudOnlyNotSynced") {
+                    return true;
+                }
+
+                // Hide remote OLD projects per RULE 1
+                if (oldProjectUrlsToHide.has(projectUrlNormalized)) {
+                    debugLog(`Swap filter: filtering out remote OLD project ${project.name}`);
                     return false;
                 }
 
@@ -5268,18 +5636,41 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Best effort - continue without username
             }
 
+            // Mark projects where the current user has already completed the swap.
+            // This uses locally persisted data (written by writeUserSwapCompletionToOldProject)
+            // so it doesn't require any remote API calls.
+            if (currentUsername) {
+                const { normalizeProjectSwapInfo, getActiveSwapEntry } = await import("../../utils/projectSwapManager");
+                for (const project of filteredProjectList) {
+                    if (!project.projectSwap?.isOldProject || project.projectSwap.swapStatus !== "active") {
+                        continue;
+                    }
+                    // Check the active entry's swappedUsers for the current user
+                    const normalized = normalizeProjectSwapInfo(project.projectSwap);
+                    const activeEntry = getActiveSwapEntry(normalized);
+                    if (activeEntry?.swappedUsers?.some(
+                        (u: ProjectSwapUserEntry) => u.userToSwap === currentUsername && u.executed
+                    )) {
+                        project.projectSwap.currentUserAlreadySwapped = true;
+                    }
+                }
+            }
+
             safePostMessageToPanel(
                 webviewPanel,
                 {
                     command: "projectsListFromGitLab",
                     projects: filteredProjectList,
                     currentUsername,
+                    ...(remoteServerUnreachable ? {
+                        error: "Server unreachable - remote project status could not be verified. Some projects may show outdated status."
+                    } : {}),
                 } as MessagesFromStartupFlowProvider,
                 "StartupFlow"
             );
 
             const mergeTime = Date.now() - startTime;
-            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${filteredProjectList.length} projects`);
+            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${filteredProjectList.length} projects${remoteServerUnreachable ? " (server unreachable)" : ""}`);
 
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
@@ -5310,6 +5701,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         let projectDir: vscode.Uri | undefined;
+        // Track swap state for post-clone write-back
+        let userAlreadySwappedOnClone = false;
+        let activeSwapEntry: ProjectSwapEntry | undefined;
+        let cloneUsername: string | undefined;
 
         try {
             // Check remote metadata to warn if this is the old/deprecated project
@@ -5322,9 +5717,55 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
                     const normalizedSwapInfo = swapInfo ? normalizeProjectSwapInfo(swapInfo) : undefined;
                     const activeEntry = normalizedSwapInfo ? getActiveSwapEntry(normalizedSwapInfo) : undefined;
+                    activeSwapEntry = activeEntry;
 
                     // isOldProject is now in each entry, not at the top level
                     if (activeEntry?.isOldProject) {
+                        // Check if the current user has already completed this swap
+                        // by checking the NEW project's remote swappedUsers
+                        if (activeEntry.newProjectUrl) {
+                            try {
+                                const { getCurrentUsername, normalizeSwapUserEntry } = await import("../../utils/remoteUpdatingManager");
+                                const { findSwapEntryByUUID } = await import("../../utils/projectSwapManager");
+                                cloneUsername = (await getCurrentUsername()) ?? undefined;
+                                const newProjectId = extractProjectIdFromUrl(activeEntry.newProjectUrl);
+                                if (cloneUsername && newProjectId) {
+                                    const newRemoteMeta = await fetchRemoteMetadata(newProjectId, false);
+                                    const newRemoteSwap = newRemoteMeta?.meta?.projectSwap;
+                                    if (newRemoteSwap) {
+                                        const normalizedNew = normalizeProjectSwapInfo(newRemoteSwap);
+                                        const matchingEntry = findSwapEntryByUUID(normalizedNew, activeEntry.swapUUID);
+                                        const swappedUsers = (matchingEntry?.swappedUsers || []).map(
+                                            (u: ProjectSwapUserEntry) => normalizeSwapUserEntry(u)
+                                        );
+                                        userAlreadySwappedOnClone = swappedUsers.some(
+                                            (u: ProjectSwapUserEntry) => u.userToSwap === cloneUsername && u.executed
+                                        );
+                                    }
+                                }
+                            } catch (e) {
+                                debugLog("Failed to check user swap completion on clone (non-fatal):", e);
+                            }
+                        }
+
+                        if (userAlreadySwappedOnClone) {
+                            // User already swapped - show informational modal
+                            const swapTargetLabel = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
+                            const alreadySwappedChoice = await vscode.window.showWarningMessage(
+                                `Already Swapped\n\n` +
+                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                `This project is deprecated. You can still clone it if needed.`,
+                                { modal: true },
+                                "Clone Anyway",
+                                "Cancel"
+                            );
+                            if (alreadySwappedChoice !== "Clone Anyway") {
+                                return;
+                            }
+                            // User chose to clone anyway - skip the deprecation banner prompt
+                            skipDeprecatedPrompt = true;
+                        }
+
                         // ACTIVE swap - this project is currently deprecated
                         const deprecatedMessage = "This project has been deprecated.";
 
@@ -5530,6 +5971,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     mediaStrategy
                 );
 
+                // If this is a deprecated project and user already swapped,
+                // write the completion info to the cloned project's local files.
+                // This ensures the swap banner doesn't appear for this project.
+                if (userAlreadySwappedOnClone && activeSwapEntry && cloneUsername) {
+                    try {
+                        const { writeUserSwapCompletionToOldProject } = await import("../../utils/projectSwapManager");
+                        await writeUserSwapCompletionToOldProject(
+                            projectDir.fsPath,
+                            activeSwapEntry,
+                            cloneUsername,
+                            { swapEntries: activeSwapEntry ? [activeSwapEntry] : [] }
+                        );
+                        debugLog("Wrote user swap completion to cloned deprecated project");
+                    } catch (writeErr) {
+                        debugLog("Failed to write user swap completion after clone (non-fatal):", writeErr);
+                    }
+                }
+
             } finally {
                 // Inform webview that cloning is complete
                 try {
@@ -5562,23 +6021,37 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     /**
-     * Fetch remote projects with error handling and cleanup
+     * Fetch remote projects with error handling and cleanup.
+     * Returns { projects, serverUnreachable } to distinguish between
+     * "server returned empty list" vs "server could not be reached".
      */
-    private async fetchRemoteProjects(): Promise<GitLabProject[]> {
+    private async fetchRemoteProjects(): Promise<{
+        projects: GitLabProject[];
+        serverUnreachable: boolean;
+    }> {
         if (!this.frontierApi) {
-            return [];
+            // No API available -- treat as unreachable (not as "no projects exist")
+            return { projects: [], serverUnreachable: true };
         }
 
         try {
             const remoteProjects = await this.frontierApi.listProjects(false);
 
-            // Keep full project names with UUID for proper identification
-            // (Previously stripped the UUID suffix, but now keeping it for differentiation)
+            // DEFENSIVE: If the API returned null/undefined instead of an array,
+            // treat as unreachable. This guards against command execution returning
+            // unexpected values (e.g., if the auth extension swallows an error).
+            if (!Array.isArray(remoteProjects)) {
+                debugLog("listProjects returned non-array value, treating as server unreachable:", typeof remoteProjects);
+                return { projects: [], serverUnreachable: true };
+            }
 
-            return remoteProjects;
+            return { projects: remoteProjects, serverUnreachable: false };
         } catch (error) {
             console.error("Error fetching remote projects:", error);
-            return [];
+            // Server error (network failure, expired cert, 500, etc.)
+            // Return empty list but flag that the server was unreachable.
+            // This prevents local projects from being incorrectly marked as "orphaned".
+            return { projects: [], serverUnreachable: true };
         }
     }
 
