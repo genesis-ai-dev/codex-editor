@@ -8,7 +8,6 @@ import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs } from "./shared";
 import { abTestingRegistry } from "../../utils/abTestingRegistry";
-// A/B testing disabled for now
 
 // Helper function to build A/B test context object
 function buildABTestContext(
@@ -55,7 +54,13 @@ function postProcessABTestResult(
 
 // Helper function to handle A/B test result
 function handleABTestResult(
-    result: { variants: string[]; names?: string[]; testName?: string } | null,
+    result: {
+        variants: string[];
+        testName?: string;
+        isAttentionCheck?: boolean;
+        correctIndex?: number;
+        decoyCellId?: string;
+    } | null,
     currentCellId: string,
     testIdPrefix: string,
     completionConfig: CompletionConfig,
@@ -69,18 +74,22 @@ function handleABTestResult(
             isABTest: true,
             testId: `${currentCellId}-${testIdPrefix}-${Date.now()}`,
             testName: result.testName,
-            names: result.names,
+            isAttentionCheck: result.isAttentionCheck,
+            correctIndex: result.correctIndex,
+            decoyCellId: result.decoyCellId,
         };
     }
     return null;
 }
 
 export interface LLMCompletionResult {
-    variants: string[]; // Always present; length 1 for non-AB scenarios
-    isABTest: boolean; // True only when variants.length > 1
+    variants: string[];
+    isABTest: boolean;
     testId?: string;
     testName?: string;
-    names?: string[];
+    isAttentionCheck?: boolean;
+    correctIndex?: number;
+    decoyCellId?: string;
 }
 
 export async function llmCompletion(
@@ -88,7 +97,8 @@ export async function llmCompletion(
     currentCellId: string,
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken,
-    returnHTML: boolean = true
+    returnHTML: boolean = true,
+    isBatchOperation: boolean = false
 ): Promise<LLMCompletionResult> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage, fewShotExampleFormat } = completionConfig;
 
@@ -236,19 +246,23 @@ export async function llmCompletion(
             );
 
             // Unified AB testing via registry with random test selection (global gating)
+            // A/B testing is disabled during batch operations (chapter autocomplete, batch transcription)
+            // to avoid interrupting the user with variant selection UI
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
-            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true);
+            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true) && !isBatchOperation;
             const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
             const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.15));
             const randomValue = Math.random();
             const triggerAB = abEnabled && randomValue < abProbability;
 
             if (completionConfig.debugMode) {
-                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
+                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, isBatchOperation=${isBatchOperation}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
             }
 
             if (!triggerAB && completionConfig.debugMode) {
-                if (!abEnabled) {
+                if (isBatchOperation) {
+                    console.debug(`[llmCompletion] A/B testing disabled during batch operation`);
+                } else if (!abEnabled) {
                     console.debug(`[llmCompletion] A/B testing disabled in settings`);
                 } else {
                     console.debug(`[llmCompletion] A/B test not triggered (random ${randomValue.toFixed(3)} >= probability ${abProbability})`);
@@ -256,53 +270,46 @@ export async function llmCompletion(
             }
 
             if (triggerAB) {
-                // Only "Example Count Test" is currently active
-                const testName = "Example Count Test";
-                const test = abTestingRegistry.get(testName);
+                const testName = "Attention Check";
 
-                if (!test && completionConfig.debugMode) {
-                    console.debug(`[llmCompletion] No A/B test registered as "${testName}"`);
+                if (completionConfig.debugMode) {
+                    console.debug(`[llmCompletion] Running A/B test: ${testName}`);
                 }
 
-                if (test) {
+                try {
+                    const ctx = buildABTestContext(
+                        extConfig,
+                        currentCellId,
+                        currentCellSourceContent,
+                        numberOfFewShotExamples,
+                        completionConfig,
+                        fewShotExampleFormat || "source-and-target",
+                        targetLanguage,
+                        systemMessage,
+                        userMessageInstructions,
+                        precedingTranslationPairs,
+                        token
+                    );
+
+                    const result = await abTestingRegistry.run<typeof ctx, string>(testName, ctx);
+
                     if (completionConfig.debugMode) {
-                        console.debug(`[llmCompletion] Running A/B test: ${testName}`);
+                        console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null"}`);
                     }
-                    try {
-                        const ctx = buildABTestContext(
-                            extConfig,
-                            currentCellId,
-                            currentCellSourceContent,
-                            numberOfFewShotExamples,
-                            completionConfig,
-                            fewShotExampleFormat || "source-and-target",
-                            targetLanguage,
-                            systemMessage,
-                            userMessageInstructions,
-                            precedingTranslationPairs,
-                            token
-                        );
 
-                        const result = await abTestingRegistry.maybeRun<typeof ctx, string>(testName, ctx);
+                    const testResult = handleABTestResult(
+                        result,
+                        currentCellId,
+                        "attention",
+                        completionConfig,
+                        returnHTML
+                    );
 
-                        if (completionConfig.debugMode) {
-                            console.debug(`[llmCompletion] A/B test result: ${result ? `got ${result.variants?.length || 0} variants` : "null (test probability check failed)"}`);
-                        }
-
-                        const testResult = handleABTestResult(
-                            result,
-                            currentCellId,
-                            "countAB",
-                            completionConfig,
-                            returnHTML
-                        );
-
-                        if (testResult) {
-                            return testResult;
-                        }
-                    } catch (e) {
-                        console.warn(`[llmCompletion] Registry A/B (${testName}) failed; falling back`, e);
+                    if (testResult) {
+                        return testResult;
                     }
+                } catch (e) {
+                    console.warn(`[llmCompletion] Attention Check failed; falling back`, e);
                 }
             }
 

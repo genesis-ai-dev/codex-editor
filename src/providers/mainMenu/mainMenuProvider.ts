@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -12,7 +12,7 @@ import {
     ProjectManagerMessageToWebview,
     ProjectManagerState,
 } from "../../../types";
-import { createNewWorkspaceAndProject, openProject, createNewProject, extractProjectIdFromFolderName } from "../../utils/projectCreationUtils/projectCreationUtils";
+import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
 import git from "isomorphic-git";
 // Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
@@ -588,7 +588,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 }
                 break;
             case "createNewWorkspaceAndProject":
-                await createNewWorkspaceAndProject();
+                await createNewWorkspaceAndProject(this._context);
                 break;
             case "changeProjectName":
                 await this.handleChangeProjectName(message.projectName);
@@ -862,40 +862,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await this.store.refreshState();
                 safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
                 break;
-            case "getProjectProgress": {
-                // Fetch and send progress data to the webview
-                try {
-                    // Check if frontier API is available for progress data
-                    if (!this.frontierApi) {
-                        await this.initializeFrontierApi();
-                    }
-
-                    if (this.frontierApi) {
-                        // Check authentication status first
-                        const authStatus = this.frontierApi.getAuthStatus();
-                        if (!authStatus?.isAuthenticated) {
-                            console.log("User not authenticated, skipping aggregated progress fetch");
-                            break;
-                        }
-
-                        const progressData = await vscode.commands.executeCommand(
-                            "frontier.getAggregatedProgress"
-                        );
-
-                        if (progressData && this._view) {
-                            safePostMessageToView(this._view, {
-                                command: "progressData",
-                                data: progressData,
-                            } as ProjectManagerMessageToWebview, "MainMenu");
-                        }
-                    } else {
-                        console.log("Frontier API not available for progress data");
-                    }
-                } catch (error) {
-                    console.error("Error fetching project progress:", error);
-                }
-                break;
-            }
             case "checkForUpdates": {
                 await this.handleUpdateCheck();
                 break;
@@ -916,16 +882,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 } catch (error) {
                     console.error("Error opening external URL:", error);
                     vscode.window.showErrorMessage(`Failed to open URL: ${error}`);
-                }
-                break;
-            }
-            case "showProgressDashboard": {
-                // Open the progress dashboard
-                try {
-                    await vscode.commands.executeCommand("frontier.showProgressDashboard");
-                } catch (error) {
-                    console.error("Error opening progress dashboard:", error);
-                    vscode.window.showErrorMessage("Failed to open progress dashboard");
                 }
                 break;
             }
@@ -1750,6 +1706,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             return;
         }
 
+        // Trim the project name from user input (but don't sanitize - display names can have spaces)
+        const trimmedName = newProjectName.trim();
+
         try {
             // Get current user name for edit tracking
             let author = "unknown";
@@ -1767,7 +1726,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             await config.update(
                 "projectName",
-                newProjectName,
+                trimmedName,
                 vscode.ConfigurationTarget.Workspace
             );
 
@@ -1776,15 +1735,15 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 workspaceFolder,
                 (project: any) => {
                     const originalProjectName = project.projectName;
-                    project.projectName = newProjectName;
+                    project.projectName = trimmedName;
 
                     // Track edit if projectName changed
-                    if (originalProjectName !== newProjectName) {
+                    if (originalProjectName !== trimmedName) {
                         // Ensure edits array exists
                         if (!project.edits) {
                             project.edits = [];
                         }
-                        addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
+                        addProjectMetadataEdit(project, EditMapUtils.projectName(), trimmedName, author);
                     }
 
                     return project;

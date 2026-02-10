@@ -39,6 +39,27 @@ function debug(...args: any[]): void {
     }
 }
 
+// Track pending attention checks - keyed by testId
+interface PendingAttentionCheck {
+    cellId: string;
+    correctIndex: number;
+    correctVariant: string;
+    decoyCellId?: string;
+}
+const pendingAttentionChecks = new Map<string, PendingAttentionCheck>();
+
+export function registerAttentionCheck(testId: string, data: PendingAttentionCheck): void {
+    pendingAttentionChecks.set(testId, data);
+}
+
+export function getAttentionCheck(testId: string): PendingAttentionCheck | undefined {
+    return pendingAttentionChecks.get(testId);
+}
+
+export function clearAttentionCheck(testId: string): void {
+    pendingAttentionChecks.delete(testId);
+}
+
 // Debounce container for broadcasting auto-download flag updates
 let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
 let pendingAutoDownloadValue: boolean | undefined;
@@ -1419,13 +1440,72 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await provider.updateCachedSubsection(document.uri.toString(), typedEvent.content);
     },
 
-    selectABTestVariant: async ({ event }) => {
+    selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, testId, testName, selectionTimeMs, names } = (typedEvent as any).content || {};
+        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants } = typedEvent.content || {};
+        const variantNames: string[] | undefined = variants;
+        const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 
-        // Import and call the A/B testing feedback function
-        const { recordVariantSelection } = await import("../../utils/abTestingUtils");
-        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, names, testName);
+        // Check if this was a pending attention check
+        const attentionCheck = getAttentionCheck(testId);
+
+        if (attentionCheck) {
+            const pickedWrong = selectedIndex !== attentionCheck.correctIndex;
+
+            if (!isRecovery) {
+                // Record the result
+                const { recordAttentionCheckResult } = await import("../../utils/abTestingUtils");
+                await recordAttentionCheckResult({
+                    testId,
+                    cellId,
+                    passed: !pickedWrong,
+                    selectionTimeMs,
+                    correctIndex: attentionCheck.correctIndex,
+                    decoyCellId: attentionCheck.decoyCellId
+                });
+            }
+
+            if (pickedWrong) {
+                // User picked the decoy - send new A/B test with both correct
+                console.log(`[Attention Check] User picked decoy for cell ${cellId}, showing recovery options`);
+                clearAttentionCheck(testId);
+
+                if (webviewPanel) {
+                    const recoveryTestId = `${cellId}-recovery-${Date.now()}`;
+                    provider.postMessageToWebview(webviewPanel, {
+                        type: "providerSendsABTestVariants",
+                        content: {
+                            variants: [attentionCheck.correctVariant, attentionCheck.correctVariant],
+                            cellId: attentionCheck.cellId,
+                            testId: recoveryTestId,
+                            testName: "Recovery",
+                        },
+                    });
+                }
+                return;
+            }
+
+            // User picked correctly - apply and clear
+            clearAttentionCheck(testId);
+        } else {
+            // Regular A/B test
+            if (!isRecovery) {
+                const { recordVariantSelection } = await import("../../utils/abTestingUtils");
+                await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs, variantNames, testName);
+            }
+        }
+
+        // Persist the selected variant to the .codex document
+        // For attention checks, use the authoritative correctVariant from extension side
+        const contentToSave = attentionCheck ? attentionCheck.correctVariant : selectedContent;
+        if (contentToSave && cellId) {
+            try {
+                await document.updateCellContent(cellId, contentToSave, EditType.LLM_GENERATION);
+                await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+            } catch (err) {
+                console.error(`[selectABTestVariant] Failed to persist variant for cell ${cellId}:`, err);
+            }
+        }
 
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },
@@ -1484,50 +1564,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "validationCountAudio",
             content: validationCountAudio,
         });
-    },
-
-    adjustABTestingProbability: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "adjustABTestingProbability"; }>;
-        const delta = Number(typedEvent.content?.delta) || 0;
-        const buttonChoice = typedEvent.content?.buttonChoice as "more" | "less" | undefined;
-        const testId = typedEvent.content?.testId;
-        const cellId = typedEvent.content?.cellId;
-
-        // TEMPORARY: Disabled probability adjustment to prevent feedback loop during A/B testing.
-        // If "See more" actually increases probability, users who prefer more tests will see more tests,
-        // creating a biased feedback loop. For now, buttons only record preference without changing settings.
-        // TODO: Re-enable probability adjustment after A/B test analysis is complete.
-
-        // Record A/B test result if a button was clicked
-        if (buttonChoice && testId && cellId) {
-            try {
-                const { recordAbResult } = await import("../../utils/abTestingAnalytics");
-                await recordAbResult({
-                    category: "Frequency Preference",
-                    options: ["See more", "See less"],
-                    winner: buttonChoice === "more" ? 0 : 1,
-                });
-                debug(`Recorded frequency preference A/B test: ${buttonChoice} won`);
-            } catch (analyticsError) {
-                console.warn("[A/B] Failed to post frequency preference analytics", analyticsError);
-            }
-        }
-
-        // TEMPORARY: Probability adjustment disabled - see comment above
-        // try {
-        //     const config = vscode.workspace.getConfiguration("codex-editor-extension");
-        //     const current = Number(config.get("abTestingProbability")) || 0;
-        //     const next = Math.max(0, Math.min(1, current + delta));
-        //     await config.update("abTestingProbability", next, vscode.ConfigurationTarget.Workspace);
-        //     // Inform webview of new value
-        //     provider.postMessageToWebview(webviewPanel, {
-        //         type: "abTestingProbabilityUpdated",
-        //         content: { value: next }
-        //     });
-        //     vscode.window.setStatusBarMessage(`A/B test frequency set to ${(next * 100).toFixed(0)}%`, 2000);
-        // } catch (err) {
-        //     console.error("Failed to update A/B testing probability", err);
-        // }
     },
 
     getCurrentUsername: async ({ webviewPanel, provider }) => {
@@ -1825,6 +1861,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         // ========== LFS STREAMING LOGIC ==========
                         // Import LFS helpers
                         const { isPointerFile, parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                        const { getCachedLfsBytes, setCachedLfsBytes } = await import("../../utils/mediaCache");
                         const { getMediaFilesStrategy: getStrategy } = await import("../../utils/localProjectSettings");
 
                         // Check if file is an LFS pointer
@@ -1862,16 +1899,30 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 throw new Error("Frontier authentication extension not available. Please ensure it's installed and active.");
                             }
 
-                            // Download from LFS
-                            debug(`Downloading LFS file: OID=${pointer.oid.substring(0, 8)}..., size=${pointer.size}`);
-                            const lfsData = await frontierApi.downloadLFSFile(
-                                workspaceFolder.uri.fsPath,
-                                pointer.oid,
-                                pointer.size
-                            );
+                            // Download from LFS (with in-memory cache for stream-only)
+                            let cachedData: Uint8Array | undefined;
+                            if (mediaStrategy === "stream-only") {
+                                cachedData = getCachedLfsBytes(pointer.oid);
+                                if (cachedData) {
+                                    debug("Using cached LFS bytes for stream-only audio");
+                                }
+                            }
 
-                            fileData = lfsData;
-                            debug("Successfully streamed file from LFS");
+                            if (cachedData) {
+                                fileData = cachedData;
+                            } else {
+                                debug(`Downloading LFS file: OID=${pointer.oid.substring(0, 8)}..., size=${pointer.size}`);
+                                const lfsData = await frontierApi.downloadLFSFile(
+                                    workspaceFolder.uri.fsPath,
+                                    pointer.oid,
+                                    pointer.size
+                                );
+                                fileData = lfsData;
+                                if (mediaStrategy === "stream-only") {
+                                    setCachedLfsBytes(pointer.oid, lfsData);
+                                }
+                                debug("Successfully streamed file from LFS");
+                            }
 
                             // If strategy is "stream-and-save", replace pointer with actual file
                             if (mediaStrategy === "stream-and-save") {
@@ -1956,6 +2007,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                             // Parse pointer
                             const { parsePointerFile, replaceFileWithPointer } = await import("../../utils/lfsHelpers");
+                            const { getCachedLfsBytes, setCachedLfsBytes } = await import("../../utils/mediaCache");
                             const pointer = await parsePointerFile(pointerFullPath);
                             if (!pointer) {
                                 throw new Error("Invalid LFS pointer file format (fallback)");
@@ -1972,11 +2024,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 throw new Error("Frontier authentication extension not available");
                             }
 
-                            const lfsData = await frontierApi.downloadLFSFile(
-                                workspaceFolder.uri.fsPath,
-                                pointer.oid,
-                                pointer.size
-                            );
+                            let lfsData: Uint8Array;
+                            if (mediaStrategy === "stream-only") {
+                                const cachedData = getCachedLfsBytes(pointer.oid);
+                                if (cachedData) {
+                                    lfsData = cachedData;
+                                    debug("Using cached LFS bytes for stream-only audio (fallback)");
+                                } else {
+                                    lfsData = await frontierApi.downloadLFSFile(
+                                        workspaceFolder.uri.fsPath,
+                                        pointer.oid,
+                                        pointer.size
+                                    );
+                                    setCachedLfsBytes(pointer.oid, lfsData);
+                                }
+                            } else {
+                                lfsData = await frontierApi.downloadLFSFile(
+                                    workspaceFolder.uri.fsPath,
+                                    pointer.oid,
+                                    pointer.size
+                                );
+                            }
 
                             // If stream-and-save, write file bytes to files path
                             if (mediaStrategy === "stream-and-save") {

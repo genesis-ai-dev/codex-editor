@@ -6,7 +6,7 @@ import { getAllBookRefs } from "../../utils";
 import * as vscode from "vscode";
 import * as path from "path";
 import semver from "semver";
-import { LocalProject, ProjectMetadata, ProjectOverview } from "../../../types";
+import { LocalProject, ProjectMetadata, ProjectOverview, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
@@ -17,6 +17,8 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 import { MetadataManager } from "../../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
+import { readLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
+import { checkRemoteUpdatingRequired } from "../../utils/remoteUpdatingManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => { };
@@ -278,11 +280,25 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     } else {
         projectId = details.projectId;
     }
+    const workspaceFolderName = vscode.workspace.workspaceFolders?.[0]?.name;
+    let fallbackName = workspaceFolderName || "";
+
+    // Attempt to strip UUID if falling back to folder name
+    // Generate fallback projectId if none provided to ensure we can try to strip potential ID
+    const effectiveProjectId = details.projectId || extractProjectIdFromFolderName(fallbackName) || "";
+
+    if (fallbackName && effectiveProjectId) {
+        if (fallbackName.includes(effectiveProjectId)) {
+            fallbackName = fallbackName.replace(effectiveProjectId, "").replace(/-+$/, "").replace(/^-+/, "");
+        }
+    }
+
     const newProject: Partial<ProjectWithId> = {
         // Fixme: remove Partial when codex-types library is updated
         format: "scripture burrito",
         projectName:
             details.projectName ||
+            fallbackName ||
             vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
         projectId: projectId,
@@ -391,13 +407,22 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             WORKSPACE_FOLDER.uri,
             () => {
                 // Add extension version requirements to the new project
+                const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+                const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
+
+                const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
+                if (codexEditorVersion) {
+                    requiredExtensions.codexEditor = codexEditorVersion;
+                }
+                if (frontierAuthVersion) {
+                    requiredExtensions.frontierAuthentication = frontierAuthVersion;
+                }
+
                 const projectWithVersions = {
                     ...newProject,
                     meta: {
                         ...newProject.meta,
-                        requiredExtensions: {
-                            codexEditor: MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension")
-                        }
+                        requiredExtensions
                     }
                 };
                 return projectWithVersions;
@@ -586,8 +611,11 @@ export async function updateMetadataFile() {
             }
 
             // Update project properties
-            const newProjectName = projectSettings.get("projectName", "");
-            project.projectName = newProjectName;
+            // Only update projectName if config has a non-empty value (don't overwrite with empty)
+            const newProjectName = projectSettings.get("projectName", "")?.trim();
+            if (newProjectName) {
+                project.projectName = newProjectName;
+            }
             project.meta = project.meta || {}; // Ensure meta object exists
 
             // Explicitly update validation count
@@ -617,8 +645,8 @@ export async function updateMetadataFile() {
                 project.edits = [];
             }
 
-            // Track projectName changes
-            if (originalProjectName !== newProjectName) {
+            // Track projectName changes (only if we actually updated it - empty values don't update)
+            if (newProjectName && originalProjectName !== newProjectName) {
                 addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
             }
 
@@ -746,10 +774,23 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
 
         const currentWorkspaceFolderName = workspaceFolder.name;
 
+        let projectName = metadata.projectName;
+        if (!projectName) {
+            // Fallback to workspace folder name, stripping UUID if present
+            projectName = currentWorkspaceFolderName;
+            const projectId = metadata.projectId;
+            if (projectId && projectName.includes(projectId)) {
+                projectName = projectName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
+            }
+            if (!projectName.trim()) {
+                projectName = "Unnamed Project";
+            }
+        }
+
         const userInfo = await authApi?.getUserInfo();
         return {
             format: metadata.format || "Unknown Format",
-            projectName: metadata.projectName || currentWorkspaceFolderName || "Unnamed Project",
+            projectName: projectName,
             projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
@@ -1141,6 +1182,12 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
         watchedFolders = validFolders;
     }
 
+    // Clean up any folders marked for deletion from previous failed swap cleanups
+    // This runs in the background and doesn't block project listing
+    cleanupFoldersMarkedForDeletion(validFolders).catch(err => {
+        debug("Error during swap folder cleanup:", err);
+    });
+
     const folderScanStart = Date.now();
 
 
@@ -1163,9 +1210,227 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
         }
     });
 
+    // Validate pending updates against remote metadata
+    await validatePendingUpdates(projects);
 
+    // Filter out old projects that have completed swap migration
+    const visibleProjects = await filterSwappedProjects(projects);
 
-    return projects;
+    return visibleProjects;
+}
+
+/**
+ * Validate all pending updates against remote metadata
+ * Clear any pending updates that are no longer required remotely
+ * Exception: If updateState exists (update in progress), keep everything
+ */
+async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
+    const projectsWithPendingUpdates = projects.filter(p => p.pendingUpdate?.required);
+
+    if (projectsWithPendingUpdates.length === 0) {
+        return;
+    }
+
+    debug(`Validating ${projectsWithPendingUpdates.length} pending updates...`);
+
+    // Validate each project's pending update in parallel
+    await Promise.allSettled(
+        projectsWithPendingUpdates.map(async (project) => {
+            try {
+                const projectUri = vscode.Uri.file(project.path);
+                const localSettings = await readLocalProjectSettings(projectUri);
+
+                // If update is already in progress (updateState exists), don't clear anything
+                if (localSettings.updateState) {
+                    debug(`Update in progress for ${project.name}, keeping pendingUpdate`);
+                    return;
+                }
+
+                // Check if remote still requires update
+                const remoteCheck = await checkRemoteUpdatingRequired(project.path, project.gitOriginUrl);
+
+                if (!remoteCheck.required && localSettings.pendingUpdate) {
+                    // Remote no longer requires update, clear the flag
+                    debug(`Clearing invalid pendingUpdate for ${project.name}`);
+                    await clearPendingUpdate(projectUri);
+                    // Update the project object so UI reflects the change
+                    project.pendingUpdate = undefined;
+                }
+            } catch (error) {
+                debug(`Error validating pending update for ${project.name}:`, error);
+                // Don't throw - we don't want one failed validation to stop the whole refresh
+            }
+        })
+    );
+}
+
+/**
+ * Filter out old projects and handle swap status
+ * 
+ * Rules:
+ * - Project URL found in deprecated set (from a current project's history): HIDE
+ * - Active swap on OLD project: SHOW with swap banner (user needs to swap)
+ * - Active swap on NEW project: SHOW normally
+ * - Cancelled swap: SHOW as normal project (clear projectSwap so no banner)
+ */
+async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalProject[]> {
+    const {
+        getActiveSwapEntry,
+        normalizeProjectSwapInfo,
+        mergeSwappedUsers,
+        getDeprecatedProjectsFromHistory
+    } = await import("../../utils/projectSwapManager");
+    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+
+    // Helper to merge swap entries from multiple sources
+    const mergeSwapEntries = (
+        metadataSwapInfo: ProjectSwapInfo | undefined,
+        localSwapFileInfo: ProjectSwapInfo | undefined
+    ): ProjectSwapInfo | undefined => {
+        const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
+        const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+
+        if (metadataEntries.length === 0 && localSwapEntries.length === 0) {
+            return undefined;
+        }
+
+        const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+        const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+        const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+            const key = getEntryKey(entry);
+            const existing = mergedEntriesMap.get(key);
+            if (!existing) {
+                mergedEntriesMap.set(key, entry);
+            } else {
+                const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
+                const existingUsersModified = existing.swappedUsersModifiedAt ?? 0;
+                const newUsersModified = entry.swappedUsersModifiedAt ?? 0;
+                const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified) || undefined;
+                const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                const baseEntry = newModified > existingModified ? entry : existing;
+
+                const eitherCancelled = existing.swapStatus === "cancelled" || entry.swapStatus === "cancelled";
+                if (eitherCancelled) {
+                    const cancelledEntry = existing.swapStatus === "cancelled" ? existing : entry;
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                        swapStatus: "cancelled",
+                        cancelledBy: cancelledEntry.cancelledBy,
+                        cancelledAt: cancelledEntry.cancelledAt,
+                    });
+                } else {
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                    });
+                }
+            }
+        };
+
+        for (const entry of metadataEntries) { addOrUpdateEntry(entry); }
+        for (const entry of localSwapEntries) { addOrUpdateEntry(entry); }
+
+        const mergedEntries = Array.from(mergedEntriesMap.values());
+        return mergedEntries.length > 0 ? { swapEntries: mergedEntries } : undefined;
+    };
+
+    // Process all projects: collect data and deprecated URLs/names in one pass
+    const deprecatedUrls = new Set<string>();
+    const deprecatedNames = new Set<string>(); // Also track by name for remote-only projects
+    const processedProjects: Array<{
+        project: LocalProject;
+        swapInfo: ProjectSwapInfo | undefined;
+        gitUrl: string | undefined;
+    }> = [];
+
+    for (const project of projects) {
+        try {
+            const projectUri = vscode.Uri.file(project.path);
+            const metadataPath = vscode.Uri.file(path.join(project.path, "metadata.json"));
+            let metadata: ProjectMetadata | null = null;
+
+            try {
+                const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
+                metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8")) as ProjectMetadata;
+            } catch {
+                // metadata.json might not exist
+            }
+
+            const gitUrl = project.gitOriginUrl?.toLowerCase();
+            const metadataSwapInfo = metadata?.meta?.projectSwap;
+            let localSwapFileInfo: ProjectSwapInfo | undefined;
+
+            try {
+                const localSwapFile = await readLocalProjectSwapFile(projectUri);
+                if (localSwapFile?.remoteSwapInfo) {
+                    localSwapFileInfo = localSwapFile.remoteSwapInfo;
+                }
+            } catch {
+                // Non-fatal
+            }
+
+            const mergedSwapInfo = mergeSwapEntries(metadataSwapInfo, localSwapFileInfo);
+
+            // Collect deprecated URLs AND names from "current" projects (isOldProject=false in active entry)
+            if (mergedSwapInfo) {
+                const normalizedInfo = normalizeProjectSwapInfo(mergedSwapInfo);
+                const activeEntry = getActiveSwapEntry(normalizedInfo);
+                
+                if (activeEntry?.isOldProject === false) {
+                    for (const dep of getDeprecatedProjectsFromHistory(normalizedInfo)) {
+                        if (dep.url) {
+                            deprecatedUrls.add(dep.url.toLowerCase());
+                        }
+                        if (dep.name) {
+                            deprecatedNames.add(dep.name.toLowerCase());
+                        }
+                    }
+                }
+            }
+
+            processedProjects.push({ project, swapInfo: mergedSwapInfo, gitUrl });
+        } catch (error) {
+            debug(`Error processing ${project.name}:`, error);
+            processedProjects.push({ project, swapInfo: undefined, gitUrl: undefined });
+        }
+    }
+
+    // Filter: hide deprecated (by URL or name), handle swap status for the rest
+    return processedProjects
+        .filter(({ project, gitUrl }) => {
+            // Check by URL first (most reliable)
+            if (gitUrl && deprecatedUrls.has(gitUrl)) {
+                debug(`HIDING deprecated project (by URL): ${project.name}`);
+                return false;
+            }
+            // Also check by name (for remote-only projects without gitOriginUrl)
+            if (project.name && deprecatedNames.has(project.name.toLowerCase())) {
+                debug(`HIDING deprecated project (by name): ${project.name}`);
+                return false;
+            }
+            return true;
+        })
+        .map(({ project, swapInfo }) => {
+            if (!swapInfo) return project;
+
+            const normalizedInfo = normalizeProjectSwapInfo(swapInfo);
+            const activeEntry = getActiveSwapEntry(normalizedInfo);
+
+            // Active swap: keep projectSwap for UI banner
+            if (activeEntry) return project;
+
+            // All swaps cancelled: clear projectSwap so no banner shows
+            if (normalizedInfo.swapEntries?.length) {
+                project.projectSwap = undefined;
+            }
+
+            return project;
+        });
 }
 
 /**
@@ -1203,16 +1468,136 @@ async function processProjectDirectory(
     name: string,
     projectHistory: Record<string, string>
 ): Promise<LocalProject | null> {
-    const projectPath = path.join(folder, name);
+    let currentName = name;
+    let projectPath = path.join(folder, currentName);
+    let projectMetadata: any = undefined;
 
     try {
+        // Read metadata first
+        try {
+            const metadataUri = vscode.Uri.file(path.join(projectPath, "metadata.json"));
+            const projectUri = vscode.Uri.file(projectPath);
+
+            // First, try to ensure metadata integrity - this will recover from orphaned temp files
+            // This is critical for projects that were left in a corrupted state due to interrupted writes
+            try {
+                const integrityResult = await MetadataManager.ensureMetadataIntegrity(projectUri);
+                if (integrityResult.recovered) {
+                    debug(`Recovered metadata.json for project: ${name}`);
+                }
+            } catch (integrityError) {
+                // If integrity check fails completely, we'll handle it below
+                debug(`Metadata integrity check failed for ${name}:`, integrityError);
+            }
+
+            // Quick check if metadata exists
+            await vscode.workspace.fs.stat(metadataUri);
+
+            const metadataBuffer = await vscode.workspace.fs.readFile(metadataUri);
+            projectMetadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8"));
+
+            if (projectMetadata && projectMetadata.projectId) {
+                // Check if published (has git remote)
+                const gitOrigin = await getGitOriginUrl(projectPath);
+
+                // If it has NO git origin (local-only), check folder name consistency
+                if (!gitOrigin) {
+                    const metadataProjectId = projectMetadata.projectId;
+                    const uuidsInFolder = findAllUuidSegments(currentName);
+
+                    // CRITICAL: Check for multiple UUIDs first (e.g., "project-uuid1-uuid2")
+                    // If found, use metadata.projectId as source of truth and fix the folder name
+                    // NOTE: This only runs for LOCAL-ONLY projects (no git remote)
+                    if (uuidsInFolder.length > 1) {
+                        debug(`MULTIPLE UUIDs detected in folder name: ${uuidsInFolder.join(', ')}`);
+
+                        // Use metadata.projectId as the single source of truth
+                        // Fallback to FIRST UUID (the original) if metadata has none
+                        const correctId = metadataProjectId || uuidsInFolder[0] || generateProjectId();
+                        if (!metadataProjectId) {
+                            projectMetadata.projectId = correctId;
+                        }
+
+                        // Strip ALL UUIDs and append only the correct one
+                        const baseName = sanitizeProjectName(stripAllUuids(currentName));
+                        const newName = `${baseName}-${correctId}`;
+
+                        if (newName !== currentName) {
+                            const newPath = path.join(folder, newName);
+                            try {
+                                await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
+                                debug(`Cannot fix duplicate UUIDs: target ${newName} already exists`);
+                            } catch {
+                                await vscode.workspace.fs.writeFile(
+                                    metadataUri,
+                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                                );
+                                await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
+                                debug(`Fixed duplicate UUIDs: renamed ${currentName} to ${newName}`);
+                                currentName = newName;
+                                projectPath = newPath;
+                            }
+                        }
+                    }
+                    // Normal case: single or no UUID
+                    else if (metadataProjectId && currentName.endsWith(`-${metadataProjectId}`)) {
+                        debug(`Folder name already ends with projectId: ${metadataProjectId}`);
+                        // Nothing to do - folder and metadata are in sync
+                    } else if (uuidsInFolder.length === 1) {
+                        // Folder has exactly one UUID but it doesn't match metadata - sync metadata to folder
+                        const folderUuid = uuidsInFolder[0];
+                        if (folderUuid !== metadataProjectId) {
+                            projectMetadata.projectId = folderUuid;
+                            await vscode.workspace.fs.writeFile(
+                                metadataUri,
+                                Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                            );
+                            debug(`Updated metadata projectId to match folder UUID: ${folderUuid}`);
+                        }
+                    } else {
+                        // Folder has NO UUID suffix - need to add one
+                        // Use metadata's projectId if available, otherwise generate new
+                        const idToUse = metadataProjectId || generateProjectId();
+                        if (!metadataProjectId) {
+                            projectMetadata.projectId = idToUse;
+                        }
+
+                        // Get base name from folder (it has no UUID since we checked above)
+                        const baseName = sanitizeProjectName(currentName);
+                        const newName = `${baseName}-${idToUse}`;
+
+                        if (newName !== currentName) {
+                            const newPath = path.join(folder, newName);
+                            try {
+                                await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
+                                debug(`Cannot rename ${currentName} to ${newName} because target exists`);
+                            } catch {
+                                await vscode.workspace.fs.writeFile(
+                                    metadataUri,
+                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                                );
+                                await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
+                                debug(`Renamed local project folder from ${currentName} to ${newName}`);
+                                currentName = newName;
+                                projectPath = newPath;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            debug(`Error checking/renaming project folder ${currentName}:`, e);
+        }
+
         // Run project validation, metadata reading, git operations, stats, and local settings in parallel
-        const [projectStatus, projectName, gitOriginUrl, stats, mediaStrategy] = await Promise.allSettled([
+        // NOTE: We use the potentially updated projectPath and currentName
+        const [projectStatus, projectName, gitOriginUrl, stats, mediaStrategy, localSettings] = await Promise.allSettled([
             isValidCodexProject(projectPath),
-            getProjectNameFromMetadata(projectPath, name),
+            getProjectNameFromMetadata(projectPath, currentName),
             getGitOriginUrl(projectPath),
             vscode.workspace.fs.stat(vscode.Uri.file(projectPath)),
-            getMediaFilesStrategyForProject(projectPath)
+            getMediaFilesStrategyForProject(projectPath),
+            readLocalProjectSettings(vscode.Uri.file(projectPath)),
         ]);
 
         // Check if project is valid
@@ -1222,20 +1607,129 @@ async function processProjectDirectory(
         }
 
         // Extract other results with fallbacks
-        const nameResult = projectName.status === 'fulfilled' ? projectName.value : name;
+        // Use currentName (the folder name) as the primary name result
+        // This ensures the UI displays the actual folder name (with UUID) as requested
+        const nameResult = currentName;
+
         const gitResult = gitOriginUrl.status === 'fulfilled' ? gitOriginUrl.value : undefined;
         const statsResult = stats.status === 'fulfilled' ? stats.value : null;
         const mediaStrategyResult = mediaStrategy.status === 'fulfilled' ? mediaStrategy.value : undefined;
+        const settingsResult = localSettings.status === 'fulfilled' ? localSettings.value : undefined;
 
         if (!statsResult) {
             debug(`Could not get stats for ${projectPath}`);
             return null;
         }
 
+        // Populate convenience fields on projectSwap for webview access
+        // MERGE entries from BOTH metadata.json AND localProjectSwap.json (same as checkProjectSwapRequired)
+        // This is critical for chained swaps where metadata.json may have old cancelled entries
+        // but localProjectSwap.json has the new active entry
+        const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
+        const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+
+        const metadataSwapInfo = projectMetadata?.meta?.projectSwap;
+        let localSwapFileInfo: ProjectSwapInfo | undefined;
+
+        // Always try to read localProjectSwap.json - it may have newer entries
+        try {
+            const localSwapFile = await readLocalProjectSwapFile(vscode.Uri.file(projectPath));
+            if (localSwapFile?.remoteSwapInfo) {
+                localSwapFileInfo = localSwapFile.remoteSwapInfo;
+            }
+        } catch {
+            // Non-fatal - localProjectSwap.json might not exist
+        }
+
+        // Merge entries from both sources
+        // Entry key: swapUUID + swapInitiatedAt (uniquely identifies a swap event)
+        // swapModifiedAt: for entry-level changes (status, cancellation, URLs)
+        // swappedUsersModifiedAt: for user completion changes
+        const metadataEntries = metadataSwapInfo ? (normalizeProjectSwapInfo(metadataSwapInfo).swapEntries || []) : [];
+        const localSwapEntries = localSwapFileInfo ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || []) : [];
+
+        const mergedEntriesMap = new Map<string, ProjectSwapEntry>();
+        const getEntryKey = (entry: ProjectSwapEntry): string => entry.swapUUID;
+
+        // Import mergeSwappedUsers helper
+        const { mergeSwappedUsers } = await import("../../utils/projectSwapManager");
+
+        const addOrUpdateEntry = (entry: ProjectSwapEntry) => {
+            const key = getEntryKey(entry);
+            const existing = mergedEntriesMap.get(key);
+            if (!existing) {
+                mergedEntriesMap.set(key, entry);
+            } else {
+                // ALWAYS merge swappedUsers arrays (users matched by userToSwap + createdAt)
+                const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
+
+                // Compute new swappedUsersModifiedAt as max of both entries
+                const existingUsersModified = existing.swappedUsersModifiedAt ?? 0;
+                const newUsersModified = entry.swappedUsersModifiedAt ?? 0;
+                const mergedUsersModifiedAt = Math.max(existingUsersModified, newUsersModified) || undefined;
+
+                // Use swapModifiedAt for entry-level changes (status, cancellation, URLs)
+                const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                const newModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
+                const baseEntry = newModified > existingModified ? entry : existing;
+
+                // SEMANTIC RULE: "cancelled" status is sticky
+                // If EITHER entry is cancelled, preserve the cancellation
+                const eitherCancelled = existing.swapStatus === "cancelled" || entry.swapStatus === "cancelled";
+                if (eitherCancelled) {
+                    const cancelledEntry = existing.swapStatus === "cancelled" ? existing : entry;
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                        swapStatus: "cancelled",
+                        cancelledBy: cancelledEntry.cancelledBy,
+                        cancelledAt: cancelledEntry.cancelledAt,
+                    });
+                } else {
+                    mergedEntriesMap.set(key, {
+                        ...baseEntry,
+                        swappedUsers: mergedUsers,
+                        swappedUsersModifiedAt: mergedUsersModifiedAt,
+                    });
+                }
+            }
+        };
+
+        // Add entries from both sources
+        for (const entry of metadataEntries) {
+            addOrUpdateEntry(entry);
+        }
+        for (const entry of localSwapEntries) {
+            addOrUpdateEntry(entry);
+        }
+
+        // Build the effective swap info from merged entries
+        const mergedEntries = Array.from(mergedEntriesMap.values());
+        const effectiveSwapInfo: ProjectSwapInfo | undefined = mergedEntries.length > 0
+            ? { swapEntries: mergedEntries }
+            : (metadataSwapInfo || localSwapFileInfo);
+
+        let projectSwapWithConvenience = effectiveSwapInfo;
+        if (projectSwapWithConvenience) {
+            const normalized = normalizeProjectSwapInfo(projectSwapWithConvenience);
+            const activeEntry = getActiveSwapEntry(normalized);
+            projectSwapWithConvenience = {
+                ...normalized,
+                // Convenience fields from active entry for webview display
+                isOldProject: activeEntry?.isOldProject,
+                oldProjectUrl: activeEntry?.oldProjectUrl,
+                oldProjectName: activeEntry?.oldProjectName,
+                newProjectUrl: activeEntry?.newProjectUrl,
+                newProjectName: activeEntry?.newProjectName,
+                swapStatus: activeEntry?.swapStatus,
+            };
+        }
+
         return {
             name: nameResult,
             path: projectPath,
-            lastOpened: projectHistory[projectPath]
+            lastOpened: projectHistory[projectPath] // Note: this uses new path, history lookup might miss if keyed by old path
                 ? new Date(projectHistory[projectPath])
                 : undefined,
             lastModified: new Date(statsResult.mtime),
@@ -1244,6 +1738,8 @@ async function processProjectDirectory(
             gitOriginUrl: gitResult,
             description: "...",
             mediaStrategy: mediaStrategyResult,
+            pendingUpdate: settingsResult?.pendingUpdate,
+            projectSwap: projectSwapWithConvenience,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);
@@ -1333,6 +1829,7 @@ async function updateGitignoreFile(): Promise<void> {
         "# Don't sync user-specific files",
         ".project/complete_drafts.txt",
         ".project/localProjectSettings.json",
+        ".project/localProjectSwap.json",
         "copilot-messages.log",
         "",
         "# Archive formats",
@@ -1537,5 +2034,197 @@ export async function ensureGitDisabledInSettings(): Promise<void> {
         debug("Disabled VS Code's built-in Git integration for this project");
     } catch (error) {
         console.error("Failed to update git.enabled setting:", error);
+    }
+}
+
+/**
+ * Sanitizes a project name to be used as a folder name.
+ * Ensure name is safe for:
+ * - Windows
+ * - Mac
+ * - Linux
+ * - Git
+ */
+export function sanitizeProjectName(name: string): string {
+    // Replace invalid characters with hyphens
+    // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
+    return (
+        name
+            .trim() // Remove leading/trailing whitespace first
+            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$|^git$/i, "-") // Invalid/reserved chars and names
+            .replace(/\s+/g, "-") // Replace spaces with hyphens
+            .replace(/\.+/g, "-") // Replace periods with hyphens
+            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
+            .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
+        "new-project" // Fallback if name becomes empty after sanitization
+    );
+}
+
+/** Minimum length to recognize as a project ID (matches actual generateProjectId output of ~20-22 chars) */
+const MIN_PROJECT_ID_LENGTH = 20;
+
+/**
+ * Checks if a string segment looks like a UUID (20+ alphanumeric chars)
+ */
+function isUuidLikeSegment(segment: string): boolean {
+    return segment.length >= MIN_PROJECT_ID_LENGTH && /^[a-z0-9]+$/i.test(segment);
+}
+
+/**
+ * Extracts projectId from a name (folder name, git URL project name, etc.)
+ * Expects format "projectName-projectId" where projectId is 20+ alphanumeric chars.
+ * generateProjectId() produces ~20-22 char IDs (two base36 random strings).
+ * @param name - The name to extract projectId from (folder name, git URL path, etc.)
+ * @returns The projectId if found, undefined otherwise
+ */
+export function extractProjectIdFromFolderName(name: string): string | undefined {
+    const lastHyphenIndex = name.lastIndexOf('-');
+    if (lastHyphenIndex !== -1) {
+        const potentialProjectId = name.substring(lastHyphenIndex + 1);
+        // Validate: alphanumeric, at least MIN_PROJECT_ID_LENGTH chars (20+)
+        if (isUuidLikeSegment(potentialProjectId)) {
+            return potentialProjectId;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Counts how many UUID-like segments (20+ alphanumeric chars) are in a name.
+ * Used to detect duplicate UUIDs like "project-uuid1-uuid2".
+ * @returns Array of UUID-like segments found
+ */
+export function findAllUuidSegments(name: string): string[] {
+    const segments = name.split('-');
+    return segments.filter(isUuidLikeSegment);
+}
+
+/**
+ * Strips ALL UUID-like segments from a name, returning just the base name.
+ * Use this when you need to reconstruct a name with a single correct UUID.
+ * @example stripAllUuids("my-project-uuid1-uuid2") => "my-project"
+ */
+export function stripAllUuids(name: string): string {
+    const segments = name.split('-');
+    const nonUuidSegments = segments.filter(segment => !isUuidLikeSegment(segment));
+    return nonUuidSegments.join('-') || name; // Fallback to original if all segments were UUIDs
+}
+
+/**
+ * Validates and auto-fixes project metadata issues (missing scope, empty name, etc.)
+ */
+export async function validateAndFixProjectMetadata(projectUri: vscode.Uri): Promise<void> {
+    try {
+        const metadataPath = vscode.Uri.joinPath(projectUri, "metadata.json");
+        // Quick check if exists
+        try {
+            await vscode.workspace.fs.stat(metadataPath);
+        } catch {
+            return; // No metadata to fix
+        }
+
+        const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
+        const metadata = JSON.parse(Buffer.from(metadataContent).toString("utf-8"));
+        let needsSave = false;
+
+        // Auto-fix missing scope
+        if (!metadata?.type?.flavorType?.currentScope) {
+            if (!metadata.type) metadata.type = {};
+            if (!metadata.type.flavorType) metadata.type.flavorType = {};
+
+            metadata.type.flavorType.currentScope = generateProjectScope();
+
+            if (!metadata.type.flavorType.flavor) {
+                metadata.type.flavorType.flavor = {
+                    name: "default",
+                    usfmVersion: "3.0",
+                    translationType: "unknown",
+                    audience: "general",
+                    projectType: "unknown",
+                };
+            }
+            if (!metadata.type.flavorType.name) metadata.type.flavorType.name = "default";
+
+            needsSave = true;
+            console.log("Auto-fixed missing project scope in metadata.json");
+        }
+
+        // Auto-fix empty projectName
+        if (!metadata.projectName) {
+            const folderName = path.basename(projectUri.fsPath);
+            const projectId =
+                metadata.projectId ||
+                metadata.id ||
+                extractProjectIdFromFolderName(folderName);
+            let newName = folderName;
+
+            // Strip ID if present
+            if (projectId && newName.includes(projectId)) {
+                newName = newName.replace(projectId, "").replace(/-+$/, "").replace(/^-+/, "");
+            }
+
+            metadata.projectName = sanitizeProjectName(newName);
+            needsSave = true;
+            console.log(`Auto-fixed empty projectName to "${metadata.projectName}"`);
+        }
+
+        if (needsSave) {
+            await vscode.workspace.fs.writeFile(
+                metadataPath,
+                Buffer.from(JSON.stringify(metadata, null, 4))
+            );
+        }
+    } catch (error) {
+        console.error("Error validating/fixing project metadata:", error);
+    }
+}
+
+/**
+ * Scan watched folders for project folders marked for deletion and delete them.
+ * This cleans up old _tmp folders from failed swap cleanups.
+ * 
+ * @param watchedFolders - List of parent directories to scan
+ */
+export async function cleanupFoldersMarkedForDeletion(watchedFolders: string[]): Promise<void> {
+    const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+
+    for (const watchedFolder of watchedFolders) {
+        try {
+            const watchedFolderUri = vscode.Uri.file(watchedFolder);
+            const entries = await vscode.workspace.fs.readDirectory(watchedFolderUri);
+
+            for (const [name, type] of entries) {
+                if (type !== vscode.FileType.Directory) continue;
+
+                // Only check folders that look like swap temp folders (contain _tmp)
+                if (!name.includes("_tmp")) continue;
+
+                const folderPath = path.join(watchedFolder, name);
+                const folderUri = vscode.Uri.file(folderPath);
+
+                try {
+                    const swapFile = await readLocalProjectSwapFile(folderUri);
+
+                    if (swapFile?.markedForDeletion) {
+                        debug(`Found folder marked for deletion: ${folderPath}`);
+                        debug(`Swap completed at: ${swapFile.swapCompletedAt ? new Date(swapFile.swapCompletedAt).toISOString() : "unknown"}`);
+
+                        // Attempt to delete the folder
+                        try {
+                            const fs = await import("fs");
+                            fs.rmSync(folderPath, { recursive: true, force: true });
+                            debug(`Successfully deleted folder: ${folderPath}`);
+                        } catch (deleteErr) {
+                            debug(`Could not delete folder ${folderPath}:`, deleteErr);
+                            // Non-fatal - will try again on next scan
+                        }
+                    }
+                } catch {
+                    // localProjectSwap.json doesn't exist or can't be read - skip
+                }
+            }
+        } catch (err) {
+            debug(`Error scanning watched folder ${watchedFolder} for cleanup:`, err);
+        }
     }
 }
