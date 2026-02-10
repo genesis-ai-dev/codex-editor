@@ -2675,12 +2675,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             ? Object.keys(metadata.ingredients)
                             : [];
 
+                        // Get chat system message if it exists
+                        const chatSystemMessage = metadata.chatSystemMessage;
+
                         this.safeSendMessage({
                             command: "metadata.checkResponse",
                             data: {
                                 sourceLanguage,
                                 targetLanguage,
                                 sourceTexts,
+                                chatSystemMessage,
                             },
                         });
                     } catch (error) {
@@ -2691,9 +2695,136 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 sourceLanguage: null,
                                 targetLanguage: null,
                                 sourceTexts: [],
+                                chatSystemMessage: null,
                             },
                         });
                     }
+                }
+                break;
+            }
+            case "systemMessage.generate": {
+                debugLog("Generating system message");
+                try {
+                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                    if (!workspaceFolders) {
+                        this.safeSendMessage({
+                            command: "systemMessage.generateError",
+                            error: "No workspace folder found",
+                        });
+                        break;
+                    }
+
+                    // Get source and target languages from metadata
+                    const metadataUri = vscode.Uri.joinPath(
+                        workspaceFolders[0].uri,
+                        "metadata.json"
+                    );
+                    const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                    const metadata = JSON.parse(metadataContent.toString());
+
+                    const sourceLanguage = metadata.languages?.find(
+                        (l: any) => l.projectStatus === "source"
+                    );
+                    const targetLanguage = metadata.languages?.find(
+                        (l: any) => l.projectStatus === "target"
+                    );
+
+                    if (!sourceLanguage || !targetLanguage) {
+                        this.safeSendMessage({
+                            command: "systemMessage.generateError",
+                            error: "Source and target languages must be set before generating system message",
+                        });
+                        break;
+                    }
+
+                    // Import and call the generation function
+                    const { generateChatSystemMessage } = await import("../../copilotSettings/copilotSettings");
+                    const generatedMessage = await generateChatSystemMessage(
+                        sourceLanguage,
+                        targetLanguage,
+                        workspaceFolders[0].uri
+                    );
+
+                    if (generatedMessage) {
+                        // Save the generated message to metadata.json immediately
+                        const { MetadataManager } = await import("../../utils/metadataManager");
+                        const saveResult = await MetadataManager.setChatSystemMessage(
+                            generatedMessage,
+                            workspaceFolders[0].uri
+                        );
+
+                        if (saveResult.success) {
+                            this.safeSendMessage({
+                                command: "systemMessage.generated",
+                                message: generatedMessage,
+                            });
+                        } else {
+                            // Still send the generated message even if save fails
+                            // User can manually save it later
+                            this.safeSendMessage({
+                                command: "systemMessage.generated",
+                                message: generatedMessage,
+                            });
+                            console.warn("Generated system message but failed to save:", saveResult.error);
+                        }
+                    } else {
+                        this.safeSendMessage({
+                            command: "systemMessage.generateError",
+                            error: "Failed to generate system message. Please check your API configuration.",
+                        });
+                    }
+                } catch (error) {
+                    console.error("Error generating system message:", error);
+                    this.safeSendMessage({
+                        command: "systemMessage.generateError",
+                        error: error instanceof Error ? error.message : "Failed to generate system message",
+                    });
+                }
+                break;
+            }
+            case "systemMessage.save": {
+                debugLog("Saving system message");
+                try {
+                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                    if (!workspaceFolders) {
+                        this.safeSendMessage({
+                            command: "systemMessage.saveError",
+                            error: "No workspace folder found",
+                        });
+                        break;
+                    }
+
+                    // Type guard to ensure message has the 'message' property
+                    if (!("message" in message) || typeof message.message !== "string") {
+                        this.safeSendMessage({
+                            command: "systemMessage.saveError",
+                            error: "Invalid message format",
+                        });
+                        break;
+                    }
+
+                    const { MetadataManager } = await import("../../utils/metadataManager");
+                    const saveResult = await MetadataManager.setChatSystemMessage(
+                        message.message,
+                        workspaceFolders[0].uri
+                    );
+
+                    if (saveResult.success) {
+                        this.safeSendMessage({
+                            command: "systemMessage.saved",
+                        });
+                    } else {
+                        this.safeSendMessage({
+                            command: "systemMessage.saveError",
+                            error: saveResult.error || "Failed to save system message",
+                        });
+                    }
+                } catch (error) {
+                    console.error("Error saving system message:", error);
+                    this.safeSendMessage({
+                        command: "systemMessage.saveError",
+                        error: error instanceof Error ? error.message : "Failed to save system message",
+                    });
                 }
                 break;
             }

@@ -862,30 +862,38 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         prompt: "Enter a query to search all cells",
                         placeHolder: "e.g. love, faith, hope",
                     });
-                    if (!query) return []; // User cancelled the input
+                    if (!query) return [];
                     showInfo = true;
                 }
 
+                const searchScope = options?.searchScope || "both";
+                const selectedFiles = options?.selectedFiles || [];
+                const completeOnly = options?.completeOnly || false;
+                const isParallelPassagesWebview = options?.isParallelPassagesWebview || false;
+
                 let results: TranslationPair[] = [];
 
-                // If we only want complete pairs and we have SQLite, use the more reliable method
+                // When includeIncomplete=false, use optimized SQLite path for complete pairs only
+                // When includeIncomplete=true, use searchAllCells which adds source-only cells
                 if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
-                    const searchScope = options?.searchScope || "both";
-                    // Request more results if we need to filter by searchScope
-                    const searchLimit = searchScope !== "both" ? k * 3 : k;
-                    // For UI search, search source-only only when searchScope is "source"
-                    // For "target" and "both", search both source and target (then filter for target if needed)
+                    // Determine search mode based on scope
+                    // searchSourceOnly=true means only search source content
+                    // searchSourceOnly=false means search both source and target
                     const searchSourceOnly = searchScope === "source";
+
+                    // Request extra results to account for post-filtering
+                    const searchLimit = k * 2;
+
                     const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
                         query,
                         searchLimit,
-                        options?.isParallelPassagesWebview || false,
-                        false, // onlyValidated - show all complete pairs regardless of validation status
+                        isParallelPassagesWebview,
+                        completeOnly, // Pass through completeOnly for validation filtering
                         searchSourceOnly
                     );
 
                     // Convert to TranslationPair format
-                    let translationPairs = searchResults.map((result) => ({
+                    let translationPairs: TranslationPair[] = searchResults.map((result) => ({
                         cellId: result.cellId || result.cell_id,
                         sourceCell: {
                             cellId: result.cellId || result.cell_id,
@@ -901,25 +909,35 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         },
                     }));
 
-                    // Apply searchScope filtering if needed
-                    if (searchScope === "source" || searchScope === "target") {
+                    // Filter out pairs with empty or minimal content
+                    // Strip HTML and check for meaningful content (not just whitespace or very short text)
+                    translationPairs = translationPairs.filter((pair) => {
+                        const sourceText = stripHtml(pair.sourceCell.content || "").trim();
+                        const targetText = stripHtml(pair.targetCell.content || "").trim();
+                        // Require both source and target to have meaningful content (more than 3 chars)
+                        return sourceText.length > 3 && targetText.length > 3;
+                    });
+
+                    // Apply searchScope content filtering - verify query actually appears in content
+                    if (query.trim()) {
                         const queryLower = query.toLowerCase();
                         translationPairs = translationPairs.filter((pair) => {
+                            const cleanSource = stripHtml(pair.sourceCell.content || "");
+                            const cleanTarget = stripHtml(pair.targetCell.content || "");
+
                             if (searchScope === "source") {
-                                if (!pair.sourceCell.content) return false;
-                                const cleanSource = stripHtml(pair.sourceCell.content);
                                 return cleanSource.includes(queryLower);
-                            } else {
-                                if (!pair.targetCell.content) return false;
-                                const cleanTarget = stripHtml(pair.targetCell.content);
+                            } else if (searchScope === "target") {
                                 return cleanTarget.includes(queryLower);
+                            } else {
+                                // "both" - query should appear in either source or target
+                                return cleanSource.includes(queryLower) || cleanTarget.includes(queryLower);
                             }
                         });
                     }
 
-                    // Apply selectedFiles filtering if needed
-                    if (options?.selectedFiles && options.selectedFiles.length > 0) {
-                        const selectedFiles = options.selectedFiles;
+                    // Apply selectedFiles filtering
+                    if (selectedFiles.length > 0) {
                         translationPairs = translationPairs.filter((pair) => {
                             const sourceUri = pair.sourceCell?.uri || "";
                             const targetUri = pair.targetCell?.uri || "";
@@ -934,14 +952,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                     results = translationPairs.slice(0, k);
                 } else {
-                    // Use the original method for incomplete searches or non-SQLite indexes
+                    // Fallback for incomplete searches or non-SQLite indexes
                     results = await searchAllCells(
                         translationPairsIndex,
                         sourceTextIndex,
                         query,
                         k,
                         includeIncomplete,
-                        options // Pass through options including isParallelPassagesWebview
+                        options
                     );
                 }
 
