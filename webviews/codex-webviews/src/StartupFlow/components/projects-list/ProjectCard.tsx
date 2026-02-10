@@ -93,11 +93,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
     // Check if this project has an active swap that was initiated by the current user
     // If so, the media strategy dropdown should be disabled (initiator must have auto-download)
+    // BUT: if the user has already completed the swap, unlock the dropdown
     const activeSwapEntry = project.projectSwap?.swapEntries?.find(
         (entry) => entry.swapStatus === "active" && entry.isOldProject
     );
     const isSwapInitiator = activeSwapEntry && currentUsername && activeSwapEntry.swapInitiatedBy === currentUsername;
-    const disableMediaStrategyForSwap = isSwapInitiator;
+    const disableMediaStrategyForSwap = isSwapInitiator && !project.projectSwap?.currentUserAlreadySwapped;
 
     const disableControls =
         isAnyOperationApplying ||
