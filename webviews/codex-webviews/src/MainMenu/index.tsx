@@ -123,7 +123,6 @@ interface State {
     syncDelayMinutes: number;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
-    progressData: any;
 }
 
 function MainMenu() {
@@ -152,7 +151,6 @@ function MainMenu() {
         syncDelayMinutes: 5,
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
-        progressData: null,
     });
 
     const network = useNetworkState();
@@ -187,12 +185,6 @@ function MainMenu() {
                             message.data.isFrontierExtensionEnabled ??
                             prevState.isFrontierExtensionEnabled,
                         isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
-                    }));
-                    break;
-                case "progressData":
-                    setState((prevState) => ({
-                        ...prevState,
-                        progressData: message.data,
                     }));
                     break;
                 case "updateStateChanged":
@@ -243,9 +235,6 @@ function MainMenu() {
             vscode.postMessage({ command: "webviewReady" });
             // Request sync settings
             vscode.postMessage({ command: "getSyncSettings" });
-            // Request progress data
-            vscode.postMessage({ command: "getProjectProgress" });
-            // Speech-to-text settings moved to Copilot Settings panel
         } catch (error) {
             console.error("Could not send webviewReady message:", error);
         }
