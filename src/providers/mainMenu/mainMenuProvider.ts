@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
-import { getAuthApi } from "../../extension";
+import { getAuthApi, waitForAuthInit } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
 import { BaseWebviewProvider } from "../../globalProvider";
@@ -364,6 +364,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
     private async initializeFrontierApi() {
         try {
+            await waitForAuthInit();
             this.frontierApi = getAuthApi();
 
             // Listen for auth status changes to update the UI automatically
@@ -502,6 +503,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         // Check authentication status
         let isAuthenticated = false;
         try {
+            await waitForAuthInit();
             const frontierApi = getAuthApi();
             if (frontierApi) {
                 const authStatus = frontierApi.getAuthStatus();
