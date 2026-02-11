@@ -2,12 +2,10 @@ import { FrontierAPI } from "../../../../webviews/codex-webviews/src/StartupFlow
 
 export enum ConflictResolutionStrategy {
     OVERRIDE = "override", // Keep newest version (timestamp-based)
-    SOURCE = "source", // Keep newest version (read-only files)
     IGNORE = "ignore", // Always keep our version (HEAD) for auto-generated files
     ARRAY = "array", // Combine arrays and deduplicate
     SPECIAL = "special", // Merge based on timestamps/rules
     CODEX_CUSTOM_MERGE = "codex", // Special merge process for cell arrays
-    JSONL = "jsonl", // Combine and deduplicate JSONL files
     JSON_MERGE_3WAY = "json-merge-3way", // 3-way merge for JSON settings with chatSystemMessage tie-breaker
 }
 

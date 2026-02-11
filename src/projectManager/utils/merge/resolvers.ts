@@ -496,24 +496,11 @@ export async function resolveConflictFile(
                 resolvedContent = conflict.ours; // Keep our version
                 break;
 
-            case ConflictResolutionStrategy.SOURCE:
             case ConflictResolutionStrategy.OVERRIDE: {
                 debugLog("Resolving conflict for:", conflict.filepath);
                 // TODO: Compare content timestamps if embedded in the content
                 // For now, default to our version
                 resolvedContent = conflict.ours;
-                break;
-            }
-
-            case ConflictResolutionStrategy.JSONL: {
-                debugLog("Resolving JSONL conflict for:", conflict.filepath);
-                // Parse and merge JSONL content
-                const ourLines = conflict.ours.split("\n").filter(Boolean);
-                const theirLines = conflict.theirs.split("\n").filter(Boolean);
-
-                // Combine and deduplicate
-                const allLines = new Set([...ourLines, ...theirLines]);
-                resolvedContent = Array.from(allLines).join("\n");
                 break;
             }
 

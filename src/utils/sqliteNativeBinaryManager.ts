@@ -374,7 +374,7 @@ export async function ensureSqliteNativeBinary(
                     const msg = error instanceof Error ? error.message : String(error);
                     vscode.window.showErrorMessage(
                         `Failed to download SQLite native binary: ${msg}. ` +
-                        `Database features (dictionary, search index) will be unavailable.`
+                        `Database features (search index) will be unavailable.`
                     );
                     throw error;
                 }

@@ -5,13 +5,11 @@ node_modules
 /package-lock.json
 pnpm-lock.yaml
 __pycache__
-webviews/editable-react-table/node_modules
 /webviews/commentsWebview
 .DS_Store
 package-lock.json
 .project/complete_drafts.txt
 .project/indexes.sqlite
-.project/dictionary.sqlite
 .wdio-vscode-service
 AGENTS.md
 # TypeScript build cache

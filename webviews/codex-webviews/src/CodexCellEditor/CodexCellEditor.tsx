@@ -5,7 +5,6 @@ import {
     QuillCellContent,
     EditorPostMessages,
     EditorCellContent,
-    SpellCheckResponse,
     CustomNotebookMetadata,
     EditorReceiveMessages,
     CellIdGlobalState,
@@ -17,8 +16,6 @@ import CellList from "./CellList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
-import registerQuillSpellChecker from "./react-quill-spellcheck";
-import { getCleanedHtml } from "./react-quill-spellcheck/SuggestionBoxes";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
@@ -142,9 +139,6 @@ const CodexCellEditor: React.FC = () => {
     const [allCellsInCurrentMilestone, setAllCellsInCurrentMilestone] = useState<
         QuillCellContent[]
     >([]);
-    const [alertColorCodes, setAlertColorCodes] = useState<{
-        [cellId: string]: number;
-    }>({});
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
@@ -235,7 +229,6 @@ const CodexCellEditor: React.FC = () => {
     const singleCellProgress = singleCellTranslationState.progress;
 
     // Required state variables that were removed
-    const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
         {} as EditorCellContent
     );
@@ -1069,32 +1062,6 @@ const CodexCellEditor: React.FC = () => {
         setCurrentEditingCellId(content.cellMarkers?.[0] || null);
     };
 
-    // Add the removeHtmlTags function
-    const removeHtmlTags = (text: string) => {
-        const temp = document.createElement("div");
-        temp.innerHTML = text;
-        return temp.textContent || temp.innerText || "";
-    };
-
-    // Function to check alert codes
-    const checkAlertCodes = () => {
-        const cellContentAndId = translationUnits.map((unit) => ({
-            text: removeHtmlTags(unit.cellContent),
-            cellId: unit.cellMarkers[0],
-        }));
-
-        debug("alerts", "Checking alert codes for cells:", { count: cellContentAndId.length });
-        vscode.postMessage({
-            command: "getAlertCodes",
-            content: cellContentAndId,
-        } as EditorPostMessages);
-    };
-
-    // useEffect(() => {
-    // // TODO: we are removing spell check for now until someone needs it
-    //     checkAlertCodes();
-    // }, [translationUnits]);
-
     // Clear successful completions after a delay when all translations are complete
     useEffect(() => {
         const noActiveTranslations =
@@ -1211,7 +1178,6 @@ const CodexCellEditor: React.FC = () => {
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
         },
-        setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             const newChapterNumber = parseInt(chapter) || 1;
@@ -1354,10 +1320,6 @@ const CodexCellEditor: React.FC = () => {
         },
         updateVideoUrl: (url: string) => {
             setTempVideoUrl(url);
-        },
-        setAlertColorCodes: setAlertColorCodes,
-        recheckAlertCodes: () => {
-            // checkAlertCodes(); // TODO: we are removing spell check for now until someone needs it
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
@@ -1593,11 +1555,6 @@ const CodexCellEditor: React.FC = () => {
             }
         });
         return () => window.removeEventListener("focus", () => {});
-    }, []);
-
-    useEffect(() => {
-        // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill as any, vscode);
     }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
@@ -2025,7 +1982,6 @@ const CodexCellEditor: React.FC = () => {
             requestId,
             content: content,
         } as EditorPostMessages);
-        checkAlertCodes();
     };
 
     // Provider ack: only mark the save as complete once the provider confirms the file write finished.
@@ -3020,7 +2976,6 @@ const CodexCellEditor: React.FC = () => {
                 >
                     <div className="editor-container max-w-full overflow-hidden">
                         <CellList
-                            spellCheckResponse={spellCheckResponse}
                             translationUnits={translationUnitsForSection}
                             fullDocumentTranslationUnits={
                                 allCellsInCurrentMilestone.length > 0
@@ -3037,7 +2992,6 @@ const CodexCellEditor: React.FC = () => {
                             isSourceText={isSourceText}
                             windowHeight={windowHeight}
                             headerHeight={headerHeight}
-                            alertColorCodes={alertColorCodes}
                             highlightedCellId={highlightedCellId}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationQueue={translationQueue}

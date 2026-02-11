@@ -27,7 +27,6 @@ interface BibleBookInfo {
 
 interface State {
     codexItems: CodexItem[];
-    dictionaryItems: CodexItem[];
     expandedGroups: Set<string>;
     previousExpandedGroups: Set<string> | null;
     searchQuery: string;
@@ -171,7 +170,6 @@ const formatLabel = (label: string, bibleBookMap: Map<string, BibleBookInfo>): s
 function NavigationView() {
     const [state, setState] = useState<State>({
         codexItems: [],
-        dictionaryItems: [],
         expandedGroups: new Set(),
         previousExpandedGroups: null,
         searchQuery: "",
@@ -272,7 +270,6 @@ function NavigationView() {
                         return {
                             ...prevState,
                             codexItems: processedCodexItems,
-                            dictionaryItems: message.dictionaryItems || [],
                             hasReceivedInitialData: true,
                         };
                     });
@@ -306,7 +303,6 @@ function NavigationView() {
         if (!state.searchQuery) return; // Only run when there's a search query
 
         const filteredCodexItems = filterItems(state.codexItems);
-        const filteredDictionaryItems = filterItems(state.dictionaryItems);
 
         // Calculate total number of visible items if all groups were expanded
         let totalItems = 0;
@@ -315,13 +311,6 @@ function NavigationView() {
             totalItems += 1; // Group header
             if (item.type === "corpus" && item.children) {
                 totalItems += item.children.length; // Child items
-            }
-        });
-
-        filteredDictionaryItems.forEach((item) => {
-            totalItems += 1;
-            if (item.type === "corpus" && item.children) {
-                totalItems += item.children.length;
             }
         });
 
@@ -342,20 +331,13 @@ function NavigationView() {
                     }
                 });
 
-                // Expand dictionary groups with results
-                filteredDictionaryItems.forEach((item) => {
-                    if (item.type === "corpus" && item.children && item.children.length > 0) {
-                        newExpandedGroups.add(item.label);
-                    }
-                });
-
                 return {
                     ...prev,
                     expandedGroups: newExpandedGroups,
                 };
             });
         }
-    }, [state.searchQuery, state.codexItems, state.dictionaryItems]);
+    }, [state.searchQuery, state.codexItems]);
 
     const toggleGroup = (label: string) => {
         setState((prevState) => {
@@ -412,12 +394,6 @@ function NavigationView() {
             uri: item.uri,
             label: item.label,
             type: item.type,
-        });
-    };
-
-    const handleToggleDictionary = () => {
-        vscode.postMessage({
-            command: "toggleDictionary",
         });
     };
 
@@ -708,12 +684,10 @@ function NavigationView() {
     const renderItem = (item: CodexItem) => {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
-        const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
+        const icon = isGroup ? "library" : "file";
         const displayLabel =
             item.fileDisplayName || formatLabel(item.label || "", state.bibleBookMap || new Map());
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
-
-        const isProjectDict = item.isProjectDictionary;
 
         // Handle click on the entire item container
         const handleItemClick = (e: React.MouseEvent) => {
@@ -728,58 +702,6 @@ function NavigationView() {
                 openFile(item);
             }
         };
-
-        // Special rendering for project dictionary
-        if (isProjectDict) {
-            return (
-                <div key={item.label + item.uri}>
-                    <div
-                        className="flex flex-col gap-2 p-4 bg-vscode-sideBarSectionHeader-background rounded-lg border border-vscode-sideBarSectionHeader-border transition-all duration-200 hover:bg-accent shadow-sm hover:shadow-md cursor-pointer"
-                        onClick={handleItemClick}
-                    >
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <div className="flex flex-col gap-0.5">
-                                    <div className="flex items-center gap-1.5 text-sm font-semibold text-vscode-foreground">
-                                        <i className="codicon codicon-book text-lg text-vscode-symbolIcon-keywordForeground" />
-                                        Dictionary
-                                    </div>
-                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                        <i className="codicon codicon-list-ordered" />
-                                        <span>{item.wordCount || 0}</span>
-                                        <span>•</span>
-                                        <i
-                                            className={`codicon codicon-${
-                                                item.isEnabled ? "check" : "circle-slash"
-                                            }`}
-                                        />
-                                        <span>{item.isEnabled ? "ON" : "OFF"}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <Button
-                                variant={item.isEnabled ? "default" : "secondary"}
-                                size="sm"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleDictionary();
-                                }}
-                                title={`${item.isEnabled ? "Disable" : "Enable"} spellcheck`}
-                                className="flex items-center gap-1.5 min-w-[60px]"
-                            >
-                                <i
-                                    className={`codicon codicon-${
-                                        item.isEnabled ? "check" : "circle-slash"
-                                    }`}
-                                />
-                                {item.isEnabled ? "ON" : "OFF"}
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
 
         return (
             <div key={item.label + item.uri}>
@@ -885,13 +807,11 @@ function NavigationView() {
     };
 
     const filteredCodexItems = filterItems(state.codexItems);
-    const filteredDictionaryItems = filterItems(state.dictionaryItems);
     const sortComparison = (a: CodexItem, b: CodexItem) => {
         const comparison = a.label.localeCompare(b.label);
         return sortOrder === "asc" ? comparison : -comparison;
     };
     filteredCodexItems.sort(sortComparison);
-    filteredDictionaryItems.sort(sortComparison);
 
     const renameTestamentAbbreviations = (fileName: string, hasBibleBookMap: boolean): string => {
         if (hasBibleBookMap) {
@@ -933,10 +853,6 @@ function NavigationView() {
         return !state.bookNameModal.newName.trim();
     }, [state.bookNameModal.newName]);
 
-    // Separate project dictionary from other dictionaries
-    const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
-    const otherDictionaries = filteredDictionaryItems.filter((item) => !item.isProjectDictionary);
-
     return (
         <div className="p-3 h-full overflow-hidden flex flex-col bg-vscode-sideBar-background">
             <div className="mb-4 flex gap-2 items-center">
@@ -974,11 +890,10 @@ function NavigationView() {
 
             <div className="flex-1 overflow-auto flex flex-col gap-2">
                 {(() => {
-                    if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
+                    if (filteredCodexItems.length > 0) {
                         return (
                             <>
                                 {filteredCodexItems.map(renderItem)}
-                                {otherDictionaries.map(renderItem)}
                             </>
                         );
                     }
@@ -1023,8 +938,6 @@ function NavigationView() {
                     Export Files
                 </Button>
 
-                {/* Project Dictionary */}
-                {projectDictionary && renderItem(projectDictionary)}
             </div>
 
             {/* Corpus Marker Modal */}

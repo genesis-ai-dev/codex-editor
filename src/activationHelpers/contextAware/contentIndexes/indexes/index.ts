@@ -24,12 +24,6 @@ import {
 import { SQLiteIndexManager, CURRENT_SCHEMA_VERSION } from "./sqliteIndex";
 import { SearchManager, SearchAlgorithmType } from "../searchAlgorithms";
 
-import {
-    initializeWordsIndex,
-    getWordFrequencies,
-    getWordsAboveThreshold,
-    WordOccurrence,
-} from "./wordsIndex";
 import { initializeFilesIndex, getFilePairs, getWordCountStats, FileInfo } from "./filesIndex";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
@@ -38,8 +32,6 @@ import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
-
-type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
 /**
  * Show AI learning progress notification - the core UX for index rebuilds
@@ -153,7 +145,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     // since FileSyncManager indexes all content into the main database
     const sourceTextIndex = indexManager;
 
-    let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
     let filesIndex: Map<string, FileInfo> = new Map<string, FileInfo>();
 
     await metadataManager.initialize();
@@ -270,7 +261,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 debug("[Index] Forced rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
-                wordsIndex.clear();
                 filesIndex.clear();
             }
 
@@ -298,12 +288,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             debug("[Index] Updating complementary indexes...");
 
             try {
-                // Update words and files indexes
-                const { targetFiles } = await readSourceAndTargetFiles();
-                wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
+                // Update files index
                 filesIndex = await initializeFilesIndex();
 
                 // Update complete drafts
+                const { targetFiles } = await readSourceAndTargetFiles();
                 await updateCompleteDrafts(targetFiles);
 
                 debug("[Index] Complementary indexes updated successfully");
@@ -629,37 +618,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (option === "Force Reindex") {
                     await smartRebuildIndexes("manual force reindex from options", true);
                 }
-            }
-        );
-
-        const getWordFrequenciesCommand = vscode.commands.registerCommand(
-            "codex-editor-extension.getWordFrequencies",
-            async (): Promise<Array<{ word: string; frequency: number; }>> => {
-                return getWordFrequencies(wordsIndex);
-            }
-        );
-
-        const refreshWordIndexCommand = vscode.commands.registerCommand(
-            "codex-editor-extension.refreshWordIndex",
-            async () => {
-                const { targetFiles } = await readSourceAndTargetFiles();
-                wordsIndex = await initializeWordsIndex(new Map(), targetFiles);
-                debug("Word index refreshed");
-            }
-        );
-
-        const getWordsAboveThresholdCommand = vscode.commands.registerCommand(
-            "codex-editor-extension.getWordsAboveThreshold",
-            async () => {
-                const config = vscode.workspace.getConfiguration("codex-editor-extension");
-                const threshold = config.get<number>("wordFrequencyThreshold", 50);
-                if (wordsIndex.size === 0) {
-                    const { targetFiles } = await readSourceAndTargetFiles();
-                    wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
-                }
-                const wordsAboveThreshold = await getWordsAboveThreshold(wordsIndex, threshold);
-                debug(`Words above threshold: ${wordsAboveThreshold}`);
-                return wordsAboveThreshold;
             }
         );
 
@@ -1506,7 +1464,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             );
 
                             if (relevantTargetFiles.length > 0) {
-                                wordsIndex = await initializeWordsIndex(wordsIndex, relevantTargetFiles);
                                 await updateCompleteDrafts(relevantTargetFiles);
                             }
 
@@ -2163,9 +2120,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 getTranslationPairFromProjectCommand,
                 forceReindexCommand,
                 showIndexOptionsCommand,
-                getWordFrequenciesCommand,
-                refreshWordIndexCommand,
-                getWordsAboveThresholdCommand,
                 searchParallelCellsCommand,
                 searchSimilarCellIdsCommand,
                 findNextUntranslatedSourceCellCommand,

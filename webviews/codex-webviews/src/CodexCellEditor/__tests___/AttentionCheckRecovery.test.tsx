@@ -294,9 +294,8 @@ describe("Attention Check Recovery Flow", () => {
          * - Initial selection: always tracked
          * - Recovery selection: NOT tracked
          *
-         * Note: The actual analytics logic is in EditorWithABTesting.tsx,
-         * which wraps ABTestVariantSelector. These tests verify the
-         * component's callback behavior that enables proper analytics handling.
+         * These tests verify the component's callback behavior
+         * that enables proper analytics handling.
          */
 
         it("should call onVariantSelected callback for initial selection", async () => {

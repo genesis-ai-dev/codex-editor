@@ -4,20 +4,17 @@
 
 # Allowlist what we need
 !out/**
-!out/sqldb/**
 !assets/**
 # !servers/**
 
 !webviews/codex-webviews/dist/**
 !webviews/codex-webviews/src/assets/**
-!webviews/editable-react-table/dist/**
 
 !src/assets/reset.css
 # vscode.css was removed in favor of Tailwind CSS
 !src/assets/bible_data_with_vref_keys.json.gz
 !**/*.svg
 !node_modules/@vscode/codicons/dist/**
-!node_modules/vscode-languageserver-textdocument
 !node_modules/vscode-uri
 
 !CHANGELOG.md

@@ -21,18 +21,13 @@ This document outlines the strategy for resolving merge conflicts in Codex proje
 
 - **Files**:
     - `metadata.json`
-    - `chat-threads.json`
-    - `files/chat_history.jsonl`
     - `files/silver_path_memories.json`
-    - `files/smart_passages_memories.json`
-    - `.project/dictionary.sqlite`
 - **Strategy**: Keep newest version (timestamp-based override)
 
 ### 3. Mergeable JSON Arrays
 
 - **Files**:
     - `.project/comments.json`
-    - `files/project.dictionary`
 - **Strategy**:
     1. Parse both versions as JSON arrays
     2. Combine arrays

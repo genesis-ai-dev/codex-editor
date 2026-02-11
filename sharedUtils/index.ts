@@ -14,10 +14,6 @@ export const removeHtmlTags = (content: string) => {
             const footnotes = tempDiv.querySelectorAll('sup.footnote-marker, sup[data-footnote], sup');
             footnotes.forEach(footnote => footnote.remove());
 
-            // Remove spell check markup
-            const spellCheckElements = tempDiv.querySelectorAll('.spell-check-error, .spell-check-suggestion, [class*="spell-check"]');
-            spellCheckElements.forEach(el => el.remove());
-
             // Replace paragraph end tags with spaces to preserve word boundaries
             tempDiv.innerHTML = tempDiv.innerHTML.replace(/<\/p>/gi, ' ');
 

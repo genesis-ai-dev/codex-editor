@@ -44,7 +44,6 @@ const extensionConfig = {
                 __dirname,
                 "webviews/codex-webviews/src/NewSourceUploader/types.ts"
             ),
-            sqldb: path.resolve(__dirname, "src/sqldb"),
         },
         fallback: {
             path: false,
@@ -104,53 +103,11 @@ const extensionConfig = {
     },
     ignoreWarnings: [
         {
-            module: /node_modules\/vscode-languageserver-types/,
-        },
-        {
             module: /node_modules\/mocha/,
         },
     ],
 };
 
-const serverConfig = {
-    name: "server",
-    target: "node",
-    mode: "none",
-    entry: "./src/tsServer/server.ts",
-    output: {
-        path: path.resolve(__dirname, "out"),
-        filename: "server.js",
-        libraryTarget: "commonjs2",
-    },
-    node: {
-        __dirname: false,
-        __filename: false,
-        global: false,
-    },
-    externals: {
-        vscode: "commonjs vscode",
-    },
-    resolve: {
-        extensions: [".ts", ".js"],
-        alias: {
-            "@": path.resolve(__dirname, "src"),
-        },
-    },
-    module: {
-        rules: [
-            {
-                test: /\.ts$/,
-                exclude: /node_modules/,
-                use: [
-                    {
-                        loader: "ts-loader",
-                    },
-                ],
-            },
-        ],
-    },
-    devtool: "nosources-source-map",
-};
 
 const testConfig = {
     name: "test",
@@ -305,4 +262,4 @@ const testRunnerConfig = {
     devtool: "nosources-source-map",
 };
 
-module.exports = [extensionConfig, serverConfig, testConfig, testRunnerConfig];
+module.exports = [extensionConfig, testConfig, testRunnerConfig];

@@ -26,8 +26,6 @@ type MetaGeneratorEditMap = ["meta", "generator"];
 type MetaEditMap = ["meta"];
 type MetaFieldEditMap = ["meta", string];
 type LanguagesEditMap = ["languages"];
-type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
-
 import { EditType } from "../../types/enums";
 
 // Utility functions for working with editMaps
@@ -143,10 +141,6 @@ export const EditMapUtils = {
 
     languages(): LanguagesEditMap {
         return ["languages"];
-    },
-
-    spellcheckIsEnabled(): SpellcheckIsEnabledEditMap {
-        return ["spellcheckIsEnabled"];
     },
 
     // Compare editMaps

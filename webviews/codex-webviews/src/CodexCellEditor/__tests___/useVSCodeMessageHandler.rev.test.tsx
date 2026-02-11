@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import type { QuillCellContent, SpellCheckResponse, MilestoneIndex } from "../../../../../types";
+import type { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { useVSCodeMessageHandler } from "../hooks/useVSCodeMessageHandler";
 
 type HandlerArgs = Parameters<typeof useVSCodeMessageHandler>[0];
@@ -30,20 +30,14 @@ function Harness(props: {
     onSetContentPaginated: HandlerArgs["setContentPaginated"];
     onHandleCellPage: HandlerArgs["handleCellPage"];
 }) {
-    const [spell, setSpell] = useState<SpellCheckResponse | null>(null);
-    void spell;
-
     useVSCodeMessageHandler({
         setContent: () => {},
-        setSpellCheckResponse: setSpell,
         jumpToCell: () => {},
         updateCell: () => {},
         autocompleteChapterComplete: () => {},
         updateTextDirection: () => {},
         updateNotebookMetadata: () => {},
         updateVideoUrl: () => {},
-        setAlertColorCodes: () => {},
-        recheckAlertCodes: () => {},
         setAudioAttachments: () => {},
         setContentPaginated: props.onSetContentPaginated,
         handleCellPage: props.onHandleCellPage,

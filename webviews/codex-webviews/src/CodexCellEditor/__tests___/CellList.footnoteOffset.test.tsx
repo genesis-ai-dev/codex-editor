@@ -204,7 +204,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             };
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -221,7 +220,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -274,7 +272,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             };
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -291,7 +288,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -351,7 +347,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             };
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -368,7 +363,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -425,7 +419,6 @@ describe("CellList - Footnote Offset Calculation", () => {
 
             // Test page 2
             const props = {
-                spellCheckResponse: null,
                 translationUnits: page2Cells, // Current page (page 2)
                 fullDocumentTranslationUnits: allCellsInMilestone, // All cells in milestone
                 contentBeingUpdated: {
@@ -442,7 +435,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -502,7 +494,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             };
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -519,7 +510,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -603,7 +593,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             };
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits: legacyCells,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -620,7 +609,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -668,7 +656,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             const fullDocumentTranslationUnits: QuillCellContent[] = cellsWithOnlyUuid;
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits: cellsWithOnlyUuid,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -685,7 +672,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -717,7 +703,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             const fullDocumentTranslationUnits: QuillCellContent[] = [...translationUnits];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -734,7 +719,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -789,7 +773,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             };
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -806,7 +789,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -861,7 +843,6 @@ describe("CellList - Footnote Offset Calculation", () => {
             };
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits,
                 contentBeingUpdated: {
@@ -878,7 +859,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",

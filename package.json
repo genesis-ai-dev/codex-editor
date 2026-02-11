@@ -114,20 +114,8 @@
             ]
         },
         "menus": {
-            "view/title": [
-                {
-                    "command": "dictionaryTable.showDictionaryTable",
-                    "when": "view == dictionaryTable",
-                    "group": "navigation"
-                }
-            ],
-            "view/item/context": [
-                {
-                    "command": "dictionaryTable.showDictionaryTable",
-                    "when": "view == dictionaryTable",
-                    "group": "navigation"
-                }
-            ],
+            "view/title": [],
+            "view/item/context": [],
             "editor/title": [
                 {
                     "command": "codex-editor-extension.scm.stageAndCommitAll",
@@ -186,10 +174,6 @@
                 "command": "codex-editor.migrateAudioFiles",
                 "title": "Migrate Audio Files (.x-m4a to .m4a)",
                 "category": "Codex Editor"
-            },
-            {
-                "command": "codex-editor-extension.JOSH_COMMAND",
-                "title": "JOSH_COMMAND"
             },
             {
                 "command": "codex-editor-extension.forceReindex",
@@ -261,10 +245,6 @@
                 "command": "codex-editor.setGlobalLineNumbers",
                 "title": "Set Global Line Numbers",
                 "category": "Codex Project"
-            },
-            {
-                "command": "dictionaryTable.showDictionaryTable",
-                "title": "Dictionary Table: Show"
             },
             {
                 "command": "translationNotes.openTnEditor",
@@ -395,20 +375,6 @@
             {
                 "command": "codex-editor-extension.getTargetCellByCellId",
                 "title": "Get Target Cell by Cell ID"
-            },
-            {
-                "command": "extension.lookupWord",
-                "title": "Look Up Word",
-                "category": "Dictionary"
-            },
-            {
-                "command": "extension.importWiktionaryJSONL",
-                "title": "Import Wiktionary"
-            },
-            {
-                "command": "frontier.showWordsView",
-                "title": "Frontier: View All Words",
-                "category": "Frontier"
             },
             {
                 "command": "codex-project-manager.openAISettings",
@@ -627,11 +593,6 @@
                             "type": "string"
                         }
                     },
-                    "codex-project-manager.spellcheckIsEnabled": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Enable or disable spellcheck for the project"
-                    },
                     "codex-project-manager.autoSyncEnabled": {
                         "type": "boolean",
                         "default": true,
@@ -675,21 +636,6 @@
                         ],
                         "default": "Do not auto sync",
                         "description": "Automatically Sync to Cloud every..."
-                    }
-                }
-            },
-            {
-                "title": "Codex Extension Server",
-                "properties": {
-                    "codex-editor-extension-server.enable": {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "Enable or disable the Codex Extension feature."
-                    },
-                    "codex-editor-extension-server.primarySourceText": {
-                        "type": "string",
-                        "default": "",
-                        "description": "The source text to use for the Codex Extension feature."
                     }
                 }
             },
@@ -885,12 +831,6 @@
                         "default": false,
                         "description": "If activated, inline completion LLM prompts will be saved to the `copilot-messages.log` file in the project."
                     },
-                    "codex-editor-extension.wordFrequencyThreshold": {
-                        "title": "Word Frequency Threshold",
-                        "type": "number",
-                        "default": 50,
-                        "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
-                    },
                     "codex-editor-extension.enableDoctrineGrading": {
                         "title": "Enable Doctrine Grading",
                         "type": "boolean",
@@ -1007,16 +947,6 @@
                     }
                 ],
                 "priority": "default"
-            },
-            {
-                "viewType": "codex.dictionaryEditor",
-                "displayName": "Dictionary Editor",
-                "selector": [
-                    {
-                        "filenamePattern": "*.dictionary"
-                    }
-                ],
-                "priority": "default"
             }
         ]
     },
@@ -1098,8 +1028,6 @@
         "typescript": "^5.4.2",
         "util": "^0.12.5",
         "vm-browserify": "^1.1.2",
-        "vscode-languageserver": "^9.0.1",
-        "vscode-languageserver-textdocument": "^1.0.12",
         "wdio-vscode-service": "^6.1.3",
         "webdriverio": "^8.45.0",
         "webpack": "^5.101.3",
@@ -1145,7 +1073,6 @@
         "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",
         "uuid": "^9.0.1",
-        "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
         "webvtt-parser": "^2.2.0",
         "xlsx": "^0.18.5",

@@ -40,7 +40,6 @@ interface CellContentDisplayProps {
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
     hasDuplicateId: boolean;
-    alertColorCode: number | undefined;
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
     lineNumber: string;
@@ -444,7 +443,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         textDirection,
         isSourceText,
         hasDuplicateId,
-        alertColorCode,
         highlightedCellId,
         scrollSyncEnabled,
         lineNumber,
@@ -700,39 +698,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Line numbers are always generated and shown at the beginning of each line
         // Labels are optional and shown after line numbers when present
-
-        // TODO: This was used for spell checking primarily. Will leave in for now but
-        // will not render it when it is undefined.
-        const AlertDot = ({ color }: { color: string }) => (
-            <span
-                style={{
-                    display: "inline-block",
-                    width: "5px",
-                    height: "5px",
-                    borderRadius: "50%",
-                    backgroundColor: color,
-                    marginLeft: "1px",
-                }}
-            />
-        );
-
-        const getAlertDot = () => {
-            if (alertColorCode === -1 || alertColorCode === undefined) return null;
-
-            const colors = {
-                "0": "transparent",
-                "1": "#FF6B6B",
-                "2": "purple",
-                "3": "white",
-            } as const;
-            return (
-                <AlertDot
-                    color={
-                        colors[alertColorCode?.toString() as keyof typeof colors] || "transparent"
-                    }
-                />
-            );
-        };
 
         const getBackgroundColor = () => {
             if (checkShouldHighlight() && scrollSyncEnabled) {
@@ -1273,7 +1238,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         </div>
                                     )}
                                 </div>
-                                {getAlertDot()}
                             </div>
                         )}
                     </div>

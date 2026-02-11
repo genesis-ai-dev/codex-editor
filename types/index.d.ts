@@ -10,38 +10,7 @@ interface ChatMessage {
     content: string;
 }
 
-type Dictionary = {
-    id: string;
-    label: string;
-    entries: DictionaryEntry[];
-    metadata: DictionaryMetadata;
-};
-
-interface ChatMessageWithContext extends ChatMessage {
-    context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
-    createdAt: string;
-    preReflection?: string; //If reflection has happened for a chat message, preReflection will be set to the original message.
-    grade?: number;
-    gradeComment?: string;
-}
-
-interface FrontEndMessage {
-    command: {
-        name: string; // use enum
-        data?: any; // define based on enum
-    };
-}
 type CommentThread = vscode.CommentThread;
-
-interface ChatMessageThread {
-    id: string;
-    messages: ChatMessageWithContext[];
-    collapsibleState: number;
-    canReply: boolean;
-    threadTitle?: string;
-    deleted: boolean;
-    createdAt: string;
-}
 
 interface NotebookCommentThread {
     id: string;
@@ -190,60 +159,12 @@ type CommentPostMessages =
     | { command: "updateUser"; user: { id: any; name: any; avatar: any; }; }
     | { command: "navigateToMainMenu"; };
 
-interface SelectedTextDataWithContext {
-    selection: string;
-    completeLineContent: string | null;
-    vrefAtStartOfLine: string | null;
-    selectedText: string | null;
-    verseNotes: string | null;
-    verseGraphData: any;
-}
-
 interface TimeBlock {
     begin: number;
     end: number;
     text: string;
     id: string;
 }
-
-type ChatPostMessages =
-    | { command: "threadsFromWorkspace"; content: ChatMessageThread[]; }
-    | { command: "response"; finished: boolean; text: string; }
-    | { command: "reload"; }
-    | { command: "select"; textDataWithContext: SelectedTextDataWithContext; }
-    | { command: "fetch"; messages: string; }
-    | { command: "notifyUserError"; message: string; }
-    | {
-        command: "updateMessageThread";
-        messages: ChatMessageWithContext[];
-        threadId: string;
-        threadTitle?: string;
-    }
-    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string; }
-    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string; }
-    | {
-        command: "performReflection";
-        messageToReflect: string;
-        context: string;
-        lastMessageCreatedAt: string;
-    }
-    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string; }
-    | { command: "deleteThread"; threadId: string; }
-    | { command: "fetchThread"; }
-    | { command: "abort-fetch"; }
-    | { command: "openSettings"; }
-    | { command: "subscribeSettings"; settingsToSubscribe: string[]; }
-    | { command: "updateSetting"; setting: string; value: string; }
-    | { command: "openContextItem"; text: string; }
-    | { command: "cellGraphData"; data: string[]; }
-    | {
-        command: "cellIdUpdate";
-        data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string; }; };
-    }
-    | { command: "getCurrentCellId"; }
-    | { command: "navigateToMainMenu"; };
-
-
 
 export type MessagesToStartupFlowProvider =
     | { command: "error"; errorMessage: string; }
@@ -398,67 +319,6 @@ export type MessagesFromStartupFlowProvider =
     | { command: "systemMessage.saved"; }
     | { command: "systemMessage.saveError"; error: string; };
 
-type DictionaryPostMessages =
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "update" | "add";
-        entry: {
-            id: string;
-            headWord: string;
-            definition: string;
-        };
-    }
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "fetchPage";
-        pagination: {
-            page: number;
-            pageSize: number;
-            searchQuery?: string;
-        };
-    }
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "delete";
-        entry: {
-            id: string;
-        };
-    }
-    | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary; }
-    | { command: "updateEntryCount"; count: number; }
-    | { command: "updateFrequentWords"; words: string[]; }
-    | {
-        command: "updateWordFrequencies";
-        wordFrequencies: { [key: string]: number; };
-    }
-    | { command: "updateDictionary"; content: Dictionary; }
-    | { command: "callCommand"; vscodeCommandName: string; args: any[]; };
-
-type DictionaryReceiveMessages =
-    | { command: "providerTellsWebviewRemoveConfirmed"; }
-    | {
-        command: "providerTellsWebviewToUpdateData";
-        data: {
-            entries: DictionaryEntry[];
-            total: number;
-            page: number;
-            pageSize: number;
-        };
-    };
-
-type DictionarySummaryPostMessages =
-    | { command: "providerSendsDataToWebview"; data: Dictionary; }
-    | {
-        command: "providerSendsUpdatedWordFrequenciesToWebview";
-        wordFrequencies: { [key: string]: number; };
-    }
-    | { command: "providerSendsFrequentWordsToWebview"; words: string[]; }
-    | { command: "updateData"; }
-    | { command: "showDictionaryTable"; }
-    | { command: "refreshWordFrequency"; }
-    | { command: "addFrequentWordsToDictionary"; words: string[]; }
-    | { command: "updateEntryCount"; count: number; };
-
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV; }
     | { command: "changeRef"; data: VerseRefGlobalState; };
@@ -466,30 +326,6 @@ type TranslationNotePostMessages =
 type ScripturePostMessages =
     | { command: "sendScriptureData"; data: ScriptureContent; }
     | { command: "fetchScriptureData"; };
-
-type DictionaryEntry = {
-    id: string;
-    headWord: string;
-    definition?: string;
-    isUserEntry: boolean;
-    authorId?: string;
-    createdAt?: string;
-    updatedAt?: string;
-};
-
-type SpellCheckResult = {
-    word: string;
-    corrections: string[];
-};
-
-type SpellCheckFunction = (word: string) => SpellCheckResult;
-
-type SpellCheckDiagnostic = {
-    range: vscode.Range;
-    message: string;
-    severity: vscode.DiagnosticSeverity;
-    source: string;
-};
 
 type MiniSearchVerseResult = {
     book: string;
@@ -569,13 +405,10 @@ export type EditorPostMessages =
     | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
-    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
-    | { command: "addWord"; words: string[]; }
-    | { command: "getAlertCodes"; content: GetAlertCodes; }
     | { command: "executeCommand"; content: { command: string; args: any[]; }; }
     | { command: "togglePrimarySidebar"; }
     | { command: "toggleSecondarySidebar"; }
@@ -621,8 +454,6 @@ export type EditorPostMessages =
     | { command: "openSourceText"; content: { chapterNumber: number; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "pickVideoFile"; }
-    | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string; }; }
-    | { command: "getTopPrompts"; content: { text: string; cellId: string; }; }
     | {
         command: "supplyRecentEditHistory";
         content: {
@@ -781,7 +612,6 @@ export type EditorPostMessages =
             totalVariants: number;
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
     | { command: "openLoginFlow"; }
     | {
         command: "requestCellsForMilestone";
@@ -809,14 +639,6 @@ export type EditorPostMessages =
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
-
-type AlertCodesServerResponse = {
-    code: number;
-    cellId: string;
-    savedSuggestions: { suggestions: string[]; };
-}[];
-
-type GetAlertCodes = { text: string; cellId: string; }[];
 
 /**
  * Represents a validation entry by a user
@@ -1132,16 +954,6 @@ interface Timestamps {
     format?: string;
 }
 
-interface SpellCheckResponse {
-    id: string;
-    text: string;
-    replacements: Array<{ value: string; }>;
-    offset: number;
-    length: number;
-}
-
-type SpellCheckResult = SpellCheckResponse[];
-
 /* This is the project overview that populates the project manager webview */
 interface ProjectOverview extends Project {
     projectName: string;
@@ -1164,7 +976,6 @@ interface ProjectOverview extends Project {
         validationCount?: number;
         validationCountAudio?: number;
     };
-    spellcheckIsEnabled: boolean;
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
@@ -1573,7 +1384,6 @@ type ProjectManagerMessageFromWebview =
     | { command: "publishProject"; }
     | { command: "syncProject"; }
     | { command: "openEditAnalysis"; }
-    | { command: "toggleSpellcheck"; }
     | { command: "getSyncSettings"; }
     | {
         command: "updateSyncSettings";
@@ -1970,7 +1780,7 @@ export type NewSourceUploaderPostMessages = any; // Placeholder - actual types a
 interface CodexItem {
     uri: vscode.Uri | string;
     label: string;
-    type: "corpus" | "codexDocument" | "dictionary";
+    type: "corpus" | "codexDocument";
     children?: CodexItem[];
     corpusMarker?: string;
     progress?: {
@@ -1985,9 +1795,6 @@ interface CodexItem {
         requiredAudioValidations?: number;
     };
     sortOrder?: string;
-    isProjectDictionary?: boolean;
-    wordCount?: number;
-    isEnabled?: boolean;
     fileDisplayName?: string;
 }
 type EditorReceiveMessages =
@@ -2148,15 +1955,9 @@ type EditorReceiveMessages =
         type: "autocompleteChapterComplete";
         totalCells?: number;
     }
-    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse; }
-    | {
-        type: "providerSendsgetAlertCodeResponse";
-        content: { [cellId: string]: number; };
-    }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
     | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; abProbability?: number; }; }
-    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
@@ -2183,9 +1984,7 @@ type EditorReceiveMessages =
             [cellId: string]: number; // cellId -> unresolvedCount
         };
     }
-    | { type: "providerSendsPromptedEditResponse"; content: string; }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
-    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }
     | { type: "providerSendsSourceText"; content: string; }
     | {
         type: "providerSendsBacktranslation";

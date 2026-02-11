@@ -592,7 +592,6 @@ export async function updateMetadataFile() {
             const originalGenerator = project.meta?.generator ? { ...project.meta.generator } : undefined;
             const originalAbbreviation = project.meta?.abbreviation;
             const originalLanguages = project.languages ? [...project.languages] : undefined;
-            const originalSpellcheckIsEnabled = project.spellcheckIsEnabled;
             const originalValidationCount = project.meta?.validationCount;
             const originalValidationCountAudio = project.meta?.validationCountAudio;
 
@@ -636,9 +635,6 @@ export async function updateMetadataFile() {
             const newAbbreviation = projectSettings.get("abbreviation", "");
             project.meta.abbreviation = newAbbreviation;
 
-            const newSpellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
-            project.spellcheckIsEnabled = newSpellcheckIsEnabled;
-
             // Track edits for changed user-editable fields
             // Ensure edits array exists
             if (!project.edits) {
@@ -674,11 +670,6 @@ export async function updateMetadataFile() {
                 JSON.stringify(originalLanguages) !== JSON.stringify(newLanguages);
             if (languagesChanged) {
                 addProjectMetadataEdit(project, EditMapUtils.languages(), newLanguages, author);
-            }
-
-            // Track spellcheckIsEnabled changes
-            if (originalSpellcheckIsEnabled !== newSpellcheckIsEnabled) {
-                addProjectMetadataEdit(project, EditMapUtils.spellcheckIsEnabled(), newSpellcheckIsEnabled, author);
             }
 
             debug("Project settings loaded, preparing to write to metadata.json");
@@ -848,7 +839,6 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             targetTexts,
             targetFont: metadata.targetFont || "Default Font",
             isAuthenticated,
-            spellcheckIsEnabled: metadata.spellcheckIsEnabled || false,
         };
     } catch (error) {
         console.error("Failed to read project metadata:", error);

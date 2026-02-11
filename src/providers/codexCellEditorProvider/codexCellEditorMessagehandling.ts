@@ -8,8 +8,6 @@ import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import {
     QuillCellContent,
-    SpellCheckResponse,
-    AlertCodesServerResponse,
     ValidationEntry,
 } from "../../../types";
 import path from "path";
@@ -24,9 +22,7 @@ import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // Comment out problematic imports
-// import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
-// import { getSpellCheckResponseForText } from "../../extension";
 // import { ChapterGenerationManager } from "./chapterGenerationManager";
 // import { generateBackTranslation, editBacktranslation, getBacktranslation, setBacktranslation } from "../../backtranslation";
 // import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
@@ -537,14 +533,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    addWord: async ({ event, webviewPanel }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "addWord"; }>;
-        await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);
-        safePostMessageToPanel(webviewPanel, {
-            type: "wordAdded",
-            content: typedEvent.words,
-        });
-    },
 
     getCommentsForCell: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getCommentsForCell"; }>;
@@ -661,75 +649,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerSendsSimilarCellIdsResponse",
             content: response || [],
         });
-    },
-
-    "from-quill-spellcheck-getSpellCheckResponse": async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "from-quill-spellcheck-getSpellCheckResponse"; }>;
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-        if (!spellcheckEnabled) {
-            return;
-        }
-
-        const response = await vscode.commands.executeCommand(
-            "codex-editor-extension.spellCheckText",
-            typedEvent.content.cellContent
-        );
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsSpellCheckResponse",
-            content: response as SpellCheckResponse,
-        });
-    },
-
-    getAlertCodes: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes"; }>;
-
-        try {
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-
-            if (!spellcheckEnabled) {
-                debug("[Message Handler] Spellcheck is disabled, skipping alert codes");
-                return;
-            }
-
-            const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
-                "codex-editor-extension.alertCodes",
-                typedEvent.content
-            );
-
-            const content: { [cellId: string]: number; } = {};
-            result.forEach((item) => {
-                content[item.cellId] = item.code;
-            });
-
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        } catch (error) {
-            console.error("[Message Handler] Failed to get alert codes:", {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                requestedCells: typedEvent?.content?.length || 0,
-                cellIds: typedEvent?.content?.map(item => item.cellId) || [],
-                errorType: error instanceof Error ? error.constructor.name : typeof error
-            });
-
-            // Provide fallback response with empty codes for all requested cells
-            const content: { [cellId: string]: number; } = {};
-            if (typedEvent?.content && Array.isArray(typedEvent.content)) {
-                typedEvent.content.forEach((item) => {
-                    content[item.cellId] = 0; // 0 = no alerts
-                });
-            }
-
-            // Always send a response to prevent webview from waiting indefinitely
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        }
     },
 
     saveHtml: async ({ event, document, provider, webviewPanel }) => {

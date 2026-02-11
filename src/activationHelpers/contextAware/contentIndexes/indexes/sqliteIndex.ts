@@ -2484,7 +2484,8 @@ export class SQLiteIndexManager {
             .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
             .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, ''); // Remove any remaining sup tags
 
-        // Step 2: Remove spell check markup and other unwanted elements
+        // Step 2: Remove suggestion markup and other unwanted elements
+        // (The spell-check regex strips legacy elements with "spell-check" CSS classes)
         cleanContent = cleanContent
             .replace(/<[^>]*class=["'][^"']*spell-check[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '')
             .replace(/<script[\s\S]*?<\/script>/gi, '')

@@ -117,7 +117,6 @@ const DuplicateCellResolver: React.FC<{
                                                         }
                                                         label={cell.cellLabel}
                                                         lineNumbersEnabled={lineNumbersEnabled}
-                                                        alertColorCode={-1}
                                                         hasDuplicateId={false}
                                                         highlightedCellId={null}
                                                         scrollSyncEnabled={false}
