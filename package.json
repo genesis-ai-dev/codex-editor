@@ -44,6 +44,9 @@
                 "command": "codex-editor-extension.openParallelPassagesWithReplace",
                 "key": "ctrl+shift+r",
                 "mac": "cmd+shift+r",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
                 "key": "cmd+shift+s",
                 "command": "codex-editor.preventSaveAs",
                 "when": "activeCustomEditorId == 'codex.cellEditor'"

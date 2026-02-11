@@ -410,7 +410,7 @@ export async function searchAllCells(
     if (searchScope === "source" && translationPairsIndex instanceof SQLiteIndexManager) {
         // Search only source cells
         const sourceCells = await translationPairsIndex.searchCells(query, "source", k * 2, options?.isParallelPassagesWebview || false);
-        
+
         const results: TranslationPair[] = [];
         for (const cell of sourceCells) {
             const translationPair = await getTranslationPairFromProject(
@@ -419,23 +419,18 @@ export async function searchAllCells(
                 cell.cell_id,
                 options
             );
-            if (translationPair && translationPair.sourceCell.content) {
-                // Verify the source content actually contains the query
-                const cleanSource = stripHtml(translationPair.sourceCell.content);
-                const queryLower = query.toLowerCase();
-                if (cleanSource.includes(queryLower) && matchesSelectedFiles(translationPair)) {
-                    results.push(translationPair);
-                }
+            if (translationPair && translationPair.sourceCell.content && matchesSelectedFiles(translationPair)) {
+                results.push(translationPair);
             }
         }
-        
+
         return results.slice(0, k);
     }
 
     // For searchScope === "target", search directly in target cells
     if (searchScope === "target" && translationPairsIndex instanceof SQLiteIndexManager) {
         const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
-        
+
         const results: TranslationPair[] = [];
         for (const cell of targetCells) {
             const translationPair = await getTranslationPairFromProject(
@@ -444,16 +439,11 @@ export async function searchAllCells(
                 cell.cell_id,
                 options
             );
-            if (translationPair && translationPair.targetCell.content) {
-                // Verify the target content actually contains the query
-                const cleanTarget = stripHtml(translationPair.targetCell.content);
-                const queryLower = query.toLowerCase();
-                if (cleanTarget.includes(queryLower) && matchesSelectedFiles(translationPair)) {
-                    results.push(translationPair);
-                }
+            if (translationPair && translationPair.targetCell.content && matchesSelectedFiles(translationPair)) {
+                results.push(translationPair);
             }
         }
-        
+
         return results.slice(0, k);
     }
 

@@ -36,6 +36,7 @@ function ParallelView() {
         []
     );
     const [forceReplaceExpanded, setForceReplaceExpanded] = useState(false);
+    const [showPinnedOnly, setShowPinnedOnly] = useState(false);
 
     const dedupeByCellId = (items: TranslationPair[]) => {
         const seen = new Set<string>();
@@ -82,6 +83,13 @@ function ParallelView() {
 
         prevQueryRef.current = lastQuery;
     }, [lastQuery, verses.length, replaceText, searchScope]);
+
+    // Clear results when query is emptied, but keep pinned verses visible
+    useEffect(() => {
+        if (lastQuery.trim().length === 0 && verses.length > 0) {
+            setVerses(verses.filter((v) => pinnedVerses.some((p) => p.cellId === v.cellId)));
+        }
+    }, [lastQuery]);
 
     // Re-search when completeOnly setting changes (if we already have search results)
     const prevCompleteOnlyRef = useRef<boolean>(false);
@@ -426,6 +434,8 @@ function ParallelView() {
                 onClearReplaceErrors={() => setReplaceErrors([])}
                 vscode={vscode}
                 forceReplaceExpanded={forceReplaceExpanded}
+                showPinnedOnly={showPinnedOnly}
+                onTogglePinnedFilter={() => setShowPinnedOnly((prev) => !prev)}
             />
         </div>
     );

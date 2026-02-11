@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import VerseItem from "./CellItem";
 import { TranslationPair } from "../../../../types";
 import { Button } from "../components/ui/button";
@@ -40,6 +40,8 @@ interface SearchTabProps {
     onClearReplaceErrors?: () => void;
     vscode: any;
     forceReplaceExpanded?: boolean;
+    showPinnedOnly?: boolean;
+    onTogglePinnedFilter?: () => void;
 }
 
 function SearchTab({
@@ -67,6 +69,8 @@ function SearchTab({
     onClearReplaceErrors,
     vscode,
     forceReplaceExpanded,
+    showPinnedOnly = false,
+    onTogglePinnedFilter,
 }: SearchTabProps) {
     const [isReplaceExpanded, setIsReplaceExpanded] = useState(false);
 
@@ -81,7 +85,10 @@ function SearchTab({
     const [showRecentSearches, setShowRecentSearches] = useState(false);
     const [fileSearchQuery, setFileSearchQuery] = useState<string>("");
     const [showFileSelector, setShowFileSelector] = useState(false);
-    const [retainValidations, setRetainValidations] = useState<boolean>(false);
+    const [retainValidations, setRetainValidations] = useState<boolean>(() => {
+        const saved = localStorage.getItem("retainMyValidations");
+        return saved === "true";
+    });
     const searchInputRef = useRef<HTMLInputElement>(null);
     const replaceTextareaRef = useRef<HTMLTextAreaElement>(null);
     const fileSelectorRef = useRef<HTMLDivElement>(null);
@@ -100,6 +107,11 @@ function SearchTab({
             setRecentSearches(JSON.parse(savedSearches).slice(0, 5));
         }
     }, []);
+
+    // Persist retainValidations to localStorage when it changes
+    useEffect(() => {
+        localStorage.setItem("retainMyValidations", String(retainValidations));
+    }, [retainValidations]);
 
     const handleSearch = (event?: React.FormEvent) => {
         if (event) event.preventDefault();
@@ -227,6 +239,17 @@ function SearchTab({
 
     const allSelected = projectFiles.length > 0 && selectedFiles.length === projectFiles.length;
     const noneSelected = selectedFiles.length === 0;
+
+    const sortedVerses = useMemo(() => {
+        const filtered = showPinnedOnly
+            ? verses.filter((v) => pinnedVerses.some((p) => p.cellId === v.cellId))
+            : verses;
+        return [...filtered].sort((a, b) => {
+            const aPin = pinnedVerses.some((v) => v.cellId === a.cellId) ? 1 : 0;
+            const bPin = pinnedVerses.some((v) => v.cellId === b.cellId) ? 1 : 0;
+            return bPin - aPin;
+        });
+    }, [verses, pinnedVerses, showPinnedOnly]);
 
     return (
         <div className="flex flex-col h-full p-4 gap-4" onClick={handleClickOutside}>
@@ -643,14 +666,24 @@ function SearchTab({
             {verses.length > 0 && (
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">Search Results</span>
-                        <Badge variant="secondary">{verses.length}</Badge>
+                        <span className="text-sm font-medium">
+                            {showPinnedOnly ? "Pinned Results" : "Search Results"}
+                        </span>
+                        <Badge variant="secondary">{sortedVerses.length}</Badge>
                     </div>
                     {pinnedVerses.length > 0 && (
-                        <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={onTogglePinnedFilter}
+                            aria-label={showPinnedOnly ? "Show all results" : "Show pinned only"}
+                            title={showPinnedOnly ? "Show all results" : "Show pinned only"}
+                        >
                             <span className="text-sm text-muted-foreground">Pinned:</span>
-                            <Badge variant="outline">{pinnedVerses.length}</Badge>
-                        </div>
+                            <Badge variant={showPinnedOnly ? "default" : "outline"}>
+                                {pinnedVerses.length}
+                            </Badge>
+                        </button>
                     )}
                 </div>
             )}
@@ -667,7 +700,7 @@ function SearchTab({
                         </p>
                     </div>
                 ) : (
-                    verses.map((item, index) => {
+                    sortedVerses.map((item, index) => {
                         const isPinned = pinnedVerses.some((verse) => verse.cellId === item.cellId);
                         return (
                             <VerseItem

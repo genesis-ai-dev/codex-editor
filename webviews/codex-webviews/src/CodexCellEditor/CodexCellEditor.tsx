@@ -1691,6 +1691,8 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+            // Clear any stale dirty state so navigation is not blocked after loading new content
+            setContentBeingUpdated({} as EditorCellContent);
         },
 
         handleCellPage: (
@@ -1740,6 +1742,8 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+            // Clear any stale dirty state so navigation is not blocked after loading new content
+            setContentBeingUpdated({} as EditorCellContent);
         },
     });
 
