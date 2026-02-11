@@ -97,35 +97,6 @@ interface EditHistoryItem<TEditMap extends readonly string[] = readonly string[]
     validatedBy?: ValidationEntry[];
 }
 
-// Relating to Smart Edits
-interface SmartEditContext {
-    cellId: string;
-    currentCellValue: string;
-    edits: EditHistoryItem[];
-    memory?: string; // Add this line
-}
-
-interface SmartSuggestion {
-    oldString: string;
-    newString: string;
-    confidence?: "high" | "low";
-    source?: "llm" | "ice";
-    frequency?: number;
-}
-
-export interface SavedSuggestions {
-    cellId: string;
-    lastCellValue: string;
-    suggestions: SmartSuggestion[];
-    lastUpdatedDate: string;
-    rejectedSuggestions?: { oldString: string; newString: string; }[];
-}
-
-interface SmartEdit {
-    context: SmartEditContext;
-    suggestions: SmartSuggestion[];
-}
-
 interface CellIdGlobalState {
     cellId: string; // UUID for internal cell reference
     globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
@@ -404,7 +375,6 @@ export type EditorPostMessages =
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
     | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
-    | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
@@ -455,13 +425,6 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "pickVideoFile"; }
     | {
-        command: "supplyRecentEditHistory";
-        content: {
-            cellId: string;
-            editHistory: EditHistoryEntry[];
-        };
-    }
-    | {
         command: "exportFile";
         content: { subtitleData: string; format: string; includeStyles: boolean; };
     }
@@ -482,17 +445,6 @@ export type EditorPostMessages =
             cellId: string;
             originalText: string;
             userBacktranslation: string;
-        };
-    }
-    | {
-        command: "rejectEditSuggestion";
-        content: {
-            source: "ice" | "llm";
-            cellId?: string;
-            oldString: string;
-            newString: string;
-            leftToken: string;
-            rightToken: string;
         };
     }
     | {

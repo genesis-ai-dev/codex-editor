@@ -44,7 +44,7 @@ class Chatbot {
             // Warn if API key is not set and no Frontier API is available
             if (!frontierApiAvailable) {
                 console.warn(
-                    "Smart Edits LLM API key is not set (codex-editor-extension.api_key) and you are not logged into Frontier. LLM suggestions will be disabled."
+                    "LLM API key is not set (codex-editor-extension.api_key) and you are not logged into Frontier. Backtranslation will be disabled."
                 );
             }
         }
@@ -58,7 +58,7 @@ class Chatbot {
                 }
                 : undefined,
         });
-        console.log("Called OpenAI from smart edits with", {
+        console.log("Initialized OpenAI for backtranslation with", {
             llmEndpoint:
                 llmEndpoint || this.config.get("llmEndpoint") || "https://api.frontierrnd.com/api/v1",
             authBearerToken,
@@ -126,7 +126,7 @@ class Chatbot {
 
                     if (!apiKey && !isAuthenticated) {
                         vscode.window.showErrorMessage(
-                            "Authentication failed. Please add a valid API key or log in to Frontier to use the Smart Edits feature."
+                            "Authentication failed. Please add a valid API key or log in to Frontier to use backtranslation."
                         );
                     } else {
                         vscode.window.showErrorMessage(

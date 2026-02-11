@@ -33,11 +33,6 @@ suite("Merge Strategies Test Suite", () => {
         const strategy2 = determineStrategy(commentsFile);
         assert.strictEqual(strategy2, ConflictResolutionStrategy.ARRAY);
 
-        // Test SPECIAL strategy
-        const smartEditsFile = "files/smart_edits.json";
-        const strategy4 = determineStrategy(smartEditsFile);
-        assert.strictEqual(strategy4, ConflictResolutionStrategy.SPECIAL);
-
         // Test IGNORE strategy
         const completeDraftsFile = "complete_drafts.txt";
         const strategy5 = determineStrategy(completeDraftsFile);

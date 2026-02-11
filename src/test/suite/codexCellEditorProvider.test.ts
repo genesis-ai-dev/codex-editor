@@ -1088,16 +1088,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         const newContent = "Updated HTML content";
 
-        // Stub command used by saveHtml handler
-        const originalExecuteCommand = vscode.commands.executeCommand;
-        // @ts-expect-error test stub
-        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.recordIceEdit") {
-                return undefined;
-            }
-            return originalExecuteCommand(command, ...args);
-        };
-
         onDidReceiveMessageCallback!({
             command: "saveHtml",
             content: {
@@ -1198,9 +1188,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             "providerUpdatesNotebookMetadataForWebview",
         ];
         assert.ok(allowedAutoTypes.includes(postMessageCallback.type));
-
-        // Restore command stub
-        vscode.commands.executeCommand = originalExecuteCommand;
     });
 
     test("text direction update should be reflected in the webview", async () => {
@@ -1405,7 +1392,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.strictEqual(lastEdit.value, 333);
     });
 
-    test("smart edit functionality updates cell content correctly", async () => {
+    test("saveHtml updates cell content correctly", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
             tempUri,
@@ -1449,22 +1436,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Mock cell content and edit history
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         const originalDocCellValue = JSON.parse(document.getText()).cells.find((c: any) => c.metadata.id === cellId)?.value;
-        const smartEditResult = "This is the improved content after smart edit.";
+        const updatedContent = "This is the improved content after editing.";
 
-        // Simulate saving the updated content (stub recordIceEdit)
-        const originalExecuteCommand2 = vscode.commands.executeCommand;
-        // @ts-expect-error test stub
-        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.recordIceEdit") {
-                return undefined;
-            }
-            return originalExecuteCommand2(command, ...args);
-        };
+        // Simulate saving the updated content
         onDidReceiveMessageCallback!({
             command: "saveHtml",
             content: {
                 cellMarkers: [cellId],
-                cellContent: smartEditResult,
+                cellContent: updatedContent,
             },
         });
 
@@ -1472,18 +1451,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
         let updatedValue: string | undefined;
         for (let i = 0; i < 5; i++) {
             await new Promise((resolve) => setTimeout(resolve, 60));
-            const updatedContent = JSON.parse(document.getText());
-            updatedValue = updatedContent.cells.find((c: any) => c.metadata.id === cellId)?.value;
-            if (updatedValue === smartEditResult) break;
+            const parsedContent = JSON.parse(document.getText());
+            updatedValue = parsedContent.cells.find((c: any) => c.metadata.id === cellId)?.value;
+            if (updatedValue === updatedContent) break;
         }
         // Accept either immediate update or unchanged value depending on async timing
         assert.ok(
-            updatedValue === smartEditResult || updatedValue === originalDocCellValue,
+            updatedValue === updatedContent || updatedValue === originalDocCellValue,
             "Cell content should eventually be updated or remain unchanged if async processing defers it"
         );
-
-        // Restore command stub
-        vscode.commands.executeCommand = originalExecuteCommand2;
     });
 
     test("git commit is triggered on document save operations", async () => {
@@ -2478,14 +2454,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
         } as any as vscode.WebviewPanel;
 
-        // Stub command used by saveHtml handler (recordIceEdit)
-        const originalExecuteCommand = vscode.commands.executeCommand;
-        // @ts-expect-error test stub
-        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.recordIceEdit") return undefined;
-            return originalExecuteCommand(command, ...args);
-        };
-
         // Gate saveCustomDocument so we can assert ack is only posted after it resolves
         const originalSaveCustomDocument = (provider as any).saveCustomDocument;
         let saveResolve!: () => void;
@@ -2541,7 +2509,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         // Restore stubs
         (provider as any).saveCustomDocument = originalSaveCustomDocument;
-        vscode.commands.executeCommand = originalExecuteCommand;
     });
 
     test("mergeMatchingCellsInTargetFile marks target current cell merged and logs merged edit", async function () {

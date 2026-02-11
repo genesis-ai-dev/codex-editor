@@ -1,7 +1,7 @@
 {
     "name": "codex-editor-extension",
     "displayName": "Codex Translation Editor",
-    "description": "Support for `.codex` notebooks and translation source files. Includes Codex Language Server for translation drafting and checking diagnostics and features.",
+    "description": "Support for `.codex` notebooks and translation source files.",
     "publisher": "project-accelerate",
     "homepage": "https://codex-editor.gitbook.io/",
     "repository": {

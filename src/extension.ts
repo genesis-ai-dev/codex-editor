@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
 import { GlobalProvider } from "./globalProvider";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
-import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
+import { registerBacktranslationCommands } from "./smartEdits/registerBacktranslationCommands";
 import { registerProjectManager } from "./projectManager";
 import {
     temporaryMigrationScript_checkMatthewNotebook,
@@ -541,7 +541,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const coreComponentsStart = globalThis.performance.now();
 
         await Promise.all([
-            registerSmartEditCommands(context),
+            registerBacktranslationCommands(context),
             registerProviders(context),
             registerCommands(context),
         ]);

@@ -9,16 +9,13 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     ],
 
     // Simple JSON override files - keep newest version
-    [ConflictResolutionStrategy.OVERRIDE]: [
-        "files/silver_path_memories.json",
-    ],
+    [ConflictResolutionStrategy.OVERRIDE]: [],
 
     // Mergeable Comment arrays on commentThread array - combine recursively and deduplicate
     [ConflictResolutionStrategy.ARRAY]: [".project/comments.json"],
 
     // Special JSON merges - merge based on timestamps
     [ConflictResolutionStrategy.SPECIAL]: [
-        "files/smart_edits.json",
         "metadata.json"
     ],
 

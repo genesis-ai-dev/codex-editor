@@ -191,6 +191,9 @@ const ORPHANED_PROJECT_FILES = [
     "chat-threads.json",
     "files/chat_history.jsonl",
     "files/ab-test-results.jsonl",
+    "files/smart_edits.json",
+    "files/ice_edits.json",
+    "files/silver_path_memories.json",
 ];
 
 /**

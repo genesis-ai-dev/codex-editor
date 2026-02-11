@@ -21,7 +21,6 @@ This document outlines the strategy for resolving merge conflicts in Codex proje
 
 - **Files**:
     - `metadata.json`
-    - `files/silver_path_memories.json`
 - **Strategy**: Keep newest version (timestamp-based override)
 
 ### 3. Mergeable JSON Arrays
@@ -34,17 +33,7 @@ This document outlines the strategy for resolving merge conflicts in Codex proje
     3. Deduplicate by thread ID and comment content
     4. Preserve all unique threads and comments
 
-### 4. Special JSON Merges
-
-- **Files**:
-    - `files/smart_edits.json`
-- **Strategy**:
-    1. Parse both versions
-    2. Merge based on edit timestamps
-    3. Preserve all unique edits
-    4. Deduplicate identical edit operations
-
-### 5. Source Files (Read-only)
+### 4. Source Files (Read-only)
 
 - **Location**: `.project/sourceTexts/*.source`
 - **Strategy**: Keep newest version (conflicts unlikely as these are typically read-only)
