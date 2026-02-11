@@ -949,27 +949,26 @@ async function exportCodexContentAsUsfmRoundtrip(
                     const possibleExtensions = ['.usfm', '.sfm', '.USFM', '.SFM'];
                     let originalFileName = metadataOriginalFileName;
 
-                    // If no originalFileName, try to find it in originals folder
+                    // If no originalFileName, try to find it in originals folders (files/originals first, then originals)
                     if (!originalFileName && finalBookCode) {
-                        const originalsDir = vscode.Uri.joinPath(
-                            workspaceFolders[0].uri,
-                            ".project",
-                            "attachments",
-                            "originals"
-                        );
-
-                        // Try each extension
-                        for (const ext of possibleExtensions) {
-                            const testFileName = `${finalBookCode}${ext}`;
-                            const testUri = vscode.Uri.joinPath(originalsDir, testFileName);
-                            try {
-                                await vscode.workspace.fs.stat(testUri);
-                                originalFileName = testFileName;
-                                console.log(`[USFM Export] Found original file: ${testFileName}`);
-                                break;
-                            } catch {
-                                // File doesn't exist, try next extension
+                        const originalsDirCandidates = [
+                            vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "files", "originals"),
+                            vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "originals"),
+                        ];
+                        for (const originalsDir of originalsDirCandidates) {
+                            for (const ext of possibleExtensions) {
+                                const testFileName = `${finalBookCode}${ext}`;
+                                const testUri = vscode.Uri.joinPath(originalsDir, testFileName);
+                                try {
+                                    await vscode.workspace.fs.stat(testUri);
+                                    originalFileName = testFileName;
+                                    console.log(`[USFM Export] Found original file: ${testFileName}`);
+                                    break;
+                                } catch {
+                                    // File doesn't exist, try next extension
+                                }
                             }
+                            if (originalFileName) break;
                         }
                     }
 
@@ -979,29 +978,36 @@ async function exportCodexContentAsUsfmRoundtrip(
                         console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
                     }
 
-                    // Load original USFM file from attachments/originals
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "originals"
-                    );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
-
+                    // Load original USFM file: try attachments/files/originals (current), then attachments/originals (legacy)
+                    const originalsDirs = [
+                        vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "files", "originals"),
+                        vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "originals"),
+                    ];
                     let originalUsfmContent: string;
-                    try {
-                        const originalFileData = await vscode.workspace.fs.readFile(originalFileUri);
-                        originalUsfmContent = new TextDecoder('utf-8').decode(originalFileData);
-                        console.log(`[USFM Export] Loaded original USFM file: ${originalFileName}`);
-                    } catch (error) {
+                    let readFromUri: vscode.Uri | null = null;
+                    for (const originalsDir of originalsDirs) {
+                        const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                        try {
+                            const originalFileData = await vscode.workspace.fs.readFile(originalFileUri);
+                            originalUsfmContent = new TextDecoder('utf-8').decode(originalFileData);
+                            readFromUri = originalFileUri;
+                            break;
+                        } catch {
+                            // Try next path
+                        }
+                    }
+                    if (!readFromUri) {
                         // Fallback: try to get from structureMetadata if available
                         const structureMetadata = (codexNotebook.metadata as any)?.structureMetadata;
                         if (structureMetadata?.originalUsfmContent) {
                             originalUsfmContent = structureMetadata.originalUsfmContent;
-                            console.log(`[USFM Export] Using original USFM content from metadata (file not found at ${originalFileUri.fsPath})`);
+                            console.log(`[USFM Export] Using original USFM content from metadata (file not found in originals folders)`);
                         } else {
-                            throw new Error(`Original USFM file not found at ${originalFileUri.fsPath} and no original content in metadata`);
+                            const triedPaths = originalsDirs.map(d => d.fsPath).join(', ');
+                            throw new Error(`Original USFM file not found at ${triedPaths} and no original content in metadata`);
                         }
+                    } else {
+                        console.log(`[USFM Export] Loaded original USFM file: ${originalFileName}`);
                     }
 
                     // Build codex cells array
@@ -1034,14 +1040,13 @@ async function exportCodexContentAsUsfmRoundtrip(
                         console.log(`[USFM Export] structureMetadata keys:`, structureMetadata ? Object.keys(structureMetadata) : 'null');
                     }
 
-                    // Export USFM with translations
-                    // If we have lineMappings, use them for precise round-trip export
+                    // Export USFM with translations (originalUsfmContent is set above: from file or metadata)
                     let updatedUsfmContent: string;
                     if (lineMappings) {
-                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, lineMappings, codexCells);
+                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent!, lineMappings, codexCells);
                     } else {
                         // Use backward-compatible signature (no lineMappings - fallback mode)
-                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, codexCells);
+                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent!, codexCells);
                     }
 
                     // Save to export folder

@@ -455,6 +455,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...(processedNotebook.metadata?.importerType && {
                 importerType: processedNotebook.metadata.importerType
             }),
+            // Preserve USFM round-trip structure metadata (original content + line mappings)
+            ...('structureMetadata' in processedNotebook.metadata && processedNotebook.metadata.structureMetadata
+                ? { structureMetadata: processedNotebook.metadata.structureMetadata as CustomNotebookMetadata['structureMetadata'] }
+                : {}),
         };
 
         return {

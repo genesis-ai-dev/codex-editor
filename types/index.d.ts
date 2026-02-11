@@ -993,6 +993,14 @@ export interface CustomNotebookMetadata {
      * This is the canonical home for attributes that do not vary per-cell.
      */
     importContext?: NotebookImportContext;
+    /**
+     * USFM round-trip export: original file content and line-to-cell mappings.
+     * Stored by the USFM Experimental importer so export can work without the file in attachments.
+     */
+    structureMetadata?: {
+        originalUsfmContent: string;
+        lineMappings?: Array<{ lineIndex: number; cellId?: string;[key: string]: unknown; }>;
+    };
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
