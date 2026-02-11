@@ -1594,7 +1594,9 @@ type ProjectManagerMessageFromWebview =
     | { command: "setGlobalLineNumbers"; }
     | { command: "getAsrSettings"; }
     | { command: "saveAsrSettings"; data: { endpoint: string; }; }
-    | { command: "fetchAsrModels"; data: { endpoint: string; }; };
+    | { command: "fetchAsrModels"; data: { endpoint: string; }; }
+    | { command: "setValidationCountDirect"; data: { count: number; }; }
+    | { command: "setValidationCountAudioDirect"; data: { count: number; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

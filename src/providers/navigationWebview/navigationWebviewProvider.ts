@@ -45,6 +45,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private dictionaryItems: CodexItem[] = [];
     private disposables: vscode.Disposable[] = [];
     private isBuilding = false;
+    private pendingRebuild = false;
     private serializer = new CodexContentSerializer();
     private bibleBookMap: Map<string, BibleBookInfo> = new Map();
 
@@ -432,10 +433,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private async buildInitialData(): Promise<void> {
         if (this.isBuilding) {
+            this.pendingRebuild = true;
             return;
         }
 
         this.isBuilding = true;
+        this.pendingRebuild = false;
 
         try {
             const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -477,6 +480,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             vscode.window.showErrorMessage(`Error loading codex files: ${error}`);
         } finally {
             this.isBuilding = false;
+            if (this.pendingRebuild) {
+                this.pendingRebuild = false;
+                this.buildInitialData();
+            }
         }
     }
 

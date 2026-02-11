@@ -51,11 +51,13 @@ export const getCellValueData = (cell: QuillCellContent) => {
     // Ensure editHistory exists and is an array
     const editHistory = cell.editHistory || [];
 
-    // Find the latest edit that matches the current cell content
-    const latestEditThatMatchesCellValue = editHistory
-        .slice()
-        .reverse()
-        .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
+    // Find the latest edit that matches the current cell content (strict match).
+    // Falls back to the latest value edit if the strict match fails, which can happen
+    // when the merge step during save subtly normalizes the stored value.
+    const reversed = editHistory.slice().reverse();
+    const latestEditThatMatchesCellValue =
+        reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent) ??
+        reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && !edit.preview);
 
     // Get audio validation from attachments instead of edits
     let audioValidatedBy: ValidationEntry[] = [];
@@ -148,11 +150,11 @@ export const cellHasAudioUsingAttachments = (
 
     if (selectedAudioId && atts[selectedAudioId]) {
         const att = atts[selectedAudioId];
-        return att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true;
+        return att && att.type === "audio" && !att.isDeleted && att.isMissing !== true;
     }
 
     return Object.values(atts).some(
-        (att: any) => att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
+        (att: any) => att && att.type === "audio" && !att.isDeleted && att.isMissing !== true
     );
 };
 

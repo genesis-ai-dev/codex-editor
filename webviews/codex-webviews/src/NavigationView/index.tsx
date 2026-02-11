@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import bibleData from "../assets/bible-books-lookup.json";
-import { ExpandableProgress } from "../components/ui/expandable-progress";
+import { Progress } from "../components/ui/progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
 import { Languages, Mic } from "lucide-react";
@@ -584,6 +584,10 @@ function NavigationView() {
         percentFullyValidatedTranslations?: number;
         percentAudioTranslationsCompleted?: number;
         percentAudioValidatedTranslations?: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
     }) => {
         if (typeof progress !== "object") {
             return {
@@ -591,27 +595,37 @@ function NavigationView() {
                 textValidation: 0,
                 audioCompletion: 0,
                 audioValidation: 0,
+                textValidationLevels: [] as number[],
+                audioValidationLevels: [] as number[],
+                requiredTextValidations: undefined as number | undefined,
+                requiredAudioValidations: undefined as number | undefined,
             };
         }
+        const textValidation = Math.max(
+            0,
+            Math.min(
+                100,
+                progress.percentTextValidatedTranslations ??
+                    progress.percentFullyValidatedTranslations ??
+                    0
+            )
+        );
+        const audioValidation = Math.max(
+            0,
+            Math.min(100, progress.percentAudioValidatedTranslations ?? 0)
+        );
         return {
             textCompletion: Math.max(0, Math.min(100, progress.percentTranslationsCompleted ?? 0)),
-            textValidation: Math.max(
-                0,
-                Math.min(
-                    100,
-                    progress.percentTextValidatedTranslations ??
-                        progress.percentFullyValidatedTranslations ??
-                        0
-                )
-            ),
+            textValidation,
             audioCompletion: Math.max(
                 0,
                 Math.min(100, progress.percentAudioTranslationsCompleted ?? 0)
             ),
-            audioValidation: Math.max(
-                0,
-                Math.min(100, progress.percentAudioValidatedTranslations ?? 0)
-            ),
+            audioValidation,
+            textValidationLevels: progress.textValidationLevels ?? [textValidation],
+            audioValidationLevels: progress.audioValidationLevels ?? [audioValidation],
+            requiredTextValidations: progress.requiredTextValidations,
+            requiredAudioValidations: progress.requiredAudioValidations,
         };
     };
 
@@ -693,6 +707,8 @@ function NavigationView() {
 
         const progressValues = getProgressValues(item.progress);
         const hasProgress = item.progress && typeof item.progress === "object";
+        const hasAudio =
+            progressValues.audioCompletion > 0 || progressValues.audioValidation > 0;
 
         return (
             <div key={item.label + item.uri}>
@@ -711,91 +727,108 @@ function NavigationView() {
                         }
                     }}
                 >
-                    <div className="py-2.5 px-3 flex items-center gap-2 w-full min-h-[38px]">
-                        {isGroup && (
-                            <i
-                                className={`codicon ${
-                                    isExpanded
-                                        ? "codicon-chevron-down"
-                                        : "codicon-chevron-right"
-                                } text-base text-vscode-foreground w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-70 transition-transform duration-200`}
-                            />
-                        )}
-                        <i
-                            className={`codicon codicon-${icon} text-base text-vscode-symbolIcon-fileForeground w-4 h-4 flex items-center justify-center flex-shrink-0`}
-                        />
-                        <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-sm font-medium text-vscode-foreground leading-normal">
-                            {displayLabel}
-                        </span>
-
-                        {/* Progress indicators - expand on hover */}
-                        {hasProgress && (
-                            <div className="flex items-center gap-1.5 flex-shrink-0">
-                                {/* Text progress */}
-                                <ExpandableProgress
-                                    completionValue={progressValues.textCompletion}
-                                    validationValue={progressValues.textValidation}
-                                    icon={<Languages className="h-3 w-3" />}
-                                    label="Text"
+                    <div className="py-2 px-3 flex flex-col gap-1 w-full">
+                        {/* Row 1: label + action buttons */}
+                        <div className="flex items-center gap-2 min-h-[24px]">
+                            {isGroup && (
+                                <i
+                                    className={`codicon ${
+                                        isExpanded
+                                            ? "codicon-chevron-down"
+                                            : "codicon-chevron-right"
+                                    } text-base text-vscode-foreground w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-70 transition-transform duration-200`}
                                 />
-                                {/* Audio progress - only show if there's audio data */}
-                                {(progressValues.audioCompletion > 0 ||
-                                    progressValues.audioValidation > 0) && (
-                                    <ExpandableProgress
-                                        completionValue={progressValues.audioCompletion}
-                                        validationValue={progressValues.audioValidation}
-                                        icon={<Mic className="h-3 w-3" />}
-                                        label="Audio"
+                            )}
+                            <i
+                                className={`codicon codicon-${icon} text-base text-vscode-symbolIcon-fileForeground w-4 h-4 flex items-center justify-center flex-shrink-0`}
+                            />
+                            <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-sm font-medium text-vscode-foreground leading-normal">
+                                {displayLabel}
+                            </span>
+
+                            {/* Direct action buttons - visible on hover */}
+                            <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {item.type === "codexDocument" && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="menu-button w-6 h-6"
+                                        title="Edit Book Name"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleEditBookName(item);
+                                        }}
+                                    >
+                                        <i className="codicon codicon-edit text-xs" />
+                                    </Button>
+                                )}
+                                {item.type === "corpus" && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="menu-button w-6 h-6"
+                                        title="Rename Group"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleEditCorpusMarker(item);
+                                        }}
+                                    >
+                                        <i className="codicon codicon-edit text-xs" />
+                                    </Button>
+                                )}
+                                {!isGroup && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="menu-button w-6 h-6"
+                                        title="Delete"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDelete(item);
+                                        }}
+                                    >
+                                        <i className="codicon codicon-trash text-xs" />
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Row 2: progress bars below label */}
+                        {hasProgress && (
+                            <div
+                                className="pl-7 flex flex-col gap-1.5"
+                                onClick={isGroup ? undefined : (e) => e.stopPropagation()}
+                            >
+                                {/* Text progress */}
+                                <div className="flex items-center gap-2">
+                                    <Languages className="h-3 w-3 flex-shrink-0 opacity-60" />
+                                    <Progress
+                                        value={progressValues.textCompletion}
+                                        validationValues={progressValues.textValidationLevels}
+                                        requiredValidations={progressValues.requiredTextValidations}
+                                        showPercentage
+                                        showTooltips
                                     />
+                                </div>
+                                {/* Audio progress - only show if there's audio data */}
+                                {hasAudio && (
+                                    <div className="flex items-center gap-2">
+                                        <Mic className="h-3 w-3 flex-shrink-0 opacity-60" />
+                                        <Progress
+                                            value={progressValues.audioCompletion}
+                                            validationValues={
+                                                progressValues.audioValidationLevels
+                                            }
+                                            requiredValidations={
+                                                progressValues.requiredAudioValidations
+                                            }
+                                            showPercentage
+                                            showTooltips
+                                        />
+                                    </div>
                                 )}
                             </div>
                         )}
-
-                        {/* Direct action buttons - visible on hover */}
-                        <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {item.type === "codexDocument" && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="menu-button w-6 h-6"
-                                    title="Edit Book Name"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleEditBookName(item);
-                                    }}
-                                >
-                                    <i className="codicon codicon-edit text-xs" />
-                                </Button>
-                            )}
-                            {item.type === "corpus" && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="menu-button w-6 h-6"
-                                    title="Rename Group"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleEditCorpusMarker(item);
-                                    }}
-                                >
-                                    <i className="codicon codicon-edit text-xs" />
-                                </Button>
-                            )}
-                            {!isGroup && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="menu-button w-6 h-6"
-                                    title="Delete"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDelete(item);
-                                    }}
-                                >
-                                    <i className="codicon codicon-trash text-xs" />
-                                </Button>
-                            )}
-                        </div>
                     </div>
                 </div>
                 {isGroup && isExpanded && item.children && (
@@ -893,21 +926,6 @@ function NavigationView() {
                 >
                     <i className="codicon codicon-sort-precedence" />
                 </Button>
-            </div>
-
-            {/* Progress legend */}
-            <div className="mb-3 flex items-center justify-end gap-3 text-[10px] text-muted-foreground">
-                <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-primary" />
-                    <span>Complete</span>
-                </div>
-                <div className="flex items-center gap-1">
-                    <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
-                    />
-                    <span>Validated</span>
-                </div>
             </div>
 
             <div className="flex-1 overflow-auto flex flex-col gap-1.5">

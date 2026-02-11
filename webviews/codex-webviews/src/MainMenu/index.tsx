@@ -72,7 +72,7 @@ function EditableField({ value, onSave, placeholder = "Click to edit", className
     return (
         <span
             onClick={() => setIsEditing(true)}
-            className={`cursor-pointer hover:bg-muted/50 px-1 -mx-1 py-0.5 rounded transition-colors ${className}`}
+            className={`cursor-pointer hover:bg-accent px-1 -mx-1 py-0.5 rounded transition-colors ${className}`}
             title="Click to edit"
         >
             {value || <span className="text-muted-foreground italic">{placeholder}</span>}
@@ -552,7 +552,7 @@ function MainMenu() {
                                         {/* Languages row */}
                                         <div className="grid grid-cols-2 gap-4">
                                             <div
-                                                className="p-3 rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
                                                 onClick={() => handleProjectAction("changeSourceLanguage", projectState.projectOverview.sourceLanguage)}
                                                 title="Click to change source language"
                                             >
@@ -562,7 +562,7 @@ function MainMenu() {
                                                 </div>
                                             </div>
                                             <div
-                                                className="p-3 rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                                                className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
                                                 onClick={() => handleProjectAction("changeTargetLanguage", projectState.projectOverview.targetLanguage)}
                                                 title="Click to change target language"
                                             >
@@ -577,25 +577,55 @@ function MainMenu() {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="p-3 rounded-lg bg-muted/30">
                                                 <div className="text-xs text-muted-foreground mb-2">Required Validations</div>
-                                                <div className="flex gap-4 text-sm">
-                                                    <span
-                                                        className="cursor-pointer hover:text-primary transition-colors"
-                                                        onClick={() => handleProjectAction("setValidationCount")}
-                                                        title="Click to change"
-                                                    >
-                                                        Text: <strong>{projectState.projectOverview.validationCount || 1}</strong>
-                                                    </span>
-                                                    <span
-                                                        className="cursor-pointer hover:text-primary transition-colors"
-                                                        onClick={() => handleProjectAction("setValidationCountAudio")}
-                                                        title="Click to change"
-                                                    >
-                                                        Audio: <strong>{projectState.projectOverview.validationCountAudio || 1}</strong>
-                                                    </span>
+                                                <div className="flex gap-4 text-sm items-center">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-muted-foreground">Text:</span>
+                                                        <div className="flex items-center gap-0.5">
+                                                            <button
+                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                onClick={() => {
+                                                                    const current = projectState.projectOverview.validationCount || 1;
+                                                                    if (current > 1) handleProjectAction("setValidationCountDirect", { count: current - 1 });
+                                                                }}
+                                                                title="Decrease"
+                                                            >-</button>
+                                                            <span className="w-5 text-center font-semibold">{projectState.projectOverview.validationCount || 1}</span>
+                                                            <button
+                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                onClick={() => {
+                                                                    const current = projectState.projectOverview.validationCount || 1;
+                                                                    if (current < 15) handleProjectAction("setValidationCountDirect", { count: current + 1 });
+                                                                }}
+                                                                title="Increase"
+                                                            >+</button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-muted-foreground">Audio:</span>
+                                                        <div className="flex items-center gap-0.5">
+                                                            <button
+                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                onClick={() => {
+                                                                    const current = projectState.projectOverview.validationCountAudio || 1;
+                                                                    if (current > 1) handleProjectAction("setValidationCountAudioDirect", { count: current - 1 });
+                                                                }}
+                                                                title="Decrease"
+                                                            >-</button>
+                                                            <span className="w-5 text-center font-semibold">{projectState.projectOverview.validationCountAudio || 1}</span>
+                                                            <button
+                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                onClick={() => {
+                                                                    const current = projectState.projectOverview.validationCountAudio || 1;
+                                                                    if (current < 15) handleProjectAction("setValidationCountAudioDirect", { count: current + 1 });
+                                                                }}
+                                                                title="Increase"
+                                                            >+</button>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div
-                                                className="p-3 rounded-lg bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                                                className="p-3 rounded-lg bg-muted/30 cursor-pointer hover:bg-accent transition-colors"
                                                 onClick={() => handleProjectAction("openSourceUpload")}
                                                 title="Click to add documents"
                                             >
@@ -653,7 +683,7 @@ function MainMenu() {
                                                 className={`flex items-center gap-2 p-3 rounded-lg text-left transition-colors text-sm ${
                                                     item.destructive
                                                         ? "hover:bg-destructive/10 hover:text-destructive"
-                                                        : "hover:bg-muted/50"
+                                                        : "hover:bg-accent"
                                                 } ${item.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                                             >
                                                 <i
