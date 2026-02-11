@@ -1442,7 +1442,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants } = typedEvent.content || {};
+        const { cellId, selectedIndex, testId, selectionTimeMs, totalVariants } = typedEvent.content || {};
+        // These fields may come from extended payloads but aren't in the strict type
+        const selectedContent = (typedEvent.content as any)?.selectedContent as string | undefined;
+        const testName = (typedEvent.content as any)?.testName as string | undefined;
+        const variants = (typedEvent.content as any)?.variants as string[] | undefined;
         const variantNames: string[] | undefined = variants;
         const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 

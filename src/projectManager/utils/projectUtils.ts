@@ -1339,9 +1339,13 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
         return mergedEntries.length > 0 ? { swapEntries: mergedEntries } : undefined;
     };
 
-    // Process all projects: collect data and deprecated URLs/names in one pass
+    // Process all projects: collect data and deprecated/hidden URLs/names in one pass
     const deprecatedUrls = new Set<string>();
     const deprecatedNames = new Set<string>(); // Also track by name for remote-only projects
+    // Track NEW project URLs/names to hide when OLD project is local with active swap
+    // This prevents users from opening the new project directly and skipping the swap flow
+    const newProjectUrlsToHide = new Set<string>();
+    const newProjectNamesToHide = new Set<string>();
     const processedProjects: Array<{
         project: LocalProject;
         swapInfo: ProjectSwapInfo | undefined;
@@ -1376,11 +1380,11 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
 
             const mergedSwapInfo = mergeSwapEntries(metadataSwapInfo, localSwapFileInfo);
 
-            // Collect deprecated URLs AND names from "current" projects (isOldProject=false in active entry)
             if (mergedSwapInfo) {
                 const normalizedInfo = normalizeProjectSwapInfo(mergedSwapInfo);
                 const activeEntry = getActiveSwapEntry(normalizedInfo);
-                
+
+                // Collect deprecated URLs AND names from "current" projects (isOldProject=false in active entry)
                 if (activeEntry?.isOldProject === false) {
                     for (const dep of getDeprecatedProjectsFromHistory(normalizedInfo)) {
                         if (dep.url) {
@@ -1389,6 +1393,16 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
                         if (dep.name) {
                             deprecatedNames.add(dep.name.toLowerCase());
                         }
+                    }
+                }
+
+                // Collect NEW project URLs/names from OLD projects with active swap
+                // When old project is local and demanding a swap, hide the new project
+                // to force users through the swap flow (prevents skipping swap and leaving unmerged work)
+                if (activeEntry?.isOldProject === true && activeEntry.newProjectUrl) {
+                    newProjectUrlsToHide.add(activeEntry.newProjectUrl.toLowerCase());
+                    if (activeEntry.newProjectName) {
+                        newProjectNamesToHide.add(activeEntry.newProjectName.toLowerCase());
                     }
                 }
             }
@@ -1400,7 +1414,7 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
         }
     }
 
-    // Filter: hide deprecated (by URL or name), handle swap status for the rest
+    // Filter: hide deprecated (by URL or name) and new projects pending swap, handle swap status for the rest
     return processedProjects
         .filter(({ project, gitUrl }) => {
             // Check by URL first (most reliable)
@@ -1411,6 +1425,15 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
             // Also check by name (for remote-only projects without gitOriginUrl)
             if (project.name && deprecatedNames.has(project.name.toLowerCase())) {
                 debug(`HIDING deprecated project (by name): ${project.name}`);
+                return false;
+            }
+            // Hide NEW projects when OLD local project has active swap
+            if (gitUrl && newProjectUrlsToHide.has(gitUrl)) {
+                debug(`HIDING new project pending swap (by URL): ${project.name}`);
+                return false;
+            }
+            if (project.name && newProjectNamesToHide.has(project.name.toLowerCase())) {
+                debug(`HIDING new project pending swap (by name): ${project.name}`);
                 return false;
             }
             return true;
