@@ -46,6 +46,7 @@ import {
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -290,6 +291,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     safePostMessageToPanel(panel, {
                         type: "updateCellsPerPage",
                         cellsPerPage: newCellsPerPage,
+                    });
+                });
+            }
+
+            if (e.affectsConfiguration("codex-project-manager.showHealthIndicators")) {
+                // Send updated health indicators setting to all webviews
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const showHealthIndicators = config.get<boolean>("showHealthIndicators", false);
+                this.webviewPanels.forEach((panel) => {
+                    this.postMessageToWebview(panel, {
+                        type: "updateShowHealthIndicators",
+                        showHealthIndicators: showHealthIndicators,
                     });
                 });
             }
@@ -856,6 +869,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     debug("Could not fetch user role:", error);
                 }
 
+                // Get health indicator setting
+                const showHealthIndicators = vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<boolean>("showHealthIndicators", false);
+
                 this.postMessageToWebview(webviewPanel, {
                     type: "providerSendsInitialContentPaginated",
                     rev,
@@ -870,6 +888,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
+                    showHealthIndicators: showHealthIndicators,
                 });
 
                 // Record the initial position so subsequent updateWebview() calls
@@ -1090,6 +1109,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const docUri = document.uri.toString();
                 const rev = this.bumpDocumentRevision(docUri);
 
+                // Debug: log all document change events to see what's happening
+                if (e.edits && e.edits.length > 0) {
+                    console.log("[CodexCellEditorProvider] Document change event:", {
+                        editType: e.edits[0].type,
+                        cellId: e.edits[0].cellId,
+                        hasHealth: "health" in e.edits[0],
+                        health: (e.edits[0] as any).health,
+                    });
+                }
+
                 // Check if this is a validation update
                 if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {
                     // Broadcast the validation update to all webviews for this document
@@ -1098,18 +1127,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         content: {
                             cellId: e.edits[0].cellId,
                             validatedBy: e.edits[0].validatedBy,
+                            health: (e.edits[0] as any).health,
                         },
                     };
+
+                    console.log("[CodexCellEditorProvider] 📤 Sending providerUpdatesValidationState:", {
+                        cellId: validationUpdate.content.cellId,
+                        validatedByCount: validationUpdate.content.validatedBy?.length || 0,
+                        health: validationUpdate.content.health,
+                        validatedBy: validationUpdate.content.validatedBy,
+                    });
 
                     // Send to all webviews that have this document open
                     this.webviewPanels.forEach((panel, docUri) => {
                         if (docUri === document.uri.toString()) {
-                            safePostMessageToPanel(panel, validationUpdate);
+                            const sent = safePostMessageToPanel(panel, validationUpdate);
+                            console.log("[CodexCellEditorProvider] Message sent:", sent, "to panel:", docUri);
                         }
                     });
 
-                    // Still update the current webview with the full content
-                    updateWebview();
+                    // Note: Don't call updateWebview() here - the targeted validation message
+                    // already includes health, and a full refresh would cause a race condition
+                    // that overwrites the health update
                 } else if (e.edits && e.edits.length > 0 && e.edits[0].type === "audioValidation") {
                     const selectedAudioId = document.getExplicitAudioSelection(e.edits[0].cellId) ?? undefined;
                     // Broadcast the audio validation update to all webviews for this document
@@ -1119,6 +1158,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             cellId: e.edits[0].cellId,
                             validatedBy: e.edits[0].validatedBy,
                             selectedAudioId,
+                            health: (e.edits[0] as any).health,
                         },
                     };
 
@@ -1129,8 +1169,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                     });
 
-                    // Still update the current webview with the full content
-                    updateWebview();
+                    // Note: Don't call updateWebview() here - the targeted validation message
+                    // already includes health, and a full refresh would cause a race condition
+                    // that overwrites the health update
                 } else {
                     // Check if this is a paratext cell addition
                     debug("Document change event", { edits: e.edits, firstEdit: e.edits?.[0] });
@@ -2283,6 +2324,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 selectedAudioId: cell.metadata?.selectedAudioId,
                 selectionTimestamp: cell.metadata?.selectionTimestamp,
                 isLocked: cell.metadata?.isLocked,
+                health: cell.metadata?.health,
             },
         }));
         debug("Translation units:", translationUnits);
@@ -3414,6 +3456,31 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         throw new Error("Translation cancelled");
                     }
 
+                    // Calculate health from example cells for LLM-generated content
+                    // Health = 90% of average example health, but never below baseline (0.3)
+                    let calculatedHealth: number | undefined;
+                    const exampleCellIds = (completionResult as any)?.exampleCellIds;
+                    console.log(`[HealthCalc] Example cell IDs:`, exampleCellIds);
+                    if (exampleCellIds && exampleCellIds.length > 0) {
+                        const indexManager = getSQLiteIndexManager();
+                        if (indexManager) {
+                            const healthMap = await indexManager.getCellsHealth(exampleCellIds);
+                            console.log(`[HealthCalc] Health map size: ${healthMap.size}, values:`, Array.from(healthMap.entries()));
+                            if (healthMap.size > 0) {
+                                const healthValues = Array.from(healthMap.values());
+                                const avgHealth = healthValues.reduce((a, b) => a + b, 0) / healthValues.length;
+                                // Ensure health is at least 0.3 (baseline) - otherwise low-health examples
+                                // would produce even lower health for new cells
+                                calculatedHealth = Math.max(0.3, 0.9 * avgHealth);
+                                console.log(`[HealthCalc] avgHealth: ${avgHealth}, calculatedHealth: ${calculatedHealth}`);
+                            }
+                        } else {
+                            console.log(`[HealthCalc] No index manager available`);
+                        }
+                    } else {
+                        console.log(`[HealthCalc] No example cell IDs provided`);
+                    }
+
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
                         const { variants, testId, testName, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
@@ -3430,7 +3497,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     currentCellId,
                                     singleCompletion,
                                     EditType.LLM_GENERATION,
-                                    shouldUpdateValue
+                                    shouldUpdateValue,
+                                    false, // retainValidations
+                                    false, // skipAutoValidation
+                                    calculatedHealth
                                 );
                                 this.updateSingleCellTranslation(1.0);
                                 debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
@@ -3489,7 +3559,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         currentCellId,
                         singleCompletion,
                         EditType.LLM_GENERATION,
-                        shouldUpdateValue
+                        shouldUpdateValue,
+                        false, // retainValidations
+                        false, // skipAutoValidation
+                        calculatedHealth
                     );
 
                     // If this was a preview-only update, persist the edit to disk immediately so edit history is saved

@@ -18,6 +18,10 @@ interface ValidatorPopoverProps {
         getActivePopover: () => string | null;
         setActivePopover: (id: string | null) => void;
     };
+    health?: number; // Health score (0-1) for showing when no validators
+    showHealthWhenNoValidators?: boolean; // Whether to show health info when validators.length === 0
+    isPendingValidation?: boolean; // Whether validation is pending (waiting for backend)
+    currentValidations?: number; // Number of current validations
 }
 
 export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
@@ -33,6 +37,10 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     scheduleCloseTimer,
     title = "Validators",
     popoverTracker = audioPopoverTracker,
+    health,
+    showHealthWhenNoValidators = false,
+    isPendingValidation = false,
+    currentValidations = 0,
 }) => {
     const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -151,7 +159,42 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
         }
     };
 
-    if (!show || validators.length === 0) return null;
+    // Show popover if:
+    // 1. There are validators, OR
+    // 2. Validation is pending (show "Validating..."), OR
+    // 3. We should show health when no validators AND health data exists
+    const hasValidators = validators.length > 0;
+    const isPendingWithNoValidators = isPendingValidation && !hasValidators;
+    const shouldShowHealth =
+        showHealthWhenNoValidators &&
+        health !== undefined &&
+        health !== null &&
+        !isPendingValidation &&
+        !hasValidators;
+    const shouldShowPopover = hasValidators || isPendingWithNoValidators || shouldShowHealth;
+
+    if (!show || !shouldShowPopover) return null;
+
+    // Helper to format health information
+    const getHealthInfo = (h: number): { percentage: number; label: string; color: string } => {
+        const normalizedHealth = Math.max(0, Math.min(1, h));
+        const percentage = Math.round(normalizedHealth * 100);
+        let label = "Unverified";
+        let color = "#ef4444"; // red
+
+        if (normalizedHealth >= 1.0) {
+            label = "Validated";
+            color = "#22c55e"; // green
+        } else if (normalizedHealth >= 0.7) {
+            label = "High confidence";
+            color = "#22c55e"; // green
+        } else if (normalizedHealth >= 0.3) {
+            label = "Medium confidence";
+            color = "#eab308"; // yellow
+        }
+
+        return { percentage, label, color };
+    };
 
     return (
         <div
@@ -175,7 +218,13 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
             onKeyDown={handleKeyDown}
         >
             <div className="flex items-center justify-between w-full">
-                <div className="font-extralight text-base">{title}</div>
+                <div className="font-extralight text-base">
+                    {hasValidators
+                        ? title
+                        : isPendingWithNoValidators
+                        ? "Validating..."
+                        : "Health Status"}
+                </div>
                 <div
                     tabIndex={0}
                     className="flex items-baseline justify-end cursor-pointer font-light text-gray-400"
@@ -199,99 +248,162 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
                 </div>
             </div>
             <div className="flex flex-col gap-y-2">
-                {validators.map((user) => {
-                    const isCurrentUser = user.username === currentUsername;
+                {isPendingWithNoValidators ? (
+                    // Show pending state while waiting for validation to complete
+                    <div className="flex items-center gap-x-2">
+                        <i
+                            className="codicon codicon-loading"
+                            style={{
+                                fontSize: "14px",
+                                animation: "spin 1.5s linear infinite",
+                            }}
+                        />
+                        <span className="text-sm">Waiting for validation...</span>
+                    </div>
+                ) : hasValidators ? (
+                    validators.map((user) => {
+                        const isCurrentUser = user.username === currentUsername;
 
-                    return (
-                        <div
-                            className="relative flex items-center justify-between"
-                            key={user.username}
-                        >
-                            <div className="flex flex-1 items-center justify-between">
-                                <div className="flex flex-col">
-                                    <span
-                                        className={`${isCurrentUser ? "font-bold" : "font-normal"}`}
-                                        style={{ overflowWrap: "anywhere" }}
-                                    >
-                                        {user.username}
-                                    </span>
-                                    <span
-                                        className="flex text-xs"
+                        return (
+                            <div
+                                className="relative flex items-center justify-between"
+                                key={user.username}
+                            >
+                                <div className="flex flex-1 items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <span
+                                            className={`${
+                                                isCurrentUser ? "font-bold" : "font-normal"
+                                            }`}
+                                            style={{ overflowWrap: "anywhere" }}
+                                        >
+                                            {user.username}
+                                        </span>
+                                        <span
+                                            className="flex text-xs"
+                                            style={{
+                                                color: "var(--vscode-descriptionForeground)",
+                                            }}
+                                        >
+                                            {formatTimestamp(user.updatedTimestamp)}
+                                        </span>
+                                    </div>
+
+                                    {isCurrentUser && onRemoveSelf && (
+                                        <span
+                                            tabIndex={0}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onRemoveSelf();
+                                                setShow(false);
+                                                if (
+                                                    popoverTracker.getActivePopover() === uniqueId
+                                                ) {
+                                                    popoverTracker.setActivePopover(null);
+                                                }
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                    e.preventDefault();
+                                                    onRemoveSelf();
+                                                    setShow(false);
+                                                }
+                                            }}
+                                            title="Remove your audio validation"
+                                            className="audio-validation-trash-icon flex items-start justify-center cursor-pointer h-8"
+                                            style={{
+                                                transition: "background-color 0.2s",
+                                            }}
+                                        >
+                                            <svg
+                                                width="16"
+                                                height="16"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                            >
+                                                <path
+                                                    d="M3 6H5H21"
+                                                    stroke="#ff5252"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                                <path
+                                                    d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
+                                                    stroke="#ff5252"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                                <path
+                                                    d="M10 11V17"
+                                                    stroke="#ff5252"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                                <path
+                                                    d="M14 11V17"
+                                                    stroke="#ff5252"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                            </svg>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })
+                ) : shouldShowHealth && health !== undefined ? (
+                    // Show health information when no validators
+                    <div className="flex flex-col gap-y-1">
+                        {(() => {
+                            const healthInfo = getHealthInfo(health);
+                            return (
+                                <>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm">Confidence:</span>
+                                        <span
+                                            className="text-sm font-semibold"
+                                            style={{ color: healthInfo.color }}
+                                        >
+                                            {healthInfo.percentage}%
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm">Status:</span>
+                                        <span
+                                            className="text-sm"
+                                            style={{ color: healthInfo.color }}
+                                        >
+                                            {healthInfo.label}
+                                        </span>
+                                    </div>
+                                    <div
+                                        className="text-xs mt-1"
                                         style={{
                                             color: "var(--vscode-descriptionForeground)",
                                         }}
                                     >
-                                        {formatTimestamp(user.updatedTimestamp)}
-                                    </span>
-                                </div>
-
-                                {isCurrentUser && onRemoveSelf && (
-                                    <span
-                                        tabIndex={0}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onRemoveSelf();
-                                            setShow(false);
-                                            if (popoverTracker.getActivePopover() === uniqueId) {
-                                                popoverTracker.setActivePopover(null);
-                                            }
-                                        }}
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
-                                                e.preventDefault();
-                                                onRemoveSelf();
-                                                setShow(false);
-                                            }
-                                        }}
-                                        title="Remove your audio validation"
-                                        className="audio-validation-trash-icon flex items-start justify-center cursor-pointer h-8"
-                                        style={{
-                                            transition: "background-color 0.2s",
-                                        }}
-                                    >
-                                        <svg
-                                            width="16"
-                                            height="16"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                        >
-                                            <path
-                                                d="M3 6H5H21"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                            <path
-                                                d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                            <path
-                                                d="M10 11V17"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                            <path
-                                                d="M14 11V17"
-                                                stroke="#ff5252"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                        </svg>
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
+                                        No validators yet
+                                    </div>
+                                </>
+                            );
+                        })()}
+                    </div>
+                ) : null}
             </div>
+            <style>
+                {`
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                `}
+            </style>
         </div>
     );
 };

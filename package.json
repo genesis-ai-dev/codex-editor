@@ -537,6 +537,11 @@
                         "default": "",
                         "description": "Name of the project"
                     },
+                    "codex-project-manager.showHealthIndicators": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Show health indicators for translation cells and files"
+                    },
                     "codex-project-manager.validationCount": {
                         "type": "integer",
                         "default": 1,
