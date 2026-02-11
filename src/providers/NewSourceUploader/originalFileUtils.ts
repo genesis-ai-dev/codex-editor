@@ -31,6 +31,8 @@ export interface OriginalFileEntry {
     fileName: string;
     /** Original filename(s) that mapped to this file (for reference) */
     originalNames: string[];
+    /** Notebook base names (without extension) that reference this original file */
+    referencedBy: string[];
     /** Timestamp when first added */
     addedAt: string;
 }
@@ -111,6 +113,13 @@ export async function loadOriginalFilesRegistry(
         if (!registry.fileNameToHash) registry.fileNameToHash = {};
         if (!registry.version) registry.version = 1;
 
+        // Migration: ensure all entries have referencedBy array
+        for (const entry of Object.values(registry.files)) {
+            if (!entry.referencedBy) {
+                entry.referencedBy = [];
+            }
+        }
+
         return registry;
     } catch {
         // Registry doesn't exist, create empty one
@@ -175,12 +184,14 @@ function generateUniqueFileName(
  * @param workspaceFolder The workspace folder
  * @param requestedFileName The desired filename for the original file
  * @param fileData The file content
+ * @param notebookBaseName Optional base name of the notebook referencing this file (e.g., "test-(uuid)")
  * @returns Result with the actual filename to use in metadata
  */
 export async function saveOriginalFileWithDeduplication(
     workspaceFolder: vscode.WorkspaceFolder,
     requestedFileName: string,
-    fileData: Uint8Array | ArrayBuffer | Buffer
+    fileData: Uint8Array | ArrayBuffer | Buffer,
+    notebookBaseName?: string
 ): Promise<OriginalFileResult> {
     // Compute hash of the file
     const hash = computeFileHash(fileData);
@@ -195,9 +206,21 @@ export async function saveOriginalFileWithDeduplication(
         // We already have a file with the same content
         console.log(`[OriginalFiles] File with hash ${hash.slice(0, 8)}... already exists as "${existingEntry.fileName}"`);
 
+        let registryChanged = false;
+
         // Track this original name if it's new
         if (!existingEntry.originalNames.includes(requestedFileName)) {
             existingEntry.originalNames.push(requestedFileName);
+            registryChanged = true;
+        }
+
+        // Track notebook reference
+        if (notebookBaseName && !existingEntry.referencedBy.includes(notebookBaseName)) {
+            existingEntry.referencedBy.push(notebookBaseName);
+            registryChanged = true;
+        }
+
+        if (registryChanged) {
             await saveOriginalFilesRegistry(workspaceFolder, registry);
         }
 
@@ -237,6 +260,7 @@ export async function saveOriginalFileWithDeduplication(
         hash,
         fileName: actualFileName,
         originalNames: [requestedFileName],
+        referencedBy: notebookBaseName ? [notebookBaseName] : [],
         addedAt: new Date().toISOString(),
     };
     registry.fileNameToHash[actualFileName] = hash;
@@ -291,6 +315,110 @@ export async function getAllOriginalFiles(
 ): Promise<OriginalFileEntry[]> {
     const registry = await loadOriginalFilesRegistry(workspaceFolder);
     return Object.values(registry.files);
+}
+
+/**
+ * Remove a notebook reference from the registry.
+ * If no other notebooks reference the original file, deletes the file from disk and registry.
+ * 
+ * @param workspaceFolder The workspace folder
+ * @param notebookBaseName The base name of the notebook being deleted (e.g., "test-(uuid)")
+ * @param originalFileName The originalFileName from the notebook's metadata (points to file in originals/)
+ * @returns Whether the original file was deleted from disk
+ */
+export async function removeNotebookReference(
+    workspaceFolder: vscode.WorkspaceFolder,
+    notebookBaseName: string,
+    originalFileName?: string
+): Promise<{ originalFileDeleted: boolean; fileName: string | null }> {
+    const registry = await loadOriginalFilesRegistry(workspaceFolder);
+
+    // Find the entry by originalFileName or by scanning referencedBy
+    let targetHash: string | null = null;
+    let targetEntry: OriginalFileEntry | null = null;
+
+    if (originalFileName) {
+        // Look up by filename first
+        const hash = registry.fileNameToHash[originalFileName];
+        if (hash && registry.files[hash]) {
+            targetHash = hash;
+            targetEntry = registry.files[hash];
+        }
+    }
+
+    // If not found by filename, scan all entries for this notebook reference
+    if (!targetEntry) {
+        for (const [hash, entry] of Object.entries(registry.files)) {
+            if (entry.referencedBy.includes(notebookBaseName)) {
+                targetHash = hash;
+                targetEntry = entry;
+                break;
+            }
+        }
+    }
+
+    if (!targetEntry || !targetHash) {
+        console.log(`[OriginalFiles] No registry entry found for notebook "${notebookBaseName}"`);
+        return { originalFileDeleted: false, fileName: null };
+    }
+
+    // Remove this notebook from referencedBy
+    targetEntry.referencedBy = targetEntry.referencedBy.filter(ref => ref !== notebookBaseName);
+    console.log(`[OriginalFiles] Removed reference "${notebookBaseName}" from "${targetEntry.fileName}" (${targetEntry.referencedBy.length} references remaining)`);
+
+    if (targetEntry.referencedBy.length === 0) {
+        // No more references - delete the original file and registry entry
+        const originalsDir = getOriginalsDir(workspaceFolder);
+        const fileUri = vscode.Uri.joinPath(originalsDir, targetEntry.fileName);
+        const deletedFileName = targetEntry.fileName;
+
+        try {
+            await vscode.workspace.fs.delete(fileUri);
+            console.log(`[OriginalFiles] Deleted unreferenced original file: ${targetEntry.fileName}`);
+        } catch (err) {
+            console.warn(`[OriginalFiles] Could not delete original file "${targetEntry.fileName}": ${err}`);
+        }
+
+        // Remove from registry
+        delete registry.files[targetHash];
+        delete registry.fileNameToHash[targetEntry.fileName];
+        await saveOriginalFilesRegistry(workspaceFolder, registry);
+
+        return { originalFileDeleted: true, fileName: deletedFileName };
+    }
+
+    // Still has references, just save the updated registry
+    await saveOriginalFilesRegistry(workspaceFolder, registry);
+    return { originalFileDeleted: false, fileName: targetEntry.fileName };
+}
+
+/**
+ * Add a notebook reference to an existing registry entry (by originalFileName).
+ * Used when the notebook base name isn't known at import time but is known after file creation.
+ * 
+ * @param workspaceFolder The workspace folder
+ * @param originalFileName The originalFileName stored in metadata
+ * @param notebookBaseName The base name of the notebook (e.g., "test-(uuid)")
+ */
+export async function addNotebookReference(
+    workspaceFolder: vscode.WorkspaceFolder,
+    originalFileName: string,
+    notebookBaseName: string
+): Promise<void> {
+    const registry = await loadOriginalFilesRegistry(workspaceFolder);
+
+    const hash = registry.fileNameToHash[originalFileName];
+    if (!hash || !registry.files[hash]) {
+        console.warn(`[OriginalFiles] Cannot add reference: no registry entry for "${originalFileName}"`);
+        return;
+    }
+
+    const entry = registry.files[hash];
+    if (!entry.referencedBy.includes(notebookBaseName)) {
+        entry.referencedBy.push(notebookBaseName);
+        await saveOriginalFilesRegistry(workspaceFolder, registry);
+        console.log(`[OriginalFiles] Added reference "${notebookBaseName}" to "${originalFileName}" (${entry.referencedBy.length} total)`);
+    }
 }
 
 /**

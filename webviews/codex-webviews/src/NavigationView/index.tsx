@@ -461,6 +461,24 @@ function NavigationView() {
         }));
     };
 
+    const handleDeleteCorpusMarker = (item: CodexItem) => {
+        const displayName =
+            item.children?.[0]?.corpusMarker ||
+            formatLabel(item.label, state.bibleBookMap || new Map());
+        vscode.postMessage({
+            command: "deleteCorpusMarker",
+            content: {
+                corpusLabel: item.label,
+                displayName,
+                children: item.children?.map((c) => ({
+                    uri: c.uri,
+                    label: c.label,
+                    type: c.type,
+                })) ?? [],
+            },
+        });
+    };
+
     const handleRenameModalClose = () => {
         setState((prev) => ({
             ...prev,
@@ -847,16 +865,29 @@ function NavigationView() {
                                         </div>
                                     )}
                                     {item.type === "corpus" && (
-                                        <div
-                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEditCorpusMarker(item);
-                                            }}
-                                        >
-                                            <i className="codicon codicon-edit" />
-                                            Rename Group
-                                        </div>
+                                        <>
+                                            <div
+                                                className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEditCorpusMarker(item);
+                                                }}
+                                            >
+                                                <i className="codicon codicon-edit" />
+                                                Rename Group
+                                            </div>
+                                            <div
+                                                className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground text-destructive"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    handleDeleteCorpusMarker(item);
+                                                }}
+                                            >
+                                                <i className="codicon codicon-trash" />
+                                                Delete Folder
+                                            </div>
+                                        </>
                                     )}
                                     {!isGroup && (
                                         <div

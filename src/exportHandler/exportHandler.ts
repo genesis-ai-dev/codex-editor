@@ -463,9 +463,11 @@ async function exportCodexContentAsDocxRoundtrip(
                         continue;
                     }
 
-                    // Lookup original attachment by originalFileName metadata
+                    // Lookup original attachment by originalFileName or originalName metadata
                     // Note: originalFileName now points to the actual deduplicated file in attachments/originals
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.docx`;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        `${bookCode}.docx`;
                     // Originals are stored under `.project/attachments/originals/` (preferred).
                     // Fallback to legacy `.project/attachments/files/originals/` if needed.
                     const originalsDirPreferred = vscode.Uri.joinPath(
@@ -566,8 +568,10 @@ async function exportCodexContentAsPdfRoundtrip(
                         continue;
                     }
 
-                    // Lookup original attachment by originalFileName metadata
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.pdf`;
+                    // Lookup original attachment by originalFileName or originalName metadata
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        `${bookCode}.pdf`;
 
                     // Check both preferred and legacy locations for converted DOCX
                     const originalsDirPreferred = vscode.Uri.joinPath(
@@ -886,7 +890,9 @@ async function convertDocxToPdfViaExtension(docxPath: string): Promise<ArrayBuff
                         : vscode.Uri.file(filePath.replace(/\.codex$/, '.source').replace(/files[/\\]target/, '.project/sourceTexts'));
 
                     const sourceNotebook = await readCodexNotebookFromUri(sourceFile);
-                    const originalFileName = (sourceNotebook.metadata as any)?.originalFileName || `${bookCode}.rtf`;
+                    const originalFileName = (sourceNotebook.metadata as any)?.originalFileName ||
+                        (sourceNotebook.metadata as any)?.originalName ||
+                        `${bookCode}.rtf`;
 
                     // Build translation map from codex cells
                     const translations: { [paragraphIndex: number]: string; } = {};
@@ -1050,7 +1056,9 @@ async function exportCodexContentAsObsRoundtrip(
                     console.log('[OBS Export] Generated markdown with translations, length:', updatedMarkdown.length);
 
                     // Determine output filename
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${fileName.split('.')[0]}.md`;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        `${fileName.split('.')[0]}.md`;
                     const baseFileName = originalFileName.replace(/\.md$/i, '');
 
                     // Create timestamped filename
@@ -1130,7 +1138,8 @@ async function exportCodexContentAsUsfmRoundtrip(
 
                     // Get original file name from metadata with fallback
                     // Try multiple sources: codex metadata, source notebook metadata, or construct from bookCode
-                    let metadataOriginalFileName = (codexNotebook.metadata as any)?.originalFileName;
+                    let metadataOriginalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName;
                     const metadataBookCode = (codexNotebook.metadata as any)?.bookCode;
                     const finalBookCode = metadataBookCode || bookCode;
 
@@ -1145,7 +1154,8 @@ async function exportCodexContentAsUsfmRoundtrip(
                                 sourceFileName
                             );
                             const sourceNotebook = await readCodexNotebookFromUri(sourceFileUri);
-                            metadataOriginalFileName = (sourceNotebook.metadata as any)?.originalFileName;
+                            metadataOriginalFileName = (sourceNotebook.metadata as any)?.originalFileName ||
+                                (sourceNotebook.metadata as any)?.originalName;
                             if (metadataOriginalFileName) {
                                 console.log(`[USFM Export] Found originalFileName in source notebook: ${metadataOriginalFileName}`);
                             }
@@ -1304,7 +1314,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
 
             // Import spreadsheet exporter
             const { exportSpreadsheetWithTranslations, getDelimiterFromMetadata, getSpreadsheetExtension } =
-                await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/spreadsheet/spreadsheetExporter");
+                await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/bibleSpredSheet/spreadsheetExporter");
 
             for (const [index, filePath] of filesToExport.entries()) {
                 progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
@@ -1320,7 +1330,9 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
                     // Check if this is a spreadsheet file
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
                     const importerType = (codexNotebook.metadata as any)?.importerType;
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || '';
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        '';
 
                     // Check for any spreadsheet importer type
                     const isSpreadsheet =
@@ -1487,7 +1499,8 @@ async function exportCodexContentAsTmsRoundtrip(
                     const fileFormat = (codexNotebook.metadata as any)?.fileFormat || corpusMarker; // Fallback to corpusMarker for old files
                     const fileType = (codexNotebook.metadata as any)?.fileType; // Direct file type field (tmx or xliff)
                     // Get original filename - this now points to the actual deduplicated file in attachments/originals
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName;
 
                     if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
                         console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);
@@ -1607,7 +1620,11 @@ async function exportCodexContentAsRebuild(
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker ? String((codexNotebook.metadata as any).corpusMarker).trim() : '';
                     const importerType = (codexNotebook.metadata as any)?.importerType ? String((codexNotebook.metadata as any).importerType).trim() : '';
                     const fileType = (codexNotebook.metadata as any)?.fileType ? String((codexNotebook.metadata as any).fileType).trim() : '';
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ? String((codexNotebook.metadata as any).originalFileName).trim() : '';
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName
+                        ? String((codexNotebook.metadata as any).originalFileName).trim()
+                        : (codexNotebook.metadata as any)?.originalName
+                            ? String((codexNotebook.metadata as any).originalName).trim()
+                            : '';
 
                     console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}"`);
 

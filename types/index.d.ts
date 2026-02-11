@@ -1578,6 +1578,14 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
+    | {
+        command: "deleteCorpusMarker";
+        content: {
+            corpusLabel: string;
+            displayName: string;
+            children: Array<{ uri: string; label: string; type: string }>;
+        };
+    }
     | { command: "openCellLabelImporter"; }
     | { command: "openCodexMigrationTool"; }
     | { command: "navigateToMainMenu"; }

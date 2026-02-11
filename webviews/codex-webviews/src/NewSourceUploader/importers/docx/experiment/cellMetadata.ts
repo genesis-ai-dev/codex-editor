@@ -54,7 +54,7 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
         },
 
         // Cell label (paragraph number)
-        cellLabel: `¶${paragraphIndex + 1}`,
+        cellLabel: `${paragraphIndex + 1}`,
     };
 
     return {

@@ -7,21 +7,6 @@ import { CodexContentSerializer } from "../../serializer";
 import { CustomNotebookMetadata } from "../../../types";
 import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 
-/**
- * Adds a unique identifier to a filename, preserving the extension.
- * Example: "document.idml" -> "document-(abc123).idml"
- */
-function addIdToFilename(filename: string, id: string): string {
-    const lastDotIndex = filename.lastIndexOf('.');
-    if (lastDotIndex === -1) {
-        // No extension
-        return `${filename}-(${id})`;
-    }
-    const baseName = filename.substring(0, lastDotIndex);
-    const extension = filename.substring(lastDotIndex);
-    return `${baseName}-(${id})${extension}`;
-}
-
 export function checkCancellation(token?: vscode.CancellationToken): void {
     if (token?.isCancellationRequested) {
         throw new vscode.CancellationError();
@@ -236,31 +221,10 @@ export async function createNoteBookPair({
             
             console.log(`[CODEX FILE CREATE] Non-biblical import: adding id "${uniqueId}" to filename`);
             
-            // Update originalFileName in metadata to include id for attachment tracking
-            // This ensures the original file saved in attachments/originals matches the notebook
-            if (sourceNotebook.metadata?.originalFileName) {
-                const idOriginalFileName = addIdToFilename(
-                    sourceNotebook.metadata.originalFileName,
-                    uniqueId
-                );
-                sourceNotebook.metadata.originalFileName = idOriginalFileName;
-                // Also update sourceFile if it exists
-                if (sourceNotebook.metadata.sourceFile) {
-                    sourceNotebook.metadata.sourceFile = idOriginalFileName;
-                }
-                console.log(`[CODEX FILE CREATE] Updated originalFileName to: "${idOriginalFileName}"`);
-            }
-            
-            // Update codex metadata to match
-            if (codexNotebook.metadata?.originalFileName) {
-                codexNotebook.metadata.originalFileName = addIdToFilename(
-                    codexNotebook.metadata.originalFileName,
-                    uniqueId
-                );
-            }
-            if (codexNotebook.metadata?.sourceFile) {
-                codexNotebook.metadata.sourceFile = sourceNotebook.metadata.originalFileName;
-            }
+            // IMPORTANT: Do NOT modify originalFileName here.
+            // originalFileName must point to the actual file stored in attachments/originals/
+            // (which may be deduplicated). The notebook filename uses UUIDs for uniqueness,
+            // but the original file reference should remain unchanged for round-trip export.
 
             // Generate unique display name for non-biblical imports
             // If a file with the same display name already exists, add a number suffix

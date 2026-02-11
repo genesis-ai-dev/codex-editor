@@ -983,6 +983,28 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             codexNotebooks,
         });
 
+        // Register notebook references in the original files registry
+        // This tracks which notebooks use each original file, so we know when it's safe to delete
+        if (workspaceFolder) {
+            const { addNotebookReference } = await import('./originalFileUtils');
+            for (const createdFile of createdFiles) {
+                try {
+                    // Read the source notebook to get originalFileName from metadata
+                    const sourceContent = await vscode.workspace.fs.readFile(createdFile.sourceUri);
+                    const sourceNotebook = JSON.parse(new TextDecoder().decode(sourceContent));
+                    const originalFileName = sourceNotebook?.metadata?.originalName || sourceNotebook?.metadata?.originalFileName;
+
+                    if (originalFileName) {
+                        // Use the source filename (without extension) as the notebook base name
+                        const notebookBaseName = path.basename(createdFile.sourceUri.fsPath).replace(/\.[^/.]+$/, '');
+                        await addNotebookReference(workspaceFolder, originalFileName, notebookBaseName);
+                    }
+                } catch (err) {
+                    console.warn(`[NewSourceUploader] Could not register notebook reference: ${err}`);
+                }
+            }
+        }
+
         // Migrate localized-books.json to codex metadata before deleting the file
         // Pass the newly created codex URIs directly to avoid search issues
         const createdCodexUris = createdFiles.map(f => f.codexUri);

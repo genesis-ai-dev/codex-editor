@@ -27,6 +27,8 @@ type MetaEditMap = ["meta"];
 type MetaFieldEditMap = ["meta", string];
 type LanguagesEditMap = ["languages"];
 type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
+type DeletedCorpusMarkerEditMap = ["deletedCorpusMarker"];
+type DeletedFileEditMap = ["deletedFile"];
 
 import { EditType } from "../../types/enums";
 
@@ -147,6 +149,14 @@ export const EditMapUtils = {
 
     spellcheckIsEnabled(): SpellcheckIsEnabledEditMap {
         return ["spellcheckIsEnabled"];
+    },
+
+    deletedCorpusMarker(): DeletedCorpusMarkerEditMap {
+        return ["deletedCorpusMarker"];
+    },
+
+    deletedFile(): DeletedFileEditMap {
+        return ["deletedFile"];
     },
 
     // Compare editMaps
