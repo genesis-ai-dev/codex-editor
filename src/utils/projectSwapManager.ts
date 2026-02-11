@@ -249,6 +249,9 @@ export async function checkProjectSwapRequired(
     swapInfo?: ProjectSwapInfo;
     activeEntry?: ProjectSwapEntry;
     userAlreadySwapped?: boolean;
+    /** True when remote server was unreachable (network error, 404, 500, auth failure).
+     *  NOT set when the server returned valid metadata with no projectSwap (that's "erased"). */
+    remoteUnreachable?: boolean;
 }> {
     try {
         debug("Checking project swap requirement for:", projectPath);
@@ -286,6 +289,9 @@ export async function checkProjectSwapRequired(
         let remoteSwapInfo: ProjectSwapInfo | undefined;
         let localSwapFileInfo: ProjectSwapInfo | undefined;
         const localMetadataSwapInfo: ProjectSwapInfo | undefined = metadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
+        /** True when the server could not be reached at all (null from fetchRemoteMetadata).
+         *  False/undefined when the server responded successfully (even if projectSwap is absent). */
+        let remoteUnreachable = false;
 
         // Try to fetch remote metadata for the latest swap status
         // Always check localProjectSwap.json FIRST - it may have local modifications (like cancellations)
@@ -294,9 +300,14 @@ export async function checkProjectSwapRequired(
             const cachedSwapFile = await readLocalProjectSwapFile(projectUri);
             if (cachedSwapFile?.remoteSwapInfo) {
                 // Verify the cached file is for the same origin (if we have one)
-                if (!gitOriginUrl || cachedSwapFile.sourceOriginUrl === gitOriginUrl) {
+                // Use sanitizeGitUrl on both sides for consistent comparison
+                // (sourceOriginUrl was stored via sanitizeGitUrl, raw gitOriginUrl may differ)
+                const sanitizedOrigin = gitOriginUrl ? sanitizeGitUrl(gitOriginUrl) : null;
+                if (!sanitizedOrigin || cachedSwapFile.sourceOriginUrl === sanitizedOrigin) {
                     localSwapFileInfo = cachedSwapFile.remoteSwapInfo;
                     debug("Found swap info in localProjectSwap.json (fetched at:", new Date(cachedSwapFile.fetchedAt).toISOString(), ")");
+                } else {
+                    debug("localProjectSwap.json origin mismatch:", cachedSwapFile.sourceOriginUrl, "vs", sanitizedOrigin);
                 }
             }
         } catch (e) {
@@ -309,30 +320,41 @@ export async function checkProjectSwapRequired(
                 const projectId = extractProjectIdFromUrl(gitOriginUrl);
                 if (projectId) {
                     const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
-                    if (remoteMetadata?.meta?.projectSwap) {
+                    if (remoteMetadata === null) {
+                        // Server unreachable (network error, 404, 500, auth failure).
+                        // Do NOT treat this as "projectSwap erased" - we simply couldn't reach the server.
+                        // Local state (localProjectSwap.json, metadata.json) remains untouched.
+                        remoteUnreachable = true;
+                        debug("Remote server unreachable - cannot verify swap status");
+                    } else if (remoteMetadata?.meta?.projectSwap) {
                         remoteSwapInfo = remoteMetadata.meta.projectSwap as ProjectSwapInfo;
                         debug("Fetched remote metadata for swap check");
+                    } else if (remoteMetadata?.meta) {
+                        // Remote metadata exists but projectSwap is absent/erased.
+                        // This is an authoritative signal: there is no swap on remote.
+                        // Treat as empty swap info so we clean up any stale local state.
+                        remoteSwapInfo = { swapEntries: [] };
+                        debug("Remote metadata has no projectSwap object - treating as empty (no swap)");
+                    }
 
-                        // Only cache to localProjectSwap.json if this is an OLD project with active swaps
-                        // On NEW projects (where user has already swapped), we don't need this cache
-                        // because metadata.json has all the history and there's no pending swap
+                    if (remoteSwapInfo) {
+                        // Always compare remote with localProjectSwap.json by swapUUID + swapModifiedAt.
+                        // If remote has newer data (e.g. cancellation), update the local cache.
+                        // If no active OLD swap remains after merge, delete the file (it's redundant
+                        // since metadata.json is up to date via sync).
                         const remoteEntries = normalizeProjectSwapInfo(remoteSwapInfo).swapEntries || [];
                         const hasActiveOldProjectSwap = remoteEntries.some(
                             e => e.swapStatus === "active" && e.isOldProject === true
                         );
 
-                        if (hasActiveOldProjectSwap) {
-                            // Cache the remote swap info locally for offline use, but MERGE with existing local data
-                            // to preserve local modifications (like cancellations with more recent timestamps)
-                            // This creates .project/localProjectSwap.json which is gitignored
-                            try {
-                                const existingLocalEntries = localSwapFileInfo
-                                    ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || [])
-                                    : [];
+                        try {
+                            const { readLocalProjectSwapFile: readSwapFile, deleteLocalProjectSwapFile } = await import("./localProjectSettings");
+                            const existingLocalEntries = localSwapFileInfo
+                                ? (normalizeProjectSwapInfo(localSwapFileInfo).swapEntries || [])
+                                : [];
 
-                                // Build merged entries map - local entries first, then remote
-                                // For matching swapUUID, keep the one with more recent swapModifiedAt
-                                // ALSO merge swappedUsers arrays to preserve user completion data
+                            if (hasActiveOldProjectSwap) {
+                                // Active OLD swap: merge remote with local cache and write
                                 const mergedMap = new Map<string, ProjectSwapEntry>();
                                 for (const entry of existingLocalEntries) {
                                     mergedMap.set(entry.swapUUID, entry);
@@ -342,11 +364,8 @@ export async function checkProjectSwapRequired(
                                     if (!existing) {
                                         mergedMap.set(entry.swapUUID, entry);
                                     } else {
-                                        // Compare timestamps
                                         const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
                                         const remoteModified = entry.swapModifiedAt ?? entry.swapInitiatedAt;
-
-                                        // ALWAYS merge swappedUsers arrays
                                         const mergedUsers = mergeSwappedUsers(existing.swappedUsers, entry.swappedUsers);
 
                                         if (remoteModified > existingModified) {
@@ -370,14 +389,33 @@ export async function checkProjectSwapRequired(
                                 }, projectUri);
                                 debug("Cached merged swap info to localProjectSwap.json (OLD project with active swap)");
 
-                                // Update localSwapFileInfo with the merged data for later comparison
                                 localSwapFileInfo = mergedSwapInfo;
-                            } catch (cacheError) {
-                                debug("Failed to cache remote swap info (non-fatal):", cacheError);
+                            } else if (existingLocalEntries.length > 0) {
+                                // No active OLD swap on remote (or remote erased), but localProjectSwap.json exists.
+                                // Check if we can safely delete: only if no pending downloads are stored.
+                                // Note: swapPendingDownloads/pendingLfsDownloads are untyped extra fields
+                                const existingFile = await readSwapFile(projectUri) as any;
+                                const hasPendingState = existingFile?.swapPendingDownloads || existingFile?.pendingLfsDownloads;
+                                if (existingFile && !hasPendingState) {
+                                    await deleteLocalProjectSwapFile(projectUri);
+                                    debug("Deleted stale localProjectSwap.json (remote has no active OLD swap)");
+                                } else if (existingFile) {
+                                    // Has pending download state - update swap entries but keep the file
+                                    await writeLocalProjectSwapFile({
+                                        ...existingFile,
+                                        remoteSwapInfo: { swapEntries: remoteEntries },
+                                        fetchedAt: Date.now(),
+                                        sourceOriginUrl: sanitizeGitUrl(gitOriginUrl),
+                                    }, projectUri);
+                                    debug("Updated localProjectSwap.json with remote data (kept for pending downloads)");
+                                }
+                                localSwapFileInfo = { swapEntries: remoteEntries };
+                            } else {
+                                // No local cache existed and no active swap - nothing to do
+                                localSwapFileInfo = { swapEntries: remoteEntries };
                             }
-                        } else {
-                            debug("Skipping localProjectSwap.json cache - no active swap for OLD project");
-                            // Update localSwapFileInfo for later comparison even without caching
+                        } catch (cacheError) {
+                            debug("Failed to update localProjectSwap.json cache (non-fatal):", cacheError);
                             localSwapFileInfo = { swapEntries: remoteEntries };
                         }
                     }
@@ -502,7 +540,7 @@ export async function checkProjectSwapRequired(
 
         if (!effectiveSwapInfo) {
             debug("No project swap information found");
-            return { required: false, reason: "No swap configured" };
+            return { required: false, reason: "No swap configured", remoteUnreachable };
         }
 
         // Normalize to new array format
@@ -513,13 +551,37 @@ export async function checkProjectSwapRequired(
 
         if (!activeEntry) {
             debug("No active swap entry found");
-            return { required: false, reason: "No active swap", swapInfo };
+            // No active swap - clean up localProjectSwap.json if it exists and has no pending state
+            try {
+                const { readLocalProjectSwapFile: readSwapFile, deleteLocalProjectSwapFile } = await import("./localProjectSettings");
+                const existingFile = await readSwapFile(projectUri) as any;
+                const hasPendingState = existingFile?.swapPendingDownloads || existingFile?.pendingLfsDownloads;
+                if (existingFile && !hasPendingState) {
+                    await deleteLocalProjectSwapFile(projectUri);
+                    debug("Deleted localProjectSwap.json (no active swap after merge)");
+                }
+            } catch {
+                // Non-fatal
+            }
+            return { required: false, reason: "No active swap", swapInfo, remoteUnreachable };
         }
 
         // Only OLD projects (isOldProject: true in the entry) can trigger swap requirements
         if (!activeEntry.isOldProject) {
             debug("This is the NEW project (destination) - no swap required");
-            return { required: false, reason: "This is the destination project", swapInfo };
+            // NEW project doesn't need localProjectSwap.json
+            try {
+                const { readLocalProjectSwapFile: readSwapFile, deleteLocalProjectSwapFile } = await import("./localProjectSettings");
+                const existingFile = await readSwapFile(projectUri) as any;
+                const hasPendingState = existingFile?.swapPendingDownloads || existingFile?.pendingLfsDownloads;
+                if (existingFile && !hasPendingState) {
+                    await deleteLocalProjectSwapFile(projectUri);
+                    debug("Deleted localProjectSwap.json (this is the NEW project)");
+                }
+            } catch {
+                // Non-fatal
+            }
+            return { required: false, reason: "This is the destination project", swapInfo, remoteUnreachable };
         }
 
         // Check if user has already completed this swap
@@ -527,12 +589,25 @@ export async function checkProjectSwapRequired(
             const hasCompleted = await hasUserCompletedSwap(swapInfo, activeEntry, effectiveUsername);
             if (hasCompleted) {
                 debug("User already swapped; no swap required");
+
+                // Write the completion back to the old project's local files
+                // so subsequent checks (project list, re-opens) detect it locally
+                // without needing to fetch the NEW project's remote.
+                try {
+                    await writeUserSwapCompletionToOldProject(
+                        projectPath, activeEntry, effectiveUsername, swapInfo
+                    );
+                } catch (writeErr) {
+                    debug("Failed to write user swap completion (non-fatal):", writeErr);
+                }
+
                 return {
                     required: false,
                     reason: "User already swapped",
                     swapInfo,
                     activeEntry,
                     userAlreadySwapped: true,
+                    remoteUnreachable,
                 };
             }
         }
@@ -544,10 +619,11 @@ export async function checkProjectSwapRequired(
             reason: "Project has been swapped to a new repository",
             swapInfo,
             activeEntry,
+            remoteUnreachable,
         };
     } catch (error) {
         debug("Error checking project swap requirement:", error);
-        return { required: false, reason: `Error: ${error}` };
+        return { required: false, reason: `Error: ${error}`, remoteUnreachable: true };
     }
 }
 
@@ -597,6 +673,101 @@ async function getSwapUserEntries(swapInfo: ProjectSwapInfo, activeEntry: Projec
     return (activeEntry.swappedUsers || []).map((entry: ProjectSwapUserEntry) =>
         normalizeSwapUserEntry(entry)
     );
+}
+
+/**
+ * Write user swap completion back to the OLD project's local files.
+ * This records that the current user has already completed the swap, so:
+ *   1. The "Project Swap Required" banner no longer appears for this user
+ *   2. Subsequent checkProjectSwapRequired calls detect it locally (no remote fetch needed)
+ *
+ * Writes to BOTH metadata.json and localProjectSwap.json for durability.
+ * Even though old project syncing is disabled, metadata.json serves as persistent local truth.
+ *
+ * @param projectPath - Path to the OLD project
+ * @param activeEntry - The active swap entry
+ * @param username - The username that completed the swap
+ * @param swapInfo - The full swap info (for updating entries)
+ */
+export async function writeUserSwapCompletionToOldProject(
+    projectPath: string,
+    activeEntry: ProjectSwapEntry,
+    username: string,
+    swapInfo: ProjectSwapInfo
+): Promise<void> {
+    const projectUri = vscode.Uri.file(projectPath);
+    const now = Date.now();
+
+    const userEntry: ProjectSwapUserEntry = {
+        userToSwap: username,
+        createdAt: now,
+        updatedAt: now,
+        executed: true,
+        swapCompletedAt: now,
+    };
+
+    debug(`Writing user swap completion for "${username}" to old project at ${projectPath}`);
+
+    // Helper: update swappedUsers in an entry array
+    const addUserToEntries = (entries: ProjectSwapEntry[]): ProjectSwapEntry[] =>
+        entries.map((entry) => {
+            if (entry.swapUUID !== activeEntry.swapUUID) {
+                return entry;
+            }
+            const existingUsers = entry.swappedUsers || [];
+            // Don't add duplicate if user already present
+            const alreadyPresent = existingUsers.some(
+                (u) => u.userToSwap === username && u.executed
+            );
+            if (alreadyPresent) {
+                return entry;
+            }
+            return {
+                ...entry,
+                swappedUsers: [...existingUsers, userEntry],
+                swappedUsersModifiedAt: now,
+            };
+        });
+
+    // 1. Write to metadata.json (durable local truth, even though it won't sync)
+    try {
+        const { MetadataManager } = await import("./metadataManager");
+        await MetadataManager.safeUpdateMetadata<import("../../types").ProjectMetadata>(
+            projectUri,
+            (meta) => {
+                if (!meta.meta?.projectSwap) {
+                    return meta;
+                }
+                const normalized = normalizeProjectSwapInfo(meta.meta.projectSwap);
+                const updatedEntries = addUserToEntries(normalized.swapEntries || []);
+                meta.meta.projectSwap = {
+                    swapEntries: sortSwapEntries(updatedEntries).map(orderEntryFields),
+                };
+                return meta;
+            }
+        );
+        debug("Wrote user swap completion to metadata.json");
+    } catch (e) {
+        debug("Failed to write user swap completion to metadata.json (non-fatal):", e);
+    }
+
+    // 2. Write to localProjectSwap.json (fast local cache)
+    try {
+        const { readLocalProjectSwapFile, writeLocalProjectSwapFile } = await import("./localProjectSettings");
+        const existingFile = await readLocalProjectSwapFile(projectUri);
+        if (existingFile?.remoteSwapInfo) {
+            const normalized = normalizeProjectSwapInfo(existingFile.remoteSwapInfo);
+            const updatedEntries = addUserToEntries(normalized.swapEntries || []);
+            await writeLocalProjectSwapFile({
+                ...existingFile,
+                remoteSwapInfo: { swapEntries: updatedEntries },
+                fetchedAt: Date.now(),
+            }, projectUri);
+            debug("Wrote user swap completion to localProjectSwap.json");
+        }
+    } catch (e) {
+        debug("Failed to write user swap completion to localProjectSwap.json (non-fatal):", e);
+    }
 }
 
 /**
@@ -771,7 +942,7 @@ export function getDeprecatedProjectsFromHistory(swapInfo: ProjectSwapInfo | und
         // Every entry's oldProjectUrl represents a deprecated project
         // (regardless of isOldProject flag - the oldProjectUrl is always the "from" project)
         const normalizedUrl = entry.oldProjectUrl.toLowerCase();
-        
+
         // Only add if not already present, or if this entry is newer
         const existing = deprecatedMap.get(normalizedUrl);
         if (!existing || entry.swapInitiatedAt > existing.deprecatedAt) {

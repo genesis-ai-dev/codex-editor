@@ -543,6 +543,19 @@ export async function initiateProjectSwap(): Promise<void> {
             return;
         }
 
+        // Version gate: block if extensions are outdated per metadata requirements
+        try {
+            const { ensureExtensionVersionsForSwapOrUpdate } = await import("../utils/versionGate");
+            const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(workspacePath, {
+                operationLabel: "To initiate the project swap",
+            });
+            if (!versionCheck.allowed) {
+                return;
+            }
+        } catch (versionErr) {
+            debug("Version check failed (non-fatal, allowing swap initiation):", versionErr);
+        }
+
         // Check if user has permission (Project Maintainer or Owner)
         const permission = await checkProjectAdminPermissions();
         if (!permission.hasPermission) {
@@ -1148,6 +1161,20 @@ export async function initiateSwapCopy(): Promise<void> {
         if (!workspaceFolder) {
             await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
             return;
+        }
+
+        // Version gate: block if extensions are outdated per metadata requirements
+        try {
+            const { ensureExtensionVersionsForSwapOrUpdate } = await import("../utils/versionGate");
+            const versionCheck = await ensureExtensionVersionsForSwapOrUpdate(
+                workspaceFolder.uri.fsPath,
+                { operationLabel: "To copy the project" }
+            );
+            if (!versionCheck.allowed) {
+                return;
+            }
+        } catch (versionErr) {
+            debug("Version check failed (non-fatal, allowing copy):", versionErr);
         }
 
         // Check if user has permission (Project Maintainer or Owner)

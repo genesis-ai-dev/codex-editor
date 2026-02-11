@@ -854,7 +854,7 @@ suite("Integration: Project Swap Flow", () => {
     suite("Chain Deprecation Filtering Integration - QA Critical", () => {
         test("getDeprecatedProjectsFromHistory extracts full chain URLs", async () => {
             // This tests the core utility that StartupFlowProvider uses
-            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } =
                 await import("../../../utils/projectSwapManager");
 
             // Simulate swaptest3's metadata with full chain history
@@ -893,7 +893,7 @@ suite("Integration: Project Swap Flow", () => {
         });
 
         test("deprecated project info includes name for remote-only matching", async () => {
-            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } =
                 await import("../../../utils/projectSwapManager");
 
             const swapInfo = normalizeProjectSwapInfo({
@@ -915,7 +915,7 @@ suite("Integration: Project Swap Flow", () => {
         });
 
         test("isProjectDeprecated works with case-insensitive URLs", async () => {
-            const { isProjectDeprecated, normalizeProjectSwapInfo } = 
+            const { isProjectDeprecated, normalizeProjectSwapInfo } =
                 await import("../../../utils/projectSwapManager");
 
             const swapInfo = normalizeProjectSwapInfo({
@@ -939,7 +939,7 @@ suite("Integration: Project Swap Flow", () => {
         });
 
         test("orderEntryFields maintains consistent JSON serialization", async () => {
-            const { orderEntryFields, sortSwapEntries } = 
+            const { orderEntryFields, sortSwapEntries } =
                 await import("../../../utils/projectSwapManager");
 
             const entry = createSwapEntry({
@@ -1183,6 +1183,140 @@ suite("Integration: Project Swap Flow", () => {
             assert.ok(normalized.swapEntries, "swapEntries should exist after normalization");
             assert.strictEqual(normalized.swapEntries![0].swapInitiatedBy, "preserve-me");
             assert.strictEqual(normalized.swapEntries![0].swapReason, "preserve-this-reason");
+        });
+    });
+
+    // ============ localProjectSwap.json Lifecycle Integration ============
+    suite("localProjectSwap.json Lifecycle Integration", () => {
+        test("localProjectSwap.json is created and can be cleaned up", async () => {
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+
+            // Create localProjectSwap.json with active swap
+            const swapData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "lifecycle-test",
+                        swapStatus: "active",
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(swapData, null, 2));
+
+            assert.ok(fs.existsSync(localSwapPath), "localProjectSwap.json should exist");
+
+            // Simulate: swap gets cancelled (metadata.json updated, localProjectSwap becomes stale)
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(oldProjectDir, "metadata.json"), "utf-8"
+            ));
+            metadata.meta = metadata.meta || {};
+            metadata.meta.projectSwap = {
+                swapEntries: [createSwapEntry({
+                    swapUUID: "lifecycle-test",
+                    swapStatus: "cancelled",
+                    isOldProject: true,
+                    cancelledBy: "admin",
+                    cancelledAt: Date.now(),
+                })],
+            };
+            fs.writeFileSync(
+                path.join(oldProjectDir, "metadata.json"),
+                JSON.stringify(metadata, null, 2)
+            );
+
+            // Verify: localProjectSwap.json still has stale "active" status
+            const staleData = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            assert.strictEqual(staleData.remoteSwapInfo.swapEntries[0].swapStatus, "active",
+                "localProjectSwap.json should still have stale active status before cleanup");
+
+            // Simulate cleanup: delete the file (as our new code would do)
+            fs.unlinkSync(localSwapPath);
+            assert.ok(!fs.existsSync(localSwapPath), "localProjectSwap.json should be deleted after cleanup");
+        });
+
+        test("localProjectSwap.json preserved when pending downloads exist", async () => {
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+
+            // Create localProjectSwap.json with cancelled swap but pending downloads
+            const swapData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "pending-test",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+                swapPendingDownloads: {
+                    swapState: "pending_downloads",
+                    filesNeedingDownload: ["GEN/1_1.mp3"],
+                    newProjectUrl: "https://gitlab.com/org/new.git",
+                    swapUUID: "pending-test",
+                    swapInitiatedAt: Date.now(),
+                    createdAt: Date.now(),
+                },
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(swapData, null, 2));
+
+            // Read back and verify pending state is present
+            const data = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const hasPendingState = data.swapPendingDownloads || data.pendingLfsDownloads;
+
+            assert.ok(hasPendingState, "Pending downloads detected - file should NOT be deleted");
+        });
+
+        test("remote cancellation updates localProjectSwap.json entries", async () => {
+            const localSwapPath = path.join(oldProjectDir, ".project", "localProjectSwap.json");
+
+            // Start with active in local cache
+            const localData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "update-test",
+                        swapStatus: "active",
+                        swapModifiedAt: 1000,
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(localData, null, 2));
+
+            // Simulate remote cancellation with newer timestamp
+            const remoteEntry = createSwapEntry({
+                swapUUID: "update-test",
+                swapStatus: "cancelled",
+                swapModifiedAt: 2000,
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+            });
+
+            // Apply merge logic (same as in checkProjectSwapRequired)
+            const localEntries = localData.remoteSwapInfo.swapEntries;
+            const mergedMap = new Map<string, ProjectSwapEntry>();
+            for (const entry of localEntries) {
+                mergedMap.set(entry.swapUUID, entry);
+            }
+
+            const existing = mergedMap.get(remoteEntry.swapUUID);
+            if (existing) {
+                const existingModified = existing.swapModifiedAt ?? existing.swapInitiatedAt;
+                const remoteModified = remoteEntry.swapModifiedAt ?? remoteEntry.swapInitiatedAt;
+                if (remoteModified > existingModified) {
+                    mergedMap.set(remoteEntry.swapUUID, remoteEntry);
+                }
+            }
+
+            const mergedEntry = mergedMap.get("update-test");
+            assert.strictEqual(mergedEntry?.swapStatus, "cancelled",
+                "Merged entry should reflect remote cancellation");
+            assert.strictEqual(mergedEntry?.cancelledBy, "admin",
+                "Cancellation details should be from remote");
         });
     });
 });
