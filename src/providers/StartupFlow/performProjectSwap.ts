@@ -1493,7 +1493,7 @@ async function swapDirectories(oldTmpPath: string, newPath: string, targetPath: 
     debugLog("Swapping directories");
     if (fs.existsSync(targetPath)) {
         await archiveExistingTarget(targetPath);
-        fs.rmSync(targetPath, { recursive: true, force: true });
+        await removeDirectoryWithRetries(targetPath);
     }
     fs.renameSync(newPath, targetPath);
 
@@ -1501,6 +1501,38 @@ async function swapDirectories(oldTmpPath: string, newPath: string, targetPath: 
     await cleanupOldTmpFolder(oldTmpPath);
 
     debugLog("Directory swap completed");
+}
+
+/**
+ * Remove a directory with retries to handle race conditions (e.g. ENOTEMPTY
+ * when another process writes into the directory while it is being deleted).
+ */
+async function removeDirectoryWithRetries(dirPath: string): Promise<void> {
+    const maxRetries = 5;
+    const delays = [100, 300, 600, 1000, 2000]; // ms – increasing back-off
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            fs.rmSync(dirPath, { recursive: true, force: true });
+            if (attempt > 0) {
+                debugLog(
+                    `Successfully removed directory on attempt ${attempt + 1}: ${dirPath}`
+                );
+            }
+            return;
+        } catch (error) {
+            debugLog(
+                `Attempt ${attempt + 1}/${maxRetries} to remove directory failed: ${dirPath}`,
+                error
+            );
+            if (attempt < maxRetries - 1) {
+                await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+            } else {
+                // Final attempt failed – propagate the error
+                throw error;
+            }
+        }
+    }
 }
 
 /**

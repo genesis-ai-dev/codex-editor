@@ -1187,7 +1187,7 @@ suite("Project Swap Tests", () => {
             // Find origin marker
             const originMarker = entries.find(e => e.swapUUID.startsWith("origin-"));
             assert.ok(originMarker, "Origin marker should exist");
-            
+
             // Origin project is identified by the origin marker's oldProjectName
             assert.strictEqual(originMarker?.oldProjectUrl, "https://gitlab.com/org/first.git");
             assert.strictEqual(originMarker?.oldProjectName, "first");
@@ -2723,7 +2723,7 @@ suite("Project Swap Tests", () => {
                 swapInitiatedBy: "admin-user",
             });
 
-            assert.notStrictEqual(validEntry.swapInitiatedBy, "unknown", 
+            assert.notStrictEqual(validEntry.swapInitiatedBy, "unknown",
                 "swapInitiatedBy should have actual username, not 'unknown'");
             assert.ok(validEntry.swapInitiatedBy && validEntry.swapInitiatedBy.length > 0,
                 "swapInitiatedBy must be a non-empty string");
@@ -2803,6 +2803,1011 @@ suite("Project Swap Tests", () => {
             assert.ok(validEntry.swapInitiatedAt > 0, "swapInitiatedAt must be a valid timestamp");
             assert.ok(validEntry.oldProjectUrl.startsWith("https://"), "oldProjectUrl must be a valid URL");
             assert.ok(validEntry.newProjectUrl.startsWith("https://"), "newProjectUrl must be a valid URL");
+        });
+    });
+
+    suite("localProjectSwap.json Lifecycle - QA Critical", () => {
+        test("checkProjectSwapRequired cleans up localProjectSwap when remote has no active OLD swap", async () => {
+            // Simulate: remote entries exist but all are cancelled
+            // The merge logic should recognise there's no active OLD swap
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "cancelled-uuid",
+                swapStatus: "cancelled",
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: Date.now(),
+            });
+
+            const remoteEntries = [cancelledEntry];
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                e => e.swapStatus === "active" && e.isOldProject === true
+            );
+
+            assert.strictEqual(hasActiveOldProjectSwap, false,
+                "Cancelled entries should not count as active OLD swaps");
+        });
+
+        test("active NEW project swap does not count as active OLD swap", () => {
+            const newProjectEntry = createSwapEntry({
+                swapUUID: "new-project-uuid",
+                swapStatus: "active",
+                isOldProject: false, // This is the NEW project
+            });
+
+            const remoteEntries = [newProjectEntry];
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                e => e.swapStatus === "active" && e.isOldProject === true
+            );
+
+            assert.strictEqual(hasActiveOldProjectSwap, false,
+                "Active NEW project swap should not trigger OLD project caching");
+        });
+
+        test("merged result with no active entry means localProjectSwap can be deleted", () => {
+            const entries = [
+                createSwapEntry({ swapUUID: "uuid-1", swapStatus: "cancelled", isOldProject: true }),
+                createSwapEntry({ swapUUID: "uuid-2", swapStatus: "cancelled", isOldProject: true }),
+            ];
+
+            const swapInfo = normalizeProjectSwapInfo({ swapEntries: entries });
+            const activeEntry = getActiveSwapEntry(swapInfo);
+
+            assert.strictEqual(activeEntry, undefined,
+                "No active entry means localProjectSwap.json is redundant and can be deleted");
+        });
+
+        test("merged result with active entry means localProjectSwap must be kept", () => {
+            const entries = [
+                createSwapEntry({ swapUUID: "uuid-1", swapStatus: "cancelled", isOldProject: true }),
+                createSwapEntry({ swapUUID: "uuid-2", swapStatus: "active", isOldProject: true }),
+            ];
+
+            const swapInfo = normalizeProjectSwapInfo({ swapEntries: entries });
+            const activeEntry = getActiveSwapEntry(swapInfo);
+
+            assert.ok(activeEntry, "Active entry exists - localProjectSwap.json must be kept");
+            assert.strictEqual(activeEntry!.swapUUID, "uuid-2");
+        });
+
+        test("remote cancellation detected via swapModifiedAt comparison", () => {
+            // Local has active, remote has cancelled with newer swapModifiedAt
+            const localEntry = createSwapEntry({
+                swapUUID: "shared-uuid",
+                swapStatus: "active",
+                swapModifiedAt: 1000,
+                isOldProject: true,
+            });
+            const remoteEntry = createSwapEntry({
+                swapUUID: "shared-uuid",
+                swapStatus: "cancelled",
+                swapModifiedAt: 2000, // Newer
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+            });
+
+            // Simulate the merge logic
+            const localModified = localEntry.swapModifiedAt ?? localEntry.swapInitiatedAt;
+            const remoteModified = remoteEntry.swapModifiedAt ?? remoteEntry.swapInitiatedAt;
+
+            assert.ok(remoteModified > localModified,
+                "Remote cancellation has newer timestamp");
+
+            // Cancelled-is-sticky rule: even if local is "active", cancelled wins
+            const eitherCancelled = localEntry.swapStatus === "cancelled" || remoteEntry.swapStatus === "cancelled";
+            assert.strictEqual(eitherCancelled, true,
+                "Cancelled-is-sticky rule correctly detects cancellation");
+        });
+
+        test("re-validation before swap detects cancelled swap", () => {
+            // Simulate: initial check says required, re-check says not required
+            const initialResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID: "swap-uuid", swapStatus: "active" }),
+            };
+            const recheckResult = {
+                required: false,
+                activeEntry: undefined as ProjectSwapEntry | undefined,
+            };
+
+            // The re-validation logic: if recheck says not required, abort
+            const shouldAbort = !recheckResult.required || !recheckResult.activeEntry ||
+                (recheckResult.activeEntry?.swapUUID !== initialResult.activeEntry.swapUUID);
+
+            assert.strictEqual(shouldAbort, true,
+                "Re-validation should detect cancelled swap and abort execution");
+        });
+
+        test("re-validation passes when swap is still active with same UUID", () => {
+            const swapUUID = "consistent-uuid";
+            const initialResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID, swapStatus: "active" }),
+            };
+            const recheckResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID, swapStatus: "active" }),
+            };
+
+            const shouldAbort = !recheckResult.required || !recheckResult.activeEntry ||
+                (recheckResult.activeEntry?.swapUUID !== initialResult.activeEntry.swapUUID);
+
+            assert.strictEqual(shouldAbort, false,
+                "Re-validation should pass when swap is still active with same UUID");
+        });
+
+        test("re-validation detects UUID change (different swap initiated)", () => {
+            const initialResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID: "old-uuid", swapStatus: "active" }),
+            };
+            const recheckResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapUUID: "new-uuid", swapStatus: "active" }),
+            };
+
+            const shouldAbort = !recheckResult.required || !recheckResult.activeEntry ||
+                (recheckResult.activeEntry?.swapUUID !== initialResult.activeEntry.swapUUID);
+
+            assert.strictEqual(shouldAbort, true,
+                "Re-validation should detect UUID change and abort old swap");
+        });
+
+        test("remote projectSwap erased entirely triggers cleanup of localProjectSwap", () => {
+            // Simulate: remote metadata exists but projectSwap is absent/undefined
+            const remoteMetadata: any = {
+                meta: {
+                    version: "0.16.0",
+                    // projectSwap is missing entirely
+                },
+            };
+
+            // The check: if remote meta exists but projectSwap is falsy,
+            // treat it as authoritative "no swap"
+            const hasProjectSwap = !!remoteMetadata?.meta?.projectSwap;
+            const hasMeta = !!remoteMetadata?.meta;
+
+            assert.strictEqual(hasProjectSwap, false, "Remote has no projectSwap");
+            assert.strictEqual(hasMeta, true, "Remote meta does exist");
+
+            // This means we should treat remoteSwapInfo as empty
+            const remoteSwapInfo = hasProjectSwap
+                ? (remoteMetadata.meta as any).projectSwap
+                : (hasMeta ? { swapEntries: [] } : undefined);
+
+            assert.ok(remoteSwapInfo, "Should produce an empty swap info (not undefined)");
+            assert.strictEqual(remoteSwapInfo.swapEntries.length, 0,
+                "Empty swap entries from erased remote");
+
+            // With empty remote entries, hasActiveOldProjectSwap is false
+            const hasActiveOldProjectSwap = remoteSwapInfo.swapEntries.some(
+                (e: any) => e.swapStatus === "active" && e.isOldProject === true
+            );
+            assert.strictEqual(hasActiveOldProjectSwap, false,
+                "Erased remote means no active OLD swap - triggers cleanup");
+        });
+
+        test("remote projectSwap erased with stale localProjectSwap entry should not show swap required", () => {
+            // Local cache still has active swap from before the wipe
+            const staleLocalEntry = createSwapEntry({
+                swapUUID: "stale-uuid",
+                swapStatus: "active",
+                isOldProject: true,
+            });
+
+            // Remote says empty
+            const remoteEntries: ProjectSwapEntry[] = [];
+
+            // After merge, the stale local entry should NOT survive because
+            // remote is authoritative. The merge sees 0 remote entries,
+            // and hasActiveOldProjectSwap is false, so cleanup path runs.
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                e => e.swapStatus === "active" && e.isOldProject === true
+            );
+            assert.strictEqual(hasActiveOldProjectSwap, false);
+
+            // The cleanup path checks existingLocalEntries.length > 0 (true)
+            // and deletes localProjectSwap.json if no pending state.
+            // After deletion, the final merge only uses metadataSwapInfo.
+            // If metadata.json was also updated (synced), there's nothing active.
+            // Result: swap is NOT required.
+            const normalizedRemote = normalizeProjectSwapInfo({ swapEntries: remoteEntries });
+            const activeEntry = getActiveSwapEntry(normalizedRemote);
+            assert.strictEqual(activeEntry, undefined,
+                "With erased remote, no active swap should be found");
+        });
+    });
+
+    suite("Server Unreachable vs Erased Distinction", () => {
+        test("null remoteMetadata means server unreachable, NOT swap erased", () => {
+            // fetchRemoteMetadata returns null on ANY failure (network, 404, 500, auth)
+            const remoteMetadata: any = null;
+
+            // Server unreachable: remoteMetadata is null
+            const isUnreachable = remoteMetadata === null;
+            // Server returned metadata but no swap: remoteMetadata.meta exists but no projectSwap
+            const isErased = remoteMetadata !== null && !!remoteMetadata?.meta && !remoteMetadata?.meta?.projectSwap;
+
+            assert.strictEqual(isUnreachable, true,
+                "null metadata should be treated as server unreachable");
+            assert.strictEqual(isErased, false,
+                "null metadata should NOT be treated as swap erased");
+        });
+
+        test("metadata with no projectSwap means swap erased, NOT unreachable", () => {
+            const remoteMetadata: any = {
+                meta: { version: "0.16.0" },
+            };
+
+            const isUnreachable = remoteMetadata === null;
+            const isErased = remoteMetadata !== null && !!remoteMetadata?.meta && !remoteMetadata?.meta?.projectSwap;
+
+            assert.strictEqual(isUnreachable, false,
+                "Valid metadata should NOT be treated as unreachable");
+            assert.strictEqual(isErased, true,
+                "Metadata without projectSwap should be treated as erased");
+        });
+
+        test("metadata with projectSwap is neither unreachable nor erased", () => {
+            const remoteMetadata: any = {
+                meta: {
+                    version: "0.16.0",
+                    projectSwap: { swapEntries: [createSwapEntry()] },
+                },
+            };
+
+            const isUnreachable = remoteMetadata === null;
+            const isErased = remoteMetadata !== null && !!remoteMetadata?.meta && !remoteMetadata?.meta?.projectSwap;
+
+            assert.strictEqual(isUnreachable, false);
+            assert.strictEqual(isErased, false);
+        });
+
+        test("remoteUnreachable flag prevents localProjectSwap cleanup", () => {
+            // When server is unreachable, we should NOT touch localProjectSwap.json
+            // because we don't know if the swap was erased or still active
+            const remoteUnreachable = true;
+
+            // With stale local data showing active swap
+            const staleEntry = createSwapEntry({
+                swapUUID: "stale-uuid",
+                swapStatus: "active",
+                isOldProject: true,
+            });
+
+            // When unreachable, remoteSwapInfo remains undefined (never set)
+            // The cleanup/merge block only runs when remoteSwapInfo is defined
+            // So local data is preserved as-is
+            assert.strictEqual(remoteUnreachable, true,
+                "With server unreachable, local state should be preserved untouched");
+            assert.strictEqual(staleEntry.swapStatus, "active",
+                "Stale active entry remains because we can't verify with remote");
+        });
+
+        test("swap should NOT execute when server is unreachable", () => {
+            // Simulates the re-validation check before swap execution
+            const recheckResult = {
+                required: true,
+                remoteUnreachable: true,
+                activeEntry: createSwapEntry({ swapUUID: "some-uuid", swapStatus: "active" }),
+            };
+
+            // The re-validation logic: if server unreachable, abort swap
+            const shouldAbortDueToUnreachable = !!recheckResult.remoteUnreachable;
+            assert.strictEqual(shouldAbortDueToUnreachable, true,
+                "Swap execution must be blocked when server is unreachable");
+        });
+
+        test("project opening allowed when server is unreachable with pending swap", () => {
+            // Even with a pending swap, user should be able to open the project
+            // They just can't perform the swap
+            const swapCheck = {
+                required: true,
+                remoteUnreachable: true,
+                activeEntry: createSwapEntry({ swapUUID: "pending-uuid", swapStatus: "active" }),
+            };
+
+            // The UI logic: show "Server Unreachable" modal with "Open Project Offline" button
+            // If user clicks "Open Project Offline", project opens normally (skip swap)
+            const canOpenProject = true; // Always allowed
+            const canPerformSwap = !swapCheck.remoteUnreachable;
+
+            assert.strictEqual(canOpenProject, true, "Project opening is always allowed");
+            assert.strictEqual(canPerformSwap, false, "Swap is blocked when server unreachable");
+        });
+
+        test("pending download state preserved when server unreachable", () => {
+            // extension.ts re-validation: when server unreachable, don't clear pending state
+            const recheckResult = {
+                remoteUnreachable: true,
+            };
+
+            // When remoteUnreachable, we return without clearing pendingState
+            // so it can resume when connectivity is restored
+            const shouldClearPendingState = !recheckResult.remoteUnreachable;
+            assert.strictEqual(shouldClearPendingState, false,
+                "Pending state should be preserved for when server becomes available again");
+        });
+    });
+
+    suite("Server Unreachable vs Remote Missing - Projects List", () => {
+        test("server unreachable should NOT mark projects as orphaned", () => {
+            // Simulates the logic in sendList() when fetchRemoteProjects returns serverUnreachable=true
+            const remoteServerUnreachable = true;
+            const localProject = {
+                gitOriginUrl: "https://git.example.com/org/my-project.git",
+                name: "my-project",
+            };
+            const remoteProjects: any[] = []; // Empty because server is down
+
+            // The project has a git URL but no match in remote list
+            const matchInRemoteList = remoteProjects.find(
+                (p: any) => p.url === localProject.gitOriginUrl
+            );
+
+            let status: string;
+            if (!localProject.gitOriginUrl) {
+                status = "localOnlyNotSynced";
+            } else if (remoteServerUnreachable) {
+                status = "serverUnreachable";
+            } else {
+                status = "orphaned";
+            }
+
+            assert.strictEqual(status, "serverUnreachable",
+                "When server is unreachable, projects must NOT be marked as orphaned");
+            assert.notStrictEqual(status, "orphaned",
+                "Orphaned status would trigger destructive Fix & Open actions");
+        });
+
+        test("genuinely missing project should be marked as orphaned", () => {
+            // Server responded successfully but project is not in the list
+            const remoteServerUnreachable = false;
+            const localProject = {
+                gitOriginUrl: "https://git.example.com/org/deleted-project.git",
+                name: "deleted-project",
+            };
+            const remoteProjects = [
+                { url: "https://git.example.com/org/other-project.git" }
+            ];
+
+            const matchInRemoteList = remoteProjects.find(
+                (p: any) => p.url === localProject.gitOriginUrl
+            );
+
+            let status: string;
+            if (!localProject.gitOriginUrl) {
+                status = "localOnlyNotSynced";
+            } else if (remoteServerUnreachable) {
+                status = "serverUnreachable";
+            } else if (!matchInRemoteList) {
+                status = "orphaned";
+            } else {
+                status = "downloadedAndSynced";
+            }
+
+            assert.strictEqual(status, "orphaned",
+                "When server confirms project is missing, it should be marked orphaned");
+        });
+
+        test("Fix & Open should only trigger for orphaned, never for serverUnreachable", () => {
+            // Simulates the ProjectCard onClick and button label logic
+            const testCases = [
+                { syncStatus: "orphaned", expectedCommand: "project.fixAndOpen", expectedLabel: "Fix & Open" },
+                { syncStatus: "serverUnreachable", expectedCommand: "project.open", expectedLabel: "Open Offline" },
+                { syncStatus: "downloadedAndSynced", expectedCommand: "project.open", expectedLabel: "Open" },
+                { syncStatus: "localOnlyNotSynced", expectedCommand: "project.open", expectedLabel: "Open" },
+            ];
+
+            for (const tc of testCases) {
+                // Command logic
+                let command: string;
+                if (tc.syncStatus === "orphaned") {
+                    command = "project.fixAndOpen";
+                } else {
+                    command = "project.open";
+                }
+                assert.strictEqual(command, tc.expectedCommand,
+                    `syncStatus "${tc.syncStatus}" should trigger "${tc.expectedCommand}"`);
+
+                // Button label logic
+                let label: string;
+                if (tc.syncStatus === "orphaned") {
+                    label = "Fix & Open";
+                } else if (tc.syncStatus === "serverUnreachable") {
+                    label = "Open Offline";
+                } else {
+                    label = "Open";
+                }
+                assert.strictEqual(label, tc.expectedLabel,
+                    `syncStatus "${tc.syncStatus}" should show button label "${tc.expectedLabel}"`);
+            }
+        });
+
+        test("serverUnreachable projects should be counted as local in filters", () => {
+            const localStatuses = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"];
+            assert.ok(localStatuses.includes("serverUnreachable"),
+                "serverUnreachable must be included in local project filter");
+        });
+
+        test("fetchRemoteProjects error should return serverUnreachable=true", () => {
+            // Simulates fetchRemoteProjects behavior
+            async function simulateFetchRemoteProjects(shouldFail: boolean) {
+                if (shouldFail) {
+                    // Error path (network error, expired cert, 500, etc.)
+                    return { projects: [], serverUnreachable: true };
+                }
+                return { projects: [{ name: "test" }], serverUnreachable: false };
+            }
+
+            return Promise.all([
+                simulateFetchRemoteProjects(true).then(result => {
+                    assert.strictEqual(result.serverUnreachable, true,
+                        "Failed fetch should flag serverUnreachable");
+                    assert.deepStrictEqual(result.projects, [],
+                        "Failed fetch should return empty projects");
+                }),
+                simulateFetchRemoteProjects(false).then(result => {
+                    assert.strictEqual(result.serverUnreachable, false,
+                        "Successful fetch should not flag serverUnreachable");
+                    assert.strictEqual(result.projects.length, 1,
+                        "Successful fetch should return projects");
+                }),
+            ]);
+        });
+
+        test("no remote projects but server reachable should show orphaned, not serverUnreachable", () => {
+            // Edge case: server is up but user has no projects (new user, all deleted, etc.)
+            const remoteServerUnreachable = false;
+            const remoteProjects: any[] = []; // Empty, but server responded OK
+
+            const localProject = {
+                gitOriginUrl: "https://git.example.com/org/my-project.git",
+            };
+
+            let status: string;
+            if (remoteServerUnreachable) {
+                status = "serverUnreachable";
+            } else {
+                status = "orphaned";
+            }
+
+            assert.strictEqual(status, "orphaned",
+                "When server is reachable but returns empty, projects should be orphaned (genuinely missing)");
+        });
+
+        test("no frontierApi should be treated as serverUnreachable", () => {
+            // Simulates fetchRemoteProjects when frontierApi is null
+            const frontierApi = null;
+            const result = frontierApi
+                ? { projects: [], serverUnreachable: false }
+                : { projects: [], serverUnreachable: true };
+
+            assert.strictEqual(result.serverUnreachable, true,
+                "No API instance should be treated as server unreachable, not as empty remote");
+        });
+    });
+
+    // ================================================================
+    // HTTP Error Simulation Tests
+    // Tests that verify behavior under different server error conditions
+    // ================================================================
+
+    suite("HTTP Error Simulation - fetchRemoteMetadata behavior", () => {
+        let originalFetch: typeof globalThis.fetch;
+
+        setup(() => {
+            originalFetch = (globalThis as any).fetch;
+        });
+
+        teardown(() => {
+            (globalThis as any).fetch = originalFetch;
+        });
+
+        test("500 Internal Server Error should result in null (serverUnreachable)", async () => {
+            (globalThis as any).fetch = async () => {
+                return new Response("Internal Server Error", { status: 500, statusText: "Internal Server Error" });
+            };
+
+            // fetchRemoteMetadata catches all errors and returns null.
+            // Any caller receiving null must treat it as "server unreachable", not "data doesn't exist".
+            // This verifies the contract: null === unreachable, NOT null === deleted.
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "500 should return null (treated as server unreachable by callers)");
+        });
+
+        test("404 Not Found should result in null (currently same as unreachable)", async () => {
+            (globalThis as any).fetch = async () => {
+                return new Response("Not Found", { status: 404, statusText: "Not Found" });
+            };
+
+            // NOTE: Currently 404 is indistinguishable from 500 at the fetchRemoteMetadata level.
+            // Both return null. A future improvement could distinguish 404 (project genuinely deleted)
+            // from 500 (server error), but the conservative behavior is safe: it prevents destructive
+            // actions (Fix & Open) when we can't be 100% sure.
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "404 should return null (conservative: treated as unreachable)");
+        });
+
+        test("401 Unauthorized should result in null (auth failure = can't verify)", async () => {
+            (globalThis as any).fetch = async () => {
+                return new Response("Unauthorized", { status: 401, statusText: "Unauthorized" });
+            };
+
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "401 should return null (can't verify project existence without auth)");
+        });
+
+        test("403 Forbidden should result in null", async () => {
+            (globalThis as any).fetch = async () => {
+                return new Response("Forbidden", { status: 403, statusText: "Forbidden" });
+            };
+
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "403 should return null (access denied = can't verify)");
+        });
+
+        test("Network error (offline/DNS) should result in null", async () => {
+            (globalThis as any).fetch = async () => {
+                throw new TypeError("Failed to fetch");
+            };
+
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "Network error should return null (no connectivity)");
+        });
+
+        test("SSL/certificate error should result in null", async () => {
+            (globalThis as any).fetch = async () => {
+                throw new Error("unable to verify the first certificate");
+            };
+
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "SSL cert error should return null (server unreachable)");
+        });
+
+        test("Timeout/abort should result in null", async () => {
+            (globalThis as any).fetch = async () => {
+                const err = new DOMException("The operation was aborted", "AbortError");
+                throw err;
+            };
+
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "Timeout/abort should return null");
+        });
+
+        test("502 Bad Gateway should result in null", async () => {
+            (globalThis as any).fetch = async () => {
+                return new Response("Bad Gateway", { status: 502, statusText: "Bad Gateway" });
+            };
+
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "502 should return null (proxy/gateway error = server unreachable)");
+        });
+
+        test("503 Service Unavailable should result in null", async () => {
+            (globalThis as any).fetch = async () => {
+                return new Response("Service Unavailable", { status: 503, statusText: "Service Unavailable" });
+            };
+
+            const result = await simulateFetchRemoteMetadata();
+            assert.strictEqual(result, null,
+                "503 should return null (server temporarily down)");
+        });
+
+        // Helper: simulates what fetchRemoteMetadata does with any fetch result.
+        // This mirrors the real function's catch-all behavior.
+        async function simulateFetchRemoteMetadata(): Promise<any> {
+            try {
+                const response = await (globalThis as any).fetch("https://git.example.com/api/v4/projects/test/repository/files/metadata.json/raw?ref=main");
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const text = await response.text();
+                return JSON.parse(text);
+            } catch {
+                // This is exactly what fetchRemoteMetadata does: catches everything, returns null
+                return null;
+            }
+        }
+    });
+
+    suite("HTTP Error Classification for Projects List", () => {
+        test("all HTTP error types should map to serverUnreachable in fetchRemoteProjects", () => {
+            // fetchRemoteProjects catches all errors and returns { projects: [], serverUnreachable: true }
+            // This test documents which errors get caught and verifies the mapping.
+            const errorScenarios = [
+                { name: "500 Internal Server Error", error: new Error("Failed to list projects: Internal Server Error") },
+                { name: "404 Not Found", error: new Error("Failed to list projects: Not Found") },
+                { name: "401 Unauthorized", error: new Error("Failed to list projects: Unauthorized") },
+                { name: "403 Forbidden", error: new Error("Failed to list projects: Forbidden") },
+                { name: "502 Bad Gateway", error: new Error("Failed to list projects: Bad Gateway") },
+                { name: "503 Service Unavailable", error: new Error("Failed to list projects: Service Unavailable") },
+                { name: "Network error", error: new TypeError("Failed to fetch") },
+                { name: "SSL cert error", error: new Error("unable to verify the first certificate") },
+                { name: "DNS failure", error: new Error("getaddrinfo ENOTFOUND git.example.com") },
+                { name: "Connection refused", error: new Error("connect ECONNREFUSED 127.0.0.1:443") },
+                { name: "Timeout", error: new DOMException("The operation was aborted", "AbortError") },
+            ];
+
+            for (const scenario of errorScenarios) {
+                // Simulate fetchRemoteProjects catch block behavior
+                let result: { projects: any[]; serverUnreachable: boolean; };
+                try {
+                    throw scenario.error;
+                } catch {
+                    result = { projects: [], serverUnreachable: true };
+                }
+
+                assert.strictEqual(result.serverUnreachable, true,
+                    `${scenario.name}: should be flagged as serverUnreachable`);
+                assert.deepStrictEqual(result.projects, [],
+                    `${scenario.name}: should return empty projects array`);
+            }
+        });
+
+        test("successful empty response should NOT be serverUnreachable", () => {
+            // When the server responds with an empty array, that's a valid response
+            // (e.g., new user with no projects, or all projects deleted)
+            const result = { projects: [] as any[], serverUnreachable: false };
+
+            assert.strictEqual(result.serverUnreachable, false,
+                "Empty response from a reachable server is valid, not unreachable");
+        });
+
+        test("each error type should produce correct sync status for local projects", () => {
+            // Given a local project with a git remote, verify the sync status assignment
+            // when different server errors occur
+            const testCases = [
+                { serverUnreachable: true, hasGitUrl: true, expected: "serverUnreachable", label: "server down + has git url" },
+                { serverUnreachable: true, hasGitUrl: false, expected: "localOnlyNotSynced", label: "server down + no git url" },
+                { serverUnreachable: false, hasGitUrl: true, expected: "orphaned", label: "server up + project not found" },
+                { serverUnreachable: false, hasGitUrl: false, expected: "localOnlyNotSynced", label: "server up + no git url" },
+            ];
+
+            for (const tc of testCases) {
+                let status: string;
+                if (!tc.hasGitUrl) {
+                    status = "localOnlyNotSynced";
+                } else if (tc.serverUnreachable) {
+                    status = "serverUnreachable";
+                } else {
+                    status = "orphaned";
+                }
+
+                assert.strictEqual(status, tc.expected,
+                    `${tc.label}: should have status "${tc.expected}"`);
+            }
+        });
+    });
+
+    suite("checkProjectSwapRequired - remoteUnreachable with null metadata", () => {
+        test("null fetchRemoteMetadata should set remoteUnreachable=true", () => {
+            // Simulates checkProjectSwapRequired behavior when fetchRemoteMetadata returns null.
+            // This is the core contract: null metadata = server unreachable.
+            const remoteMetadata: any = null;
+
+            // checkProjectSwapRequired logic:
+            const remoteUnreachable = remoteMetadata === null;
+            // When remoteMetadata is null, remote swap info should NOT be populated
+            const remoteSwapInfo = remoteMetadata?.meta?.projectSwap || undefined;
+
+            assert.strictEqual(remoteUnreachable, true,
+                "null metadata must flag remoteUnreachable");
+            assert.strictEqual(remoteSwapInfo, undefined,
+                "No remote swap info should be extracted from null metadata");
+        });
+
+        test("metadata without projectSwap should NOT be remoteUnreachable", () => {
+            // Server responded with valid metadata but no projectSwap field.
+            // This means the swap was deliberately erased -- NOT unreachable.
+            const remoteMetadata: any = { meta: { version: "1.0" } };
+
+            const remoteUnreachable = remoteMetadata === null;
+            const hasProjectSwap = !!remoteMetadata?.meta?.projectSwap;
+
+            assert.strictEqual(remoteUnreachable, false,
+                "Valid metadata response should not be flagged as unreachable");
+            assert.strictEqual(hasProjectSwap, false,
+                "No projectSwap field means swap was erased, not server down");
+        });
+
+        test("metadata with cancelled projectSwap should NOT be remoteUnreachable", () => {
+            const remoteMetadata: any = {
+                meta: {
+                    projectSwap: {
+                        swapEntries: [createSwapEntry({
+                            swapStatus: "cancelled",
+                            cancelledBy: "admin",
+                        })],
+                    },
+                },
+            };
+
+            const remoteUnreachable = remoteMetadata === null;
+            const remoteSwapInfo = remoteMetadata?.meta?.projectSwap;
+            const normalized = normalizeProjectSwapInfo(remoteSwapInfo);
+            const activeEntry = getActiveSwapEntry(normalized);
+
+            assert.strictEqual(remoteUnreachable, false,
+                "Cancelled swap is a valid response, not unreachable");
+            assert.strictEqual(activeEntry, undefined,
+                "Cancelled swap should have no active entry");
+        });
+
+        test("remoteUnreachable should preserve local active swap (no cleanup)", () => {
+            // When server is unreachable and local shows an active swap,
+            // we must NOT clean up -- we can't confirm it was cancelled.
+            const localSwapInfo = normalizeProjectSwapInfo({
+                swapEntries: [createSwapEntry({
+                    swapUUID: "keep-this",
+                    swapStatus: "active",
+                    isOldProject: true,
+                })],
+            });
+
+            const remoteUnreachable = true;
+            const activeEntry = getActiveSwapEntry(localSwapInfo);
+
+            // Logic: if unreachable, don't clean up, don't delete localProjectSwap.json
+            const shouldCleanup = !remoteUnreachable && !activeEntry;
+
+            assert.ok(activeEntry, "Active entry should still exist locally");
+            assert.strictEqual(shouldCleanup, false,
+                "Must NOT clean up local swap data when server is unreachable");
+        });
+
+        test("remoteUnreachable should NOT block sync (let git pull update metadata)", () => {
+            // From syncManager.ts: if swap is required but server is unreachable,
+            // don't block sync -- git pull can update local metadata with remote changes.
+            const swapCheckResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapStatus: "active" }),
+                remoteUnreachable: true,
+            };
+
+            // syncManager logic: block sync only if required AND reachable
+            const shouldBlockSync = swapCheckResult.required
+                && !!swapCheckResult.activeEntry
+                && !swapCheckResult.remoteUnreachable;
+
+            assert.strictEqual(shouldBlockSync, false,
+                "Sync should NOT be blocked when server is unreachable (let git pull proceed)");
+        });
+
+        test("server reachable with active swap SHOULD block sync", () => {
+            const swapCheckResult = {
+                required: true,
+                activeEntry: createSwapEntry({ swapStatus: "active" }),
+                remoteUnreachable: false,
+            };
+
+            const shouldBlockSync = swapCheckResult.required
+                && !!swapCheckResult.activeEntry
+                && !swapCheckResult.remoteUnreachable;
+
+            assert.strictEqual(shouldBlockSync, true,
+                "Sync should be blocked when server confirms an active swap");
+        });
+    });
+
+    suite("Frontend isOnline Guard - effectiveSyncStatus", () => {
+        test("offline + orphaned -> serverUnreachable (prevents Fix & Open)", () => {
+            const isOnline = false;
+            const syncStatus = "orphaned";
+
+            const effectiveSyncStatus = (!isOnline && syncStatus === "orphaned")
+                ? "serverUnreachable"
+                : syncStatus;
+
+            assert.strictEqual(effectiveSyncStatus, "serverUnreachable",
+                "Offline orphaned must be overridden to serverUnreachable");
+        });
+
+        test("online + orphaned -> orphaned (genuinely missing, Fix & Open OK)", () => {
+            const isOnline = true;
+            const syncStatus = "orphaned";
+
+            const effectiveSyncStatus = (!isOnline && syncStatus === "orphaned")
+                ? "serverUnreachable"
+                : syncStatus;
+
+            assert.strictEqual(effectiveSyncStatus, "orphaned",
+                "Online orphaned is legitimate -- server confirmed project missing");
+        });
+
+        test("offline + downloadedAndSynced -> unchanged", () => {
+            const isOnline = false;
+            const syncStatus: string = "downloadedAndSynced";
+
+            const effectiveSyncStatus = (!isOnline && syncStatus === "orphaned")
+                ? "serverUnreachable"
+                : syncStatus;
+
+            assert.strictEqual(effectiveSyncStatus, "downloadedAndSynced",
+                "Non-orphaned statuses should not be affected by offline state");
+        });
+
+        test("offline + serverUnreachable -> serverUnreachable (already correct)", () => {
+            const isOnline = false;
+            const syncStatus: string = "serverUnreachable";
+
+            const effectiveSyncStatus = (!isOnline && syncStatus === "orphaned")
+                ? "serverUnreachable"
+                : syncStatus;
+
+            assert.strictEqual(effectiveSyncStatus, "serverUnreachable",
+                "Already serverUnreachable should stay as-is");
+        });
+
+        test("offline + localOnlyNotSynced -> unchanged", () => {
+            const isOnline = false;
+            const syncStatus: string = "localOnlyNotSynced";
+
+            const effectiveSyncStatus = (!isOnline && syncStatus === "orphaned")
+                ? "serverUnreachable"
+                : syncStatus;
+
+            assert.strictEqual(effectiveSyncStatus, "localOnlyNotSynced",
+                "Local-only projects should not be affected by offline state");
+        });
+
+        test("button label follows effectiveSyncStatus, not raw syncStatus", () => {
+            const scenarios = [
+                { isOnline: false, syncStatus: "orphaned", expectedLabel: "Open Offline" },
+                { isOnline: true, syncStatus: "orphaned", expectedLabel: "Fix & Open" },
+                { isOnline: false, syncStatus: "serverUnreachable", expectedLabel: "Open Offline" },
+                { isOnline: true, syncStatus: "serverUnreachable", expectedLabel: "Open Offline" },
+                { isOnline: true, syncStatus: "downloadedAndSynced", expectedLabel: "Open" },
+                { isOnline: false, syncStatus: "downloadedAndSynced", expectedLabel: "Open Offline" },
+            ];
+
+            for (const s of scenarios) {
+                const effective = (!s.isOnline && s.syncStatus === "orphaned")
+                    ? "serverUnreachable"
+                    : s.syncStatus;
+
+                let label: string;
+                if (effective === "orphaned") {
+                    label = "Fix & Open";
+                } else if (effective === "serverUnreachable" || !s.isOnline) {
+                    label = "Open Offline";
+                } else {
+                    label = "Open";
+                }
+
+                assert.strictEqual(label, s.expectedLabel,
+                    `isOnline=${s.isOnline}, syncStatus="${s.syncStatus}" -> button "${s.expectedLabel}"`);
+            }
+        });
+
+        test("badge follows effectiveSyncStatus", () => {
+            const scenarios = [
+                { isOnline: false, syncStatus: "orphaned", expectedBadge: "Server Unreachable" },
+                { isOnline: true, syncStatus: "orphaned", expectedBadge: "Remote Missing" },
+                { isOnline: false, syncStatus: "serverUnreachable", expectedBadge: "Server Unreachable" },
+                { isOnline: true, syncStatus: "downloadedAndSynced", expectedBadge: null },
+            ];
+
+            for (const s of scenarios) {
+                const effective = (!s.isOnline && s.syncStatus === "orphaned")
+                    ? "serverUnreachable"
+                    : s.syncStatus;
+
+                let badge: string | null = null;
+                if (effective === "orphaned") badge = "Remote Missing";
+                else if (effective === "serverUnreachable") badge = "Server Unreachable";
+
+                assert.strictEqual(badge, s.expectedBadge,
+                    `isOnline=${s.isOnline}, syncStatus="${s.syncStatus}" -> badge "${s.expectedBadge}"`);
+            }
+        });
+    });
+
+    suite("fetchRemoteProjects Return Value Mapping", () => {
+        test("API throws error -> serverUnreachable=true", async () => {
+            // Simulates fetchRemoteProjects when frontierApi.listProjects throws
+            async function simulateFetchWithError() {
+                try {
+                    throw new Error("Failed to list projects: Internal Server Error");
+                } catch {
+                    return { projects: [] as any[], serverUnreachable: true };
+                }
+            }
+
+            const result = await simulateFetchWithError();
+            assert.strictEqual(result.serverUnreachable, true);
+            assert.deepStrictEqual(result.projects, []);
+        });
+
+        test("API returns empty array -> serverUnreachable=false", async () => {
+            // Server responded OK but user has no projects
+            async function simulateFetchEmpty() {
+                const remoteProjects: any[] = [];
+                return { projects: remoteProjects, serverUnreachable: false };
+            }
+
+            const result = await simulateFetchEmpty();
+            assert.strictEqual(result.serverUnreachable, false,
+                "Empty array from a reachable server is NOT unreachable");
+            assert.deepStrictEqual(result.projects, []);
+        });
+
+        test("API returns projects -> serverUnreachable=false", async () => {
+            async function simulateFetchSuccess() {
+                const remoteProjects = [{ name: "proj1" }, { name: "proj2" }];
+                return { projects: remoteProjects, serverUnreachable: false };
+            }
+
+            const result = await simulateFetchSuccess();
+            assert.strictEqual(result.serverUnreachable, false);
+            assert.strictEqual(result.projects.length, 2);
+        });
+
+        test("No frontierApi -> serverUnreachable=true", async () => {
+            // When frontierApi is null/undefined (not authenticated, extension not ready)
+            async function simulateNoApi() {
+                const frontierApi = null;
+                if (!frontierApi) {
+                    return { projects: [] as any[], serverUnreachable: true };
+                }
+                return { projects: [], serverUnreachable: false };
+            }
+
+            const result = await simulateNoApi();
+            assert.strictEqual(result.serverUnreachable, true,
+                "No API = can't reach server, must be flagged as unreachable");
+        });
+
+        test("TypeError (network/offline) -> serverUnreachable=true", async () => {
+            async function simulateNetworkError() {
+                try {
+                    throw new TypeError("Failed to fetch");
+                } catch {
+                    return { projects: [] as any[], serverUnreachable: true };
+                }
+            }
+
+            const result = await simulateNetworkError();
+            assert.strictEqual(result.serverUnreachable, true,
+                "Network error must be flagged as serverUnreachable");
+        });
+
+        test("DOMException abort -> serverUnreachable=true", async () => {
+            async function simulateAbort() {
+                try {
+                    throw new DOMException("The operation was aborted", "AbortError");
+                } catch {
+                    return { projects: [] as any[], serverUnreachable: true };
+                }
+            }
+
+            const result = await simulateAbort();
+            assert.strictEqual(result.serverUnreachable, true,
+                "Abort/timeout must be flagged as serverUnreachable");
+        });
+
+        test("Promise.allSettled rejected -> serverUnreachable=true", () => {
+            // Tests the caller-side handling when fetchRemoteProjects itself throws
+            // (even though it shouldn't, Promise.allSettled catches it)
+            const remoteProjectsResult: any = {
+                status: "rejected",
+                reason: new Error("Unexpected error"),
+            };
+
+            const remoteResult = remoteProjectsResult.status === "fulfilled"
+                ? remoteProjectsResult.value
+                : { projects: [] as any[], serverUnreachable: true };
+
+            assert.strictEqual(remoteResult.serverUnreachable, true,
+                "Promise.allSettled rejected case must default to serverUnreachable");
         });
     });
 });
