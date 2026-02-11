@@ -60,6 +60,7 @@ function handleABTestResult(
         isAttentionCheck?: boolean;
         correctIndex?: number;
         decoyCellId?: string;
+        names?: string[];
     } | null,
     currentCellId: string,
     testIdPrefix: string,
