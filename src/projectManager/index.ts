@@ -698,6 +698,27 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         }
     });
 
+    const validateProjectIdCommand = vscode.commands.registerCommand(
+        "codex-project-manager.validateProjectId",
+        async () => {
+            try {
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (!workspaceFolders || workspaceFolders.length === 0) {
+                    vscode.window.showWarningMessage("No workspace folder open");
+                    return;
+                }
+
+                const { validateAndFixProjectId } = await import("../utils/projectIdValidator");
+                await validateAndFixProjectId(workspaceFolders[0].uri);
+            } catch (error) {
+                console.error("Error validating project ID:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to validate project ID: ${error instanceof Error ? error.message : String(error)}`
+                );
+            }
+        }
+    );
+
     // Register commands and event listeners
     context.subscriptions.push(
         openAutoSaveSettingsCommand,
@@ -724,6 +745,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         updateGitignoreCommand,
         updateMetadataFileCommand,
         changeUserEmailCommand,
+        validateProjectIdCommand,
         onDidChangeConfigurationListener,
         onDidChangeExtensionsListener,
         toggleSpellcheckCommand

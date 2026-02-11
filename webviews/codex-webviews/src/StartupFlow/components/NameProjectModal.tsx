@@ -69,6 +69,15 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
                             setName(e.target.value);
                         }}
                         onBlur={() => setHasInteracted(true)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSubmit();
+                            } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                onCancel();
+                            }
+                        }}
                         placeholder="my-translation-project"
                         autoFocus
                     />

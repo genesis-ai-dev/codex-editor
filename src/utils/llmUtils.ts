@@ -25,18 +25,20 @@ export async function callLLM(
             throw new vscode.CancellationError();
         }
 
-        // Only use Frontier auth if user hasn't provided their own API key
+        // Check if using Frontier endpoint (requires Frontier auth, not API key)
+        const isFrontierEndpoint = config.endpoint.includes("frontierrnd.com");
         let llmEndpoint: string | undefined;
         let authBearerToken: string | undefined;
-        const hasCustomApiKey = config.apiKey && config.apiKey.trim().length > 0;
 
-        if (!hasCustomApiKey) {
-            // User doesn't have their own key, try Frontier auth
+        // Use Frontier auth if: using Frontier endpoint OR no custom API key
+        const hasCustomApiKey = config.apiKey && config.apiKey.trim().length > 0;
+        const shouldUseFrontierAuth = isFrontierEndpoint || !hasCustomApiKey;
+
+        if (shouldUseFrontierAuth) {
             try {
                 const frontierApi = getAuthApi();
                 if (frontierApi) {
                     llmEndpoint = await frontierApi.getLlmEndpoint();
-                    // Get auth token from the auth provider
                     authBearerToken = await frontierApi.authProvider.getToken();
                 }
             } catch (error) {
@@ -53,8 +55,9 @@ export async function callLLM(
             throw new vscode.CancellationError();
         }
 
+        // For Frontier endpoint, use auth token; for other endpoints, use API key
         const openai = new OpenAI({
-            apiKey: config.apiKey,
+            apiKey: isFrontierEndpoint ? "" : config.apiKey,
             baseURL: config.endpoint,
             defaultHeaders: authBearerToken
                 ? {
@@ -353,7 +356,7 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
         //     });
         // }
         const completionConfig: CompletionConfig = {
-            endpoint: (config.get("llmEndpoint") as string) || "https://api.openai.com/v1",
+            endpoint: (config.get("llmEndpoint") as string) || "https://api.frontierrnd.com/api/v1",
             apiKey: (config.get("api_key") as string) || "",
             model: "default",
             contextSize: (config.get("contextSize") as string) || "large",

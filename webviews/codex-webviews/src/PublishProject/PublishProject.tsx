@@ -1,17 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { WebviewHeader } from "../components/WebviewHeader";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "../components/ui/select";
 import { Button } from "../components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "../lib/utils";
 
 const vscode = acquireVsCodeApi();
-
-type Visibility = "private" | "internal" | "public";
 
 export interface GroupList {
     id: number;
@@ -19,18 +13,69 @@ export interface GroupList {
     path: string;
 }
 
+interface PersistedState {
+    groups: GroupList[];
+    selectedGroupId: number | undefined;
+    name: string;
+    description: string;
+    projectId: string | undefined;
+}
+
+// Get persisted state from VS Code webview API
+const getPersistedState = (): PersistedState | undefined => {
+    try {
+        return vscode.getState() as PersistedState | undefined;
+    } catch {
+        return undefined;
+    }
+};
+
+const persistedState = getPersistedState();
+
 export default function PublishProject() {
-    const [name, setName] = useState("");
-    const [description, setDescription] = useState("");
-    const [visibility, setVisibility] = useState<Visibility>("private");
-    const [groups, setGroups] = useState<GroupList[]>([]);
-    const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
+    const [name, setName] = useState(persistedState?.name ?? "");
+    const [description, setDescription] = useState(persistedState?.description ?? "");
+    const [groups, setGroups] = useState<GroupList[]>(persistedState?.groups ?? []);
+    const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(persistedState?.selectedGroupId);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
-    const [projectId, setProjectId] = useState<string | undefined>(undefined);
+    const [projectId, setProjectId] = useState<string | undefined>(persistedState?.projectId);
+    // Only show loading if we don't have persisted groups
+    const [loadingGroups, setLoadingGroups] = useState(!persistedState?.groups?.length);
+    const [groupSearch, setGroupSearch] = useState("");
+    const [comboboxOpen, setComboboxOpen] = useState(false);
 
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
+    
+    // Filter groups based on search
+    const filteredGroups = useMemo(() => {
+        if (!groupSearch.trim()) return groups;
+        const lowerSearch = groupSearch.toLowerCase();
+        return groups.filter(
+            (g) =>
+                g.name.toLowerCase().includes(lowerSearch) ||
+                g.path.toLowerCase().includes(lowerSearch)
+        );
+    }, [groups, groupSearch]);
+    
+    // Get the selected group for display
+    const selectedGroup = useMemo(
+        () => groups.find((g) => g.id === selectedGroupId),
+        [groups, selectedGroupId]
+    );
+
     const canCreate = isValidName && !busy;
+    
+    // Persist state whenever important values change
+    useEffect(() => {
+        vscode.setState({
+            groups,
+            selectedGroupId,
+            name,
+            description,
+            projectId,
+        } as PersistedState);
+    }, [groups, selectedGroupId, name, description, projectId]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -38,30 +83,22 @@ export default function PublishProject() {
             if (m?.type === "init") {
                 if (m.defaults?.projectId) {
                     setProjectId(m.defaults.projectId);
-                    // Strip projectId from name if it's included
-                    if (m.defaults?.name) {
-                        const nameWithId = m.defaults.name;
-                        const nameWithoutId = nameWithId.endsWith(`-${m.defaults.projectId}`)
-                            ? nameWithId.slice(
-                                  0,
-                                  nameWithId.length - `-${m.defaults.projectId}`.length
-                              )
-                            : nameWithId;
-                        setName(nameWithoutId);
-                    }
-                } else if (m.defaults?.name) {
+                }
+                // Keep the full name with UUID for proper identification
+                if (m.defaults?.name) {
                     setName(m.defaults.name);
                 }
-                if (m.defaults?.visibility) setVisibility(m.defaults.visibility as Visibility);
             } else if (m?.type === "busy") {
                 setBusy(!!m.value);
             } else if (m?.type === "error") {
                 setError(m.message || "An error occurred");
+                setLoadingGroups(false);
             } else if (m?.type === "groups") {
                 const list: GroupList[] = Array.isArray(m.groups) ? m.groups : [];
                 setGroups(list);
-                // Auto-select first group when available
-                if (list.length > 0) {
+                setLoadingGroups(false);
+                // Auto-select first group when available and none selected
+                if (list.length > 0 && selectedGroupId === undefined) {
                     setSelectedGroupId(list[0].id);
                 }
             }
@@ -69,12 +106,18 @@ export default function PublishProject() {
 
         window.addEventListener("message", handleMessage);
         vscode.postMessage({ command: "init" });
-        vscode.postMessage({ command: "fetchGroups" });
+        
+        // Only fetch groups if we don't have persisted groups
+        if (!persistedState?.groups?.length) {
+            vscode.postMessage({ command: "fetchGroups" });
+        }
+        
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
     const onFetchGroups = () => {
         setError(undefined);
+        setLoadingGroups(true);
         vscode.postMessage({ command: "fetchGroups" });
     };
 
@@ -87,7 +130,7 @@ export default function PublishProject() {
             payload: {
                 name: name,
                 description: description || undefined,
-                visibility,
+                visibility: "private",
                 projectType: "group",
                 groupId: selectedGroupId,
             },
@@ -96,22 +139,6 @@ export default function PublishProject() {
 
     const onCancel = () => {
         vscode.postMessage({ command: "cancel" });
-    };
-
-    const displayGroups = () => {
-        if (groups.length === 0) {
-            return (
-                <SelectItem value="none" disabled className="text-base">
-                    No groups found
-                </SelectItem>
-            );
-        }
-
-        return groups.map((g) => (
-            <SelectItem key={g.id} value={g.id.toString()} className="text-base">
-                {g.name} ({g.path})
-            </SelectItem>
-        ));
     };
 
     const hasGroup = selectedGroupId !== undefined;
@@ -138,20 +165,19 @@ export default function PublishProject() {
                             className="text-sm text-[var(--vscode-descriptionForeground)]"
                             htmlFor="name"
                         >
-                            Project name
+                            Project name (from workspace folder)
                         </label>
                         <input
                             id="name"
                             value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+                            readOnly
+                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-disabledForeground)] cursor-not-allowed"
                             placeholder="my-project"
+                            title="Project name is based on the workspace folder name and cannot be changed"
                         />
-                        {!isValidName && (
-                            <div className="text-sm text-[var(--vscode-errorForeground)]">
-                                Use only letters, numbers, underscore, dot, or hyphen.
-                            </div>
-                        )}
+                        <div className="text-xs text-[var(--vscode-descriptionForeground)]">
+                            Project name matches your workspace folder and includes a unique ID
+                        </div>
                     </div>
 
                     <div className="space-y-1">
@@ -171,63 +197,91 @@ export default function PublishProject() {
                         />
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3">
-                        <div className="space-y-1">
-                            <label
-                                className="text-sm text-[var(--vscode-descriptionForeground)]"
-                                htmlFor="visibility"
-                            >
-                                Visibility
-                            </label>
-                            <Select
-                                value={visibility}
-                                onValueChange={(value) => setVisibility(value as Visibility)}
-                            >
-                                <SelectTrigger className="w-full rounded-md px-2 py-1 text-base focus-visible:ring-0 focus-visible:ring-offset-0 outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    <SelectValue placeholder="Select a visibility" />
-                                </SelectTrigger>
-                                <SelectContent className="w-full rounded-md text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    <SelectItem value="private" className="text-base">
-                                        private
-                                    </SelectItem>
-                                    <SelectItem value="internal" className="text-base">
-                                        internal
-                                    </SelectItem>
-                                    <SelectItem value="public" className="text-base">
-                                        public
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-
-                    <div className="flex items-end gap-3">
-                        <div className="flex-1 space-y-1">
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between">
                             <label
                                 className="text-sm text-[var(--vscode-descriptionForeground)]"
                                 htmlFor="group"
                             >
                                 Group
                             </label>
-                            <Select
-                                value={selectedGroupId?.toString() ?? ""}
-                                onValueChange={(value) => setSelectedGroupId(Number(value))}
+                            <Button
+                                onClick={onFetchGroups}
+                                disabled={busy || loadingGroups}
+                                className="whitespace-nowrap rounded-md border text-xs px-2 py-0.5 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
                             >
-                                <SelectTrigger className="w-full rounded-md px-2 py-1 text-base focus-visible:ring-0 focus-visible:ring-offset-0 outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    <SelectValue placeholder="Select a group" />
-                                </SelectTrigger>
-                                <SelectContent className="w-full rounded-md text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]">
-                                    {displayGroups()}
-                                </SelectContent>
-                            </Select>
+                                {loadingGroups ? "Loading..." : "Refresh"}
+                            </Button>
                         </div>
-                        <Button
-                            onClick={onFetchGroups}
-                            disabled={busy}
-                            className="whitespace-nowrap rounded-md border text-sm px-2 py-1 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
-                        >
-                            Load Groups
-                        </Button>
+                        <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+                            <PopoverTrigger asChild>
+                                <button
+                                    type="button"
+                                    role="combobox"
+                                    aria-expanded={comboboxOpen}
+                                    disabled={loadingGroups || groups.length === 0}
+                                    className="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    <span className={cn(!selectedGroup && "text-[var(--vscode-descriptionForeground)]")}>
+                                        {loadingGroups 
+                                            ? "Loading groups..." 
+                                            : groups.length === 0 
+                                                ? "No groups available" 
+                                                : selectedGroup 
+                                                    ? selectedGroup.name 
+                                                    : "Select a group..."}
+                                    </span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent 
+                                className="w-[var(--radix-popover-trigger-width)] p-0 border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)]"
+                                align="start"
+                            >
+                                <div className="p-2 border-b border-[var(--vscode-input-border)]">
+                                    <input
+                                        type="text"
+                                        placeholder="Search groups..."
+                                        value={groupSearch}
+                                        onChange={(e) => setGroupSearch(e.target.value)}
+                                        className="w-full px-2 py-1 text-sm outline-none border border-[var(--vscode-input-border)] rounded bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="max-h-60 overflow-y-auto">
+                                    {filteredGroups.length === 0 ? (
+                                        <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
+                                            No groups found
+                                        </div>
+                                    ) : (
+                                        filteredGroups.map((g) => (
+                                            <div
+                                                key={g.id}
+                                                onClick={() => {
+                                                    setSelectedGroupId(g.id);
+                                                    setComboboxOpen(false);
+                                                    setGroupSearch("");
+                                                }}
+                                                className={cn(
+                                                    "flex items-center px-3 py-1.5 text-sm cursor-pointer transition-colors",
+                                                    selectedGroupId === g.id
+                                                        ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
+                                                        : "hover:bg-[var(--vscode-list-hoverBackground)]"
+                                                )}
+                                            >
+                                                <Check
+                                                    className={cn(
+                                                        "mr-2 h-4 w-4",
+                                                        selectedGroupId === g.id ? "opacity-100" : "opacity-0"
+                                                    )}
+                                                />
+                                                {g.name}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </PopoverContent>
+                        </Popover>
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">

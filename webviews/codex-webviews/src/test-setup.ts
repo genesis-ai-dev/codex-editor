@@ -28,3 +28,7 @@ global.IntersectionObserver = vi.fn().mockImplementation(() => ({
     unobserve: vi.fn(),
     disconnect: vi.fn(),
 }));
+
+// Mock scrollTo for Element and window (not implemented in jsdom)
+Element.prototype.scrollTo = vi.fn();
+window.scrollTo = vi.fn() as typeof window.scrollTo;

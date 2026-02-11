@@ -126,14 +126,6 @@ function createMockFrontierApi(): ExtendedFrontierAPI {
             };
         },
 
-        submitProgressReport: async () => ({ success: true, reportId: '' }),
-        getProgressReports: async () => ({ reports: [], totalCount: 0 }),
-        getAggregatedProgress: async () => ({
-            projectCount: 0,
-            activeProjectCount: 0,
-            totalCompletionPercentage: 0,
-            projectSummaries: []
-        }),
         downloadLFSFile: async () => Buffer.from(''),
 
         // Extended methods used by SyncManager

@@ -23,7 +23,7 @@ suite("Merge Strategies Test Suite", () => {
     });
 
     test("should use appropriate strategies for other file types", () => {
-        // Test SPECIAL strategy for metadata.json (3-way merge with custom healing list logic)
+        // Test SPECIAL strategy for metadata.json (3-way merge with custom updating list logic)
         const metadataFile = "metadata.json";
         const strategy1 = determineStrategy(metadataFile);
         assert.strictEqual(strategy1, ConflictResolutionStrategy.SPECIAL);
