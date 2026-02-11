@@ -36,6 +36,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [isAnyApplying, setIsAnyApplying] = useState(false);
     const [disableAllActions, setDisableAllActions] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [swapCloneWarning, setSwapCloneWarning] = useState<{
         message: string;
         repoUrl?: string;
@@ -45,8 +46,21 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [currentUsername, setCurrentUsername] = useState<string | undefined>(undefined);
 
     useEffect(() => {
+        let wasOffline = !navigator.onLine;
+
         const handleOnlineStatusChange = () => {
-            setIsOffline(!navigator.onLine);
+            const nowOnline = navigator.onLine;
+            setIsOffline(!nowOnline);
+
+            // When transitioning from offline to online, show a refreshing indicator.
+            // The provider auto-refreshes the project list on connectivity restoration
+            // (via network.connectivityRestored → sendList), so the response will
+            // clear this state when it arrives.
+            if (wasOffline && nowOnline) {
+                setIsRefreshing(true);
+            }
+
+            wasOffline = !nowOnline;
         };
 
         window.addEventListener("online", handleOnlineStatusChange);
@@ -110,6 +124,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setProjectsList(message.projects);
                 setCurrentUsername((message as any).currentUsername);
                 setIsLoading(false);
+                setIsRefreshing(false);
             } else if (message.command === "project.deleteResponse") {
                 if (message.success) {
                     // Set loading state only after deletion is confirmed
@@ -308,19 +323,19 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         appearance="secondary"
                         onClick={fetchProjectList}
                         title="Refresh Projects List"
-                        disabled={disableAllActions}
-                        className={`refresh-button ${isAnyApplying || disableAllActions ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        disabled={disableAllActions || isRefreshing}
+                        className={`refresh-button ${isAnyApplying || disableAllActions || isRefreshing ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
-                        <i className="codicon codicon-refresh"></i>
-                        Refresh
+                        <i className={`codicon ${isRefreshing ? "codicon-loading codicon-modifier-spin" : "codicon-refresh"}`}></i>
+                        {isRefreshing ? "Refreshing..." : "Refresh"}
                     </VSCodeButton>
 
                     <VSCodeButton
                         appearance="primary"
                         onClick={onCreateEmpty}
                         title="Create New Project from Scratch"
-                        disabled={disableAllActions}
-                        className={`create-button ${isAnyApplying || disableAllActions ? "opacity-50 pointer-events-none cursor-default" : ""}`}
+                        disabled={disableAllActions || isRefreshing}
+                        className={`create-button ${isAnyApplying || disableAllActions || isRefreshing ? "opacity-50 pointer-events-none cursor-default" : ""}`}
                     >
                         <i className="codicon codicon-plus"></i>
                         Create New Project
@@ -338,6 +353,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 
             <GitLabProjectsList
                 isLoading={isLoading}
+                isRefreshing={isRefreshing}
                 onOpenProject={onOpenProject}
                 projects={projectsList}
                 onDeleteProject={handleDeleteProject}
@@ -351,7 +367,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     }
                 }}
                 vscode={vscode}
-                disableAllActions={disableAllActions}
+                disableAllActions={disableAllActions || isRefreshing}
                 currentUsername={currentUsername}
             />
         </div>

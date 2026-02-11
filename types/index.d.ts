@@ -288,7 +288,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
     | { command: "project.cleanupMediaFiles"; projectPath: string; }
     | { command: "project.fixAndOpen"; projectPath: string; }
-    | { command: "project.performSwap"; projectPath: string; };
+    | { command: "project.performSwap"; projectPath: string; }
+    | { command: "systemMessage.generate"; }
+    | { command: "systemMessage.save"; message: string; };
 
 export type GitLabProject = {
     id: number;
@@ -307,6 +309,7 @@ export type ProjectSyncStatus =
     | "cloudOnlyNotSynced"
     | "localOnlyNotSynced"
     | "orphaned"
+    | "serverUnreachable"
     | "error";
 
 export type MediaFilesStrategy =
@@ -367,6 +370,10 @@ export type MessagesFromStartupFlowProvider =
         data: {
             exists: boolean;
             hasCriticalData: boolean;
+            sourceLanguage?: any;
+            targetLanguage?: any;
+            sourceTexts?: string[];
+            chatSystemMessage?: string | null;
         };
     }
     | { command: "setupIncompleteCriticalDataMissing"; }
@@ -385,7 +392,11 @@ export type MessagesFromStartupFlowProvider =
         isOldProject: boolean;
         newProjectName?: string;
         message: string;
-    };
+    }
+    | { command: "systemMessage.generated"; message: string; }
+    | { command: "systemMessage.generateError"; error: string; }
+    | { command: "systemMessage.saved"; }
+    | { command: "systemMessage.saveError"; error: string; };
 
 type DictionaryPostMessages =
     | {
@@ -767,12 +778,10 @@ export type EditorPostMessages =
             selectedIndex: number;
             testId: string;
             selectionTimeMs: number;
-            totalVariants?: number;
-            selectedContent?: string;
-            testName?: string;
-            variants?: string[];
+            totalVariants: number;
         };
     }
+    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
     | { command: "openLoginFlow"; }
     | {
         command: "requestCellsForMilestone";
@@ -1453,6 +1462,9 @@ export interface ProjectSwapInfo {
 
     /** Current swap status (from active swap entry) - "active" | "cancelled" */
     swapStatus?: "active" | "cancelled";
+
+    /** Whether the current user has already completed this swap - derived, not stored in metadata.json */
+    currentUserAlreadySwapped?: boolean;
 }
 
 /**
@@ -2143,7 +2155,8 @@ type EditorReceiveMessages =
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
-    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; abProbability?: number; }; }
+    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }

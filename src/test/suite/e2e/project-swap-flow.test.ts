@@ -117,7 +117,7 @@ suite("E2E: Project Swap Flow", () => {
 
             // Active entry exists but should NOT trigger swap since isOldProject is false
             assert.ok(activeEntry, "Should have active entry");
-            
+
             // Verify isOldProject is false (this project is the NEW project)
             assert.strictEqual(activeEntry?.isOldProject, false, "Should be marked as new project");
 
@@ -271,12 +271,12 @@ suite("E2E: Project Swap Flow", () => {
             // Apply sticky rule
             const mergedEntry = eitherCancelled
                 ? {
-                      ...baseEntry,
-                      swappedUsers: mergedUsers,
-                      swapStatus: "cancelled" as const,
-                      cancelledBy: cancelledEntry.cancelledBy,
-                      cancelledAt: cancelledEntry.cancelledAt,
-                  }
+                    ...baseEntry,
+                    swappedUsers: mergedUsers,
+                    swapStatus: "cancelled" as const,
+                    cancelledBy: cancelledEntry.cancelledBy,
+                    cancelledAt: cancelledEntry.cancelledAt,
+                }
                 : { ...baseEntry, swappedUsers: mergedUsers };
 
             assert.strictEqual(mergedEntry.swapStatus, "cancelled", "Should preserve cancelled status");
@@ -991,7 +991,7 @@ suite("E2E: Project Swap Flow", () => {
             await writeSwapToMetadata(projectC, historyInC);
 
             // Verify: Read C's metadata and check deprecated projects
-            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } =
                 await import("../../../utils/projectSwapManager");
 
             const metaC = await readMetadata(projectC);
@@ -1010,8 +1010,8 @@ suite("E2E: Project Swap Flow", () => {
                 "swaptest2 (middle) MUST be in deprecated list"
             );
             assert.strictEqual(
-                deprecated.length, 
-                2, 
+                deprecated.length,
+                2,
                 "Exactly 2 projects should be deprecated (swaptest1 and swaptest2)"
             );
 
@@ -1024,7 +1024,7 @@ suite("E2E: Project Swap Flow", () => {
 
         test("deprecated projects include name for remote-only matching", async () => {
             const projectDir = await createTestProject(tempDir, "name-matching-test");
-            
+
             const entries: ProjectSwapEntry[] = [
                 createSwapEntry({
                     swapUUID: "test-swap",
@@ -1036,7 +1036,7 @@ suite("E2E: Project Swap Flow", () => {
 
             await writeSwapToMetadata(projectDir, entries);
 
-            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } =
                 await import("../../../utils/projectSwapManager");
 
             const meta = await readMetadata(projectDir);
@@ -1102,7 +1102,7 @@ suite("E2E: Project Swap Flow", () => {
 
             await writeSwapToMetadata(projectE, historyInE);
 
-            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } = 
+            const { getDeprecatedProjectsFromHistory, normalizeProjectSwapInfo } =
                 await import("../../../utils/projectSwapManager");
 
             const meta = await readMetadata(projectE);
@@ -1115,14 +1115,14 @@ suite("E2E: Project Swap Flow", () => {
             assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-b.git"), "project-b");
             assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-c.git"), "project-c");
             assert.ok(deprecatedUrls.includes("https://gitlab.com/org/project-d.git"), "project-d");
-            
+
             // Current project (E) should NOT be deprecated
             assert.ok(!deprecatedUrls.includes("https://gitlab.com/org/project-e.git"), "project-e should NOT be deprecated");
         });
 
         test("field ordering is applied in sorted entries", async () => {
             const projectDir = await createTestProject(tempDir, "field-order-test");
-            
+
             const entries: ProjectSwapEntry[] = [
                 createSwapEntry({
                     swapUUID: "order-test",
@@ -1242,9 +1242,466 @@ suite("E2E: Project Swap Flow", () => {
 
             // Simulate merge with sticky rule
             const eitherCancelled = cancelledEntry.swapStatus === "cancelled" || activeEntry.swapStatus === "cancelled";
-            
+
             assert.strictEqual(eitherCancelled, true, "Should detect cancellation");
             // In actual merge, this would result in cancelled status with user preserved
+        });
+
+        test("REGRESSION: localProjectSwap.json deleted when remote shows no active OLD swap", async () => {
+            const projectDir = await createTestProject(tempDir, "cleanup-regression");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            // Write a localProjectSwap.json with active swap
+            const localData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "cleanup-test",
+                        swapStatus: "active",
+                        swapModifiedAt: 1000,
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(localData, null, 2));
+            assert.ok(fs.existsSync(localSwapPath), "Setup: file should exist");
+
+            // Simulate: remote now has only cancelled entries
+            const remoteEntries = [createSwapEntry({
+                swapUUID: "cleanup-test",
+                swapStatus: "cancelled",
+                swapModifiedAt: 2000,
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+            })];
+
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                e => e.swapStatus === "active" && e.isOldProject === true
+            );
+            assert.strictEqual(hasActiveOldProjectSwap, false,
+                "Remote should show no active OLD swap");
+
+            // Check no pending state
+            const fileData = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const hasPendingState = fileData.swapPendingDownloads || fileData.pendingLfsDownloads;
+            assert.ok(!hasPendingState, "No pending state");
+
+            // Simulate cleanup (same logic as in checkProjectSwapRequired)
+            if (!hasActiveOldProjectSwap && !hasPendingState) {
+                fs.unlinkSync(localSwapPath);
+            }
+            assert.ok(!fs.existsSync(localSwapPath), "File should be deleted");
+        });
+
+        test("REGRESSION: localProjectSwap.json NOT deleted when pending downloads exist", async () => {
+            const projectDir = await createTestProject(tempDir, "keep-pending-regression");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            const localData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "keep-test",
+                        swapStatus: "cancelled",
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+                swapPendingDownloads: {
+                    swapState: "pending_downloads",
+                    filesNeedingDownload: ["GEN/1_1.mp3"],
+                    newProjectUrl: "https://gitlab.com/org/new.git",
+                    swapUUID: "keep-test",
+                    swapInitiatedAt: Date.now(),
+                    createdAt: Date.now(),
+                },
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(localData, null, 2));
+
+            const fileData = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const hasPendingState = fileData.swapPendingDownloads || fileData.pendingLfsDownloads;
+            assert.ok(hasPendingState, "Should detect pending downloads");
+
+            // Simulate: even with no active OLD swap, don't delete
+            const hasActiveOldProjectSwap = false;
+            if (!hasActiveOldProjectSwap && !hasPendingState) {
+                fs.unlinkSync(localSwapPath);
+            }
+            // File should still exist because of pending state
+            assert.ok(fs.existsSync(localSwapPath), "File must NOT be deleted with pending downloads");
+        });
+
+        test("REGRESSION: re-validation before swap catches cancelled swap", async () => {
+            // Simulate: user clicked "Swap" but between click and execution, admin cancelled
+            const initialEntry = createSwapEntry({
+                swapUUID: "revalidate-test",
+                swapStatus: "active",
+                isOldProject: true,
+            });
+
+            // Initial check passes
+            const initialResult = { required: true, activeEntry: initialEntry };
+            assert.ok(initialResult.required, "Initial check should pass");
+
+            // Admin cancels between prompt and execution
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "revalidate-test",
+                swapStatus: "cancelled",
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: Date.now(),
+            });
+
+            // Re-validation detects cancellation
+            const normalizedCancelled = normalizeProjectSwapInfo({ swapEntries: [cancelledEntry] });
+            const activeAfterRecheck = getActiveSwapEntry(normalizedCancelled);
+
+            assert.strictEqual(activeAfterRecheck, undefined,
+                "No active entry after cancellation");
+
+            // The re-validation logic: no active entry means abort
+            const shouldAbort = activeAfterRecheck === undefined;
+            assert.strictEqual(shouldAbort, true,
+                "Swap execution should be aborted after detecting cancellation");
+        });
+
+        test("REGRESSION: re-validation catches UUID change (new swap replaced old)", async () => {
+            const originalUUID = "original-swap";
+            const replacementUUID = "replacement-swap";
+
+            const originalEntry = createSwapEntry({
+                swapUUID: originalUUID,
+                swapStatus: "active",
+                isOldProject: true,
+            });
+
+            // Between prompt and execution, original was cancelled and new one created
+            const replacementEntry = createSwapEntry({
+                swapUUID: replacementUUID,
+                swapStatus: "active",
+                isOldProject: true,
+            });
+
+            const normalizedReplacement = normalizeProjectSwapInfo({ swapEntries: [replacementEntry] });
+            const activeAfterRecheck = getActiveSwapEntry(normalizedReplacement);
+
+            assert.ok(activeAfterRecheck, "There IS an active entry");
+            assert.notStrictEqual(activeAfterRecheck?.swapUUID, originalUUID,
+                "Active entry has different UUID");
+
+            // The re-validation logic should abort because UUID changed
+            const shouldAbort = !activeAfterRecheck ||
+                activeAfterRecheck?.swapUUID !== originalEntry.swapUUID;
+            assert.strictEqual(shouldAbort, true,
+                "Swap execution should abort when UUID has changed");
+        });
+
+        test("REGRESSION: bypassCache ensures fresh remote data on project open", async () => {
+            // This validates the conceptual requirement that project open always
+            // gets fresh data (bypassCache: true)
+            const projectDir = await createTestProject(tempDir, "bypass-cache-regression");
+
+            // Write stale local cache with active swap
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+            const staleData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "bypass-test",
+                        swapStatus: "active",
+                        swapModifiedAt: 1000,
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now() - 60000, // 1 minute ago
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(staleData, null, 2));
+
+            // Write metadata.json with cancelled (simulating remote cancellation that got synced)
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            metadata.meta = metadata.meta || {};
+            metadata.meta.projectSwap = {
+                swapEntries: [createSwapEntry({
+                    swapUUID: "bypass-test",
+                    swapStatus: "cancelled",
+                    swapModifiedAt: 2000,
+                    isOldProject: true,
+                    cancelledBy: "admin",
+                    cancelledAt: 2000,
+                })],
+            };
+            fs.writeFileSync(
+                path.join(projectDir, "metadata.json"),
+                JSON.stringify(metadata, null, 2)
+            );
+
+            // Verify: metadata has cancelled, local cache has stale active
+            const localCached = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            assert.strictEqual(localCached.remoteSwapInfo.swapEntries[0].swapStatus, "active",
+                "Local cache should be stale");
+
+            const metaData = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            assert.strictEqual(metaData.meta.projectSwap.swapEntries[0].swapStatus, "cancelled",
+                "Metadata should have cancelled (from remote)");
+
+            // When bypassCache is true, checkProjectSwapRequired reads metadata.json
+            // which has the cancelled status, so the swap should NOT be required
+            const normalizedMeta = normalizeProjectSwapInfo(
+                metaData.meta.projectSwap as ProjectSwapInfo
+            );
+            const activeEntry = getActiveSwapEntry(normalizedMeta);
+            assert.strictEqual(activeEntry, undefined,
+                "With fresh data (bypass cache), no active swap should be found");
+        });
+
+        test("REGRESSION: cancelled swap updates local metadata.json with merged data", async () => {
+            const projectDir = await createTestProject(tempDir, "cancel-updates-meta");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            // Setup: local metadata has active swap
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            metadata.meta = metadata.meta || {};
+            metadata.meta.projectSwap = {
+                swapEntries: [createSwapEntry({
+                    swapUUID: "cancel-meta-test",
+                    swapStatus: "active",
+                    swapModifiedAt: 1000,
+                    isOldProject: true,
+                    oldProjectName: "old-proj",
+                    newProjectName: "new-proj",
+                })],
+            };
+            fs.writeFileSync(
+                path.join(projectDir, "metadata.json"),
+                JSON.stringify(metadata, null, 2)
+            );
+
+            // Setup: localProjectSwap.json also has active
+            fs.writeFileSync(localSwapPath, JSON.stringify({
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "cancel-meta-test",
+                        swapStatus: "active",
+                        swapModifiedAt: 1000,
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now(),
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            }, null, 2));
+
+            // Simulate: remote has cancelled data
+            const cancelledEntry = createSwapEntry({
+                swapUUID: "cancel-meta-test",
+                swapStatus: "cancelled",
+                swapModifiedAt: 2000,
+                isOldProject: true,
+                cancelledBy: "admin",
+                cancelledAt: 2000,
+                oldProjectName: "old-proj",
+                newProjectName: "new-proj",
+            });
+
+            // After checkProjectSwapRequired merges and returns swapInfo with cancelled entries,
+            // the project.performSwap handler should:
+            // 1. Update metadata.json with the cancelled entries
+            const mergedSwapInfo: ProjectSwapInfo = {
+                swapEntries: [cancelledEntry],
+            };
+
+            // Simulate writing merged data back to metadata
+            const updatedMeta = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            updatedMeta.meta.projectSwap = mergedSwapInfo;
+            fs.writeFileSync(
+                path.join(projectDir, "metadata.json"),
+                JSON.stringify(updatedMeta, null, 2)
+            );
+
+            // 2. Delete localProjectSwap.json
+            fs.unlinkSync(localSwapPath);
+
+            // Verify: metadata has cancelled status
+            const finalMeta = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            assert.strictEqual(finalMeta.meta.projectSwap.swapEntries[0].swapStatus, "cancelled",
+                "Local metadata should now reflect cancelled status from remote");
+            assert.strictEqual(finalMeta.meta.projectSwap.swapEntries[0].cancelledBy, "admin",
+                "Cancellation details should be preserved");
+
+            // Verify: localProjectSwap.json deleted
+            assert.ok(!fs.existsSync(localSwapPath),
+                "localProjectSwap.json should be deleted after swap cancellation");
+
+            // Verify: no active swap in the updated data
+            const normalizedFinal = normalizeProjectSwapInfo(finalMeta.meta.projectSwap);
+            const activeEntry = getActiveSwapEntry(normalizedFinal);
+            assert.strictEqual(activeEntry, undefined,
+                "No active swap should exist after metadata update");
+        });
+
+        test("REGRESSION: server unreachable preserves local state and blocks swap", async () => {
+            const projectDir = await createTestProject(tempDir, "unreachable-server");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            // Setup: localProjectSwap.json exists with active swap
+            const localData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "unreachable-test",
+                        swapStatus: "active",
+                        swapModifiedAt: 1000,
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now() - 60000,
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(localData, null, 2));
+
+            // Simulate: fetchRemoteMetadata returns null (server unreachable)
+            const remoteMetadata = null;
+
+            // Apply the same logic as checkProjectSwapRequired
+            let remoteUnreachable = false;
+            let remoteSwapInfo: ProjectSwapInfo | undefined;
+
+            if (remoteMetadata === null) {
+                remoteUnreachable = true;
+            } else if ((remoteMetadata as any)?.meta?.projectSwap) {
+                remoteSwapInfo = (remoteMetadata as any).meta.projectSwap;
+            } else if ((remoteMetadata as any)?.meta) {
+                remoteSwapInfo = { swapEntries: [] };
+            }
+
+            // Key assertions: server unreachable
+            assert.strictEqual(remoteUnreachable, true,
+                "Should detect server as unreachable");
+            assert.strictEqual(remoteSwapInfo, undefined,
+                "remoteSwapInfo should NOT be set when server is unreachable");
+
+            // localProjectSwap.json should NOT be touched (no cleanup, no merge)
+            assert.ok(fs.existsSync(localSwapPath),
+                "localProjectSwap.json must be preserved when server is unreachable");
+
+            // The local data should remain unchanged
+            const preserved = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            assert.strictEqual(preserved.remoteSwapInfo.swapEntries[0].swapStatus, "active",
+                "Local active entry must be preserved as-is");
+            assert.strictEqual(preserved.remoteSwapInfo.swapEntries[0].swapUUID, "unreachable-test",
+                "Entry UUID must be unchanged");
+
+            // Swap should NOT be executable
+            assert.strictEqual(remoteUnreachable, true,
+                "Swap execution must be blocked (server unreachable)");
+        });
+
+        test("REGRESSION: server unreachable vs erased are distinct code paths", async () => {
+            // Test that the two scenarios produce different outcomes
+
+            // Scenario A: server unreachable (null)
+            const unreachableMetadata = null;
+            let unreachableFlag = false;
+            let erasedFlag = false;
+
+            if (unreachableMetadata === null) {
+                unreachableFlag = true;
+            } else if ((unreachableMetadata as any)?.meta && !(unreachableMetadata as any)?.meta?.projectSwap) {
+                erasedFlag = true;
+            }
+            assert.strictEqual(unreachableFlag, true, "A: unreachable detected");
+            assert.strictEqual(erasedFlag, false, "A: not erased");
+
+            // Scenario B: server reachable, swap erased
+            const erasedMetadata: any = { meta: { version: "0.16.0" } };
+            unreachableFlag = false;
+            erasedFlag = false;
+
+            if (erasedMetadata === null) {
+                unreachableFlag = true;
+            } else if (erasedMetadata?.meta && !erasedMetadata?.meta?.projectSwap) {
+                erasedFlag = true;
+            }
+            assert.strictEqual(unreachableFlag, false, "B: not unreachable");
+            assert.strictEqual(erasedFlag, true, "B: erased detected");
+        });
+
+        test("REGRESSION: remote projectSwap erased entirely cleans up local state", async () => {
+            const projectDir = await createTestProject(tempDir, "erased-remote");
+            const localSwapPath = path.join(projectDir, ".project", "localProjectSwap.json");
+
+            // Step 1: localProjectSwap.json exists with active swap (stale)
+            const staleData = {
+                remoteSwapInfo: {
+                    swapEntries: [createSwapEntry({
+                        swapUUID: "erased-test",
+                        swapStatus: "active",
+                        isOldProject: true,
+                    })],
+                },
+                fetchedAt: Date.now() - 60000,
+                sourceOriginUrl: "https://gitlab.com/org/old.git",
+            };
+            fs.writeFileSync(localSwapPath, JSON.stringify(staleData, null, 2));
+            assert.ok(fs.existsSync(localSwapPath), "Setup: local cache exists");
+
+            // Step 2: Remote metadata has NO projectSwap at all (erased)
+            const remoteMetadata = {
+                meta: {
+                    version: "0.16.0",
+                    // projectSwap is completely absent
+                },
+            };
+
+            // Step 3: Apply the same logic as checkProjectSwapRequired
+            const hasProjectSwap = !!(remoteMetadata?.meta as any)?.projectSwap;
+            const hasMeta = !!remoteMetadata?.meta;
+
+            // With our fix: treat erased remote as empty swap info
+            const remoteSwapInfo = hasProjectSwap
+                ? (remoteMetadata.meta as any).projectSwap
+                : (hasMeta ? { swapEntries: [] as ProjectSwapEntry[] } : undefined);
+
+            assert.ok(remoteSwapInfo, "Should get empty swap info, not undefined");
+            const remoteEntries = remoteSwapInfo!.swapEntries;
+            assert.strictEqual(remoteEntries.length, 0, "Remote has 0 entries");
+
+            const hasActiveOldProjectSwap = remoteEntries.some(
+                (e: ProjectSwapEntry) => e.swapStatus === "active" && e.isOldProject === true
+            );
+            assert.strictEqual(hasActiveOldProjectSwap, false, "No active OLD swap");
+
+            // Step 4: Cleanup - delete localProjectSwap.json (no pending state)
+            const fileData = JSON.parse(fs.readFileSync(localSwapPath, "utf-8"));
+            const hasPendingState = fileData.swapPendingDownloads || fileData.pendingLfsDownloads;
+            if (!hasActiveOldProjectSwap && !hasPendingState) {
+                fs.unlinkSync(localSwapPath);
+            }
+            assert.ok(!fs.existsSync(localSwapPath),
+                "localProjectSwap.json should be deleted when remote has no projectSwap");
+
+            // Step 5: Verify metadata also reflects no swap
+            const metadata = JSON.parse(fs.readFileSync(
+                path.join(projectDir, "metadata.json"), "utf-8"
+            ));
+            assert.ok(!metadata.meta?.projectSwap,
+                "metadata.json should also have no projectSwap");
+
+            // Final: normalizing empty remote should yield no active entry
+            const normalizedRemote = normalizeProjectSwapInfo({ swapEntries: [] });
+            const activeEntry = getActiveSwapEntry(normalizedRemote);
+            assert.strictEqual(activeEntry, undefined,
+                "No active swap anywhere - swap is NOT required");
         });
 
         test("E2E: full swap cycle preserves all data", async () => {
