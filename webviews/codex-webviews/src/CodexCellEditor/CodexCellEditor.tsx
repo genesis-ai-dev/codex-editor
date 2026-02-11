@@ -697,11 +697,11 @@ const CodexCellEditor: React.FC = () => {
                     selectedIndex,
                     selectedContent: variant,
                     testId,
-                    testName: testName || abTestState.testName,
-                    selectionTimeMs: selectionTimeMs || 0,
-                    variants: names || abTestState.variants,
+                    testName: testName ?? abTestState.testName,
+                    selectionTimeMs: selectionTimeMs ?? 0,
+                    variants: names ?? abTestState.variants,
                 },
-            } as EditorPostMessages);
+            });
         }
     };
 
