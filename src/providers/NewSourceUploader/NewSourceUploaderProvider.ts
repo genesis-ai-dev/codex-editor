@@ -122,6 +122,62 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         command: "projectInventory",
                         inventory: inventory,
                     });
+                } else if (message.command === "metadata.check") {
+                    // Handle metadata check request
+                    try {
+                        const workspaceFolders = vscode.workspace.workspaceFolders;
+                        if (!workspaceFolders || workspaceFolders.length === 0) {
+                            webviewPanel.webview.postMessage({
+                                command: "metadata.checkResponse",
+                                data: {
+                                    sourceLanguage: null,
+                                    targetLanguage: null,
+                                    sourceTexts: [],
+                                    chatSystemMessage: null,
+                                },
+                            });
+                            return;
+                        }
+
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                        const metadata = JSON.parse(metadataContent.toString());
+
+                        const sourceLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "source"
+                        );
+                        const targetLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "target"
+                        );
+                        const sourceTexts = metadata.ingredients
+                            ? Object.keys(metadata.ingredients)
+                            : [];
+                        const chatSystemMessage = metadata.chatSystemMessage || null;
+
+                        webviewPanel.webview.postMessage({
+                            command: "metadata.checkResponse",
+                            data: {
+                                sourceLanguage,
+                                targetLanguage,
+                                sourceTexts,
+                                chatSystemMessage,
+                            },
+                        });
+                    } catch (error) {
+                        console.error("Error checking metadata:", error);
+                        webviewPanel.webview.postMessage({
+                            command: "metadata.checkResponse",
+                            data: {
+                                sourceLanguage: null,
+                                targetLanguage: null,
+                                sourceTexts: [],
+                                chatSystemMessage: null,
+                            },
+                        });
+                    }
                 } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
                 } else if (message.command === "writeNotebooksWithAttachments") {
@@ -325,6 +381,100 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     );
                 } else if (message.command === "saveFile") {
                     await this.handleSaveFile(message as SaveFileMessage, webviewPanel);
+                } else if (message.command === "systemMessage.generate") {
+                    // Generate AI system message for translation
+                    try {
+                        // Get workspace folder
+                        const workspaceFolders = vscode.workspace.workspaceFolders;
+                        if (!workspaceFolders || workspaceFolders.length === 0) {
+                            webviewPanel.webview.postMessage({
+                                command: "systemMessage.generateError",
+                                error: "No workspace folder found",
+                            });
+                            return;
+                        }
+
+                        // Get source and target languages from metadata
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                        const metadata = JSON.parse(metadataContent.toString());
+
+                        const sourceLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "source"
+                        );
+                        const targetLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "target"
+                        );
+
+                        if (!sourceLanguage || !targetLanguage) {
+                            webviewPanel.webview.postMessage({
+                                command: "systemMessage.generateError",
+                                error: "Source and target languages must be set before generating system message",
+                            });
+                            return;
+                        }
+
+                        // Import and call the generation function
+                        const { generateChatSystemMessage } = await import("../../copilotSettings/copilotSettings");
+                        const generatedMessage = await generateChatSystemMessage(
+                            sourceLanguage,
+                            targetLanguage,
+                            workspaceFolders[0].uri
+                        );
+
+                        if (generatedMessage) {
+                            // Save the generated message to metadata.json immediately
+                            const { MetadataManager } = await import("../../utils/metadataManager");
+                            const saveResult = await MetadataManager.setChatSystemMessage(
+                                generatedMessage,
+                                workspaceFolders[0].uri
+                            );
+
+                            if (saveResult.success) {
+                                webviewPanel.webview.postMessage({
+                                    command: "systemMessage.generated",
+                                    message: generatedMessage,
+                                });
+                            } else {
+                                // Still send the generated message even if save fails
+                                // User can manually save it later
+                                webviewPanel.webview.postMessage({
+                                    command: "systemMessage.generated",
+                                    message: generatedMessage,
+                                });
+                                console.warn("Generated system message but failed to save:", saveResult.error);
+                            }
+                        } else {
+                            webviewPanel.webview.postMessage({
+                                command: "systemMessage.generateError",
+                                error: "Failed to generate system message. Please check your API configuration.",
+                            });
+                        }
+                    } catch (error) {
+                        console.error("Error generating system message:", error);
+                        webviewPanel.webview.postMessage({
+                            command: "systemMessage.generateError",
+                            error: error instanceof Error ? error.message : "Failed to generate system message",
+                        });
+                    }
+                } else if (message.command === "systemMessage.save") {
+                    // Save system message to metadata
+                    try {
+                        const { MetadataManager } = await import("../../utils/metadataManager");
+                        await MetadataManager.setChatSystemMessage(message.message);
+                        webviewPanel.webview.postMessage({
+                            command: "systemMessage.saved",
+                        });
+                    } catch (error) {
+                        console.error("Error saving system message:", error);
+                        webviewPanel.webview.postMessage({
+                            command: "systemMessage.saveError",
+                            error: error instanceof Error ? error.message : "Failed to save system message",
+                        });
+                    }
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
@@ -1485,7 +1635,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
             // Using default CSP which already includes webview.cspSource for media-src
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; font-src ${webview.cspSource}; connect-src https: http:; media-src blob: data:;`,
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });

@@ -69,6 +69,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [isOpening, setIsOpening] = useState<boolean>(false);
     const [isVerifying, setIsVerifying] = useState<boolean>(false);
+    const [isSwapping, setIsSwapping] = useState<boolean>(false);
+    const [isFixing, setIsFixing] = useState<boolean>(false);
     const [isRenaming, setIsRenaming] = useState<boolean>(false);
     const [isZipping, setIsZipping] = useState<boolean>(false);
     const [isZippingMini, setIsZippingMini] = useState<boolean>(false);
@@ -77,18 +79,26 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     const userInitiatedStrategyChangeRef = React.useRef<boolean>(false);
     const [isApplyingStrategyDuringOtherOp, setIsApplyingStrategyDuringOtherOp] =
         useState<boolean>(false);
-    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(
-        project.syncStatus
+    // CRITICAL: If we're offline, "orphaned" is not trustworthy -- the server couldn't
+    // be reached to confirm the project is genuinely missing. Override to "serverUnreachable"
+    // to prevent destructive actions like "Fix & Open".
+    const effectiveSyncStatus: ProjectSyncStatus = (!isOnline && project.syncStatus === "orphaned")
+        ? "serverUnreachable" as ProjectSyncStatus
+        : project.syncStatus;
+
+    const isProjectLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(
+        effectiveSyncStatus
     );
     const isChangingStrategy = isProjectLocal && pendingStrategy !== null;
 
     // Check if this project has an active swap that was initiated by the current user
     // If so, the media strategy dropdown should be disabled (initiator must have auto-download)
+    // BUT: if the user has already completed the swap, unlock the dropdown
     const activeSwapEntry = project.projectSwap?.swapEntries?.find(
         (entry) => entry.swapStatus === "active" && entry.isOldProject
     );
     const isSwapInitiator = activeSwapEntry && currentUsername && activeSwapEntry.swapInitiatedBy === currentUsername;
-    const disableMediaStrategyForSwap = isSwapInitiator;
+    const disableMediaStrategyForSwap = isSwapInitiator && !project.projectSwap?.currentUserAlreadySwapped;
 
     const disableControls =
         isAnyOperationApplying ||
@@ -97,6 +107,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         isCloning ||
         isOpening ||
         isVerifying ||
+        isSwapping ||
+        isFixing ||
         isRenaming ||
         isZipping ||
         isZippingMini ||
@@ -257,6 +269,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                 }
                 return;
             }
+            if (msg?.command === "project.swappingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsSwapping(msg.swapping);
+                }
+                return;
+            }
+            if (msg?.command === "project.fixingInProgress") {
+                if (msg.projectPath === project.path) {
+                    setIsFixing(msg.fixing);
+                }
+                return;
+            }
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
@@ -353,13 +377,14 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     };
 
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus);
         const isRemote = project.syncStatus === "cloudOnlyNotSynced";
         const hasPendingUpdate = project.pendingUpdate?.required;
         const isSwapPending =
             !!project.projectSwap &&
             project.projectSwap.isOldProject &&
-            project.projectSwap?.swapStatus === "active";
+            project.projectSwap?.swapStatus === "active" &&
+            !project.projectSwap?.currentUserAlreadySwapped;
 
         if (isLocal) {
             return (
@@ -370,27 +395,47 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         size="sm"
                         onClick={() => {
                             if (isSwapPending) {
+                                // Immediately lock the UI to prevent double-clicks.
+                                // Backend will confirm via project.swappingInProgress message.
+                                setIsSwapping(true);
                                 vscode.postMessage({
                                     command: "project.performSwap",
                                     projectPath: project.path,
                                 });
-                            } else if (project.syncStatus === "orphaned") {
+                            } else if (effectiveSyncStatus === "orphaned") {
+                                // Only show Fix & Open for genuinely orphaned projects
+                                // (server confirmed the project doesn't exist remotely AND we're online)
+                                setIsFixing(true);
                                 vscode.postMessage({
                                     command: "project.fixAndOpen",
                                     projectPath: project.path,
                                 });
                             } else {
+                                // Normal open for downloaded, local-only, AND serverUnreachable projects.
+                                // CRITICAL: when offline, we must NOT trigger Fix & Open -- the server
+                                // just couldn't be reached (expired cert, network error, etc.).
+                                setIsOpening(true);
                                 onOpenProject(project);
                             }
                         }}
                         className={cn(
                             "h-6 text-xs px-2",
-                            (isChangingStrategy || isOpening || isUpdating) &&
+                            (isChangingStrategy || isOpening || isUpdating || isSwapping || isFixing) &&
                                 "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
                         )}
                         disabled={disableControls}
                     >
-                        {isUpdating ? (
+                        {isSwapping ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Swapping...
+                            </>
+                        ) : isFixing ? (
+                            <>
+                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                                Fixing...
+                            </>
+                        ) : isUpdating ? (
                             <>
                                 <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
                                 Updating...
@@ -415,10 +460,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 <i className="codicon codicon-arrow-swap mr-1" />
                                 Swap Project
                             </>
-                        ) : project.syncStatus === "orphaned" ? (
+                        ) : effectiveSyncStatus === "orphaned" ? (
                             <>
                                 <i className="codicon codicon-tools mr-1" />
                                 Fix & Open
+                            </>
+                        ) : (effectiveSyncStatus === "serverUnreachable" || !isOnline) ? (
+                            <>
+                                <i className="codicon codicon-cloud-offline mr-1" />
+                                Open Offline
                             </>
                         ) : (
                             <>
@@ -432,32 +482,53 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         }
 
         if (isRemote) {
+            const isOfflineClone = !isOnline;
+            const cloneButton = (
+                <Button
+                    variant={isOfflineClone ? "destructive" : "secondary"}
+                    size="sm"
+                    onClick={() => {
+                        if (isOfflineClone) return;
+                        setIsCloning(true);
+                        onCloneProject({ ...project, mediaStrategy });
+                    }}
+                    className={cn(
+                        "h-6 text-xs px-2 border",
+                        isOfflineClone && "opacity-70 cursor-not-allowed",
+                        (isChangingStrategy || isCloning) &&
+                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                    )}
+                    disabled={disableControls || isOfflineClone}
+                >
+                    {isCloning ? (
+                        <>
+                            <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
+                            Cloning...
+                        </>
+                    ) : (
+                        <>
+                            <i className={cn("codicon mr-1", isOfflineClone ? "codicon-cloud-offline" : "codicon-arrow-circle-down")} />
+                            Clone
+                        </>
+                    )}
+                </Button>
+            );
+
             return (
                 <div className="flex gap-1 items-center">
                     {renderMediaStrategyDropdown()}
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => onCloneProject({ ...project, mediaStrategy })}
-                        className={cn(
-                            "h-6 text-xs px-2 border",
-                            (isChangingStrategy || isCloning) &&
-                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
-                        )}
-                        disabled={disableControls}
-                    >
-                        {isCloning ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Cloning...
-                            </>
-                        ) : (
-                            <>
-                                <i className="codicon codicon-arrow-circle-down mr-1" />
-                                Clone
-                            </>
-                        )}
-                    </Button>
+                    {isOfflineClone ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="inline-block">{cloneButton}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                                Can't clone while offline
+                            </TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        cloneButton
+                    )}
                 </div>
             );
         }
@@ -469,17 +540,19 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (!project) return null;
         const { cleanName, displayUrl } = parseProjectUrl(project.gitOriginUrl);
         const isUnpublished = !project.gitOriginUrl;
-        const status = getStatusIcon(project.syncStatus);
+        const status = getStatusIcon(effectiveSyncStatus);
         const isExpanded = expandedProjects[project.name];
         const isNewlyAdded = newlyAddedProjects.has(project.name);
         const isStatusChanged = statusChangedProjects.has(project.name);
         const isUpdateRequired = project.pendingUpdate?.required;
 
         const isApplyingForThisProject = isChangingStrategy;
+        const isUserAlreadySwapped = project.projectSwap?.currentUserAlreadySwapped;
         const swapNewName =
             project.projectSwap &&
             project.projectSwap.isOldProject &&
-            project.projectSwap?.swapStatus === "active"
+            project.projectSwap?.swapStatus === "active" &&
+            !isUserAlreadySwapped
                 ? project.projectSwap.newProjectName || project.projectSwap.newProjectUrl
                 : undefined;
 
@@ -522,9 +595,19 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 Unsynced
                             </Badge>
                         )}
-                        {project.syncStatus === "orphaned" && (
+                        {effectiveSyncStatus === "orphaned" && (
                             <Badge variant="outline" className="text-xs px-1 py-0 bg-amber-50 text-amber-700 border-amber-300 whitespace-nowrap">
                                 Remote Missing
+                            </Badge>
+                        )}
+                        {effectiveSyncStatus === "serverUnreachable" && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-red-50 text-red-700 border-red-300 whitespace-nowrap">
+                                Server Unreachable
+                            </Badge>
+                        )}
+                        {isUserAlreadySwapped && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-gray-50 text-gray-500 border-gray-300 whitespace-nowrap">
+                                Deprecated
                             </Badge>
                         )}
                         {isNewlyAdded && (
@@ -587,8 +670,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         if (!project) return null;
         const { cleanName,displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isExpanded = expandedProjects[project.name];
-        // Include orphaned (Remote Missing) projects as local since they exist on disk
-        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus);
+        // Include orphaned (Remote Missing) and serverUnreachable projects as local since they exist on disk
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(effectiveSyncStatus);
 
         if (!isExpanded || (!displayUrl && !onDeleteProject)) return null;
 
