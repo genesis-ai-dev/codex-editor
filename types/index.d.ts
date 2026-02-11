@@ -778,7 +778,10 @@ export type EditorPostMessages =
             selectedIndex: number;
             testId: string;
             selectionTimeMs: number;
-            totalVariants: number;
+            totalVariants?: number;
+            selectedContent?: string;
+            testName?: string;
+            variants?: string[];
         };
     }
     | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
