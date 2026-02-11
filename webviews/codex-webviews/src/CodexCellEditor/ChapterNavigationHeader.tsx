@@ -178,10 +178,6 @@ ChapterNavigationHeaderProps) {
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
     const [pendingFontSize, setPendingFontSize] = useState<number | null>(null);
 
-    // Edit milestone modal state
-    const [showEditMilestoneModal, setShowEditMilestoneModal] = useState(false);
-    const [milestoneNewName, setMilestoneNewName] = useState("");
-
     // Get subsections for the current milestone
     const subsections = useMemo(() => {
         return getSubsectionsForMilestone(currentMilestoneIndex);
