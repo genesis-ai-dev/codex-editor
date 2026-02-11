@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import JSZip from "jszip";
-import { extractVerseRefFromLine } from "../utils/verseRefUtils";
+import { extractVerseRefFromLine, getVerseRefFromCellMetadata } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
@@ -1951,32 +1951,29 @@ async function exportCodexContentAsUsfm(
                     try {
                         debug(`Processing file: ${file.fsPath}`);
 
-                        // Get the source file path - look in .project/sourceTexts/
                         const bookCode = basename(file.fsPath).split(".")[0] || "";
-                        const sourceFileName = `${bookCode}.source`;
-                        const sourceFile = vscode.Uri.joinPath(
+
+                        // Read codex first (required for export)
+                        const codexNotebook = await readCodexNotebookFromUri(file);
+
+                        // Resolve source path: .project/sourceTexts/{bookCode}.source, or from codex metadata (sourceFsPath)
+                        const defaultSourceFile = vscode.Uri.joinPath(
                             vscode.Uri.file(workspaceFolders[0].uri.fsPath),
                             ".project",
                             "sourceTexts",
-                            sourceFileName
+                            `${bookCode}.source`
                         );
+                        const sourceFsPath = (codexNotebook.metadata as { sourceFsPath?: string })?.sourceFsPath;
+                        const sourceFile = sourceFsPath
+                            ? vscode.Uri.file(sourceFsPath)
+                            : defaultSourceFile;
 
-                        // Read both source and codex files
-                        let sourceData: Uint8Array | null = null;
+                        // Source file is optional: export uses only codex notebook (e.g. legacy USFM import may only have .codex).
                         try {
-                            sourceData = await vscode.workspace.fs.readFile(sourceFile);
-                        } catch (error) {
-                            vscode.window.showWarningMessage(
-                                `Source file not found for ${bookCode} at ${sourceFile.fsPath}, skipping...`
-                            );
-                            skippedFiles++;
-                            continue;
+                            await vscode.workspace.fs.readFile(sourceFile);
+                        } catch {
+                            debug(`Source file not found for ${bookCode}, exporting from codex only`);
                         }
-
-                        const sourceNotebook = JSON.parse(
-                            Buffer.from(sourceData).toString()
-                        ) as CodexNotebookAsJSONData;
-                        const codexNotebook = await readCodexNotebookFromUri(file);
 
                         // Quick check - only look for text cells with content
                         const textCells = codexNotebook.cells.filter(
@@ -2058,19 +2055,16 @@ async function exportCodexContentAsUsfm(
                                     const chapterNum = parseInt(chapterMatch[1], 10);
                                     chapterCells[cellMetadata.id] = chapterNum;
                                 }
-                            } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT &&
-                                cellMetadata.id
-                            ) {
-                                // Extract chapter from verse reference (e.g., "MRK 1:1" -> "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                if (chapterMatch) {
-                                    const chapterNum = parseInt(chapterMatch[1], 10);
-                                    if (!lastChapter || chapterNum > parseInt(lastChapter, 10)) {
-                                        // This is a verse from a new chapter
-                                        if (!Object.values(chapterCells).includes(chapterNum)) {
-                                            // We don't have a chapter heading for this chapter
-                                            chapterCells[`auto_${chapterNum}`] = chapterNum;
+                            } else if (cellMetadata.type === CodexCellTypes.TEXT) {
+                                const verseRef = getVerseRefFromCellMetadata(cellMetadata as Parameters<typeof getVerseRefFromCellMetadata>[0]) ?? cellMetadata.id;
+                                if (verseRef) {
+                                    const chapterMatch = verseRef.match(/\s(\d+):/);
+                                    if (chapterMatch) {
+                                        const chapterNum = parseInt(chapterMatch[1], 10);
+                                        if (!lastChapter || chapterNum > parseInt(lastChapter, 10)) {
+                                            if (!Object.values(chapterCells).includes(chapterNum)) {
+                                                chapterCells[`auto_${chapterNum}`] = chapterNum;
+                                            }
                                         }
                                     }
                                 }
@@ -2112,12 +2106,9 @@ async function exportCodexContentAsUsfm(
                                     // Handle other paratext
                                     chapterContent += `\\p ${cellContent}\n`;
                                 }
-                            } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT &&
-                                cellMetadata.id
-                            ) {
-                                // Handle verse content
-                                const verseRef = cellMetadata.id;
+                            } else if (cellMetadata.type === CodexCellTypes.TEXT) {
+                                const verseRef = getVerseRefFromCellMetadata(cellMetadata as Parameters<typeof getVerseRefFromCellMetadata>[0]) ?? cellMetadata.id;
+                                if (!verseRef) continue;
                                 const chapterMatch = verseRef.match(/\s(\d+):/);
                                 const verseMatch = verseRef.match(/\d+$/);
 
