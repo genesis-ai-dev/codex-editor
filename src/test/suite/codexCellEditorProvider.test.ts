@@ -3367,10 +3367,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const after = JSON.parse(document.getText());
             const edits: FileEditHistory[] = after.metadata.edits || [];
 
-            // cellDisplayMode is not persisted when it's the default (one-line-per-cell), so it should not appear in serialized metadata
-            assert.strictEqual(after.metadata.cellDisplayMode, undefined, "cellDisplayMode should be omitted when default");
-
-            // Verify edit entries exist for all fields (except cellDisplayMode when one-line-per-cell)
+            // Verify edit entries exist for all fields
             const isEditPath = (e: FileEditHistory, path: readonly string[]) => EditMapUtils.equals(e.editMap, path);
 
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataVideoUrl())), "Should have videoUrl edit");

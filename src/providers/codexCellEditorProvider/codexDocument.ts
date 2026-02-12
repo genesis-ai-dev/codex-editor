@@ -666,13 +666,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
     /**
      * Returns document data suitable for serialization to disk.
-     * Omits metadata.cellDisplayMode when it is the default ("one-line-per-cell") so we don't persist it.
+     * Strips display-mode-related metadata so it is not persisted.
      */
     private getDocumentDataForSerialization(): CodexNotebookAsJSONData {
         const metadata = { ...this._documentData.metadata };
-        if (metadata.cellDisplayMode === "one-line-per-cell") {
-            delete metadata.cellDisplayMode;
-        }
+        delete (metadata as unknown as Record<string, unknown>).cellDisplayMode;
         return { ...this._documentData, metadata };
     }
 
@@ -699,9 +697,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             try {
                 const parsed = JSON.parse(candidate) as CodexNotebookAsJSONData;
-                if (parsed.metadata?.cellDisplayMode === "one-line-per-cell") {
+                if (parsed.metadata && "cellDisplayMode" in parsed.metadata) {
                     const meta = { ...parsed.metadata };
-                    delete meta.cellDisplayMode;
+                    delete (meta as unknown as Record<string, unknown>).cellDisplayMode;
                     candidate = formatJsonForNotebookFile({ ...parsed, metadata: meta });
                 }
             } catch {
@@ -1070,7 +1068,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             "fontSize",
             "showInlineBacktranslations",
             "fileDisplayName",
-            "cellDisplayMode",
             "audioOnly",
             "corpusMarker",
         ] as const;
@@ -1082,11 +1079,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             // Skip if field wasn't provided in newMetadata or value hasn't changed
             if (newValue === undefined || oldValue === newValue) {
-                continue;
-            }
-
-            // Never persist cellDisplayMode when it's the default (one-line-per-cell)
-            if (field === "cellDisplayMode" && newValue === "one-line-per-cell") {
                 continue;
             }
 
@@ -1110,9 +1102,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     break;
                 case "fileDisplayName":
                     editMap = EditMapUtils.metadataFileDisplayName();
-                    break;
-                case "cellDisplayMode":
-                    editMap = EditMapUtils.metadataCellDisplayMode();
                     break;
                 case "audioOnly":
                     editMap = EditMapUtils.metadataAudioOnly();
@@ -1142,10 +1131,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Apply the metadata updates
         this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
-        // Omit cellDisplayMode when it's the default so we don't persist it
-        if (this._documentData.metadata.cellDisplayMode === "one-line-per-cell") {
-            delete this._documentData.metadata.cellDisplayMode;
-        }
+        delete (this._documentData.metadata as unknown as Record<string, unknown>).cellDisplayMode;
         // Restore the edits array (it was updated above with new edits)
         this._documentData.metadata.edits = savedEdits;
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { CELL_DISPLAY_MODES, extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
+import { extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
@@ -41,8 +41,6 @@ interface ChapterNavigationHeaderProps {
     isAutocompletingChapter: boolean;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
-    onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
-    cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     totalChapters: number;
     untranslatedCellIds: string[];
@@ -103,8 +101,6 @@ export function ChapterNavigationHeader({
     isAutocompletingChapter,
     onSetTextDirection,
     textDirection,
-    onSetCellDisplayMode,
-    cellDisplayMode,
     isSourceText,
     totalChapters,
     untranslatedCellIds,
