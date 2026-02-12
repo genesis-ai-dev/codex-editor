@@ -25,6 +25,8 @@ export class SQLiteIndexManager {
     private currentProgressStartTime: number | null = null;
     private currentProgressName: string | null = null;
     private enableRealtimeProgress: boolean = true;
+    /** Mutex that serializes access to SQLite transactions (SQLite only allows one at a time). */
+    private transactionLock: Promise<void> = Promise.resolve();
 
     private trackProgress(step: string, stepStartTime: number): number {
         const stepEndTime = globalThis.performance.now();
@@ -698,17 +700,11 @@ export class SQLiteIndexManager {
             )
         `);
 
-        await this.db.run("BEGIN TRANSACTION");
-        try {
-            await this.db.run("DELETE FROM schema_info");
-            await this.db.run("INSERT INTO schema_info (id, version) VALUES (1, ?)", [version]);
-            await this.db.run("COMMIT");
+        await this.runInTransaction(async () => {
+            await this.db!.run("DELETE FROM schema_info");
+            await this.db!.run("INSERT INTO schema_info (id, version) VALUES (1, ?)", [version]);
             debug(`Schema version updated to ${version}`);
-        } catch (error) {
-            await this.db.run("ROLLBACK");
-            console.error("Failed to set schema version:", error);
-            throw error;
-        }
+        });
     }
 
     private computeContentHash(content: string): string {
@@ -2248,10 +2244,8 @@ export class SQLiteIndexManager {
 
             // Test that basic database operations work
             try {
-                await this.db!.run("BEGIN");
-                // Test basic table functionality
                 await this.db!.get("SELECT COUNT(*) FROM files");
-                await this.db!.run("ROLLBACK");
+                await this.db!.get("SELECT COUNT(*) FROM cells");
             } catch (error) {
                 debug(`Schema validation failed: Basic table operations failed - ${error}`);
                 return false;
@@ -2303,11 +2297,14 @@ export class SQLiteIndexManager {
     async flushPendingWrites(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        // Execute a dummy query to ensure any autocommit transactions are flushed
+        // Run an empty transaction through the mutex to ensure any
+        // preceding queued transactions have been committed first.
         try {
-            await this.db.run("BEGIN IMMEDIATE; COMMIT;");
-        } catch (error) {
-            // Database might already be in a transaction, that's fine
+            await this.runInTransaction(async () => {
+                // no-op – just forces serialization with other transactions
+            });
+        } catch {
+            // Non-critical: WAL mode auto-commits anyway
         }
     }
 
@@ -2448,18 +2445,40 @@ export class SQLiteIndexManager {
         }
     }
 
-    // Transaction helper for batch operations
+    /**
+     * Transaction helper for batch operations.
+     * Uses a promise-based mutex so that concurrent callers are serialized
+     * instead of hitting "cannot start a transaction within a transaction".
+     */
     async runInTransaction<T>(callback: () => T | Promise<T>): Promise<T> {
         if (!this.db) throw new Error("Database not initialized");
 
-        await this.db.run("BEGIN TRANSACTION");
+        // Queue behind any already-running transaction
+        let releaseLock!: () => void;
+        const previousLock = this.transactionLock;
+        this.transactionLock = new Promise<void>((resolve) => {
+            releaseLock = resolve;
+        });
+
+        // Wait for the previous transaction to finish
+        await previousLock;
+
         try {
-            const result = await callback();
-            await this.db.run("COMMIT");
-            return result;
-        } catch (error) {
-            await this.db.run("ROLLBACK");
-            throw error;
+            await this.db.run("BEGIN TRANSACTION");
+            try {
+                const result = await callback();
+                await this.db.run("COMMIT");
+                return result;
+            } catch (error) {
+                try {
+                    await this.db.run("ROLLBACK");
+                } catch (rollbackError) {
+                    debug(`[SQLiteIndex] ROLLBACK failed: ${rollbackError}`);
+                }
+                throw error;
+            }
+        } finally {
+            releaseLock();
         }
     }
 

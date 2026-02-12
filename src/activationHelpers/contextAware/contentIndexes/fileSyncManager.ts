@@ -134,9 +134,13 @@ export class FileSyncManager {
             const fileMap = new Map(allFiles.map(f => [f.uri.fsPath, f]));
             const filesToProcess = filesToSync.map(path => fileMap.get(path)).filter(Boolean) as FileData[];
 
-            // Process files in optimized batches
-            const BATCH_SIZE = 10; // Process 10 files at a time
-            const batches = [];
+            // Process files in optimized batches:
+            //   1. Read file contents from disk in parallel (I/O-bound)
+            //   2. Write all DB changes in a single transaction per batch (CPU-bound)
+            // This avoids the "cannot start a transaction within a transaction"
+            // error that occurred when each parallel file sync opened its own transaction.
+            const BATCH_SIZE = 10;
+            const batches: FileData[][] = [];
             for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
                 batches.push(filesToProcess.slice(i, i + BATCH_SIZE));
             }
@@ -149,33 +153,56 @@ export class FileSyncManager {
                 const progress = 20 + (batchIndex / batches.length) * 60; // Reserve 20% for cleanup
                 progressCallback?.(`Syncing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)...`, progress);
 
-                // Process batch in parallel for I/O operations, then sync to database
-                const batchResults = await Promise.allSettled(
-                    batch.map(async (fileData): Promise<{ success: true; file: string; } | { success: false; file: string; error: string; }> => {
-                        try {
-                            await this.syncSingleFileOptimized(fileData);
-                            return { success: true, file: fileData.id };
-                        } catch (error) {
-                            const errorMsg = error instanceof Error ? error.message : String(error);
-                            return { success: false, file: fileData.id, error: errorMsg };
-                        }
+                // Phase 1: Read all files in this batch from disk in parallel (I/O)
+                const readResults = await Promise.allSettled(
+                    batch.map(async (fileData) => {
+                        const filePath = fileData.uri.fsPath;
+                        const [fileStat, fileContent] = await Promise.all([
+                            vscode.workspace.fs.stat(fileData.uri),
+                            vscode.workspace.fs.readFile(fileData.uri),
+                        ]);
+                        const contentHash = createHash("sha256").update(fileContent).digest("hex");
+                        return { fileData, filePath, fileStat, contentHash };
                     })
                 );
 
-                // Process batch results
-                for (const result of batchResults) {
+                // Collect successfully-read files; log failures
+                const readyFiles: Array<{
+                    fileData: FileData;
+                    filePath: string;
+                    fileStat: vscode.FileStat;
+                    contentHash: string;
+                }> = [];
+
+                for (const result of readResults) {
                     if (result.status === 'fulfilled') {
-                        if (result.value.success) {
-                            syncedFiles++;
-                            debug(`[FileSyncManager] Synced file: ${result.value.file}`);
-                        } else {
-                            errors.push({
-                                file: result.value.file,
-                                error: result.value.error || 'Unknown error during sync'
-                            });
-                        }
+                        readyFiles.push(result.value);
                     } else {
-                        errors.push({ file: 'unknown', error: result.reason });
+                        errors.push({ file: 'unknown', error: String(result.reason) });
+                    }
+                }
+
+                // Phase 2: Write all read files to the database in a single transaction
+                if (readyFiles.length > 0) {
+                    try {
+                        await this.sqliteIndex.runInTransaction(async () => {
+                            for (const { fileData, filePath, fileStat, contentHash } of readyFiles) {
+                                try {
+                                    await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
+                                    syncedFiles++;
+                                    debug(`[FileSyncManager] Synced file: ${fileData.id}`);
+                                } catch (error) {
+                                    const errorMsg = error instanceof Error ? error.message : String(error);
+                                    errors.push({ file: fileData.id, error: errorMsg });
+                                }
+                            }
+                        });
+                    } catch (txError) {
+                        // If the whole transaction fails, mark all files as errored
+                        const errorMsg = txError instanceof Error ? txError.message : String(txError);
+                        for (const { fileData } of readyFiles) {
+                            errors.push({ file: fileData.id, error: errorMsg });
+                        }
                     }
                 }
 
@@ -227,93 +254,81 @@ export class FileSyncManager {
     }
 
     /**
-     * Optimized single file sync with reduced I/O operations
+     * Write a single file's data to the database.
+     * Must be called within an existing transaction (no BEGIN/COMMIT here).
      */
-    private async syncSingleFileOptimized(fileData: FileData): Promise<void> {
-        const filePath = fileData.uri.fsPath;
+    private async writeSingleFileToDB(
+        fileData: FileData,
+        filePath: string,
+        fileStat: vscode.FileStat,
+        contentHash: string
+    ): Promise<void> {
         const fileType = filePath.includes('.source') ? 'source' : 'codex';
 
-        try {
-            // Batch file operations
-            const [fileStat, fileContent] = await Promise.all([
-                vscode.workspace.fs.stat(fileData.uri),
-                vscode.workspace.fs.readFile(fileData.uri)
-            ]);
+        // Update/insert the file in the main files table
+        const fileId = await this.sqliteIndex.upsertFileSync(
+            filePath,
+            fileType,
+            fileStat.mtime
+        );
 
-            const contentHash = createHash("sha256").update(fileContent).digest("hex");
+        // Calculate logical line positions for all non-paratext cells (1-indexed)
+        let logicalLinePosition = 1;
 
-            // Use synchronous database operations within a transaction for speed
-            await this.sqliteIndex.runInTransaction(async () => {
-                // Update/insert the file in the main files table
-                const fileId = await this.sqliteIndex.upsertFileSync(
-                    filePath,
-                    fileType,
-                    fileStat.mtime
-                );
+        // Process all cells in the file using sync operations
+        for (const cell of fileData.cells) {
+            const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
+            const isParatext = cell.metadata?.type === "paratext";
+            const isMilestone = cell.metadata?.type === CodexCellTypes.MILESTONE;
+            const hasContent = cell.value && cell.value.trim() !== "";
 
-                // Calculate logical line positions for all non-paratext cells (1-indexed)
-                let logicalLinePosition = 1;
+            // Check if this is a child cell (has parentId in metadata)
+            const isChildCell = cell.metadata?.parentId !== undefined;
 
-                // Process all cells in the file using sync operations
-                for (const cell of fileData.cells) {
-                    const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
-                    const isParatext = cell.metadata?.type === "paratext";
-                    const isMilestone = cell.metadata?.type === CodexCellTypes.MILESTONE;
-                    const hasContent = cell.value && cell.value.trim() !== "";
+            // Calculate line number for database storage
+            let lineNumberForDB: number | null = null;
 
-                    // Check if this is a child cell (has parentId in metadata)
-                    const isChildCell = cell.metadata?.parentId !== undefined;
-
-                    // Calculate line number for database storage
-                    let lineNumberForDB: number | null = null;
-
-                    if (!isParatext && !isMilestone && !isChildCell) {
-                        if (fileType === 'source') {
-                            // Source cells: always store line numbers (they should always have content)
-                            lineNumberForDB = logicalLinePosition;
-                        } else {
-                            // Target cells: only store line number if cell has content
-                            // But we still calculate the logical position for structural consistency
-                            if (hasContent) {
-                                lineNumberForDB = logicalLinePosition;
-                            }
-                            // If no content, lineNumberForDB stays null but logical position still increments
-                        }
-
-                        // Always increment logical position for non-paratext, non-milestone, non-child cells
-                        // This ensures stable line numbering even as cells get translated
-                        logicalLinePosition++;
+            if (!isParatext && !isMilestone && !isChildCell) {
+                if (fileType === 'source') {
+                    // Source cells: always store line numbers (they should always have content)
+                    lineNumberForDB = logicalLinePosition;
+                } else {
+                    // Target cells: only store line number if cell has content
+                    // But we still calculate the logical position for structural consistency
+                    if (hasContent) {
+                        lineNumberForDB = logicalLinePosition;
                     }
-                    // Paratext, milestone, and child cells: no line numbers, no position increment
-
-                    await this.sqliteIndex.upsertCellSync(
-                        cellId,
-                        fileId,
-                        fileType === 'source' ? 'source' : 'target',
-                        cell.value,
-                        lineNumberForDB ?? undefined, // Convert null to undefined for method signature compatibility
-                        cell.metadata,
-                        cell.value // raw content same as value for now
-                    );
+                    // If no content, lineNumberForDB stays null but logical position still increments
                 }
 
-                // Update sync metadata
-                await this.sqliteIndex.database?.run(`
-                    INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
-                    VALUES (?, ?, ?, ?, ?, strftime('%s', 'now') * 1000)
-                    ON CONFLICT(file_path) DO UPDATE SET
-                        content_hash = excluded.content_hash,
-                        file_size = excluded.file_size,
-                        last_modified_ms = excluded.last_modified_ms,
-                        last_synced_ms = strftime('%s', 'now') * 1000,
-                        updated_at = strftime('%s', 'now') * 1000
-                `, [filePath, fileType, contentHash, fileStat.size, fileStat.mtime]);
-            });
+                // Always increment logical position for non-paratext, non-milestone, non-child cells
+                // This ensures stable line numbering even as cells get translated
+                logicalLinePosition++;
+            }
+            // Paratext, milestone, and child cells: no line numbers, no position increment
 
-        } catch (error) {
-            console.error(`[FileSyncManager] Error in optimized sync for file ${filePath}:`, error);
-            throw error;
+            await this.sqliteIndex.upsertCellSync(
+                cellId,
+                fileId,
+                fileType === 'source' ? 'source' : 'target',
+                cell.value,
+                lineNumberForDB ?? undefined, // Convert null to undefined for method signature compatibility
+                cell.metadata,
+                cell.value // raw content same as value for now
+            );
         }
+
+        // Update sync metadata
+        await this.sqliteIndex.database?.run(`
+            INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
+            VALUES (?, ?, ?, ?, ?, strftime('%s', 'now') * 1000)
+            ON CONFLICT(file_path) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                file_size = excluded.file_size,
+                last_modified_ms = excluded.last_modified_ms,
+                last_synced_ms = strftime('%s', 'now') * 1000,
+                updated_at = strftime('%s', 'now') * 1000
+        `, [filePath, fileType, contentHash, fileStat.size, fileStat.mtime]);
     }
 
     /**
@@ -440,14 +455,25 @@ export class FileSyncManager {
             const fileMap = new Map(requestedFiles.map(f => [f.uri.fsPath, f]));
             const filesToProcess = filesToSync.map(path => fileMap.get(path)).filter(Boolean) as FileData[];
 
-            // Process files with progress tracking
+            // Process files with progress tracking (sequential — one transaction per file)
             for (let i = 0; i < filesToProcess.length; i++) {
                 const fileData = filesToProcess[i];
+                const filePath = fileData.uri.fsPath;
                 const progress = 30 + (i / filesToProcess.length) * 60; // Reserve 30% start, 10% cleanup
                 progressCallback?.(`Syncing ${i + 1}/${filesToProcess.length}: ${fileData.id}`, progress);
 
                 try {
-                    await this.syncSingleFileOptimized(fileData);
+                    // Read file I/O
+                    const [fileStat, fileContent] = await Promise.all([
+                        vscode.workspace.fs.stat(fileData.uri),
+                        vscode.workspace.fs.readFile(fileData.uri),
+                    ]);
+                    const contentHash = createHash("sha256").update(fileContent).digest("hex");
+
+                    // Write to DB in a transaction
+                    await this.sqliteIndex.runInTransaction(async () => {
+                        await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
+                    });
                     syncedFiles++;
                     debug(`[FileSyncManager] Synced targeted file: ${fileData.id}`);
                 } catch (error) {
