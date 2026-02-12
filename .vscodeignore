@@ -2,8 +2,10 @@
 *
 */**
 
-# Allowlist what we need
-!out/**
+# Allowlist what we need (only extension output, NOT test bundles)
+!out/*.js
+!out/*.js.map
+!out/node_modules/**
 !assets/**
 # !servers/**
 

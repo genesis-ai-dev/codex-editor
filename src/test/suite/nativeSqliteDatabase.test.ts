@@ -7,11 +7,152 @@
  * re-indexing, and edge cases.
  *
  * All tests use in-memory databases (":memory:") for speed and isolation.
+ *
+ * Bootstrap strategy: the native binary may not be initialised when the test
+ * runner starts (e.g. the test VS Code instance has a fresh user-data dir and
+ * the extension's download can fail).  We search for the binary in the real
+ * VS Code / Codex global-storage directories and call initNativeSqlite()
+ * ourselves before any database tests run.
  */
 
 import * as assert from "assert";
-import { AsyncDatabase, isNativeSqliteReady, RunResult } from "../../utils/nativeSqlite";
-import { createHash } from "crypto";
+import {
+    AsyncDatabase,
+    initNativeSqlite,
+    isNativeSqliteReady,
+    RunResult,
+} from "../../utils/nativeSqlite";
+// ── Real Node.js builtins ───────────────────────────────────────────────────
+//
+// Webpack replaces `fs`, `os`, `path`, and `crypto` with browser polyfills
+// (memfs, os-browserify, crypto-browserify, etc.) in the test bundle.
+// We need the *real* Node.js modules for filesystem access and hashing.
+// The `eval("require")` trick bypasses webpack's module resolution —
+// the same approach nativeSqlite.ts uses to load the .node addon.
+//
+// eslint-disable-next-line no-eval
+const nodeRequire = eval("require") as NodeRequire;
+const realFs: typeof import("fs") = nodeRequire("fs");
+const realOs: typeof import("os") = nodeRequire("os");
+const realPath: typeof import("path") = nodeRequire("path");
+const realCrypto: typeof import("crypto") = nodeRequire("crypto");
+// Webpack's ProvidePlugin replaces `process` with `process/browser` which
+// reports platform as "browser" instead of "darwin"/"linux"/"win32".
+// We need the real Node.js process object.
+const realProcess: NodeJS.Process = nodeRequire("process");
+
+// ── Native binary bootstrap ─────────────────────────────────────────────────
+
+const EXTENSION_ID = "project-accelerate.codex-editor-extension";
+const BINARY_NAME = "node_sqlite3.node";
+
+/**
+ * Search for the node_sqlite3.node binary in the global-storage directories
+ * of every VS Code variant the developer might use.
+ */
+function findNativeBinary(): string | null {
+    const home = realOs.homedir();
+    console.log(`[NativeSQLite Test] homedir = ${home}`);
+
+    // App-data base directory differs per platform
+    const bases: string[] = [];
+    if (realProcess.platform === "darwin") {
+        bases.push(realPath.join(home, "Library", "Application Support"));
+    } else if (realProcess.platform === "linux") {
+        bases.push(realPath.join(home, ".config"));
+    } else if (realProcess.platform === "win32") {
+        bases.push(realProcess.env.APPDATA ?? realPath.join(home, "AppData", "Roaming"));
+    }
+
+    // VS Code variant folder names (covers Codex fork, stable, insiders, OSS)
+    const variants = ["Codex", "Code", "Code - Insiders", "code-oss", "VSCodium"];
+
+    for (const base of bases) {
+        for (const variant of variants) {
+            const candidate = realPath.join(
+                base,
+                variant,
+                "User",
+                "globalStorage",
+                EXTENSION_ID,
+                "sqlite3-native",
+                BINARY_NAME
+            );
+            try {
+                if (realFs.existsSync(candidate) && realFs.statSync(candidate).size > 500_000) {
+                    console.log(`[NativeSQLite Test] Found binary: ${candidate}`);
+                    return candidate;
+                }
+            } catch {
+                // Skip inaccessible paths
+            }
+        }
+    }
+
+    // Also check the .vscode-test directory (test-electron may cache here)
+    try {
+        const vscodeTestDir = realPath.join(home, ".vscode-test");
+        if (realFs.existsSync(vscodeTestDir)) {
+            const found = findFileRecursive(vscodeTestDir, BINARY_NAME, 3);
+            if (found) {
+                return found;
+            }
+        }
+    } catch {
+        // Non-critical
+    }
+
+    console.warn(`[NativeSQLite Test] Binary not found in any searched location`);
+    return null;
+}
+
+/** Shallow recursive file search (limited depth to keep it fast). */
+function findFileRecursive(dir: string, target: string, maxDepth: number): string | null {
+    if (maxDepth <= 0) {
+        return null;
+    }
+    try {
+        for (const entry of realFs.readdirSync(dir, { withFileTypes: true })) {
+            const full = realPath.join(dir, entry.name);
+            if (entry.isFile() && entry.name === target) {
+                if (realFs.statSync(full).size > 500_000) {
+                    return full;
+                }
+            } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
+                const found = findFileRecursive(full, target, maxDepth - 1);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+    } catch {
+        // Permission errors etc.
+    }
+    return null;
+}
+
+/**
+ * Ensure the native SQLite binding is loaded before any tests run.
+ * Returns true if ready, false if the binary could not be found.
+ */
+function bootstrapNativeSqlite(): boolean {
+    if (isNativeSqliteReady()) {
+        return true;
+    }
+
+    const binaryPath = findNativeBinary();
+    if (!binaryPath) {
+        console.warn(
+            "[NativeSQLite Test] Could not find node_sqlite3.node binary. " +
+                "Run the extension once in normal mode to download it, then re-run tests."
+        );
+        return false;
+    }
+
+    console.log(`[NativeSQLite Test] Bootstrapping native binary from: ${binaryPath}`);
+    initNativeSqlite(binaryPath);
+    return isNativeSqliteReady();
+}
 
 // ── Schema helpers (mirror sqliteIndex.ts) ──────────────────────────────────
 
@@ -153,7 +294,7 @@ const FTS_TRIGGERS = [
 // ── Utility helpers ─────────────────────────────────────────────────────────
 
 const computeHash = (content: string): string =>
-    createHash("sha256").update(content).digest("hex");
+    realCrypto.createHash("sha256").update(content).digest("hex");
 
 /**
  * Open an in-memory database and apply the full production schema.
@@ -271,14 +412,34 @@ suite("Native SQLite Database Tests", function () {
     // Allow generous timeout for database operations
     this.timeout(30_000);
 
+    // ── Bootstrap ───────────────────────────────────────────────────────
+
+    let nativeReady = false;
+
+    suiteSetup(function () {
+        nativeReady = bootstrapNativeSqlite();
+        if (!nativeReady) {
+            console.warn("[NativeSQLite Test] Skipping all database tests — native binary not available.");
+        }
+    });
+
+    /** Guard that skips the current test when the native binary is unavailable. */
+    function skipIfNotReady(ctx: Mocha.Context): void {
+        if (!nativeReady) {
+            ctx.skip();
+        }
+    }
+
     // ── Pre-flight check ────────────────────────────────────────────────
 
-    test("native SQLite binding is initialized", () => {
+    test("native SQLite binding is initialized", function () {
+        // If bootstrapping failed, this test reports the situation clearly
+        // rather than silently skipping.
         assert.strictEqual(
             isNativeSqliteReady(),
             true,
-            "initNativeSqlite() must have been called during extension activation. " +
-                "If this fails, the native binary may not have been downloaded."
+            "Could not locate the node_sqlite3.node binary. " +
+                "Run the extension once in normal mode to download it, then re-run tests."
         );
     });
 
@@ -287,7 +448,8 @@ suite("Native SQLite Database Tests", function () {
     suite("Database Creation & Schema", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
         });
 
@@ -434,12 +596,13 @@ suite("Native SQLite Database Tests", function () {
     suite("File CRUD Operations", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("inserts a new file and returns its id", async () => {
@@ -491,14 +654,15 @@ suite("Native SQLite Database Tests", function () {
         let sourceFileId: number;
         let targetFileId: number;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
             sourceFileId = await insertFile(db, "/project/GEN.source", "source");
             targetFileId = await insertFile(db, "/project/GEN.codex", "codex");
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("inserts a source cell", async () => {
@@ -668,14 +832,15 @@ suite("Native SQLite Database Tests", function () {
         let sourceFileId: number;
         let targetFileId: number;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
             sourceFileId = await insertFile(db, "/project/GEN.source", "source");
             targetFileId = await insertFile(db, "/project/GEN.codex", "codex");
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("trigger auto-indexes source content into FTS on INSERT", async () => {
@@ -858,12 +1023,13 @@ suite("Native SQLite Database Tests", function () {
     suite("Transactions", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("committed transaction persists data", async () => {
@@ -968,12 +1134,13 @@ suite("Native SQLite Database Tests", function () {
     suite("Schema Versioning & Re-indexing", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("reads schema version", async () => {
@@ -1078,12 +1245,13 @@ suite("Native SQLite Database Tests", function () {
     suite("Sync Metadata", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("inserts sync metadata", async () => {
@@ -1147,7 +1315,8 @@ suite("Native SQLite Database Tests", function () {
         let db: AsyncDatabase;
         let fileId: number;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
             fileId = await insertFile(db, "/project/GEN.source", "source");
             await insertCell(db, "GEN 1:1", {
@@ -1157,7 +1326,7 @@ suite("Native SQLite Database Tests", function () {
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("inserts words for a cell", async () => {
@@ -1230,13 +1399,14 @@ suite("Native SQLite Database Tests", function () {
         let db: AsyncDatabase;
         let fileId: number;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
             fileId = await insertFile(db, "/project/MRK.source", "source");
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("stores and retrieves Greek text", async () => {
@@ -1374,12 +1544,13 @@ suite("Native SQLite Database Tests", function () {
     suite("AsyncDatabase API", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await AsyncDatabase.open(":memory:");
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("exec() runs DDL statements", async () => {
@@ -1488,12 +1659,13 @@ suite("Native SQLite Database Tests", function () {
     suite("PRAGMAs & Database Configuration", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await AsyncDatabase.open(":memory:");
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("journal_mode can be set", async () => {
@@ -1527,10 +1699,10 @@ suite("Native SQLite Database Tests", function () {
         });
 
         test("integrity_check passes on fresh database", async () => {
-            const result = await db.get<{ integrity_check: string }>(
+            const result = await db.get<{ quick_check: string }>(
                 "PRAGMA quick_check(1)"
             );
-            assert.strictEqual(result?.integrity_check, "ok");
+            assert.strictEqual(result?.quick_check, "ok");
         });
     });
 
@@ -1541,7 +1713,8 @@ suite("Native SQLite Database Tests", function () {
         let sourceFileId: number;
         let targetFileId: number;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
             sourceFileId = await insertFile(db, "/project/GEN.source", "source");
             targetFileId = await insertFile(db, "/project/GEN.codex", "codex");
@@ -1584,7 +1757,7 @@ suite("Native SQLite Database Tests", function () {
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("search with JOIN returns cell + file data", async () => {
@@ -1654,12 +1827,13 @@ suite("Native SQLite Database Tests", function () {
     suite("Concurrent Operations", () => {
         let db: AsyncDatabase;
 
-        setup(async () => {
+        setup(async function () {
+            skipIfNotReady(this);
             db = await openTestDatabase();
         });
 
         teardown(async () => {
-            await db.close();
+            if (db) { await db.close(); }
         });
 
         test("parallel reads do not interfere", async () => {
@@ -1701,13 +1875,15 @@ suite("Native SQLite Database Tests", function () {
     // ── 14. Database close & cleanup ────────────────────────────────────
 
     suite("Database Close & Cleanup", () => {
-        test("close() completes without error", async () => {
+        test("close() completes without error", async function () {
+            skipIfNotReady(this);
             const db = await openTestDatabase();
             await db.close();
             // Should not throw
         });
 
-        test("operations fail after close", async () => {
+        test("operations fail after close", async function () {
+            skipIfNotReady(this);
             const db = await openTestDatabase();
             await db.close();
 
@@ -1719,7 +1895,8 @@ suite("Native SQLite Database Tests", function () {
             }
         });
 
-        test("VACUUM succeeds on fresh database", async () => {
+        test("VACUUM succeeds on fresh database", async function () {
+            skipIfNotReady(this);
             const db = await openTestDatabase();
             await db.exec("VACUUM");
             await db.close();
