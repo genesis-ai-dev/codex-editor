@@ -7,14 +7,13 @@ import { BaseWebviewProvider } from "../../globalProvider";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
-import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
+import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { addMetadataEdit } from "../../utils/editMapUtils";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
-import { CodexCellTypes } from "../../../types/enums";
 
 interface CodexMetadata {
     id: string;
@@ -498,25 +497,34 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const metadata = notebookData.metadata as CodexMetadata;
             const fileNameAbbr = path.basename(uri.fsPath, ".codex");
 
-            // Calculate progress based on cells with values
+            // Calculate progress based on cells with values (exclude paratext and child cells)
             const unmergedCells = notebookData.cells.filter(
-                (cell) =>
-                    !cell.metadata.data?.merged &&
-                    cell.metadata?.type !== CodexCellTypes.MILESTONE
+                (cell) => !shouldExcludeCellFromProgress(cell)
             );
-            const totalCells = unmergedCells.length;
-            const cellsWithValues = unmergedCells.filter(
+            // Second filter: only root content cells count for progress/validation (same as backend)
+            const toQuillLike = (cell: (typeof notebookData.cells)[0]) => ({
+                cellMarkers: [cell.metadata?.id ?? ""],
+                cellType: cell.metadata?.type ?? cell.languageId,
+                merged: cell.metadata?.data?.merged,
+                metadata: { parentId: cell.metadata?.parentId },
+                data: cell.metadata?.data,
+            });
+            const progressCells = unmergedCells.filter(
+                (cell) => !shouldExcludeQuillCellFromProgress(toQuillLike(cell) as unknown as import("../../../types").QuillCellContent)
+            );
+            const totalCells = progressCells.length;
+            const cellsWithValues = progressCells.filter(
                 (cell) =>
                     cell.value && cell.value.trim().length > 0 && cell.value !== "<span></span>"
             ).length;
             const progress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
 
-            const cellWithValidatedData = unmergedCells.map(
+            const cellWithValidatedData = progressCells.map(
                 (cell) => {
                     const cellValueData = getCellValueData({
                         cellContent: cell.value,
                         cellMarkers: [cell.metadata.id],
-                        cellType: cell.languageId as any,
+                        cellType: cell.languageId as import("../../../types/enums").CodexCellTypes,
                         cellLabel: cell.metadata.cellLabel,
                         editHistory: cell.metadata.edits,
                         attachments: cell.metadata.attachments,
@@ -527,7 +535,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             );
 
             // Compute audio completion based on attachments (mirrors editor logic)
-            const cellsWithAudioValues = unmergedCells.filter((cell) =>
+            const cellsWithAudioValues = progressCells.filter((cell) =>
                 cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
             ).length;
 
@@ -542,9 +550,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 minimumAudioValidationsRequired
             );
 
-            // Compute per-level validation percentages for text and audio
+            // Compute per-level validation percentages for text and audio.
+            // For text, only count validations on cells with actual content (same rule as computeValidationStats).
             const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
-            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const textValidationCounts = cellWithValidatedData.map((c) =>
+                hasTextContent(c.cellContent) ? countActiveValidations(c.validatedBy) : 0
+            );
             const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
 
             const computeLevelPercents = (counts: number[], maxLevel: number) => {

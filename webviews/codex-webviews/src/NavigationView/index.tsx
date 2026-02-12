@@ -800,7 +800,7 @@ function NavigationView() {
                             >
                                 {/* Text progress */}
                                 <div className="flex items-start gap-2">
-                                    <Languages className="h-3 w-3 flex-shrink-0 opacity-60 -mt-0.5" />
+                                    <Languages className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
                                     <Progress
                                         value={progressValues.textCompletion}
                                         validationValues={progressValues.textValidationLevels}
@@ -812,7 +812,7 @@ function NavigationView() {
                                 {/* Audio progress - only show if there's audio data */}
                                 {hasAudio && (
                                     <div className="flex items-start gap-2">
-                                        <Mic className="h-3 w-3 flex-shrink-0 opacity-60 -mt-0.5" />
+                                        <Mic className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
                                         <Progress
                                             value={progressValues.audioCompletion}
                                             validationValues={progressValues.audioValidationLevels}

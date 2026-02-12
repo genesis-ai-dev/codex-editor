@@ -30,6 +30,7 @@ import {
     cellHasAudioUsingAttachments,
     computeValidationStats,
     computeProgressPercents,
+    shouldExcludeQuillCellFromProgress,
 } from "@sharedUtils";
 import { isValidValidationEntry } from "./validationUtils";
 import "./TranslationAnimations.css";
@@ -906,18 +907,27 @@ const CodexCellEditor: React.FC = () => {
         [milestoneIndex]
     );
 
-    // Listen for subsection progress updates
+    // Listen for subsection progress updates (keeps MilestoneAccordion / ProgressDots in sync)
     useMessageHandler(
         "codexCellEditor-subsectionProgress",
         (event: MessageEvent) => {
             const message = event.data as EditorReceiveMessages;
-            if (message?.type === "providerSendsSubsectionProgress") {
-                // Remove from pending requests
-                pendingProgressRequestsRef.current.delete(message.milestoneIndex);
+            if (message?.type !== "providerSendsSubsectionProgress") return;
 
-                // Store in cache (handles LRU eviction)
-                setCachedProgress(message.milestoneIndex, message.subsectionProgress);
-            }
+            const idx = message.milestoneIndex;
+            const progress = message.subsectionProgress;
+            if (progress == null || typeof idx !== "number") return;
+
+            pendingProgressRequestsRef.current.delete(idx);
+
+            // Update cache (handles LRU eviction)
+            setCachedProgress(idx, progress);
+
+            // Force state merge so ProgressDots / MilestoneAccordion always re-render with new data
+            setSubsectionProgress((prev) => ({
+                ...prev,
+                [idx]: progress,
+            }));
         },
         [setCachedProgress]
     );
@@ -1786,14 +1796,18 @@ const CodexCellEditor: React.FC = () => {
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
         (chapterNum: number): ProgressPercentages => {
-            // Filter cells for the specific chapter (excluding paratext, milestone, and merged cells)
+            // Filter cells for the specific chapter (excluding paratext, milestone, merged, and child cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
                 // Exclude milestone cells from progress calculation
                 if (cell.cellType === CodexCellTypes.MILESTONE) {
                     return false;
                 }
-                if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
+                if (!cellId || cellId.includes(":paratext-") || cell.merged) {
+                    return false;
+                }
+                // Exclude child cells (e.g. type "text" with parentId - they don't count toward progress)
+                if (cell.metadata?.parentId !== undefined || cell.data?.parentId !== undefined) {
                     return false;
                 }
                 const sectionCellIdParts = cellId.split(" ")?.[1]?.split(":");
@@ -1801,7 +1815,11 @@ const CodexCellEditor: React.FC = () => {
                 return sectionCellNumber === chapterNum.toString();
             });
 
-            const totalCells = cellsForChapter.length;
+            // Only root content cells count (exclude paratext/child for validation too)
+            const progressCells = cellsForChapter.filter(
+                (c) => !shouldExcludeQuillCellFromProgress(c)
+            );
+            const totalCells = progressCells.length;
             if (totalCells === 0) {
                 return {
                     percentTranslationsCompleted: 0,
@@ -1813,22 +1831,22 @@ const CodexCellEditor: React.FC = () => {
             }
 
             // Count cells with content (translated)
-            const cellsWithValues = cellsForChapter.filter(
+            const cellsWithValues = progressCells.filter(
                 (cell) =>
                     cell.cellContent &&
                     cell.cellContent.trim().length > 0 &&
                     cell.cellContent !== "<span></span>"
             ).length;
 
-            const cellsWithAudioValues = cellsForChapter.filter((cell) =>
+            const cellsWithAudioValues = progressCells.filter((cell) =>
                 cellHasAudioUsingAttachments(
                     (cell as any).attachments,
                     (cell as any).metadata?.selectedAudioId
                 )
             ).length;
 
-            // Calculate validation data using the same logic as navigation provider
-            const cellWithValidatedData = cellsForChapter.map((cell) => getCellValueData(cell));
+            // Calculate validation data (only from root content cells)
+            const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
 
             const minimumValidationsRequired = requiredValidations ?? 1;
             const minimumAudioValidationsRequired = requiredAudioValidations ?? 1;
@@ -2052,6 +2070,11 @@ const CodexCellEditor: React.FC = () => {
                 setSaveErrorMessage(null);
                 setSaveRetryCount(0);
                 handleCloseEditor();
+                // Refresh subsection progress so MilestoneAccordion / ProgressDots update after content save
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < (milestoneIndex.milestones?.length ?? 0)) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
                 return;
             }
 
@@ -2062,7 +2085,7 @@ const CodexCellEditor: React.FC = () => {
             setSaveErrorMessage(errorMessage);
             setSaveRetryCount((prev) => prev + 1);
         },
-        []
+        [milestoneIndex, refreshProgressForMilestone]
     );
 
     // State for current user - initialize with a default test username to ensure logic works
