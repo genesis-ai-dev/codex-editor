@@ -20,7 +20,13 @@ interface EditableFieldProps {
     inputClassName?: string;
 }
 
-function EditableField({ value, onSave, placeholder = "Click to edit", className = "", inputClassName = "" }: EditableFieldProps) {
+function EditableField({
+    value,
+    onSave,
+    placeholder = "Click to edit",
+    className = "",
+    inputClassName = "",
+}: EditableFieldProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState(value);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -534,7 +540,10 @@ function MainMenu() {
                                             style={{ color: "var(--ring)" }}
                                         />
                                         <EditableField
-                                            value={projectState.projectOverview.projectName || "Unnamed Project"}
+                                            value={
+                                                projectState.projectOverview.projectName ||
+                                                "Unnamed Project"
+                                            }
                                             onSave={(name) => {
                                                 vscode.postMessage({
                                                     command: "changeProjectName",
@@ -553,22 +562,40 @@ function MainMenu() {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div
                                                 className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
-                                                onClick={() => handleProjectAction("changeSourceLanguage", projectState.projectOverview.sourceLanguage)}
+                                                onClick={() =>
+                                                    handleProjectAction(
+                                                        "changeSourceLanguage",
+                                                        projectState.projectOverview.sourceLanguage
+                                                    )
+                                                }
                                                 title="Click to change source language"
                                             >
-                                                <div className="text-xs text-muted-foreground mb-1">Source</div>
+                                                <div className="text-xs text-muted-foreground mb-1">
+                                                    Source
+                                                </div>
                                                 <div className="text-sm font-medium">
-                                                    {getLanguageDisplay(projectState.projectOverview.sourceLanguage)}
+                                                    {getLanguageDisplay(
+                                                        projectState.projectOverview.sourceLanguage
+                                                    )}
                                                 </div>
                                             </div>
                                             <div
                                                 className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
-                                                onClick={() => handleProjectAction("changeTargetLanguage", projectState.projectOverview.targetLanguage)}
+                                                onClick={() =>
+                                                    handleProjectAction(
+                                                        "changeTargetLanguage",
+                                                        projectState.projectOverview.targetLanguage
+                                                    )
+                                                }
                                                 title="Click to change target language"
                                             >
-                                                <div className="text-xs text-muted-foreground mb-1">Target</div>
-                                                <div className="text-sm font-medium">
-                                                    {getLanguageDisplay(projectState.projectOverview.targetLanguage)}
+                                                <div className="text-xs text-muted-foreground mb-1">
+                                                    Target
+                                                </div>
+                                                <div className="min-w-0 break-words text-sm font-medium">
+                                                    {getLanguageDisplay(
+                                                        projectState.projectOverview.targetLanguage
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -576,63 +603,115 @@ function MainMenu() {
                                         {/* Validations and Documents row */}
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="p-3 rounded-lg bg-muted/30">
-                                                <div className="text-xs text-muted-foreground mb-2">Required Validations</div>
+                                                <div className="text-xs text-muted-foreground mb-2">
+                                                    Required Validations
+                                                </div>
                                                 <div className="flex flex-col gap-1.5 text-sm">
                                                     <div className="flex items-center gap-1.5">
-                                                        <span className="text-muted-foreground">Text:</span>
+                                                        <span className="text-muted-foreground">
+                                                            Text:
+                                                        </span>
                                                         <div className="flex items-center gap-0.5">
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current = projectState.projectOverview.validationCount || 1;
-                                                                    if (current > 1) handleProjectAction("setValidationCountDirect", { count: current - 1 });
+                                                                    const current =
+                                                                        projectState.projectOverview
+                                                                            .validationCount || 1;
+                                                                    if (current > 1)
+                                                                        handleProjectAction(
+                                                                            "setValidationCountDirect",
+                                                                            { count: current - 1 }
+                                                                        );
                                                                 }}
                                                                 title="Decrease"
-                                                            >-</button>
-                                                            <span className="w-5 text-center font-semibold">{projectState.projectOverview.validationCount || 1}</span>
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className="w-5 text-center font-semibold">
+                                                                {projectState.projectOverview
+                                                                    .validationCount || 1}
+                                                            </span>
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current = projectState.projectOverview.validationCount || 1;
-                                                                    if (current < 15) handleProjectAction("setValidationCountDirect", { count: current + 1 });
+                                                                    const current =
+                                                                        projectState.projectOverview
+                                                                            .validationCount || 1;
+                                                                    if (current < 15)
+                                                                        handleProjectAction(
+                                                                            "setValidationCountDirect",
+                                                                            { count: current + 1 }
+                                                                        );
                                                                 }}
                                                                 title="Increase"
-                                                            >+</button>
+                                                            >
+                                                                +
+                                                            </button>
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-1.5">
-                                                        <span className="text-muted-foreground">Audio:</span>
+                                                        <span className="text-muted-foreground">
+                                                            Audio:
+                                                        </span>
                                                         <div className="flex items-center gap-0.5">
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current = projectState.projectOverview.validationCountAudio || 1;
-                                                                    if (current > 1) handleProjectAction("setValidationCountAudioDirect", { count: current - 1 });
+                                                                    const current =
+                                                                        projectState.projectOverview
+                                                                            .validationCountAudio ||
+                                                                        1;
+                                                                    if (current > 1)
+                                                                        handleProjectAction(
+                                                                            "setValidationCountAudioDirect",
+                                                                            { count: current - 1 }
+                                                                        );
                                                                 }}
                                                                 title="Decrease"
-                                                            >-</button>
-                                                            <span className="w-5 text-center font-semibold">{projectState.projectOverview.validationCountAudio || 1}</span>
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className="w-5 text-center font-semibold">
+                                                                {projectState.projectOverview
+                                                                    .validationCountAudio || 1}
+                                                            </span>
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current = projectState.projectOverview.validationCountAudio || 1;
-                                                                    if (current < 15) handleProjectAction("setValidationCountAudioDirect", { count: current + 1 });
+                                                                    const current =
+                                                                        projectState.projectOverview
+                                                                            .validationCountAudio ||
+                                                                        1;
+                                                                    if (current < 15)
+                                                                        handleProjectAction(
+                                                                            "setValidationCountAudioDirect",
+                                                                            { count: current + 1 }
+                                                                        );
                                                                 }}
                                                                 title="Increase"
-                                                            >+</button>
+                                                            >
+                                                                +
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div
                                                 className="p-3 rounded-lg bg-muted/30 cursor-pointer hover:bg-accent transition-colors"
-                                                onClick={() => handleProjectAction("openSourceUpload")}
+                                                onClick={() =>
+                                                    handleProjectAction("openSourceUpload")
+                                                }
                                                 title="Click to add documents"
                                             >
-                                                <div className="text-xs text-muted-foreground mb-1">Documents</div>
+                                                <div className="text-xs text-muted-foreground mb-1">
+                                                    Documents
+                                                </div>
                                                 <div className="text-sm font-medium flex items-center gap-2">
-                                                    {projectState.projectOverview.sourceTexts?.length || 0} texts
-                                                    <i className="codicon codicon-add text-xs text-muted-foreground" />
+                                                    {projectState.projectOverview.sourceTexts
+                                                        ?.length || 0}{" "}
+                                                    texts
+                                                    <i className="codicon codicon-add text-[12px] text-muted-foreground" />
                                                 </div>
                                             </div>
                                         </div>
@@ -660,21 +739,65 @@ function MainMenu() {
                             <Card className="border shadow-sm">
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-base font-semibold flex items-center gap-2">
-                                        <i className="codicon codicon-tools" style={{ color: "var(--ring)" }} />
+                                        <i
+                                            className="codicon codicon-tools"
+                                            style={{ color: "var(--ring)" }}
+                                        />
                                         Tools
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-2">
                                     <div className="grid grid-cols-2 gap-2">
                                         {[
-                                            { icon: "codicon-graph", label: "AI Metrics", action: () => handleProjectAction("openEditAnalysis") },
-                                            { icon: "codicon-settings", label: "Copilot Settings", action: () => handleProjectAction("openAISettings") },
-                                            { icon: "codicon-export", label: "Export", action: () => handleProjectAction("openExportView") },
-                                            { icon: "codicon-text-size", label: "Text Display", action: () => setIsTextDisplaySettingsOpen(true) },
-                                            { icon: "codicon-symbol-array", label: "Import Labels", action: () => executeCommand("openCellLabelImporter") },
-                                            { icon: "codicon-replace-all", label: "Migration", action: () => executeCommand("openCodexMigrationTool") },
-                                            { icon: "codicon-extensions", label: projectState.isCheckingForUpdates ? "Checking..." : "Updates", action: () => handleProjectAction("checkForUpdates"), disabled: projectState.isCheckingForUpdates, spinning: projectState.isCheckingForUpdates },
-                                            { icon: "codicon-close", label: "Close Project", action: () => executeCommand("closeProject"), destructive: true },
+                                            {
+                                                icon: "codicon-graph",
+                                                label: "AI Metrics",
+                                                action: () =>
+                                                    handleProjectAction("openEditAnalysis"),
+                                            },
+                                            {
+                                                icon: "codicon-settings",
+                                                label: "Copilot Settings",
+                                                action: () => handleProjectAction("openAISettings"),
+                                            },
+                                            {
+                                                icon: "codicon-export",
+                                                label: "Export",
+                                                action: () => handleProjectAction("openExportView"),
+                                            },
+                                            {
+                                                icon: "codicon-text-size",
+                                                label: "Text Display",
+                                                action: () => setIsTextDisplaySettingsOpen(true),
+                                            },
+                                            {
+                                                icon: "codicon-symbol-array",
+                                                label: "Import Labels",
+                                                action: () =>
+                                                    executeCommand("openCellLabelImporter"),
+                                            },
+                                            {
+                                                icon: "codicon-replace-all",
+                                                label: "Migration",
+                                                action: () =>
+                                                    executeCommand("openCodexMigrationTool"),
+                                            },
+                                            {
+                                                icon: "codicon-extensions",
+                                                label: projectState.isCheckingForUpdates
+                                                    ? "Checking..."
+                                                    : "Updates",
+                                                action: () =>
+                                                    handleProjectAction("checkForUpdates"),
+                                                disabled: projectState.isCheckingForUpdates,
+                                                spinning: projectState.isCheckingForUpdates,
+                                            },
+                                            {
+                                                icon: "codicon-close",
+                                                label: "Close Project",
+                                                action: () => executeCommand("closeProject"),
+                                                destructive: true,
+                                            },
                                         ].map((item, idx) => (
                                             <button
                                                 key={idx}
@@ -684,13 +807,27 @@ function MainMenu() {
                                                     item.destructive
                                                         ? "hover:bg-destructive/10 hover:text-destructive"
                                                         : "hover:bg-accent"
-                                                } ${item.disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                                                } ${
+                                                    item.disabled
+                                                        ? "opacity-50 cursor-not-allowed"
+                                                        : "cursor-pointer"
+                                                }`}
                                             >
                                                 <i
-                                                    className={`codicon ${item.spinning ? "codicon-loading codicon-modifier-spin" : item.icon}`}
-                                                    style={{ color: item.destructive ? "var(--destructive)" : "var(--ring)" }}
+                                                    className={`codicon ${
+                                                        item.spinning
+                                                            ? "codicon-loading codicon-modifier-spin"
+                                                            : item.icon
+                                                    }`}
+                                                    style={{
+                                                        color: item.destructive
+                                                            ? "var(--destructive)"
+                                                            : "var(--ring)",
+                                                    }}
                                                 />
-                                                <span className={item.destructive ? "" : ""}>{item.label}</span>
+                                                <span className={item.destructive ? "" : ""}>
+                                                    {item.label}
+                                                </span>
                                             </button>
                                         ))}
                                     </div>
@@ -709,7 +846,9 @@ function MainMenu() {
                                                 />
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-sm">Publish to Cloud</div>
+                                                <div className="font-semibold text-sm">
+                                                    Publish to Cloud
+                                                </div>
                                                 <div className="text-xs text-muted-foreground">
                                                     Enable syncing and collaboration
                                                 </div>
@@ -733,7 +872,8 @@ function MainMenu() {
                                                 {projectState.isPublishingInProgress ? (
                                                     <>
                                                         <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
-                                                        {projectState.publishingStage || "Publishing..."}
+                                                        {projectState.publishingStage ||
+                                                            "Publishing..."}
                                                     </>
                                                 ) : !isOnline ? (
                                                     "Offline"

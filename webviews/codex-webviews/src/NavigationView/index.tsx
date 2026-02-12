@@ -707,8 +707,7 @@ function NavigationView() {
 
         const progressValues = getProgressValues(item.progress);
         const hasProgress = item.progress && typeof item.progress === "object";
-        const hasAudio =
-            progressValues.audioCompletion > 0 || progressValues.audioValidation > 0;
+        const hasAudio = progressValues.audioCompletion > 0 || progressValues.audioValidation > 0;
 
         return (
             <div key={item.label + item.uri}>
@@ -727,7 +726,7 @@ function NavigationView() {
                         }
                     }}
                 >
-                    <div className="py-2 px-3 flex flex-col gap-1 w-full">
+                    <div className="py-2 px-3 flex flex-col gap-3 w-full">
                         {/* Row 1: label + action buttons */}
                         <div className="flex items-center gap-2 min-h-[24px]">
                             {isGroup && (
@@ -796,12 +795,12 @@ function NavigationView() {
                         {/* Row 2: progress bars below label */}
                         {hasProgress && (
                             <div
-                                className="pl-7 flex flex-col gap-1.5"
+                                className="pl-7 flex flex-col gap-2"
                                 onClick={isGroup ? undefined : (e) => e.stopPropagation()}
                             >
                                 {/* Text progress */}
-                                <div className="flex items-center gap-2">
-                                    <Languages className="h-3 w-3 flex-shrink-0 opacity-60" />
+                                <div className="flex items-start gap-2">
+                                    <Languages className="h-3 w-3 flex-shrink-0 opacity-60 -mt-0.5" />
                                     <Progress
                                         value={progressValues.textCompletion}
                                         validationValues={progressValues.textValidationLevels}
@@ -812,13 +811,11 @@ function NavigationView() {
                                 </div>
                                 {/* Audio progress - only show if there's audio data */}
                                 {hasAudio && (
-                                    <div className="flex items-center gap-2">
-                                        <Mic className="h-3 w-3 flex-shrink-0 opacity-60" />
+                                    <div className="flex items-start gap-2">
+                                        <Mic className="h-3 w-3 flex-shrink-0 opacity-60 -mt-0.5" />
                                         <Progress
                                             value={progressValues.audioCompletion}
-                                            validationValues={
-                                                progressValues.audioValidationLevels
-                                            }
+                                            validationValues={progressValues.audioValidationLevels}
                                             requiredValidations={
                                                 progressValues.requiredAudioValidations
                                             }
