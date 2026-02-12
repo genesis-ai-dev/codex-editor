@@ -387,7 +387,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const currentDocCount = await translationPairsIndex.getDocumentCount();
     const healthCheck = await validateIndexHealthConservatively();
 
-    debug(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
+    // Always log rebuild decisions to console so we can diagnose "always rebuilds" issues
+    console.log(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
 
     let needsRebuild = false;
     let rebuildReason = '';
@@ -395,6 +396,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     if (!healthCheck.isHealthy) {
         needsRebuild = true;
         rebuildReason = healthCheck.criticalIssue || 'health check failed';
+        console.log(`[Index] Rebuild triggered by HEALTH CHECK: ${rebuildReason}`);
     } else {
         // Health check passed - database is structurally sound
         // Check for file changes to determine if sync is needed
@@ -402,11 +404,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         if (changeCheck.needsRebuild) {
             needsRebuild = true;
             rebuildReason = changeCheck.reason;
+            console.log(`[Index] Rebuild triggered by SYNC CHECK: ${rebuildReason}`);
+        } else {
+            console.log(`[Index] No rebuild needed — database is up to date with ${currentDocCount} documents`);
         }
     }
 
     if (needsRebuild) {
-        debug(`[Index] Rebuild needed: ${rebuildReason}`);
+        console.log(`[Index] Starting rebuild: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically
         const isCritical = !healthCheck.isHealthy;

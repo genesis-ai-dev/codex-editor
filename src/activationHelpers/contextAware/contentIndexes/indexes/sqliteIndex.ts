@@ -196,28 +196,32 @@ export class SQLiteIndexManager {
                     errorMessage.includes("database is locked") ||
                     errorMessage.includes("database corruption");
 
+                // Always close the old connection to avoid leaking file descriptors
+                // and to prevent writing to an unlinked inode after file deletion.
+                if (this.db) {
+                    try { await this.db.close(); } catch { /* ignore */ }
+                    this.db = null;
+                }
+
                 if (isCorruption) {
                     debug(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
                     debug("[SQLiteIndex] Deleting corrupt database and creating new one");
 
-                    // Close the potentially corrupted connection
-                    if (this.db) {
-                        try { await this.db.close(); } catch { /* ignore */ }
-                        this.db = null;
-                    }
-
                     try {
-                        await vscode.workspace.fs.delete(dbUri);
+                        await this.deleteDatabaseFile();
                         stepStart = this.trackProgress("Delete corrupted database", stepStart);
                     } catch (deleteError) {
                         debug("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
                     }
+                } else {
+                    console.error(`[SQLiteIndex] Non-corruption database error: ${errorMessage}`);
                 }
 
-                // Create a fresh database
+                // Open a fresh connection (reuses existing file for non-corruption,
+                // creates new file if corruption path deleted it).
                 stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
                 debug("Creating new index database");
-                this.db = await AsyncDatabase.open(this.dbPath);
+                this.db = await AsyncDatabase.open(this.dbPath!);
                 await this.applyProductionPragmas();
 
                 await this.createSchema();
@@ -290,12 +294,19 @@ export class SQLiteIndexManager {
         if (!this.db) return;
 
         try {
-            const result = await this.db.get<{ integrity_check: string }>(
+            // PRAGMA quick_check returns a column named "quick_check" (not "integrity_check").
+            const result = await this.db.get<{ quick_check: string }>(
                 "PRAGMA quick_check(1)"
             );
-            if (result && result.integrity_check !== "ok") {
-                console.error(`[SQLiteIndex] Integrity check failed: ${result.integrity_check}`);
-                throw new Error(`database corruption detected by quick_check: ${result.integrity_check}`);
+            // The first (and only) value in the result row is "ok" when healthy.
+            // Guard against unexpected column names by checking all values.
+            const value = result
+                ? (result.quick_check ?? Object.values(result)[0])
+                : undefined;
+
+            if (value && String(value) !== "ok") {
+                console.error(`[SQLiteIndex] Integrity check failed: ${value}`);
+                throw new Error(`database corruption detected by quick_check: ${value}`);
             }
             debug("[SQLiteIndex] Quick integrity check passed");
         } catch (error) {
@@ -569,12 +580,28 @@ export class SQLiteIndexManager {
                 // Log schema recreation to console instead of showing to user
                 debug(`[SQLiteIndex] 🔄 AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`);
 
-                // CRITICAL: Delete the database file completely and recreate from scratch
-                // This handles ALL cases: old schemas, corrupted databases, future schema versions, etc.
+                // Close the old connection BEFORE deleting the file.
+                // On Unix/macOS, deleting an open file just unlinks the directory entry;
+                // the file descriptor would keep pointing at the orphaned inode, causing
+                // all subsequent writes to vanish when the process exits.
+                try { await this.db.close(); } catch { /* ignore */ }
+                this.db = null;
+
+                // Delete the database file (and WAL/SHM) completely
                 await this.deleteDatabaseFile();
 
-                // Recreate the database with the current schema (version 8)
-                await this.recreateDatabase();
+                // Reopen a fresh database at the same path
+                this.db = await AsyncDatabase.open(this.dbPath!);
+                await this.applyProductionPragmas();
+
+                // Recreate schema from scratch
+                await this.createSchema();
+
+                if (!(await this.validateSchemaIntegrity())) {
+                    throw new Error(`Schema validation failed after recreation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+                }
+
+                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
 
                 this.trackProgress("Database complete recreation finished", stepStart);
                 debug(`Database completely recreated with schema version ${CURRENT_SCHEMA_VERSION} - no partial migrations used`);
@@ -599,12 +626,14 @@ export class SQLiteIndexManager {
                 debug("[SQLiteIndex] Recreating corrupted database");
                 stepStart = this.trackProgress("Recreate corrupted database", stepStart);
 
-                // Force recreate the database
+                // Close old connection BEFORE deleting to avoid writing to unlinked inode
                 if (this.db) {
                     try { await this.db.close(); } catch { /* ignore */ }
+                    this.db = null;
                 }
                 if (this.dbPath) {
-                    try { await vscode.workspace.fs.delete(vscode.Uri.file(this.dbPath)); } catch { /* ignore */ }
+                    // Delete main file plus WAL/SHM auxiliaries
+                    await this.deleteDatabaseFile();
                     this.db = await AsyncDatabase.open(this.dbPath);
                     await this.applyProductionPragmas();
                 } else {
@@ -2533,7 +2562,11 @@ export class SQLiteIndexManager {
         return cleanContent;
     }
 
-    // Delete the database file from disk
+    /**
+     * Delete the database file AND its WAL/SHM auxiliary files from disk.
+     * All three must be removed; leaving orphaned WAL/SHM files can confuse
+     * SQLite when a new database is created at the same path.
+     */
     private async deleteDatabaseFile(): Promise<void> {
         try {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -2543,13 +2576,22 @@ export class SQLiteIndexManager {
 
             const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
 
-            try {
-                await vscode.workspace.fs.delete(dbPath);
-                debug("Database file deleted successfully");
-            } catch (deleteError) {
-                debug("[SQLiteIndex] Could not delete database file:", deleteError);
-                // Don't throw here - we want to continue with reindex even if file deletion fails
+            // Delete main database file plus WAL-mode auxiliary files
+            const filesToDelete = [
+                dbPath,
+                vscode.Uri.file(`${dbPath.fsPath}-wal`),
+                vscode.Uri.file(`${dbPath.fsPath}-shm`),
+            ];
+
+            for (const fileUri of filesToDelete) {
+                try {
+                    await vscode.workspace.fs.delete(fileUri);
+                } catch {
+                    // File may not exist (e.g., SHM absent if already checkpointed)
+                }
             }
+
+            debug("Database file and auxiliary files deleted successfully");
         } catch (error) {
             console.error("[SQLiteIndex] Error deleting database file:", error);
         }
@@ -2628,27 +2670,33 @@ export class SQLiteIndexManager {
                         oldHash: existingRecord.content_hash,
                         newHash: newContentHash
                     });
-                } else if (existingRecord.last_modified_ms !== fileStat.mtime) {
-                    needsSync.push(filePath);
-                    details.set(filePath, {
-                        reason: "modification time changed - possible external edit",
-                        oldHash: existingRecord.content_hash,
-                        newHash: newContentHash
-                    });
-                } else if (existingRecord.file_size !== fileStat.size) {
-                    needsSync.push(filePath);
-                    details.set(filePath, {
-                        reason: "file size changed",
-                        oldHash: existingRecord.content_hash,
-                        newHash: newContentHash
-                    });
                 } else {
+                    // Content hash matches — file is byte-for-byte identical.
+                    // Don't re-sync just because mtime or size metadata drifted
+                    // (git operations, backups, etc. frequently touch mtimes
+                    //  without changing content, causing unnecessary full rebuilds).
                     unchanged.push(filePath);
                     details.set(filePath, {
                         reason: "no changes detected",
                         oldHash: existingRecord.content_hash,
                         newHash: newContentHash
                     });
+
+                    // Silently update stored mtime/size so the metadata stays fresh
+                    // (avoids re-reading file content on future checks if we later
+                    //  add a fast mtime-only pre-check path).
+                    if (existingRecord.last_modified_ms !== fileStat.mtime ||
+                        existingRecord.file_size !== fileStat.size) {
+                        try {
+                            await this.db!.run(`
+                                UPDATE sync_metadata
+                                SET last_modified_ms = ?, file_size = ?
+                                WHERE file_path = ?
+                            `, [fileStat.mtime, fileStat.size, filePath]);
+                        } catch {
+                            // Non-critical — just means next check will re-read content
+                        }
+                    }
                 }
             } catch (error) {
                 console.error(`[SQLiteIndex] Error checking file ${filePath}:`, error);
@@ -2656,6 +2704,19 @@ export class SQLiteIndexManager {
                 details.set(filePath, {
                     reason: `error checking file: ${error instanceof Error ? error.message : 'unknown error'}`
                 });
+            }
+        }
+
+        // Log sync check summary so we can diagnose "always rebuilds" issues
+        if (needsSync.length > 0) {
+            console.log(`[SQLiteIndex] checkFilesForSync: ${needsSync.length} need sync, ${unchanged.length} unchanged`);
+            for (const fp of needsSync.slice(0, 5)) {
+                const detail = details.get(fp);
+                const shortPath = fp.split('/').slice(-2).join('/');
+                console.log(`[SQLiteIndex]   → ${shortPath}: ${detail?.reason}`);
+            }
+            if (needsSync.length > 5) {
+                console.log(`[SQLiteIndex]   ... and ${needsSync.length - 5} more`);
             }
         }
 
