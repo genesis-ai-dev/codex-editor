@@ -32,21 +32,13 @@ import {
     computeProgressPercents,
     shouldExcludeQuillCellFromProgress,
 } from "@sharedUtils";
-import { isValidValidationEntry } from "./validationUtils";
 import "./TranslationAnimations.css";
-import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
-
-// eslint-disable-next-line react-refresh/only-export-components
-export enum CELL_DISPLAY_MODES {
-    INLINE = "inline",
-    ONE_LINE_PER_CELL = "one-line-per-cell",
-}
 
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
@@ -169,10 +161,6 @@ const CodexCellEditor: React.FC = () => {
     );
     const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
         (window as any).initialData?.metadata?.textDirection || "ltr"
-    );
-    const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
-        (window as any).initialData?.metadata?.cellDisplayMode ||
-            CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
@@ -2977,8 +2965,6 @@ const CodexCellEditor: React.FC = () => {
                                 } as EditorPostMessages);
                             }}
                             textDirection={textDirection}
-                            onSetCellDisplayMode={setCellDisplayMode}
-                            cellDisplayMode={cellDisplayMode}
                             isSourceText={isSourceText}
                             openSourceText={openSourceText}
                             documentHasVideoAvailable={documentHasVideoAvailable}
@@ -3056,7 +3042,6 @@ const CodexCellEditor: React.FC = () => {
                             handleSaveHtml={handleSaveHtml}
                             vscode={vscode}
                             textDirection={textDirection}
-                            cellDisplayMode={cellDisplayMode}
                             isSourceText={isSourceText}
                             windowHeight={windowHeight}
                             headerHeight={headerHeight}

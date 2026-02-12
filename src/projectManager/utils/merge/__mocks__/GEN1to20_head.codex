@@ -538,7 +538,6 @@
     "corpusMarker": "OT",
     "lineNumbersEnabled": false,
     "lineNumbersEnabledSource": "local",
-    "cellDisplayMode": "one-line-per-cell",
     "textDirection": "ltr",
     "textDirectionSource": "local"
   }
