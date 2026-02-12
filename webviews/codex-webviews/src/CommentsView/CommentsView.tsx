@@ -18,6 +18,8 @@ import {
     ChevronUp,
     Clock,
     MoreHorizontal,
+    ArrowDownUp,
+    MapPin,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -27,9 +29,17 @@ import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from ".
 import { v4 as uuidv4 } from "uuid";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
+import bibleBooksData from "../assets/bible-books-lookup.json";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
+type SortMode = "location" | "time-increasing" | "time-decreasing";
 
 interface UserAvatar {
     username: string;
@@ -152,7 +162,7 @@ const UserAvatar = ({ username, email, size = "small" }: UserAvatar) => {
 };
 
 function App() {
-    const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "" });
+    const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "", globalReferences: [] });
     const [uri, setUri] = useState<string>();
     const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>([]);
     const [replyText, setReplyText] = useState<Record<string, string>>({});
@@ -196,6 +206,9 @@ function App() {
     );
     const [editingTitle, setEditingTitle] = useState<string | null>(null);
     const [threadTitleEdit, setThreadTitleEdit] = useState<string>("");
+    
+    // Sort configuration
+    const [sortMode, setSortMode] = useState<SortMode>("location");
 
     // Helper function to determine if thread is currently resolved based on latest event
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
@@ -221,6 +234,115 @@ function App() {
         return latestDeletionEvent?.deleted || false;
     }, []);
 
+    // Create a map of Bible books for ordering
+    const bibleBookMap = useMemo(() => {
+        const map = new Map<string, { name: string; abbr: string; ord: string; testament: string }>();
+        (bibleBooksData as any[]).forEach((book) => {
+            map.set(book.abbr, {
+                name: book.name,
+                abbr: book.abbr,
+                ord: book.ord,
+                testament: book.testament,
+            });
+            // Also map by full name for flexibility
+            map.set(book.name, {
+                name: book.name,
+                abbr: book.abbr,
+                ord: book.ord,
+                testament: book.testament,
+            });
+        });
+        return map;
+    }, []);
+
+    // Helper to determine if project uses Bible terminology based on data
+    //const isBibleProject = useMemo(() => {
+    //    // Check if any thread has Bible-style references (e.g., "GEN 1:1")
+    //    return commentThreadArray.some(thread => {
+    //        const refs = thread.cellId.globalReferences || [];
+    //        return refs.some(ref => /^[A-Z0-9]{3}\s+\d+:\d+/.test(ref));
+    //    });
+    //}, [commentThreadArray]);
+
+    // Get appropriate label for missing data
+    const getMissingLabel = useCallback((type: "file" | "milestone" | "cell"): string => {
+        //if (isBibleProject) {
+            switch (type) {
+                case "file": return "No Book Name";
+                case "milestone": return "No Chapter Number";
+                case "cell": return "No Verse Number";
+            }
+        //} else {
+        //    switch (type) {
+        //        case "file": return "No File Name";
+        //        case "milestone": return "No Milestone Value";
+        //        case "cell": return "No Cell Number";
+        //    }
+        //}
+    }, []);//[isBibleProject]);
+
+    // Helper to get sort order from fileDisplayName (using canonical Bible book order)
+    const getFileSortOrder = useCallback((fileDisplayName: string | undefined): string => {
+        if (!fileDisplayName) return "999";
+        
+        // Try to look up in bible book map
+        const bookInfo = bibleBookMap.get(fileDisplayName);
+        if (bookInfo) {
+            return bookInfo.ord; // "01", "02", etc.
+        }
+        
+        // For non-Bible books, return a high number so they sort after Bible books
+        return "999";
+    }, [bibleBookMap]);
+
+    // Sort threads based on current sort mode
+    const sortThreads = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
+        const getLatestTimestamp = (thread: NotebookCommentThread) => {
+            const timestamps = thread.comments.map((c) => c.timestamp);
+            return Math.max(...timestamps);
+        };
+
+        switch (sortMode) {
+            case "time-increasing":
+                return [...threads].sort((a, b) => getLatestTimestamp(a) - getLatestTimestamp(b));
+            
+            case "time-decreasing":
+                return [...threads].sort((a, b) => getLatestTimestamp(b) - getLatestTimestamp(a));
+            
+            case "location":
+                return [...threads].sort((a, b) => {
+                    const aFile = a.cellId.fileDisplayName || getMissingLabel("file");
+                    const bFile = b.cellId.fileDisplayName || getMissingLabel("file");
+                    
+                    // Get sort orders for canonical Bible book ordering
+                    const aOrder = getFileSortOrder(a.cellId.fileDisplayName);
+                    const bOrder = getFileSortOrder(b.cellId.fileDisplayName);
+                    
+                    // Sort by canonical order (Bible books first by ord, then non-Bible alphabetically)
+                    const orderCompare = aOrder.localeCompare(bOrder);
+                    if (orderCompare !== 0) return orderCompare;
+                    
+                    // If same sort order, sort by file display name
+                    const fileCompare = aFile.localeCompare(bFile);
+                    if (fileCompare !== 0) return fileCompare;
+                    
+                    // Then by milestone
+                    const aMilestone = a.cellId.milestoneValue || getMissingLabel("milestone");
+                    const bMilestone = b.cellId.milestoneValue || getMissingLabel("milestone");
+                    const milestoneCompare = aMilestone.localeCompare(bMilestone);
+                    if (milestoneCompare !== 0) return milestoneCompare;
+                    
+                    // Then by line number
+                    const aLine = a.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
+                    const bLine = b.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
+                    return aLine - bLine;
+                });
+            
+            default:
+                return threads;
+        }
+    }, [sortMode, getMissingLabel, getFileSortOrder]);
+
     const handleMessage = useCallback(
         (event: MessageEvent) => {
             const message: CommentPostMessages = event.data;
@@ -240,7 +362,11 @@ function App() {
                 }
                 case "reload": {
                     if (message.data?.cellId) {
-                        setCellId({ cellId: message.data.cellId, uri: message.data.uri || "" });
+                        setCellId({ 
+                            cellId: message.data.cellId, 
+                            uri: message.data.uri || "",
+                            globalReferences: message.data.globalReferences || []
+                        });
                         if (viewMode === "cell") {
                             setSearchQuery(message.data.cellId);
                         }
@@ -454,11 +580,66 @@ function App() {
         setCollapsedThreads(newState);
     };
 
-    const getCellId = (cellId: string) => {
-        const parts = cellId.split(":");
-        const finalPart = parts[parts.length - 1] || cellId;
-        // Show full cell ID if it's less than 10 characters
-        return cellId.length < 10 ? cellId : finalPart;
+
+    /**
+     * Get display name for a cell, using new display fields or calculating fallback
+     * Priority:
+     * 1. Use fileDisplayName + milestoneValue + cellLineNumber if available
+     * 2. Fall back to globalReferences if available
+     * 3. Fall back to shortened cellId
+     * 
+     * Note: For stored comments, the display fields may not be present.
+     * The current cell selection will have them, but older saved comments won't.
+     * This is intentional - we want fresh data for the current cell, but we fall back
+     * to simpler display for historical comments to avoid expensive lookups.
+     */
+    const getCellDisplayName = (cellIdState: CellIdGlobalState | string): string => {
+        // Handle legacy string format (shouldn't happen after migration, but just in case)
+        if (typeof cellIdState === 'string') {
+            const parts = cellIdState.split(":");
+            const finalPart = parts[parts.length - 1] || cellIdState;
+            return cellIdState.length < 10 ? cellIdState : finalPart;
+        }
+
+        // New format: CellIdGlobalState object
+        // Priority 1: Use the new display fields if all are available
+        if (cellIdState.fileDisplayName && cellIdState.milestoneValue && cellIdState.cellLineNumber) {
+            return `${cellIdState.fileDisplayName} · ${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
+        }
+
+        // Priority 2: Partial display info - show what we have
+        if (cellIdState.milestoneValue && cellIdState.cellLineNumber) {
+            return `${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
+        }
+
+        if (cellIdState.fileDisplayName && cellIdState.cellLineNumber) {
+            return `${cellIdState.fileDisplayName} · Line ${cellIdState.cellLineNumber}`;
+        }
+
+        // Priority 3: Use globalReferences if available (for stored comments)
+        if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
+            // For stored comments with globalReferences, show them nicely
+            // Extract just the reference part (e.g., "GEN 1:1" -> "Gen 1:1" or "NUM 1:7" -> "Num 1:7")
+            const formatted = cellIdState.globalReferences.map(ref => {
+                // Capitalize first letter, lowercase rest: "NUM 1:7" -> "Num 1:7"
+                const parts = ref.split(' ');
+                if (parts.length >= 2) {
+                    const book = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+                    return `${book} ${parts.slice(1).join(' ')}`;
+                }
+                return ref;
+            });
+            return formatted.join(", ");
+        }
+
+        // Priority 4: Fall back to shortened cellId
+        const cellId = cellIdState.cellId;
+        if (cellId.length > 10) {
+            // Show last 8 characters for UUIDs
+            return `...${cellId.slice(-8)}`;
+        }
+
+        return cellId || "Unknown cell";
     };
 
     const filteredCommentThreads = useMemo(() => {
@@ -490,15 +671,9 @@ function App() {
             return true;
         });
 
-        // Sort threads by newest first (based on latest comment timestamp)
-        return filtered.sort((a, b) => {
-            const getLatestTimestamp = (thread: NotebookCommentThread) => {
-                const timestamps = thread.comments.map((c) => c.timestamp);
-                return Math.max(...timestamps);
-            };
-            return getLatestTimestamp(b) - getLatestTimestamp(a);
-        });
-    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId, showResolvedThreads]);
+        // Apply sorting
+        return sortThreads(filtered);
+    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId, showResolvedThreads, sortThreads, isThreadDeleted, isThreadResolved]);
 
     // Count of hidden resolved threads
     const hiddenResolvedThreadsCount = useMemo(() => {
@@ -520,7 +695,7 @@ function App() {
 
             return isResolved && matchesCurrentCell && matchesSearch;
         }).length;
-    }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads]);
+    }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads, isThreadDeleted, isThreadResolved]);
 
     // Whether a user can start a new top-level comment thread (requires auth and active cell)
     const canStartNewComment = currentUser.isAuthenticated && Boolean(cellId.cellId);
@@ -673,207 +848,9 @@ function App() {
         );
     };
 
-    return (
-        <TooltipProvider>
-            <div className="h-full w-full flex flex-col bg-background text-foreground font-sans relative">
-                <WebviewHeader title="Comments" vscode={vscode} />
-
-                {/* Header */}
-                <div className="p-4 border-b border-border flex flex-col gap-3">
-                    {/* {currentUser.isAuthenticated && (
-                        <div className="flex items-center gap-2">
-                            <UserAvatar
-                                username={currentUser.username}
-                                email={currentUser.email}
-                                size="medium"
-                            />
-                        </div>
-                    )} */}
-
-                    {/* View mode selector */}
-                    <div className="flex rounded border border-border overflow-hidden">
-                        <Button
-                            variant={viewMode === "all" ? "default" : "ghost"}
-                            className="flex-1 rounded-none"
-                            onClick={() => {
-                                setViewMode("all");
-                                setSearchQuery("");
-                            }}
-                        >
-                            <span className="hidden sm:inline">All Comments</span>
-                            <span className="sm:hidden">All</span>
-                        </Button>
-                        <Button
-                            variant={viewMode === "cell" ? "default" : "ghost"}
-                            className="flex-1 rounded-none"
-                            onClick={() => {
-                                setViewMode("cell");
-                                setSearchQuery(cellId.cellId);
-                            }}
-                        >
-                            <span className="hidden sm:inline">Current Cell</span>
-                            <span className="sm:hidden">Current</span>
-                        </Button>
-                    </div>
-
-                    {/* Search 
-                    
-                    // TODO: this should be a react select for autocomplete of cell ids or allow you to search text
-                    */}
-                    <div className="flex gap-2 items-center">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder={
-                                    viewMode === "all"
-                                        ? "Search all comments..."
-                                        : `Showing comments for ${getCellId(cellId.cellId)}`
-                                }
-                                value={searchQuery}
-                                className="pl-10"
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                disabled={viewMode === "cell"}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                        <div className="text-sm text-muted-foreground flex items-center gap-1.5">
-                            <MessageSquare className="h-4 w-4" />
-                            <span>
-                                {filteredCommentThreads.length}{" "}
-                                {filteredCommentThreads.length === 1 ? "thread" : "threads"}
-                            </span>
-                        </div>
-
-                        {currentUser.isAuthenticated &&
-                            (canStartNewComment ? (
-                                <Button
-                                    onClick={() => setShowNewCommentForm(true)}
-                                    className="font-medium"
-                                >
-                                    <Plus className="h-4 w-4 mr-1.5" />
-                                    Comment
-                                </Button>
-                            ) : (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        {/* span wrapper so tooltip works with disabled button */}
-                                        <span>
-                                            <Button className="font-medium" disabled>
-                                                <Plus className="h-4 w-4 mr-1.5" />
-                                                Comment
-                                            </Button>
-                                        </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        Please select a cell to comment on first
-                                    </TooltipContent>
-                                </Tooltip>
-                            ))}
-                    </div>
-                </div>
-
-                {/* New comment form */}
-                {showNewCommentForm && (
-                    <Card className="m-4 bg-muted/50">
-                        <CardContent className="p-4">
-                            <div className="flex items-center mb-3 gap-2">
-                                <MessageSquare className="h-4 w-4" />
-                                <span className="text-sm font-medium">New comment</span>
-                                {viewMode === "cell" && (
-                                    <span className="text-xs text-muted-foreground">
-                                        on {getCellId(cellId.cellId)}
-                                    </span>
-                                )}
-                            </div>
-                            <div className="flex gap-3 items-start">
-                                <UserAvatar
-                                    username={currentUser.username}
-                                    email={currentUser.email}
-                                    size="small"
-                                />
-                                <div className="flex-1 flex flex-col gap-3">
-                                    <Input
-                                        placeholder="What do you want to say?"
-                                        value={newCommentText}
-                                        className="border-0 border-b border-border rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter" && !e.shiftKey) {
-                                                e.preventDefault();
-                                                handleNewComment();
-                                            }
-                                        }}
-                                        onChange={(e) => setNewCommentText(e.target.value)}
-                                    />
-                                    <div className="flex gap-2 justify-end">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-7 px-3 text-xs"
-                                            onClick={() => setShowNewCommentForm(false)}
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            className="h-7 px-3 text-xs"
-                                            onClick={handleNewComment}
-                                            disabled={!newCommentText.trim()}
-                                        >
-                                            Comment
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {/* Empty states */}
-                {filteredCommentThreads.length === 0 && (
-                    <div className="flex flex-col items-center justify-center p-12 text-muted-foreground text-center gap-4 flex-1">
-                        {viewMode === "cell" && cellId.cellId ? (
-                            <>
-                                <MessageSquare className="h-8 w-8 opacity-60" />
-                                <div>
-                                    <div className="mb-2 text-base">No comments on this cell</div>
-                                    <div className="text-sm">
-                                        Be the first to start a conversation here
-                                    </div>
-                                </div>
-                            </>
-                        ) : searchQuery.length > 0 ? (
-                            <>
-                                <Search className="h-8 w-8 opacity-60" />
-                                <div>
-                                    <div className="mb-2 text-base">No results found</div>
-                                    <div className="text-sm">
-                                        Try a different search or view all comments
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <MessageSquare className="h-8 w-8 opacity-60" />
-                                <div>
-                                    <div className="mb-2 text-base">No comments yet</div>
-                                    <div className="text-sm">
-                                        Start the conversation by adding a comment
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                )}
-
-                {/* Comment list */}
-                {filteredCommentThreads.length > 0 && (
-                    <div className="flex-1 overflow-y-auto p-2">
-                        <div className="flex flex-col gap-3">
-                            {filteredCommentThreads.map((thread) => (
+    // Extract ThreadCard component to avoid duplication
+    const ThreadCard = ({ thread }: { thread: NotebookCommentThread }) => (
                                 <Card
-                                    key={thread.id}
                                     className={`overflow-hidden border transition-opacity duration-200 ${
                                         isThreadResolved(thread) ? "opacity-75" : "opacity-100"
                                     }`}
@@ -1007,9 +984,17 @@ function App() {
                                             <div className="flex gap-2 items-center">
                                                 <span
                                                     className="text-primary max-w-48 truncate"
-                                                    title={thread.cellId.cellId}
+                                                    title={
+                                                        typeof thread.cellId === 'string'
+                                                            ? thread.cellId
+                                                            : `Cell ID: ${thread.cellId.cellId}${
+                                                                  thread.cellId.globalReferences?.length
+                                                                      ? `\nReferences: ${thread.cellId.globalReferences.join(", ")}`
+                                                                      : ""
+                                                              }`
+                                                    }
                                                 >
-                                                    {getCellId(thread.cellId.cellId)}
+                                                    {getCellDisplayName(thread.cellId)}
                                                 </span>
                                             </div>
                                             <span className="flex items-center gap-1">
@@ -1161,8 +1146,292 @@ function App() {
                                         </CardContent>
                                     )}
                                 </Card>
+    );
+
+    // Component for rendering location-grouped comments
+    const LocationGroupedComments = ({ threads }: { threads: NotebookCommentThread[] }) => {
+        // Group by file, then milestone
+        const grouped = threads.reduce((acc, thread) => {
+            const file = thread.cellId.fileDisplayName || getMissingLabel("file");
+            const milestone = thread.cellId.milestoneValue || getMissingLabel("milestone");
+            
+            if (!acc[file]) acc[file] = {};
+            if (!acc[file][milestone]) acc[file][milestone] = [];
+            acc[file][milestone].push(thread);
+            
+            return acc;
+        }, {} as Record<string, Record<string, NotebookCommentThread[]>>);
+
+        return (
+            <div className="flex flex-col gap-2">
+                {Object.entries(grouped).map(([fileName, milestones]) => (
+                    <div key={fileName} className="flex flex-col">
+                        <div className="px-4 py-2 bg-muted/30 font-semibold text-sm sticky top-0 z-10">
+                            {fileName}
+                        </div>
+                        {Object.entries(milestones).map(([milestoneName, threadsInMilestone]) => (
+                            <div key={`${fileName}-${milestoneName}`} className="flex flex-col">
+                                <div className="px-6 py-1.5 bg-muted/20 font-medium text-xs text-muted-foreground">
+                                    {milestoneName}
+                                </div>
+                                <div className="ml-8 flex flex-col gap-2 mb-2">
+                                    {threadsInMilestone.map((thread) => (
+                                        <ThreadCard key={thread.id} thread={thread} />
                             ))}
                         </div>
+                    </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    return (
+        <TooltipProvider>
+            <div className="h-full w-full flex flex-col bg-background text-foreground font-sans relative">
+                <WebviewHeader title="Comments" vscode={vscode} />
+
+                {/* Header */}
+                <div className="p-4 border-b border-border flex flex-col gap-3">
+                    {/* {currentUser.isAuthenticated && (
+                        <div className="flex items-center gap-2">
+                            <UserAvatar
+                                username={currentUser.username}
+                                email={currentUser.email}
+                                size="medium"
+                            />
+                        </div>
+                    )} */}
+
+                    {/* View mode selector */}
+                    <div className="flex rounded border border-border overflow-hidden">
+                        <Button
+                            variant={viewMode === "all" ? "default" : "ghost"}
+                            className="flex-1 rounded-none"
+                            onClick={() => {
+                                setViewMode("all");
+                                setSearchQuery("");
+                            }}
+                        >
+                            <span className="hidden sm:inline">All Comments</span>
+                            <span className="sm:hidden">All</span>
+                        </Button>
+                        <Button
+                            variant={viewMode === "cell" ? "default" : "ghost"}
+                            className="flex-1 rounded-none"
+                            onClick={() => {
+                                setViewMode("cell");
+                                setSearchQuery(cellId.cellId);
+                            }}
+                        >
+                            <span className="hidden sm:inline">Current Cell</span>
+                            <span className="sm:hidden">Current</span>
+                        </Button>
+                    </div>
+
+                    {/* Search 
+                    
+                    // TODO: this should be a react select for autocomplete of cell ids or allow you to search text
+                    */}
+                    <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder={
+                                    viewMode === "all"
+                                        ? "Search all comments..."
+                                        : `Showing comments for ${getCellDisplayName(cellId)}`
+                                }
+                                value={searchQuery}
+                                className="pl-10"
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                disabled={viewMode === "cell"}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                        <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+                            <MessageSquare className="h-4 w-4" />
+                            <span>
+                                {filteredCommentThreads.length}{" "}
+                                {filteredCommentThreads.length === 1 ? "thread" : "threads"}
+                            </span>
+                        </div>
+
+                        <div className="flex gap-2 items-center">
+                            {currentUser.isAuthenticated &&
+                                (canStartNewComment ? (
+                                    <Button
+                                        onClick={() => setShowNewCommentForm(true)}
+                                        className="font-medium"
+                                    >
+                                        <Plus className="h-4 w-4 mr-1.5" />
+                                        Comment
+                                    </Button>
+                                ) : (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            {/* span wrapper so tooltip works with disabled button */}
+                                            <span>
+                                                <Button className="font-medium" disabled>
+                                                    <Plus className="h-4 w-4 mr-1.5" />
+                                                    Comment
+                                                </Button>
+                                            </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            Please select a cell to comment on first
+                                        </TooltipContent>
+                                    </Tooltip>
+                                ))}
+
+                            {/* Sort dropdown - only show in "all" view mode */}
+                            {viewMode === "all" && (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="icon" title="Sort comments">
+                                            <ArrowDownUp className="h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem
+                                            onClick={() => setSortMode("location")}
+                                            className={sortMode === "location" ? "bg-accent" : ""}
+                                        >
+                                            <MapPin className="h-4 w-4 mr-2" />
+                                            Location in Project
+                                            {sortMode === "location" && <Check className="h-4 w-4 ml-auto" />}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            onClick={() => setSortMode("time-increasing")}
+                                            className={sortMode === "time-increasing" ? "bg-accent" : ""}
+                                        >
+                                            <Clock className="h-4 w-4 mr-2" />
+                                            Time Increasing
+                                            {sortMode === "time-increasing" && <Check className="h-4 w-4 ml-auto" />}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            onClick={() => setSortMode("time-decreasing")}
+                                            className={sortMode === "time-decreasing" ? "bg-accent" : ""}
+                                        >
+                                            <Clock className="h-4 w-4 mr-2" />
+                                            Time Decreasing
+                                            {sortMode === "time-decreasing" && <Check className="h-4 w-4 ml-auto" />}
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* New comment form CHANGE THIS TOO! THIS NEEDS TO HAVE THE CELLDISPLAYNAME INSTEAD OF CELLID, about 9 lines down.*/}
+                {showNewCommentForm && (
+                    <Card className="m-4 bg-muted/50">
+                        <CardContent className="p-4">
+                            <div className="flex items-center mb-3 gap-2">
+                                <MessageSquare className="h-4 w-4" />
+                                <span className="text-sm font-medium">New comment</span>
+                                {viewMode === "cell" && (
+                                    <span className="text-xs text-muted-foreground">
+                                        on {getCellDisplayName(cellId)}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex gap-3 items-start">
+                                <UserAvatar
+                                    username={currentUser.username}
+                                    email={currentUser.email}
+                                    size="small"
+                                />
+                                <div className="flex-1 flex flex-col gap-3">
+                                    <Input
+                                        placeholder="What do you want to say?"
+                                        value={newCommentText}
+                                        className="border-0 border-b border-border rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleNewComment();
+                                            }
+                                        }}
+                                        onChange={(e) => setNewCommentText(e.target.value)}
+                                    />
+                                    <div className="flex gap-2 justify-end">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-3 text-xs"
+                                            onClick={() => setShowNewCommentForm(false)}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            className="h-7 px-3 text-xs"
+                                            onClick={handleNewComment}
+                                            disabled={!newCommentText.trim()}
+                                        >
+                                            Comment
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Empty states */}
+                {filteredCommentThreads.length === 0 && (
+                    <div className="flex flex-col items-center justify-center p-12 text-muted-foreground text-center gap-4 flex-1">
+                        {viewMode === "cell" && cellId.cellId ? (
+                            <>
+                                <MessageSquare className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No comments on this cell</div>
+                                    <div className="text-sm">
+                                        Be the first to start a conversation here
+                                    </div>
+                                </div>
+                            </>
+                        ) : searchQuery.length > 0 ? (
+                            <>
+                                <Search className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No results found</div>
+                                    <div className="text-sm">
+                                        Try a different search or view all comments
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <MessageSquare className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No comments yet</div>
+                                    <div className="text-sm">
+                                        Start the conversation by adding a comment
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* Comment list */}
+                {filteredCommentThreads.length > 0 && (
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {sortMode === "location" && viewMode === "all" ? (
+                            <LocationGroupedComments threads={filteredCommentThreads} />
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                {filteredCommentThreads.map((thread) => (
+                                    <ThreadCard key={thread.id} thread={thread} />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
