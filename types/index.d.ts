@@ -566,7 +566,6 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent; }
@@ -856,7 +855,6 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
     : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
     : T extends readonly ["metadata", "fileDisplayName"] ? string
-    : T extends readonly ["metadata", "cellDisplayMode"] ? "inline" | "one-line-per-cell"
     : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
     : string | number | boolean | object;
@@ -977,7 +975,6 @@ export interface CustomNotebookMetadata {
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;
-    cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
     fontSize?: number;
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally

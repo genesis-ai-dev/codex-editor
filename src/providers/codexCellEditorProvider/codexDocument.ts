@@ -664,8 +664,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
             content
         );
     }
+    /**
+     * Returns document data suitable for serialization to disk.
+     * Strips display-mode-related metadata so it is not persisted.
+     */
+    private getDocumentDataForSerialization(): CodexNotebookAsJSONData {
+        const metadata = { ...this._documentData.metadata };
+        delete (metadata as unknown as Record<string, unknown>).cellDisplayMode;
+        return { ...this._documentData, metadata };
+    }
+
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const ourContent = formatJsonForNotebookFile(this._documentData);
+        const ourContent = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
 
         // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
         const existing = await readExistingFileOrThrow(this.uri);
@@ -686,7 +696,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             candidate = normalizeNotebookFileText(candidate);
 
             try {
-                JSON.parse(candidate);
+                const parsed = JSON.parse(candidate) as CodexNotebookAsJSONData;
+                if (parsed.metadata && "cellDisplayMode" in parsed.metadata) {
+                    const meta = { ...parsed.metadata };
+                    delete (meta as unknown as Record<string, unknown>).cellDisplayMode;
+                    candidate = formatJsonForNotebookFile({ ...parsed, metadata: meta });
+                }
             } catch {
                 candidate = normalizeNotebookFileText(ourContent);
             }
@@ -710,7 +725,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken,
         backup: boolean = false
     ): Promise<void> {
-        const text = formatJsonForNotebookFile(this._documentData);
+        const text = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
         await atomicWriteUriText(targetResource, text);
 
         // IMMEDIATE AI LEARNING for non-backup saves
@@ -748,7 +763,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getText(): string {
-        return formatJsonForNotebookFile(this._documentData);
+        return formatJsonForNotebookFile(this.getDocumentDataForSerialization());
     }
 
     public getCellContent(cellId: string): QuillCellContent | undefined {
@@ -1053,7 +1068,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             "fontSize",
             "showInlineBacktranslations",
             "fileDisplayName",
-            "cellDisplayMode",
             "audioOnly",
             "corpusMarker",
         ] as const;
@@ -1089,9 +1103,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 case "fileDisplayName":
                     editMap = EditMapUtils.metadataFileDisplayName();
                     break;
-                case "cellDisplayMode":
-                    editMap = EditMapUtils.metadataCellDisplayMode();
-                    break;
                 case "audioOnly":
                     editMap = EditMapUtils.metadataAudioOnly();
                     break;
@@ -1120,6 +1131,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Apply the metadata updates
         this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
+        delete (this._documentData.metadata as unknown as Record<string, unknown>).cellDisplayMode;
         // Restore the edits array (it was updated above with new edits)
         this._documentData.metadata.edits = savedEdits;
 
