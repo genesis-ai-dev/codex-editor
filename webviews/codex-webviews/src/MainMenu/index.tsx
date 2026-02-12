@@ -64,7 +64,7 @@ function EditableField({ value, onSave, placeholder = "Click to edit", className
                 onBlur={handleSave}
                 onKeyDown={handleKeyDown}
                 placeholder={placeholder}
-                className={`bg-transparent border-b border-primary outline-none text-sm py-0.5 w-full ${inputClassName}`}
+                className={`bg-transparent border-b border-primary outline-none text-sm py-0.5 w-full min-w-0 ${inputClassName}`}
             />
         );
     }
@@ -72,7 +72,7 @@ function EditableField({ value, onSave, placeholder = "Click to edit", className
     return (
         <span
             onClick={() => setIsEditing(true)}
-            className={`cursor-pointer hover:bg-accent px-1 -mx-1 py-0.5 rounded transition-colors ${className}`}
+            className={`block truncate min-w-0 cursor-pointer hover:bg-accent px-1 -mx-1 py-0.5 rounded transition-colors ${className}`}
             title="Click to edit"
         >
             {value || <span className="text-muted-foreground italic">{placeholder}</span>}
@@ -527,8 +527,8 @@ function MainMenu() {
                         <div className="space-y-4">
                             {/* Project Details */}
                             <Card className="border shadow-sm">
-                                <CardHeader className="pb-2">
-                                    <div className="flex items-center gap-3">
+                                <CardHeader className="pb-2 overflow-hidden">
+                                    <div className="flex items-center gap-3 min-w-0">
                                         <i
                                             className="codicon codicon-folder-opened text-xl"
                                             style={{ color: "var(--ring)" }}
@@ -577,12 +577,12 @@ function MainMenu() {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="p-3 rounded-lg bg-muted/30">
                                                 <div className="text-xs text-muted-foreground mb-2">Required Validations</div>
-                                                <div className="flex gap-4 text-sm items-center">
+                                                <div className="flex flex-col gap-1.5 text-sm">
                                                     <div className="flex items-center gap-1.5">
                                                         <span className="text-muted-foreground">Text:</span>
                                                         <div className="flex items-center gap-0.5">
                                                             <button
-                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
                                                                     const current = projectState.projectOverview.validationCount || 1;
                                                                     if (current > 1) handleProjectAction("setValidationCountDirect", { count: current - 1 });
@@ -591,7 +591,7 @@ function MainMenu() {
                                                             >-</button>
                                                             <span className="w-5 text-center font-semibold">{projectState.projectOverview.validationCount || 1}</span>
                                                             <button
-                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
                                                                     const current = projectState.projectOverview.validationCount || 1;
                                                                     if (current < 15) handleProjectAction("setValidationCountDirect", { count: current + 1 });
@@ -604,7 +604,7 @@ function MainMenu() {
                                                         <span className="text-muted-foreground">Audio:</span>
                                                         <div className="flex items-center gap-0.5">
                                                             <button
-                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
                                                                     const current = projectState.projectOverview.validationCountAudio || 1;
                                                                     if (current > 1) handleProjectAction("setValidationCountAudioDirect", { count: current - 1 });
@@ -613,7 +613,7 @@ function MainMenu() {
                                                             >-</button>
                                                             <span className="w-5 text-center font-semibold">{projectState.projectOverview.validationCountAudio || 1}</span>
                                                             <button
-                                                                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold"
+                                                                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
                                                                     const current = projectState.projectOverview.validationCountAudio || 1;
                                                                     if (current < 15) handleProjectAction("setValidationCountAudioDirect", { count: current + 1 });
@@ -684,7 +684,7 @@ function MainMenu() {
                                                     item.destructive
                                                         ? "hover:bg-destructive/10 hover:text-destructive"
                                                         : "hover:bg-accent"
-                                                } ${item.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                                                } ${item.disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                                             >
                                                 <i
                                                     className={`codicon ${item.spinning ? "codicon-loading codicon-modifier-spin" : item.icon}`}

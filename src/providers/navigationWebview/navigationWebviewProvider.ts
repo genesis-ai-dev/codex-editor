@@ -806,7 +806,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             codexWatcher.onDidDelete(() => this.buildInitialData()),
             dictWatcher.onDidCreate(() => this.buildInitialData()),
             dictWatcher.onDidChange(() => this.buildInitialData()),
-            dictWatcher.onDidDelete(() => this.buildInitialData())
+            dictWatcher.onDidDelete(() => this.buildInitialData()),
+            vscode.workspace.onDidChangeConfiguration((e) => {
+                if (
+                    e.affectsConfiguration("codex-project-manager.validationCount") ||
+                    e.affectsConfiguration("codex-project-manager.validationCountAudio")
+                ) {
+                    this.buildInitialData();
+                }
+            })
         );
     }
 

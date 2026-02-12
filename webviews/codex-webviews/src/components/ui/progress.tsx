@@ -63,7 +63,7 @@ function Progress({
             zones.push({
                 left: prevEnd,
                 width: translated - prevEnd,
-                label: `Completed (not validated): ${Math.floor(translated - prevEnd)}%`,
+                label: `Completed: ${Math.floor(translated)}%`,
             });
         }
 
@@ -71,7 +71,7 @@ function Progress({
     }, [showTooltips, hasValidationLayers, safeValidationValues, translated, fullIndex]);
 
     return (
-        <div className="w-full">
+        <div className="w-full group">
             <div className="relative">
                 <ProgressPrimitive.Root
                     data-slot="progress"
@@ -147,7 +147,7 @@ function Progress({
                 )}
             </div>
             {showPercentage && (
-                <div className="flex items-center mt-0.5 gap-2">
+                <div className="flex items-center mt-0.5 gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     {hasValidationLayers ? (
                         // Fully validated on the left (gold)
                         (safeValidationValues[fullIndex] || 0) > 0 ? (
