@@ -177,7 +177,7 @@ export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetad
     footnoteCount?: number;
     structureMetadata?: {
         originalUsfmContent: string;
-        lineMappings: unknown;
+        lineMappings?: unknown;
     };
 }
 
