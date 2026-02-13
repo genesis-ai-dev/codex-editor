@@ -602,21 +602,24 @@ function App() {
         }
 
         // New format: CellIdGlobalState object
-        // Priority 1: Use the new display fields if all are available
-        if (cellIdState.fileDisplayName && cellIdState.milestoneValue && cellIdState.cellLineNumber) {
-            return `${cellIdState.fileDisplayName} · ${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
+        // Build display string from available fields: fileDisplayName · milestoneValue · cellLabel
+        const displayParts: string[] = [];
+
+        if (cellIdState.fileDisplayName) {
+            displayParts.push(cellIdState.fileDisplayName);
+        }
+        if (cellIdState.milestoneValue) {
+            displayParts.push(cellIdState.milestoneValue);
+        }
+        if (cellIdState.cellLabel) {
+            displayParts.push(cellIdState.cellLabel);
         }
 
-        // Priority 2: Partial display info - show what we have
-        if (cellIdState.milestoneValue && cellIdState.cellLineNumber) {
-            return `${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
+        if (displayParts.length > 0) {
+            return displayParts.join(" · ");
         }
 
-        if (cellIdState.fileDisplayName && cellIdState.cellLineNumber) {
-            return `${cellIdState.fileDisplayName} · Line ${cellIdState.cellLineNumber}`;
-        }
-
-        // Priority 3: Use globalReferences if available (for stored comments)
+        // Fallback: Use globalReferences if available (for stored comments)
         if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
             // For stored comments with globalReferences, show them nicely
             // Extract just the reference part (e.g., "GEN 1:1" -> "Gen 1:1" or "NUM 1:7" -> "Num 1:7")
@@ -632,7 +635,7 @@ function App() {
             return formatted.join(", ");
         }
 
-        // Priority 4: Fall back to shortened cellId
+        // Fallback: shortened cellId
         const cellId = cellIdState.cellId;
         if (cellId.length > 10) {
             // Show last 8 characters for UUIDs
@@ -981,9 +984,9 @@ function App() {
                                         </div>
 
                                         <div className="flex justify-between text-xs text-muted-foreground">
-                                            <div className="flex gap-2 items-center">
+                                            <div className="flex gap-2 items-center min-w-0">
                                                 <span
-                                                    className="text-primary max-w-48 truncate"
+                                                    className="text-primary truncate"
                                                     title={
                                                         typeof thread.cellId === 'string'
                                                             ? thread.cellId
@@ -996,6 +999,11 @@ function App() {
                                                 >
                                                     {getCellDisplayName(thread.cellId)}
                                                 </span>
+                                                {thread.cellId.cellLineNumber != null && (
+                                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                                                        Cell {thread.cellId.cellLineNumber}
+                                                    </Badge>
+                                                )}
                                             </div>
                                             <span className="flex items-center gap-1">
                                                 <MessageSquare className="h-3 w-3" />

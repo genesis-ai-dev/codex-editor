@@ -166,6 +166,7 @@ interface CellIdGlobalState {
     fileDisplayName?: string; // e.g., "Genesis", "Hebrew Matthew"
     milestoneValue?: string; // e.g., "Genesis 1", "Matthew 5"
     cellLineNumber?: number; // Line number within the current milestone (1-based)
+    cellLabel?: string; // e.g., "Narrator", "Jesus" — from cell metadata
 }
 interface ScriptureContent extends vscode.NotebookData {
     metadata: {

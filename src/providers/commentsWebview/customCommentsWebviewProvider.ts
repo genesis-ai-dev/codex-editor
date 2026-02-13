@@ -900,6 +900,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         fileDisplayName: displayInfo.fileDisplayName,
                         milestoneValue: displayInfo.milestoneValue,
                         cellLineNumber: displayInfo.cellLineNumber,
+                        cellLabel: displayInfo.cellLabel,
                     },
                 });
             } catch (error) {

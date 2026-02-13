@@ -2509,7 +2509,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
-     * Calculate display information for a cell (fileDisplayName, milestoneValue, cellLineNumber)
+     * Calculate display information for a cell (fileDisplayName, milestoneValue, cellLineNumber, cellLabel)
      * This is a reusable helper that can be called from multiple places
      */
     public static calculateCellDisplayInfo(
@@ -2519,6 +2519,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         fileDisplayName?: string;
         milestoneValue?: string;
         cellLineNumber?: number;
+        cellLabel?: string;
     } {
         try {
             // Get file display name from metadata
@@ -2534,17 +2535,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 return { fileDisplayName };
             }
 
+            // Get cell label from metadata
+            const cellLabel = cell.cellLabel;
+
             // Get milestone index from cell data
             const milestoneIndex = cell.data?.milestoneIndex;
 
             if (typeof milestoneIndex !== 'number' || milestoneIndex < 0) {
-                return { fileDisplayName };
+                return { fileDisplayName, cellLabel };
             }
 
             // Get milestone information
             const milestone = milestoneIndexInfo.milestones[milestoneIndex];
             if (!milestone) {
-                return { fileDisplayName };
+                return { fileDisplayName, cellLabel };
             }
 
             const milestoneValue = milestone.value;
@@ -2589,6 +2593,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 fileDisplayName,
                 milestoneValue,
                 cellLineNumber,
+                cellLabel,
             };
         } catch (error) {
             debug("Error calculating display info for cell:", error);
@@ -2703,12 +2708,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         let fileDisplayName: string | undefined;
         let milestoneValue: string | undefined;
         let cellLineNumber: number | undefined;
+        let cellLabel: string | undefined;
 
         if (doc) {
             const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(cellId, doc);
             fileDisplayName = displayInfo.fileDisplayName;
             milestoneValue = displayInfo.milestoneValue;
             cellLineNumber = displayInfo.cellLineNumber;
+            cellLabel = displayInfo.cellLabel;
         }
 
         const cellIdState = {
@@ -2719,6 +2726,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             fileDisplayName,
             milestoneValue,
             cellLineNumber,
+            cellLabel,
         };
 
         this.stateStore.updateStoreState({
