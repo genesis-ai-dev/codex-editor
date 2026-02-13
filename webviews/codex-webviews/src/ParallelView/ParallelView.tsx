@@ -47,84 +47,80 @@ function ParallelView() {
         });
     };
 
-    // Re-search when replace text is first added (only if we already have search results)
-    const prevReplaceTextRef = useRef<string>("");
+    // Track previous values to detect changes
+    const prevSearchParamsRef = useRef({
+        query: "",
+        replaceText: "",
+        completeOnly: false,
+        searchScope: "both" as "both" | "source" | "target",
+        selectedFiles: [] as string[],
+    });
+    const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const hasSearchedRef = useRef(false);
+
+    // Single consolidated effect for all search triggers
     useEffect(() => {
-        const hadReplaceText = prevReplaceTextRef.current.trim();
-        const hasReplaceText = replaceText.trim();
-
-        // Only re-search when transitioning from no replace text to having replace text
-        if (!hadReplaceText && hasReplaceText && lastQuery.trim() && verses.length > 0) {
-            searchBoth(lastQuery, replaceText);
-        }
-
-        prevReplaceTextRef.current = replaceText;
-    }, [replaceText]);
-
-    // Re-search when query changes (if we already have results)
-    const prevQueryRef = useRef<string>("");
-    useEffect(() => {
-        const queryChanged = prevQueryRef.current !== lastQuery;
+        const prev = prevSearchParamsRef.current;
         const hasQuery = lastQuery.trim().length > 0;
-        const hasResults = verses.length > 0;
 
-        // Auto-search if query changed and we either have results or had a previous query
-        if (queryChanged && hasQuery && (hasResults || prevQueryRef.current.trim().length > 0)) {
-            const timeoutId = setTimeout(() => {
-                searchBoth(lastQuery, replaceText);
-            }, 300); // Debounce by 300ms
+        // Determine what changed
+        const queryChanged = prev.query !== lastQuery;
+        const replaceTextAdded = !prev.replaceText.trim() && replaceText.trim();
+        const completeOnlyChanged = prev.completeOnly !== completeOnly;
+        const searchScopeChanged = prev.searchScope !== searchScope;
+        const selectedFilesChanged =
+            JSON.stringify(prev.selectedFiles) !== JSON.stringify(selectedFiles);
 
-            return () => clearTimeout(timeoutId);
+        // Update previous values
+        prevSearchParamsRef.current = {
+            query: lastQuery,
+            replaceText,
+            completeOnly,
+            searchScope,
+            selectedFiles,
+        };
+
+        // Only trigger search if we have a query and something relevant changed
+        const shouldSearch =
+            hasQuery &&
+            (queryChanged ||
+                replaceTextAdded ||
+                completeOnlyChanged ||
+                searchScopeChanged ||
+                selectedFilesChanged) &&
+            (hasSearchedRef.current || queryChanged);
+
+        if (!shouldSearch) {
+            return;
         }
 
-        prevQueryRef.current = lastQuery;
-    }, [lastQuery, verses.length, replaceText, searchScope]);
-
-    // Re-search when completeOnly setting changes (if we already have search results)
-    const prevCompleteOnlyRef = useRef<boolean>(false);
-    useEffect(() => {
-        const settingChanged = prevCompleteOnlyRef.current !== completeOnly;
-        const hasQuery = lastQuery.trim().length > 0;
-        const hasResults = verses.length > 0;
-
-        // Auto-search if setting changed and we have an active search
-        if (settingChanged && hasQuery && hasResults) {
-            searchBoth(lastQuery, replaceText);
+        // Clear any pending search
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
         }
 
-        prevCompleteOnlyRef.current = completeOnly;
-    }, [completeOnly, lastQuery, verses.length, replaceText, searchScope]);
+        // Debounce: 300ms for query changes, immediate for settings changes
+        const debounceMs = queryChanged ? 300 : 0;
 
-    // Re-search when searchScope setting changes (if we already have search results)
-    const prevSearchScopeRef = useRef<"both" | "source" | "target">("both");
-    useEffect(() => {
-        const settingChanged = prevSearchScopeRef.current !== searchScope;
-        const hasQuery = lastQuery.trim().length > 0;
-        const hasResults = verses.length > 0;
+        searchTimeoutRef.current = setTimeout(() => {
+            hasSearchedRef.current = true;
+            vscode.postMessage({
+                command: "search",
+                query: lastQuery,
+                replaceText: replaceText || "",
+                completeOnly: completeOnly,
+                searchScope: searchScope,
+                selectedFiles:
+                    selectedFiles.length === projectFiles.length ? [] : selectedFiles,
+            });
+        }, debounceMs);
 
-        // Auto-search if setting changed and we have an active search
-        if (settingChanged && hasQuery && hasResults) {
-            searchBoth(lastQuery, replaceText);
-        }
-
-        prevSearchScopeRef.current = searchScope;
-    }, [searchScope, lastQuery, verses.length, replaceText]);
-
-    // Re-search when selectedFiles changes (if we already have search results)
-    const prevSelectedFilesRef = useRef<string[]>([]);
-    useEffect(() => {
-        const filesChanged =
-            JSON.stringify(prevSelectedFilesRef.current) !== JSON.stringify(selectedFiles);
-        const hasQuery = lastQuery.trim().length > 0;
-        const hasResults = verses.length > 0;
-
-        // Auto-search if files changed and we have an active search
-        if (filesChanged && hasQuery && hasResults) {
-            searchBoth(lastQuery, replaceText);
-        }
-
-        prevSelectedFilesRef.current = selectedFiles;
-    }, [selectedFiles, lastQuery, verses.length, replaceText]);
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
+        };
+    }, [lastQuery, replaceText, completeOnly, searchScope, selectedFiles, projectFiles.length]);
 
     // Request project files on mount and clear replace text
     useEffect(() => {
@@ -263,18 +259,22 @@ function ParallelView() {
         } as OpenFileMessage);
     };
 
-    const searchBoth = (query: string, replaceText?: string, event?: React.FormEvent) => {
+    // Trigger an explicit search (e.g., from form submit or re-search after replace)
+    const searchBoth = (query: string, replaceTextOverride?: string, event?: React.FormEvent) => {
         if (event) {
             event.preventDefault();
         }
+        // Mark that we've searched, so settings changes will trigger re-search
+        hasSearchedRef.current = true;
         setLastQuery(query);
+        // Send search immediately (bypasses debounce for explicit searches)
         vscode.postMessage({
             command: "search",
             query: query,
-            replaceText: replaceText || "",
+            replaceText: replaceTextOverride ?? replaceText ?? "",
             completeOnly: completeOnly,
             searchScope: searchScope,
-            selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles, // Empty = all files
+            selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles,
         });
     };
 

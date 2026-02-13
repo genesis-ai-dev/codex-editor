@@ -52,12 +52,6 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
         });
         const resolveConflictFilesStub = sinon.stub(mergeResolvers, "resolveConflictFiles").resolves([]);
 
-        // Mock window.showQuickPick for backup selection
-        const quickPickStub = sinon.stub(vscode.window, "showQuickPick").resolves({
-            label: "Full Backup",
-            includeGit: true
-        } as any);
-
         // Try to stub vscode.workspace.fs operations (may fail if non-configurable)
         let fsStatStub: sinon.SinonStub | undefined;
         let fsDeleteStub: sinon.SinonStub | undefined;
@@ -175,7 +169,6 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
             fsRenameStub.restore();
         }
         executeCommandStub.restore();
-        quickPickStub.restore();
         sinon.restore();
 
         try {

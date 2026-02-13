@@ -183,9 +183,12 @@ ChapterNavigationHeaderProps) {
         return getSubsectionsForMilestone(currentMilestoneIndex);
     }, [getSubsectionsForMilestone, currentMilestoneIndex]);
 
-    // Get current milestone value for display
+    // Get current milestone value for display (empty string while loading initial content)
     const currentMilestoneValue = useMemo(() => {
-        return milestoneIndex?.milestones[currentMilestoneIndex]?.value || "1";
+        if (!milestoneIndex) {
+            return ""; // Still loading - don't show a misleading "1"
+        }
+        return milestoneIndex.milestones[currentMilestoneIndex]?.value || "1";
     }, [milestoneIndex, currentMilestoneIndex]);
 
     // Total navigation units (milestones)
@@ -219,7 +222,8 @@ ChapterNavigationHeaderProps) {
         if (currentMilestoneValue) {
             return currentMilestoneValue;
         }
-        return "Section 1";
+        // Show nothing while loading initial content (milestoneIndex is null)
+        return "";
     }, [currentMilestoneValue]);
 
     // Centralized title measurement logic

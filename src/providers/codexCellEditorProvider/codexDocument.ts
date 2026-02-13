@@ -1828,6 +1828,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 fullyValidatedCells
             );
 
+            // Backfill health for cells that predate the health system
+            for (let i = 0; i < subsectionCells.length; i++) {
+                const cell = subsectionCells[i];
+                if (cell.metadata && cell.metadata.health === undefined && cell.cellContent && cell.cellContent.trim().length > 0 && cell.cellContent !== "<span></span>") {
+                    const hasActiveValidation = countNonDeleted(cellWithValidatedData[i].validatedBy) > 0;
+                    cell.metadata.health = hasActiveValidation ? 1.0 : 0.3;
+                }
+            }
+
             // Calculate average health for cells with content
             const healthValues = subsectionCells
                 .filter((cell) =>

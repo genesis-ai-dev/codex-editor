@@ -25,6 +25,7 @@ interface GitLabProjectsListProps {
     onOpenProject: (project: ProjectWithSyncStatus) => void;
     onDeleteProject?: (project: ProjectWithSyncStatus) => void;
     isLoading: boolean;
+    isRefreshing?: boolean;
     vscode: any;
     disableAllActions?: boolean;
     currentUsername?: string;
@@ -61,6 +62,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     onOpenProject,
     onDeleteProject,
     isLoading,
+    isRefreshing = false,
     vscode,
     disableAllActions = false,
     currentUsername,
@@ -86,6 +88,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             }
             if (msg?.command === "project.cleaningInProgress") {
                 setIsAnyApplying(!!msg.cleaning);
+            }
+            if (msg?.command === "project.swappingInProgress") {
+                setIsAnyApplying(!!msg.swapping);
+            }
+            if (msg?.command === "project.fixingInProgress") {
+                setIsAnyApplying(!!msg.fixing);
             }
         };
         window.addEventListener("message", onMessage);
@@ -177,6 +185,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     title: "Remote project missing or inaccessible",
                     className: "text-amber-500",
                 };
+            case "serverUnreachable":
+                return {
+                    icon: "codicon-cloud-offline",
+                    title: "Server unreachable - cannot verify remote status",
+                    className: "text-red-500",
+                };
             case "error":
                 return {
                     icon: "codicon-error",
@@ -247,7 +261,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const pendingSwaps = React.useMemo(
         () => sortProjectsForDisplay((projectsWithProgress || []).filter((p) => 
             p.projectSwap?.isOldProject && 
-            p.projectSwap?.swapStatus === "active"
+            p.projectSwap?.swapStatus === "active" &&
+            !p.projectSwap?.currentUserAlreadySwapped
         )),
         [projectsWithProgress, sortProjectsForDisplay]
     );
@@ -255,7 +270,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const normalProjects = React.useMemo(
         () => (projectsWithProgress || []).filter((p) => 
             !p.pendingUpdate?.required && 
-            !(p.projectSwap?.isOldProject && p.projectSwap?.swapStatus === "active")
+            !(p.projectSwap?.isOldProject && p.projectSwap?.swapStatus === "active" && !p.projectSwap?.currentUserAlreadySwapped)
         ),
         [projectsWithProgress]
     );
@@ -380,7 +395,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 }
                 return true;
             } else if (currentFilter === "local") {
-                if (!["downloadedAndSynced", "localOnlyNotSynced", "orphaned"].includes(project.syncStatus)) {
+                if (!["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus)) {
                     return false;
                 }
             } else if (currentFilter === "remote") {
@@ -388,7 +403,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     return false;
                 }
             } else if (currentFilter === "synced") {
-                if (!["downloadedAndSynced", "orphaned"].includes(project.syncStatus)) {
+                if (!["downloadedAndSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus)) {
                     return false;
                 }
             } else if (currentFilter === "non-synced") {
@@ -452,6 +467,13 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 vscode={vscode}
                 disabled={isLocked}
             />
+
+            {isRefreshing && (
+                <div className="flex items-center gap-2 px-3 py-1.5 mx-3 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-md animate-pulse">
+                    <i className="codicon codicon-loading codicon-modifier-spin" />
+                    Reconnected — refreshing projects list...
+                </div>
+            )}
 
             {isLoading ? (
                 <div className="p-3 space-y-3 flex-1 overflow-y-auto">

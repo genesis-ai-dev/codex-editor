@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.18.0",
+    "version": "0.20.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -47,15 +47,6 @@
                     "name": "Project Settings",
                     "icon": "$(list-tree)",
                     "contextualTitle": "Codex Project Settings"
-                }
-            ],
-            "automated-testing-view": [
-                {
-                    "type": "webview",
-                    "id": "codex-editor.automatedTesting",
-                    "name": "Automated Testing",
-                    "icon": "$(beaker)",
-                    "contextualTitle": "Automated Testing"
                 }
             ],
             "search-passages-view": [
@@ -104,11 +95,6 @@
                     "id": "codex-main-menu",
                     "title": "Codex Main Menu",
                     "icon": "$(list-tree)"
-                },
-                {
-                    "id": "automated-testing-view",
-                    "title": "Automated Testing",
-                    "icon": "$(beaker)"
                 },
                 {
                     "id": "codex-files-view",
@@ -841,13 +827,13 @@
                     },
                     "codex-editor-extension.llmEndpoint": {
                         "type": "string",
-                        "default": "https://api.openai.com/v1",
-                        "description": "The endpoint for the completion API. Currently only supports OpenAI API, or openai-compatible local endpoints such as LM Studio, etc."
+                        "default": "https://api.frontierrnd.com/api/v1",
+                        "description": "The endpoint for the completion API. Defaults to Frontier API. Supports OpenAI-compatible endpoints."
                     },
                     "codex-editor-extension.wsEndpoint": {
                         "type": "string",
-                        "default": "wss://api.openai.com/v1/chat/completions",
-                        "description": "The endpoint for the realtime chat API. Currently only supports OpenAI API."
+                        "default": "wss://api.frontierrnd.com/api/v1/realtime",
+                        "description": "The endpoint for the realtime chat API."
                     },
                     "codex-editor-extension.model": {
                         "title": "LLM Model",

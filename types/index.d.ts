@@ -288,7 +288,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
     | { command: "project.cleanupMediaFiles"; projectPath: string; }
     | { command: "project.fixAndOpen"; projectPath: string; }
-    | { command: "project.performSwap"; projectPath: string; };
+    | { command: "project.performSwap"; projectPath: string; }
+    | { command: "systemMessage.generate"; }
+    | { command: "systemMessage.save"; message: string; };
 
 export type GitLabProject = {
     id: number;
@@ -307,6 +309,7 @@ export type ProjectSyncStatus =
     | "cloudOnlyNotSynced"
     | "localOnlyNotSynced"
     | "orphaned"
+    | "serverUnreachable"
     | "error";
 
 export type MediaFilesStrategy =
@@ -367,6 +370,10 @@ export type MessagesFromStartupFlowProvider =
         data: {
             exists: boolean;
             hasCriticalData: boolean;
+            sourceLanguage?: any;
+            targetLanguage?: any;
+            sourceTexts?: string[];
+            chatSystemMessage?: string | null;
         };
     }
     | { command: "setupIncompleteCriticalDataMissing"; }
@@ -385,7 +392,11 @@ export type MessagesFromStartupFlowProvider =
         isOldProject: boolean;
         newProjectName?: string;
         message: string;
-    };
+    }
+    | { command: "systemMessage.generated"; message: string; }
+    | { command: "systemMessage.generateError"; error: string; }
+    | { command: "systemMessage.saved"; }
+    | { command: "systemMessage.saveError"; error: string; };
 
 type DictionaryPostMessages =
     | {
@@ -767,7 +778,10 @@ export type EditorPostMessages =
             selectedIndex: number;
             testId: string;
             selectionTimeMs: number;
-            totalVariants: number;
+            totalVariants?: number;
+            selectedContent?: string;
+            testName?: string;
+            variants?: string[];
         };
     }
     | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
@@ -1452,6 +1466,9 @@ export interface ProjectSwapInfo {
 
     /** Current swap status (from active swap entry) - "active" | "cancelled" */
     swapStatus?: "active" | "cancelled";
+
+    /** Whether the current user has already completed this swap - derived, not stored in metadata.json */
+    currentUserAlreadySwapped?: boolean;
 }
 
 /**
@@ -1852,7 +1869,11 @@ export type CellLabelImporterReceiveMessages = {
     importSource?: string;
 };
 
-export type CodexMigrationMatchMode = "globalReferences" | "timestamps" | "sequential";
+export type CodexMigrationMatchMode =
+    | "globalReferences"
+    | "timestamps"
+    | "sequential"
+    | "lineNumber";
 
 export interface MigrationMatchResult {
     fromCellId: string;
@@ -1871,6 +1892,12 @@ export type CodexMigrationToolPostMessages =
             toFilePath: string;
             matchMode: CodexMigrationMatchMode;
             forceOverride: boolean;
+            /** 1-based starting line in the source file (lineNumber mode only). */
+            fromStartLine?: number;
+            /** 1-based starting line in the target file (lineNumber mode only). */
+            toStartLine?: number;
+            /** Maximum number of cells to migrate (lineNumber mode only). Omit or 0 for no limit. */
+            maxCells?: number;
         };
     }
     | { command: "cancel"; };

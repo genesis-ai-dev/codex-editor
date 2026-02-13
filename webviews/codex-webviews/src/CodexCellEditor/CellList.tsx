@@ -479,27 +479,36 @@ const CellList: React.FC<CellListProps> = ({
         return cell.metadata?.parentId !== undefined || cell.data?.parentId !== undefined;
     }, []);
 
-    // Calculate offset for line numbers based on milestone indices only.
-    // Do NOT add subsection offset: when fullDocumentTranslationUnits is the full milestone, it will include all cells from the previous milestones.
+    // Offset from previous milestones only. Subsection offset is applied separately when using fallback (current page).
     const calculateLineNumberOffset = useCallback((): number => {
         if (!milestoneIndex || milestoneIndex.milestones.length === 0) {
             return 0;
         }
 
         let offset = 0;
-
-        // Add cells from all previous milestones only (not previous subsections in current milestone)
         for (let i = 0; i < currentMilestoneIndex && i < milestoneIndex.milestones.length; i++) {
             offset += milestoneIndex.milestones[i].cellCount;
         }
-
         return offset;
     }, [milestoneIndex, currentMilestoneIndex]);
 
+    // Offset from previous subsections (pages) in the current milestone. Used when line numbers are computed from current page only (fallback).
+    const subsectionLineNumberOffset = useCallback((): number => {
+        if (!milestoneIndex) return 0;
+        const effectiveCellsPerPage = milestoneIndex.cellsPerPage ?? cellsPerPage ?? 50;
+        return currentSubsectionIndex * effectiveCellsPerPage;
+    }, [milestoneIndex, currentSubsectionIndex, cellsPerPage]);
+
     // Helper function to get the chapter-based verse number (skipping paratext cells)
-    // Now uses globalReferences and includes offset for pagination
+    // Now uses globalReferences and includes offset for pagination.
+    // When the cell is not found in allCells (e.g. fullDocumentTranslationUnits out of sync after cell click),
+    // falls back to visible list so line numbers stay correct.
     const getChapterBasedVerseNumber = useCallback(
-        (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
+        (
+            cell: QuillCellContent,
+            allCells: QuillCellContent[],
+            fallbackCells?: QuillCellContent[]
+        ): number => {
             const cellIdentifier = getCellIdentifier(cell);
             if (!cellIdentifier) return 1; // Fallback if no identifier
 
@@ -507,12 +516,23 @@ const CellList: React.FC<CellListProps> = ({
                 (unit) => getCellIdentifier(unit) === cellIdentifier
             );
 
-            if (cellIndex === -1) return 1; // Fallback if not found
+            // If not found in full document (e.g. state out of sync after opening a cell), use visible list
+            const usingFallback =
+                cellIndex === -1 && fallbackCells && fallbackCells.length > 0;
+            const cellsToUse = cellIndex >= 0 ? allCells : usingFallback ? fallbackCells! : allCells;
+            const indexInUse =
+                cellIndex >= 0
+                    ? cellIndex
+                    : cellsToUse.findIndex(
+                          (unit) => getCellIdentifier(unit) === cellIdentifier
+                      );
+
+            if (indexInUse === -1) return 1; // Fallback if not found in either list
 
             // Count non-paratext, non-milestone, non-child cells up to and including this one
             let visibleCellCount = 0;
-            for (let i = 0; i <= cellIndex; i++) {
-                const unit = allCells[i];
+            for (let i = 0; i <= indexInUse; i++) {
+                const unit = cellsToUse[i];
                 if (
                     unit.cellType !== CodexCellTypes.PARATEXT &&
                     unit.cellType !== CodexCellTypes.MILESTONE &&
@@ -523,11 +543,24 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Add offset for pagination (cells from previous milestones/subsections)
+            // Add offset: previous milestones always; add subsection (page) offset when counting from current page only
+            const effectiveCellsPerPage = milestoneIndex?.cellsPerPage ?? cellsPerPage ?? 50;
+            const isSinglePage =
+                allCells.length <= effectiveCellsPerPage && currentSubsectionIndex > 0;
             const offset = calculateLineNumberOffset();
-            return visibleCellCount + offset;
+            const subsectionOffset =
+                usingFallback || isSinglePage ? subsectionLineNumberOffset() : 0;
+            return visibleCellCount + offset + subsectionOffset;
         },
-        [getCellIdentifier, isChildCell, calculateLineNumberOffset]
+        [
+            getCellIdentifier,
+            isChildCell,
+            calculateLineNumberOffset,
+            subsectionLineNumberOffset,
+            milestoneIndex,
+            cellsPerPage,
+            currentSubsectionIndex,
+        ]
     );
 
     const generateCellLabel = useCallback(
@@ -589,13 +622,14 @@ const CellList: React.FC<CellListProps> = ({
                     );
 
                     if (parentCell) {
-                        // Get parent's label using chapter-based verse numbers
+                        // Get parent's label using chapter-based verse numbers (with fallback for sync issues)
                         const parentLabel =
                             parentCell.cellLabel ||
                             (parentCell.cellType !== CodexCellTypes.PARATEXT
                                 ? getChapterBasedVerseNumber(
                                       parentCell,
-                                      fullDocumentTranslationUnits
+                                      fullDocumentTranslationUnits,
+                                      currentCellsArray
                                   )
                                 : "");
 
@@ -630,8 +664,14 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Get chapter-based verse number (skipping paratext cells)
-            return getChapterBasedVerseNumber(cell, fullDocumentTranslationUnits).toString();
+            // Get chapter-based verse number (skipping paratext cells).
+            // Pass currentCellsArray as fallback so line numbers stay correct when fullDocumentTranslationUnits
+            // is temporarily out of sync (e.g. after clicking a cell before prev/next refreshes state).
+            return getChapterBasedVerseNumber(
+                cell,
+                fullDocumentTranslationUnits,
+                currentCellsArray
+            ).toString();
         },
         [fullDocumentTranslationUnits, getChapterBasedVerseNumber, getCellIdentifier, isChildCell]
     );
