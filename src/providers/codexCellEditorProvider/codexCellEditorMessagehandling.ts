@@ -1585,7 +1585,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     selectABTestVariant: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
-        const { cellId, selectedIndex, selectedContent, testId, testName, selectionTimeMs, variants } = typedEvent.content || {};
+        const { cellId, selectedIndex, testId, selectionTimeMs, totalVariants } = typedEvent.content || {};
+        // These fields may come from extended payloads but aren't in the strict type
+        const selectedContent = (typedEvent.content as any)?.selectedContent as string | undefined;
+        const testName = (typedEvent.content as any)?.testName as string | undefined;
+        const variants = (typedEvent.content as any)?.variants as string[] | undefined;
         const variantNames: string[] | undefined = variants;
         const isRecovery = testName === "Recovery" || (typeof testId === "string" && testId.includes("-recovery-"));
 
@@ -1651,20 +1655,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
-    },
-
-    updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode"; }>;
-        const updatedMetadata = {
-            cellDisplayMode: typedEvent.mode,
-        };
-        await document.updateNotebookMetadata(updatedMetadata);
-        await document.save(new vscode.CancellationTokenSource().token);
-        debug("Cell display mode updated successfully.");
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerUpdatesNotebookMetadataForWebview",
-            content: await document.getNotebookMetadata(),
-        });
     },
 
     validateCell: async ({ event, document, provider }) => {

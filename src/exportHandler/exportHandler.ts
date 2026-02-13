@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import JSZip from "jszip";
-import { extractVerseRefFromLine } from "../utils/verseRefUtils";
+import { extractVerseRefFromLine, getVerseRefFromCellMetadata } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
@@ -980,27 +980,26 @@ async function exportCodexContentAsUsfmRoundtrip(
                     const possibleExtensions = ['.usfm', '.sfm', '.USFM', '.SFM'];
                     let originalFileName = metadataOriginalFileName;
 
-                    // If no originalFileName, try to find it in originals folder
+                    // If no originalFileName, try to find it in originals folders (files/originals first, then originals)
                     if (!originalFileName && finalBookCode) {
-                        const originalsDir = vscode.Uri.joinPath(
-                            workspaceFolders[0].uri,
-                            ".project",
-                            "attachments",
-                            "originals"
-                        );
-
-                        // Try each extension
-                        for (const ext of possibleExtensions) {
-                            const testFileName = `${finalBookCode}${ext}`;
-                            const testUri = vscode.Uri.joinPath(originalsDir, testFileName);
-                            try {
-                                await vscode.workspace.fs.stat(testUri);
-                                originalFileName = testFileName;
-                                console.log(`[USFM Export] Found original file: ${testFileName}`);
-                                break;
-                            } catch {
-                                // File doesn't exist, try next extension
+                        const originalsDirCandidates = [
+                            vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "files", "originals"),
+                            vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "originals"),
+                        ];
+                        for (const originalsDir of originalsDirCandidates) {
+                            for (const ext of possibleExtensions) {
+                                const testFileName = `${finalBookCode}${ext}`;
+                                const testUri = vscode.Uri.joinPath(originalsDir, testFileName);
+                                try {
+                                    await vscode.workspace.fs.stat(testUri);
+                                    originalFileName = testFileName;
+                                    console.log(`[USFM Export] Found original file: ${testFileName}`);
+                                    break;
+                                } catch {
+                                    // File doesn't exist, try next extension
+                                }
                             }
+                            if (originalFileName) break;
                         }
                     }
 
@@ -1010,29 +1009,36 @@ async function exportCodexContentAsUsfmRoundtrip(
                         console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
                     }
 
-                    // Load original USFM file from attachments/originals
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "originals"
-                    );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
-
+                    // Load original USFM file: try attachments/files/originals (current), then attachments/originals (legacy)
+                    const originalsDirs = [
+                        vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "files", "originals"),
+                        vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "attachments", "originals"),
+                    ];
                     let originalUsfmContent: string;
-                    try {
-                        const originalFileData = await vscode.workspace.fs.readFile(originalFileUri);
-                        originalUsfmContent = new TextDecoder('utf-8').decode(originalFileData);
-                        console.log(`[USFM Export] Loaded original USFM file: ${originalFileName}`);
-                    } catch (error) {
+                    let readFromUri: vscode.Uri | null = null;
+                    for (const originalsDir of originalsDirs) {
+                        const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                        try {
+                            const originalFileData = await vscode.workspace.fs.readFile(originalFileUri);
+                            originalUsfmContent = new TextDecoder('utf-8').decode(originalFileData);
+                            readFromUri = originalFileUri;
+                            break;
+                        } catch {
+                            // Try next path
+                        }
+                    }
+                    if (!readFromUri) {
                         // Fallback: try to get from structureMetadata if available
                         const structureMetadata = (codexNotebook.metadata as any)?.structureMetadata;
                         if (structureMetadata?.originalUsfmContent) {
                             originalUsfmContent = structureMetadata.originalUsfmContent;
-                            console.log(`[USFM Export] Using original USFM content from metadata (file not found at ${originalFileUri.fsPath})`);
+                            console.log(`[USFM Export] Using original USFM content from metadata (file not found in originals folders)`);
                         } else {
-                            throw new Error(`Original USFM file not found at ${originalFileUri.fsPath} and no original content in metadata`);
+                            const triedPaths = originalsDirs.map(d => d.fsPath).join(', ');
+                            throw new Error(`Original USFM file not found at ${triedPaths} and no original content in metadata`);
                         }
+                    } else {
+                        console.log(`[USFM Export] Loaded original USFM file: ${originalFileName}`);
                     }
 
                     // Build codex cells array
@@ -1065,14 +1071,13 @@ async function exportCodexContentAsUsfmRoundtrip(
                         console.log(`[USFM Export] structureMetadata keys:`, structureMetadata ? Object.keys(structureMetadata) : 'null');
                     }
 
-                    // Export USFM with translations
-                    // If we have lineMappings, use them for precise round-trip export
+                    // Export USFM with translations (originalUsfmContent is set above: from file or metadata)
                     let updatedUsfmContent: string;
                     if (lineMappings) {
-                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, lineMappings, codexCells);
+                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent!, lineMappings, codexCells);
                     } else {
                         // Use backward-compatible signature (no lineMappings - fallback mode)
-                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent, codexCells);
+                        updatedUsfmContent = await exportUsfmRoundtrip(originalUsfmContent!, codexCells);
                     }
 
                     // Save to export folder
@@ -1993,32 +1998,29 @@ async function exportCodexContentAsUsfm(
                     try {
                         debug(`Processing file: ${file.fsPath}`);
 
-                        // Get the source file path - look in .project/sourceTexts/
                         const bookCode = basename(file.fsPath).split(".")[0] || "";
-                        const sourceFileName = `${bookCode}.source`;
-                        const sourceFile = vscode.Uri.joinPath(
+
+                        // Read codex first (required for export)
+                        const codexNotebook = await readCodexNotebookFromUri(file);
+
+                        // Resolve source path: .project/sourceTexts/{bookCode}.source, or from codex metadata (sourceFsPath)
+                        const defaultSourceFile = vscode.Uri.joinPath(
                             vscode.Uri.file(workspaceFolders[0].uri.fsPath),
                             ".project",
                             "sourceTexts",
-                            sourceFileName
+                            `${bookCode}.source`
                         );
+                        const sourceFsPath = (codexNotebook.metadata as { sourceFsPath?: string })?.sourceFsPath;
+                        const sourceFile = sourceFsPath
+                            ? vscode.Uri.file(sourceFsPath)
+                            : defaultSourceFile;
 
-                        // Read both source and codex files
-                        let sourceData: Uint8Array | null = null;
+                        // Source file is optional: export uses only codex notebook (e.g. legacy USFM import may only have .codex).
                         try {
-                            sourceData = await vscode.workspace.fs.readFile(sourceFile);
-                        } catch (error) {
-                            vscode.window.showWarningMessage(
-                                `Source file not found for ${bookCode} at ${sourceFile.fsPath}, skipping...`
-                            );
-                            skippedFiles++;
-                            continue;
+                            await vscode.workspace.fs.readFile(sourceFile);
+                        } catch {
+                            debug(`Source file not found for ${bookCode}, exporting from codex only`);
                         }
-
-                        const sourceNotebook = JSON.parse(
-                            Buffer.from(sourceData).toString()
-                        ) as CodexNotebookAsJSONData;
-                        const codexNotebook = await readCodexNotebookFromUri(file);
 
                         // Quick check - only look for text cells with content
                         const textCells = codexNotebook.cells.filter(
@@ -2100,19 +2102,16 @@ async function exportCodexContentAsUsfm(
                                     const chapterNum = parseInt(chapterMatch[1], 10);
                                     chapterCells[cellMetadata.id] = chapterNum;
                                 }
-                            } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT &&
-                                cellMetadata.id
-                            ) {
-                                // Extract chapter from verse reference (e.g., "MRK 1:1" -> "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                if (chapterMatch) {
-                                    const chapterNum = parseInt(chapterMatch[1], 10);
-                                    if (!lastChapter || chapterNum > parseInt(lastChapter, 10)) {
-                                        // This is a verse from a new chapter
-                                        if (!Object.values(chapterCells).includes(chapterNum)) {
-                                            // We don't have a chapter heading for this chapter
-                                            chapterCells[`auto_${chapterNum}`] = chapterNum;
+                            } else if (cellMetadata.type === CodexCellTypes.TEXT) {
+                                const verseRef = getVerseRefFromCellMetadata(cellMetadata as Parameters<typeof getVerseRefFromCellMetadata>[0]) ?? cellMetadata.id;
+                                if (verseRef) {
+                                    const chapterMatch = verseRef.match(/\s(\d+):/);
+                                    if (chapterMatch) {
+                                        const chapterNum = parseInt(chapterMatch[1], 10);
+                                        if (!lastChapter || chapterNum > parseInt(lastChapter, 10)) {
+                                            if (!Object.values(chapterCells).includes(chapterNum)) {
+                                                chapterCells[`auto_${chapterNum}`] = chapterNum;
+                                            }
                                         }
                                     }
                                 }
@@ -2154,12 +2153,9 @@ async function exportCodexContentAsUsfm(
                                     // Handle other paratext
                                     chapterContent += `\\p ${cellContent}\n`;
                                 }
-                            } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT &&
-                                cellMetadata.id
-                            ) {
-                                // Handle verse content
-                                const verseRef = cellMetadata.id;
+                            } else if (cellMetadata.type === CodexCellTypes.TEXT) {
+                                const verseRef = getVerseRefFromCellMetadata(cellMetadata as Parameters<typeof getVerseRefFromCellMetadata>[0]) ?? cellMetadata.id;
+                                if (!verseRef) continue;
                                 const chapterMatch = verseRef.match(/\s(\d+):/);
                                 const verseMatch = verseRef.match(/\d+$/);
 
@@ -2452,68 +2448,161 @@ async function exportCodexContentAsHtml(
 
                     // Read and filter active cells (exclude merged/deleted)
                     const codexData = await readCodexNotebookFromUri(file);
-                    const cells = getActiveCells(codexData.cells);
+                    const rawCells = Array.isArray(codexData.cells) ? codexData.cells : [];
+                    const cells = getActiveCells(rawCells);
 
                     debug(`File has ${cells.length} active cells`);
 
-                    // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
-                    const bookCode = basename(file.fsPath).split(".")[0] || "";
+                    // Default book code from filename (e.g., "MAT.codex" -> "MAT"); overridden per-cell when metadata has book/verseReference
+                    const fileBookCode = basename(file.fsPath).split(".")[0] || "";
+                    // Key: "BOOK_chapterNum" so multi-book files (e.g. ebibleCorpus) get correct grouping
                     const chapters: { [key: string]: string; } = {};
 
                     // Already filtered for merged and deleted
                     const activeCells = cells;
 
-                    // First pass: Organize content by chapters
+                    type VerseMeta = {
+                        id?: string;
+                        chapter?: number;
+                        verse?: number | string;
+                        cellLabel?: string;
+                        book?: string;
+                        verseReference?: string;
+                        data?: {
+                            globalReferences?: string[];
+                            chapter?: number;
+                            verse?: number | string;
+                            book?: string;
+                        };
+                    };
+
+                    // Helper: get book code, chapter, verse and display ref for a verse cell.
+                    // Supports: (1) id as verse ref "MRK 1:1", (2) chapter/verse on metadata, (3) chapter/verse under metadata.data (e.g. ebibleCorpus).
+                    const getVerseChapterAndVerse = (meta: VerseMeta): { bookCode: string; chapterNum: string; verseNumber: string; verseRef: string; } | null => {
+                        if (!meta || typeof meta !== "object") return null;
+                        const id = meta.id ?? "";
+                        // Legacy: id is verse reference (e.g. "MRK 1:1")
+                        const legacyRefMatch = id.match(/^(\S+)\s+(\d+):(\d+)$/);
+                        if (legacyRefMatch) {
+                            const [, book, ch, v] = legacyRefMatch;
+                            return {
+                                bookCode: book.toUpperCase(),
+                                chapterNum: ch,
+                                verseNumber: v,
+                                verseRef: id.trim(),
+                            };
+                        }
+                        // Prefer metadata.data when present (ebibleCorpus / persisted format)
+                        const d = meta.data;
+                        const ch = d != null && (typeof d.chapter === "number" || typeof d.chapter === "string")
+                            ? Number(d.chapter)
+                            : meta.chapter;
+                        const v = d != null && (d.verse !== undefined && d.verse !== null)
+                            ? d.verse
+                            : meta.verse;
+                        if (ch == null || v == null || Number.isNaN(ch)) return null;
+                        const chapterNum = String(ch);
+                        const verseNumber = String(v);
+                        const bookFromMeta = (d != null && d.book) ?? meta.book;
+                        const verseRefRaw =
+                            meta.verseReference ??
+                            (d != null && Array.isArray(d.globalReferences) ? d.globalReferences[0] : undefined) ??
+                            (bookFromMeta ? `${bookFromMeta} ${chapterNum}:${verseNumber}` : null);
+                        const verseRefStr = typeof verseRefRaw === "string" ? verseRefRaw : `${fileBookCode} ${chapterNum}:${verseNumber}`;
+                        const bookCode =
+                            bookFromMeta
+                                ? (String(bookFromMeta).length === 3 && /^[A-Z0-9]{3}$/i.test(String(bookFromMeta)) ? String(bookFromMeta).toUpperCase() : String(bookFromMeta).substring(0, 3).toUpperCase())
+                                : verseRefRaw && typeof verseRefRaw === "string"
+                                    ? (verseRefRaw.match(/^(\S+)\s+\d+:\d+/) ?? [])[1]?.toUpperCase() ?? fileBookCode
+                                    : fileBookCode;
+                        return {
+                            bookCode: bookCode || fileBookCode,
+                            chapterNum,
+                            verseNumber,
+                            verseRef: verseRefStr,
+                        };
+                    };
+
+                    // Cell content: support value, content, or source (array of lines)
+                    const getCellContent = (cell: { value?: string; content?: string; source?: string | string[];[k: string]: unknown; }): string => {
+                        const raw = cell.value ?? cell.content;
+                        if (typeof raw === "string") return raw.trim();
+                        const src = cell.source;
+                        if (Array.isArray(src)) return src.join("").trim();
+                        if (typeof src === "string") return src.trim();
+                        return "";
+                    };
+
+                    // First pass: Organize content by chapters (key = bookCode_chapterNum for multi-book support)
                     for (const cell of activeCells) {
                         totalCells++;
-                        if (cell.kind === 2 || cell.kind === 1) { //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
-                            // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata;
-                            const cellContent = cell.value.trim();
+                        if (cell.kind !== 2 && cell.kind !== 1) continue;
+                        const cellMetadata = cell.metadata as VerseMeta & { type?: string; };
+                        const cellContent = getCellContent(cell);
+                        if (!cellContent) continue;
 
-                            if (!cellContent) continue;
-
-                            if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
-                                // Extract chapter number from verse reference (e.g., "MRK 1:1" -> "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                if (chapterMatch) {
-                                    const chapterNum = chapterMatch[1];
-                                    if (!chapters[chapterNum]) {
-                                        chapters[chapterNum] = `
+                        // Importer-agnostic: any cell with verse info is treated as a verse
+                        const verseInfo = getVerseChapterAndVerse(cellMetadata);
+                        if (verseInfo) {
+                            const { bookCode, chapterNum, verseNumber, verseRef } = verseInfo;
+                            const chapterKey = `${bookCode}_${chapterNum}`;
+                            if (!chapters[chapterKey]) {
+                                chapters[chapterKey] = `
                                             <div class="chapter">
                                             <h2 class="chapter-title">Chapter ${chapterNum}</h2>`;
-                                    }
-
-                                    const verseMatch = cellMetadata.id.match(/\d+$/);
-                                    if (verseMatch) {
-                                        const verseNumber = verseMatch[0];
-                                        chapters[chapterNum] += `
-                                            <div class="verse" x-type="verse" x-verse-ref="${cellMetadata.id}">
+                            }
+                            chapters[chapterKey] += `
+                                            <div class="verse" x-type="verse" x-verse-ref="${String(verseRef).replace(/"/g, "&quot;")}">
                                                 <span class="verse-number">${verseNumber}</span>
                                                 ${cellContent}
                                             </div>`;
-                                        totalVerses++;
-                                    }
-                                }
-                            } else if (cellMetadata.type === CodexCellTypes.PARATEXT) {
-                                // Handle paratext that isn't a chapter heading
-                                if (!cellContent.startsWith("<h1>")) {
-                                    // Add to the current chapter if we have one
-                                    const currentChapters = Object.keys(chapters);
-                                    if (currentChapters.length > 0) {
-                                        const lastChapter =
-                                            currentChapters[currentChapters.length - 1];
-                                        chapters[lastChapter] += `
+                            totalVerses++;
+                            continue;
+                        }
+
+                        // Paratext / non-verse TEXT cells (usfm-experimental section headers, etc.)
+                        if (cellMetadata.type === CodexCellTypes.TEXT || cellMetadata.type === CodexCellTypes.PARATEXT) {
+                            if (cellContent.startsWith("<h1>")) continue;
+                            const meta = cellMetadata as { chapter?: number; chapterNumber?: string; data?: { chapter?: number; chapterNumber?: string; }; };
+                            const chNum = meta?.chapter != null ? String(meta.chapter) : meta?.data?.chapter != null ? String(meta.data.chapter) : meta?.chapterNumber ?? meta?.data?.chapterNumber;
+                            const keys = Object.keys(chapters);
+                            const lastKey = keys[keys.length - 1];
+                            // When cell has explicit chapter metadata (e.g. \c chapter heading), place in that chapter; else append to last
+                            let targetKey: string | null = null;
+                            if (chNum != null && fileBookCode) {
+                                targetKey = `${fileBookCode}_${chNum}`;
+                            } else {
+                                targetKey = lastKey ?? null;
+                            }
+                            if (chNum != null && targetKey && !chapters[targetKey]) {
+                                chapters[targetKey] = `
+                                            <div class="chapter">
+                                            <h2 class="chapter-title">${chNum === "0" ? "Header" : `Chapter ${chNum}`}</h2>`;
+                            }
+                            if (targetKey && chapters[targetKey]) {
+                                chapters[targetKey] += `
                                             <div class="paratext" x-type="paratext">${cellContent}</div>`;
-                                    }
-                                }
                             }
                         }
                     }
 
-                    // Create a chapter file for each chapter
-                    for (const [chapterNum, chapterContent] of Object.entries(chapters)) {
-                        const chapterHtml = `<!DOCTYPE html>
+                    // Group chapter keys by book for index + chapter files
+                    const chaptersByBook = new Map<string, string[]>();
+                    for (const key of Object.keys(chapters)) {
+                        const idx = key.indexOf("_");
+                        const bookCode = idx >= 0 ? key.slice(0, idx) : fileBookCode;
+                        const chapterNum = idx >= 0 ? key.slice(idx + 1) : key;
+                        if (!chaptersByBook.has(bookCode)) chaptersByBook.set(bookCode, []);
+                        chaptersByBook.get(bookCode)!.push(chapterNum);
+                    }
+
+                    for (const [bookCode, chapterNums] of chaptersByBook) {
+                        const sortedNums = [...chapterNums].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+                        for (const chapterNum of sortedNums) {
+                            const chapterKey = `${bookCode}_${chapterNum}`;
+                            const chapterContent = chapters[chapterKey];
+                            if (!chapterContent) continue;
+                            const chapterHtml = `<!DOCTYPE html>
                         <html lang="en">
                         <head>
                             <meta charset="UTF-8">
@@ -2533,14 +2622,13 @@ async function exportCodexContentAsHtml(
                         </body>
                         </html>`;
 
-                        const chapterFileName = `${bookCode}_${chapterNum.padStart(3, "0")}.html`;
-                        const chapterFile = vscode.Uri.joinPath(exportFolder, chapterFileName);
-                        await vscode.workspace.fs.writeFile(chapterFile, Buffer.from(chapterHtml));
-                        debug(`Chapter file created: ${chapterFile.fsPath}`);
-                    }
+                            const chapterFileName = `${bookCode}_${chapterNum.padStart(3, "0")}.html`;
+                            const chapterFile = vscode.Uri.joinPath(exportFolder, chapterFileName);
+                            await vscode.workspace.fs.writeFile(chapterFile, Buffer.from(chapterHtml));
+                            debug(`Chapter file created: ${chapterFile.fsPath}`);
+                        }
 
-                    // Create an index file for the book
-                    const indexHtml = `<!DOCTYPE html>
+                        const indexHtml = `<!DOCTYPE html>
                     <html lang="en">
                     <head>
                         <meta charset="UTF-8">
@@ -2573,14 +2661,14 @@ async function exportCodexContentAsHtml(
                     <body>
                         <h1 class="book-title">${bookCode}</h1>
                         <ul class="chapter-list">
-                            ${Object.keys(chapters)
-                            .sort((a, b) => parseInt(a) - parseInt(b))
-                            .map(
-                                (num) => `
+                            ${[...chapterNums]
+                                .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+                                .map(
+                                    (num) => `
                                     <li><a class="chapter-link" href="${bookCode}_${num.padStart(3, "0")}.html">Chapter ${num}</a></li>
                                 `
-                            )
-                            .join("")}
+                                )
+                                .join("")}
                         </ul>
                         <div class="metadata">
                             <p>Exported from Codex Translation Editor v${extensionVersion}</p>
@@ -2590,9 +2678,10 @@ async function exportCodexContentAsHtml(
                     </body>
                     </html>`;
 
-                    const indexFile = vscode.Uri.joinPath(exportFolder, `${bookCode}_index.html`);
-                    await vscode.workspace.fs.writeFile(indexFile, Buffer.from(indexHtml));
-                    debug(`Index file created: ${indexFile.fsPath}`);
+                        const indexFile = vscode.Uri.joinPath(exportFolder, `${bookCode}_index.html`);
+                        await vscode.workspace.fs.writeFile(indexFile, Buffer.from(indexHtml));
+                        debug(`Index file created: ${indexFile.fsPath}`);
+                    }
                 }
 
                 vscode.window.showInformationMessage(
