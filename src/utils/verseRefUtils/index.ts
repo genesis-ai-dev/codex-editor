@@ -80,10 +80,83 @@ export function extractVerseRefFromLine(line: string): string | null {
 /** Pattern for "BOOK 1:1" style at end of string (used for metadata.id or globalReferences) */
 const verseRefAtEndRegex = /\s\d+:\d+$/;
 
+/** Single verse ref: "BOOK C:V" */
+export type ParsedSingleVerseRef = {
+    kind: "single";
+    book: string;
+    chapter: number;
+    verse: number;
+    cellLabel: string;
+};
+
+/** Verse range ref: "BOOK C:V1-V2" */
+export type ParsedVerseRangeRef = {
+    kind: "range";
+    book: string;
+    chapter: number;
+    verseStart: number;
+    verseEnd: number;
+    cellLabel: string;
+};
+
+export type ParsedVerseRef = ParsedSingleVerseRef | ParsedVerseRangeRef;
+
+/** Match "BOOK C:V1-V2" (verse range) */
+const verseRangeRefRegex = /^\s*([^\s]+)\s+(\d+):(\d+)-(\d+)\s*$/;
+/** Match "BOOK C:V" (single verse) */
+const singleVerseRefRegex = /^\s*([^\s]+)\s+(\d+):(\d+)\s*$/;
+
 /**
- * Get verse reference string (e.g. "MAT 1:1") from cell metadata.
+ * Parse a ref string into a single-verse or verse-range result.
+ * Examples: "JHN 4:4" -> single; "JHN 4:1-3" -> range with cellLabel "1-3".
+ */
+export function parseVerseRef(ref: string): ParsedVerseRef | null {
+    if (typeof ref !== "string" || !ref.trim()) return null;
+    const rangeMatch = ref.match(verseRangeRefRegex);
+    if (rangeMatch) {
+        const [, book, chapter, verseStart, verseEnd] = rangeMatch;
+        return {
+            kind: "range",
+            book: book!,
+            chapter: parseInt(chapter!, 10),
+            verseStart: parseInt(verseStart!, 10),
+            verseEnd: parseInt(verseEnd!, 10),
+            cellLabel: `${verseStart}-${verseEnd}`,
+        };
+    }
+    const singleMatch = ref.match(singleVerseRefRegex);
+    if (singleMatch) {
+        const [, book, chapter, verse] = singleMatch;
+        return {
+            kind: "single",
+            book: book!,
+            chapter: parseInt(chapter!, 10),
+            verse: parseInt(verse!, 10),
+            cellLabel: verse!,
+        };
+    }
+    return null;
+}
+
+/**
+ * Sort key (book, chapter, verse) for ordering content cells.
+ * For verse ranges, verse is the start of the range.
+ */
+export function getSortKeyFromParsedRef(parsed: ParsedVerseRef): { book: string; chapter: number; verse: number } {
+    if (parsed.kind === "single") {
+        return { book: parsed.book, chapter: parsed.chapter, verse: parsed.verse };
+    }
+    return { book: parsed.book, chapter: parsed.chapter, verse: parsed.verseStart };
+}
+
+/** Pattern that matches either single verse or verse range at end (for backward compatibility) */
+const verseRefOrRangeAtEndRegex = /\s\d+:\d+(-\d+)?$/;
+
+/**
+ * Get verse reference string (e.g. "MAT 1:1" or "JHN 4:1-3") from cell metadata.
  * Supports legacy format (metadata.id = "BOOK 1:1") and New Source Uploader USFM
  * (metadata.id = UUID, reference in data.globalReferences or bookCode/chapter/verse).
+ * Also recognizes verse-range refs in globalReferences (e.g. "JHN 4:1-3").
  */
 export function getVerseRefFromCellMetadata(metadata: {
     id?: string;
@@ -94,9 +167,9 @@ export function getVerseRefFromCellMetadata(metadata: {
 }): string | null {
     if (!metadata) return null;
     const id = metadata.id;
-    if (typeof id === "string" && verseRefAtEndRegex.test(id)) return id;
+    if (typeof id === "string" && verseRefOrRangeAtEndRegex.test(id)) return id;
     const ref = metadata.data?.globalReferences?.[0];
-    if (typeof ref === "string" && verseRefAtEndRegex.test(ref)) return ref;
+    if (typeof ref === "string" && verseRefOrRangeAtEndRegex.test(ref)) return ref;
     const { bookCode, chapter, verse } = metadata;
     if (bookCode != null && chapter != null && verse != null)
         return `${String(bookCode).trim()} ${chapter}:${verse}`;

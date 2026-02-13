@@ -527,6 +527,11 @@
                         "default": false,
                         "description": "Internal flag indicating the edit history format migration has completed."
                     },
+                    "codex-project-manager.verseRangeLabelsAndPositionsMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the verse range labels and positions migration has completed."
+                    },
                     "codex-project-manager.documentContextHoistMigrationCompleted": {
                         "type": "boolean",
                         "default": false,

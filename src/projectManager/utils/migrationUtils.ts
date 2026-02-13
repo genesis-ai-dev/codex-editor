@@ -12,6 +12,11 @@ import { getAuthApi } from "../../extension";
 import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
+import {
+    parseVerseRef,
+    getSortKeyFromParsedRef,
+    type ParsedVerseRef,
+} from "../../utils/verseRefUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
@@ -2081,6 +2086,21 @@ function getLocalizedBookName(bookAbbr: string): string {
 }
 
 /**
+ * Extracts chapter number from a milestone value (e.g. "John 4", "4", "GEN 2").
+ * Used for verse-range migration to associate milestones with content chapters.
+ */
+function extractChapterNumberFromMilestoneValue(value: string | undefined): number | null {
+    if (!value) return null;
+    const matches = value.match(/(\d+)(?!.*\d)/);
+    if (matches?.[1]) {
+        const n = parseInt(matches[1], 10);
+        return !isNaN(n) && n > 0 ? n : null;
+    }
+    const parsed = parseInt(value, 10);
+    return !isNaN(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
  * Creates a milestone cell with book name and chapter number derived from the cell below it.
  * Format: "BookName ChapterNumber" (e.g., "Isaiah 1")
  * @param cell - The cell to derive chapter information from
@@ -2938,6 +2958,257 @@ export async function migrateGlobalReferencesForFile(fileUri: vscode.Uri): Promi
         return false;
     }
 }
+
+/**
+ * Processes a single file: reorders content cells so verse-range cells appear after the correct
+ * chapter milestone and in verse order, and sets cellLabel (and optional chapterNumber) for
+ * verse-range refs. Combines reorder and labelling in one pass. Idempotent.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateVerseRangeLabelsAndPositionsForFile(
+    fileUri: vscode.Uri
+): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        // Classify cells: milestones (with chapter from value), content with ref, content without ref, paratext, style/other
+        const milestones: Array<{ cell: any; chapter: number | null }> = [];
+        const contentWithRef: Array<{ cell: any; parsed: ParsedVerseRef; sortKey: { book: string; chapter: number; verse: number } }> = [];
+        const contentWithoutRef: any[] = [];
+        const paratextByParentId = new Map<string, any[]>();
+        const styleOrOther: any[] = [];
+
+        for (const cell of cells) {
+            const md = cell.metadata || {};
+            const cellType = md.type;
+            const cellId = md.id;
+
+            if (cellType === CodexCellTypes.MILESTONE) {
+                const chapter = extractChapterNumberFromMilestoneValue(cell.value);
+                milestones.push({ cell, chapter });
+                continue;
+            }
+
+            if (cellType === CodexCellTypes.PARATEXT && cellId) {
+                const parentId = extractParentCellIdFromParatext(cellId, md);
+                if (parentId) {
+                    if (!paratextByParentId.has(parentId)) paratextByParentId.set(parentId, []);
+                    paratextByParentId.get(parentId)!.push(cell);
+                } else {
+                    styleOrOther.push(cell);
+                }
+                continue;
+            }
+
+            if (cellType === CodexCellTypes.STYLE) {
+                styleOrOther.push(cell);
+                continue;
+            }
+
+            // Content cell (TEXT or similar)
+            const ref = md.data?.globalReferences?.[0];
+            const parsed = typeof ref === "string" ? parseVerseRef(ref) : null;
+            if (parsed) {
+                const sortKey = getSortKeyFromParsedRef(parsed);
+                contentWithRef.push({ cell, parsed, sortKey });
+            } else {
+                contentWithoutRef.push(cell);
+            }
+        }
+
+        // Partition content-with-ref by (book, chapter), sort each by verse
+        const contentByChapter = new Map<string, typeof contentWithRef>();
+        for (const item of contentWithRef) {
+            const key = `${item.sortKey.book}\t${item.sortKey.chapter}`;
+            if (!contentByChapter.has(key)) contentByChapter.set(key, []);
+            contentByChapter.get(key)!.push(item);
+        }
+        for (const arr of contentByChapter.values()) {
+            arr.sort((a, b) => a.sortKey.verse - b.sortKey.verse);
+        }
+
+        // Build new cell order: for each milestone, emit milestone then content for that chapter; after each content cell emit its paratext
+        const newCells: any[] = [];
+        let hasChanges = false;
+
+        const emitContentCell = (item: (typeof contentWithRef)[0]) => {
+            const { cell, parsed } = item;
+            const md = cell.metadata || {};
+            if (parsed.kind === "range") {
+                if (md.cellLabel !== parsed.cellLabel) {
+                    md.cellLabel = parsed.cellLabel;
+                    hasChanges = true;
+                }
+                if (md.chapterNumber === undefined || md.chapterNumber === null) {
+                    md.chapterNumber = String(parsed.chapter);
+                    hasChanges = true;
+                }
+                cell.metadata = md;
+            }
+            newCells.push(cell);
+            const parentId = md.id;
+            if (parentId) {
+                const paratextCells = paratextByParentId.get(parentId);
+                if (paratextCells) {
+                    for (const pt of paratextCells) newCells.push(pt);
+                }
+            }
+        };
+
+        for (const { cell, chapter } of milestones) {
+            newCells.push(cell);
+            if (chapter != null) {
+                // Emit all content cells whose sortKey chapter matches this milestone's chapter
+                const keysToDelete: string[] = [];
+                for (const [key, items] of contentByChapter.entries()) {
+                    const [, chapStr] = key.split("\t");
+                    if (parseInt(chapStr, 10) === chapter) {
+                        for (const item of items) emitContentCell(item);
+                        keysToDelete.push(key);
+                    }
+                }
+                for (const k of keysToDelete) contentByChapter.delete(k);
+            }
+        }
+
+        // Emit remaining content-with-ref (chapter not matched to any milestone) in deterministic order
+        const remaining: typeof contentWithRef = [];
+        for (const items of contentByChapter.values()) remaining.push(...items);
+        remaining.sort(
+            (a, b) =>
+                a.sortKey.book.localeCompare(b.sortKey.book) ||
+                a.sortKey.chapter - b.sortKey.chapter ||
+                a.sortKey.verse - b.sortKey.verse
+        );
+        for (const item of remaining) emitContentCell(item);
+
+        // Emit content without ref in original order, then style/other
+        for (const cell of contentWithoutRef) {
+            newCells.push(cell);
+            const parentId = cell.metadata?.id;
+            if (parentId) {
+                const paratextCells = paratextByParentId.get(parentId);
+                if (paratextCells) {
+                    for (const pt of paratextCells) newCells.push(pt);
+                }
+            }
+        }
+        for (const cell of styleOrOther) newCells.push(cell);
+
+        // Check if order or content changed
+        const oldIds = cells.map((c) => c.metadata?.id ?? "").join(",");
+        const newIds = newCells.map((c) => c.metadata?.id ?? "").join(",");
+        const orderChanged = oldIds !== newIds;
+        if (orderChanged || hasChanges) {
+            notebookData.cells = newCells;
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error(`Error migrating verse range labels/positions for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Migration: Fix verse-range cell positions (after chapter milestone, in verse order) and set
+ * cellLabel for verse-range refs. Runs on both .codex and .source files. Idempotent.
+ */
+export const migration_verseRangeLabelsAndPositions = async (
+    context?: vscode.ExtensionContext
+): Promise<void> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+        const migrationKey = "verseRangeLabelsAndPositionsMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+        if (hasMigrationRun) {
+            debug("Verse range labels/positions migration already completed, skipping");
+            return;
+        }
+
+        debug("Running verse range labels/positions migration...");
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch {
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Fixing verse range labels and positions",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: path.basename(file.fsPath),
+                        increment: 100 / allFiles.length,
+                    });
+                    try {
+                        const wasMigrated = await migrateVerseRangeLabelsAndPositionsForFile(file);
+                        processedFiles++;
+                        if (wasMigrated) migratedFiles++;
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+        debug(
+            `Verse range labels/positions migration completed: ${processedFiles} files processed, ${migratedFiles} migrated`
+        );
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Verse range migration complete: ${migratedFiles} files updated`
+            );
+        }
+    } catch (error) {
+        console.error("Error running verse range labels/positions migration:", error);
+    }
+};
 
 /**
  * Migration: Convert all cell IDs to UUID format using SHA-256 hash of original ID.
