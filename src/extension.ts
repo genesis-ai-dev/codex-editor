@@ -19,6 +19,7 @@ import {
     migration_addMilestoneCells,
     migration_reorderMisplacedParatextCells,
     migration_addGlobalReferences,
+    migration_verseRangeLabelsAndPositions,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
 } from "./projectManager/utils/migrationUtils";
@@ -623,6 +624,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_addMilestoneCells(context);
         await migration_reorderMisplacedParatextCells(context);
         await migration_addGlobalReferences(context);
+        await migration_verseRangeLabelsAndPositions(context);
         await migration_cellIdsToUuid(context);
         await migration_recoverTempFilesAndMergeDuplicates(context);
 

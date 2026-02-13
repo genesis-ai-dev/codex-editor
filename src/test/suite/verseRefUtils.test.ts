@@ -3,6 +3,8 @@ import {
     extractVerseRefFromLine,
     getVerseRefFromCellMetadata,
     verseRefRegex,
+    parseVerseRef,
+    getSortKeyFromParsedRef,
 } from "../../utils/verseRefUtils";
 
 suite("verseRefUtils Test Suite", () => {
@@ -121,6 +123,23 @@ suite("verseRefUtils Test Suite", () => {
             );
         });
 
+        test("returns verse-range ref from globalReferences (JHN 4:1-3)", () => {
+            assert.strictEqual(
+                getVerseRefFromCellMetadata({
+                    id: "uuid",
+                    data: { globalReferences: ["JHN 4:1-3"] },
+                }),
+                "JHN 4:1-3"
+            );
+            assert.strictEqual(
+                getVerseRefFromCellMetadata({
+                    id: "uuid",
+                    data: { globalReferences: ["JHN 4:7-8"] },
+                }),
+                "JHN 4:7-8"
+            );
+        });
+
         test("trims bookCode when building from bookCode/chapter/verse", () => {
             assert.strictEqual(
                 getVerseRefFromCellMetadata({
@@ -137,6 +156,52 @@ suite("verseRefUtils Test Suite", () => {
         test("matches 3-char book code and chapter:verse", () => {
             assert.ok(verseRefRegex.test("MAT 1:1"));
             assert.ok(verseRefRegex.test("GEN 2:3"));
+        });
+    });
+
+    suite("parseVerseRef", () => {
+        test("parses single verse (BOOK C:V)", () => {
+            const r = parseVerseRef("JHN 4:4");
+            assert.ok(r && r.kind === "single");
+            assert.strictEqual(r.book, "JHN");
+            assert.strictEqual(r.chapter, 4);
+            assert.strictEqual(r.verse, 4);
+            assert.strictEqual(r.cellLabel, "4");
+        });
+
+        test("parses verse range (BOOK C:V1-V2)", () => {
+            const r = parseVerseRef("JHN 4:1-3");
+            assert.ok(r && r.kind === "range");
+            assert.strictEqual(r.book, "JHN");
+            assert.strictEqual(r.chapter, 4);
+            assert.strictEqual(r.verseStart, 1);
+            assert.strictEqual(r.verseEnd, 3);
+            assert.strictEqual(r.cellLabel, "1-3");
+        });
+
+        test("parses verse range 4:7-8", () => {
+            const r = parseVerseRef("JHN 4:7-8");
+            assert.ok(r && r.kind === "range");
+            assert.strictEqual(r.cellLabel, "7-8");
+        });
+
+        test("returns null for invalid or empty", () => {
+            assert.strictEqual(parseVerseRef(""), null);
+            assert.strictEqual(parseVerseRef("not a ref"), null);
+        });
+    });
+
+    suite("getSortKeyFromParsedRef", () => {
+        test("single verse returns book, chapter, verse", () => {
+            const r = parseVerseRef("JHN 4:4")!;
+            const key = getSortKeyFromParsedRef(r);
+            assert.deepStrictEqual(key, { book: "JHN", chapter: 4, verse: 4 });
+        });
+
+        test("verse range uses verseStart as verse", () => {
+            const r = parseVerseRef("JHN 4:1-3")!;
+            const key = getSortKeyFromParsedRef(r);
+            assert.deepStrictEqual(key, { book: "JHN", chapter: 4, verse: 1 });
         });
     });
 });
