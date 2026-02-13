@@ -47,10 +47,10 @@ function ref(ref: string) {
     return { data: { globalReferences: [ref] } };
 }
 
-describe("migrateVerseRangeLabelsAndPositionsForFile", () => {
+suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
     let testFiles: vscode.Uri[] = [];
 
-    afterEach(async () => {
+    teardown(async () => {
         for (const uri of testFiles) {
             try {
                 await vscode.workspace.fs.delete(uri);
@@ -61,7 +61,7 @@ describe("migrateVerseRangeLabelsAndPositionsForFile", () => {
         testFiles = [];
     });
 
-    it("should move verse-range cell (4:1-3) after milestone and set cellLabel", async () => {
+    test("should move verse-range cell (4:1-3) after milestone and set cellLabel", async () => {
         const id1 = randomUUID();
         const id3 = randomUUID();
         const milestoneId = randomUUID();
@@ -115,7 +115,7 @@ describe("migrateVerseRangeLabelsAndPositionsForFile", () => {
         assert.strictEqual(third.metadata?.cellLabel, "4");
     });
 
-    it("should set cellLabel for mid-chapter verse range (4:7-8)", async () => {
+    test("should set cellLabel for mid-chapter verse range (4:7-8)", async () => {
         const id6 = randomUUID();
         const id78 = randomUUID();
         const id9 = randomUUID();
@@ -179,7 +179,7 @@ describe("migrateVerseRangeLabelsAndPositionsForFile", () => {
         );
     });
 
-    it("should be idempotent - running twice should not change result", async () => {
+    test("should be idempotent - running twice should not change result", async () => {
         const milestoneId = randomUUID();
         const id1 = randomUUID();
         const id2 = randomUUID();
@@ -228,7 +228,7 @@ describe("migrateVerseRangeLabelsAndPositionsForFile", () => {
         assert.strictEqual(cell13?.metadata?.cellLabel, "1-3");
     });
 
-    it("should handle empty file gracefully", async () => {
+    test("should handle empty file gracefully", async () => {
         const uri = await createTempNotebookFile(".codex", []);
         testFiles.push(uri);
 
@@ -238,7 +238,7 @@ describe("migrateVerseRangeLabelsAndPositionsForFile", () => {
         assert.strictEqual(data.cells.length, 0);
     });
 
-    it("should process .source file same as .codex", async () => {
+    test("should process .source file same as .codex", async () => {
         const id1 = randomUUID();
         const id2 = randomUUID();
         const milestoneId = randomUUID();
