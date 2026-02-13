@@ -104,6 +104,11 @@ type GlobalContentType =
     | {
         type: "commentsFileChanged";
         timestamp: string;
+    }
+    | {
+        type: "audioPlaying";
+        webviewType: "source" | "target";
+        isPlaying: boolean;
     };
 
 interface GlobalMessage {
@@ -197,13 +202,6 @@ interface SelectedTextDataWithContext {
     selectedText: string | null;
     verseNotes: string | null;
     verseGraphData: any;
-}
-
-interface TimeBlock {
-    begin: number;
-    end: number;
-    text: string;
-    id: string;
 }
 
 type ChatPostMessages =
@@ -535,6 +533,7 @@ type EditorCellContent = {
     cellLabel?: string;
     uri?: string;
     cellTimestamps?: Timestamps;
+    cellAudioTimestamps?: Timestamps;
 };
 
 interface EditHistoryEntry {
@@ -572,6 +571,7 @@ export type EditorPostMessages =
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
+    | { command: "updateCellAudioTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
     | { command: "addWord"; words: string[]; }
     | { command: "getAlertCodes"; content: GetAlertCodes; }
@@ -677,6 +677,7 @@ export type EditorPostMessages =
     | { command: "triggerSync"; }
     // removed: requestAudioAttachments
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
+    | { command: "requestCellAudioTimestamps"; content: { cellId: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
     | { command: "openCommentsForCell"; content: { cellId: string; }; }
@@ -918,6 +919,8 @@ type CodexData = Timestamps & {
     originalText?: string;
     globalReferences?: string[]; // Array of cell IDs in original format (e.g., "GEN 1:1") used for header generation
     milestoneIndex?: number | null; // 0-based milestone index for O(1) lookup (null if no milestone)
+    audioStartTime?: number;
+    audioEndTime?: number;
 };
 
 type BaseCustomCellMetaData = {
@@ -1121,6 +1124,7 @@ interface QuillCellContent {
     cellType: CodexCellTypes;
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
+    audioTimestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;
     deleted?: boolean;
@@ -2352,6 +2356,13 @@ type EditorReceiveMessages =
                 language?: string;
             };
             fileModified?: number; // File modification timestamp for cache validation
+        };
+    }
+    | {
+        type: "providerSendsCellAudioTimestamps";
+        content: {
+            cellId: string;
+            audioTimestamps?: Timestamps;
         };
     }
     | {
