@@ -27,7 +27,6 @@ import { SearchManager, SearchAlgorithmType } from "../searchAlgorithms";
 import { initializeFilesIndex, getFilePairs, getWordCountStats, FileInfo } from "./filesIndex";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
-import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
@@ -392,8 +391,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     if (previousRebuildWasInterrupted) {
         console.log("[Index] Previous rebuild was interrupted — will run sync check regardless of health");
     }
-    // Now reset the flag so a new rebuild can track its own progress
-    rebuildState.rebuildInProgress = false;
+    // Now reset the flag so a new rebuild can track its own progress.
+    // Must persist to globalState — otherwise next startup still sees true.
+    updateRebuildState({ rebuildInProgress: false });
 
     // Check database health and determine if rebuild is needed
     const currentDocCount = await translationPairsIndex.getDocumentCount();

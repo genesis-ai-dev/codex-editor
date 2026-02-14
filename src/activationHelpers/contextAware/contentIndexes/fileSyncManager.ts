@@ -5,7 +5,7 @@ import { FileData, readSourceAndTargetFiles } from "./indexes/fileReaders";
 import { CodexCellTypes } from "../../../../types/enums";
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
-    DEBUG_MODE && debug(`[FileSyncManager] ${message}`, ...args);
+    DEBUG_MODE && console.log(`[FileSyncManager] ${message}`, ...args);
 };
 
 export interface FileSyncResult {
@@ -166,7 +166,7 @@ export class FileSyncManager {
                     })
                 );
 
-                // Collect successfully-read files; log failures
+                // Collect successfully-read files; log failures with their actual file paths
                 const readyFiles: Array<{
                     fileData: FileData;
                     filePath: string;
@@ -174,22 +174,26 @@ export class FileSyncManager {
                     contentHash: string;
                 }> = [];
 
-                for (const result of readResults) {
+                for (let i = 0; i < readResults.length; i++) {
+                    const result = readResults[i];
                     if (result.status === 'fulfilled') {
                         readyFiles.push(result.value);
                     } else {
-                        errors.push({ file: 'unknown', error: String(result.reason) });
+                        errors.push({ file: batch[i].id, error: String(result.reason) });
                     }
                 }
 
-                // Phase 2: Write all read files to the database in a single transaction
+                // Phase 2: Write all read files to the database in a single transaction.
+                // Track a local counter so we only credit syncedFiles after the commit
+                // succeeds — a rollback means nothing was actually persisted.
                 if (readyFiles.length > 0) {
+                    let batchSynced = 0;
                     try {
                         await this.sqliteIndex.runInTransaction(async () => {
                             for (const { fileData, filePath, fileStat, contentHash } of readyFiles) {
                                 try {
                                     await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
-                                    syncedFiles++;
+                                    batchSynced++;
                                     debug(`[FileSyncManager] Synced file: ${fileData.id}`);
                                 } catch (error) {
                                     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -197,8 +201,10 @@ export class FileSyncManager {
                                 }
                             }
                         });
+                        // Transaction committed — count these files
+                        syncedFiles += batchSynced;
                     } catch (txError) {
-                        // If the whole transaction fails, mark all files as errored
+                        // Transaction rolled back — none of these files were committed
                         const errorMsg = txError instanceof Error ? txError.message : String(txError);
                         for (const { fileData } of readyFiles) {
                             errors.push({ file: fileData.id, error: errorMsg });

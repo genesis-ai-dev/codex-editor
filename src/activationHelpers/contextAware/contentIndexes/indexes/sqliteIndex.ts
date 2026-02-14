@@ -293,6 +293,7 @@ export class SQLiteIndexManager {
         await this.db.exec("PRAGMA cache_size = -64000");       // 64MB cache
         await this.db.exec("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
 
+        try {
         // Batch all schema creation in a single transaction for massive speedup
         await this.runInTransaction(async () => {
             // Create all tables in batch
@@ -459,11 +460,16 @@ export class SQLiteIndexManager {
             `);
         });
 
-        // Restore normal database settings for production use (OUTSIDE of transaction)
-        debug("Restoring production database settings...");
-        await this.db.exec("PRAGMA synchronous = NORMAL");      // Restore safe sync mode
-        await this.db.exec("PRAGMA foreign_keys = ON");         // Re-enable foreign key constraints
-        await this.db.exec("PRAGMA cache_size = -8000");        // Reasonable cache size (8MB)
+        } finally {
+            // Always restore production PRAGMAs, even if schema creation threw.
+            // Leaving synchronous=OFF or foreign_keys=OFF would compromise data safety.
+            if (this.db) {
+                debug("Restoring production database settings...");
+                await this.db.exec("PRAGMA synchronous = NORMAL");
+                await this.db.exec("PRAGMA foreign_keys = ON");
+                await this.db.exec("PRAGMA cache_size = -8000");
+            }
+        }
 
         const schemaEndTime = globalThis.performance.now();
         const totalTime = schemaEndTime - schemaStart;
@@ -629,7 +635,8 @@ export class SQLiteIndexManager {
                 "SELECT version FROM schema_info WHERE id = 1 LIMIT 1"
             );
             return versionRow?.version ?? -1;
-        } catch {
+        } catch (error) {
+            console.warn("[SQLiteIndex] Failed to read schema version:", error);
             return -1;
         }
     }
@@ -1108,7 +1115,7 @@ export class SQLiteIndexManager {
         return;
     }
 
-    // Remove all documents
+    // Remove all documents and sync metadata
     async removeAll(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -1119,8 +1126,10 @@ export class SQLiteIndexManager {
             await this.db!.run("DELETE FROM words");
             await this.db!.run("DELETE FROM cells");
             await this.db!.run("DELETE FROM files");
+            // Also clear sync_metadata so checkFilesForSync doesn't think
+            // files are already synced after a removeAll + re-sync.
+            await this.db!.run("DELETE FROM sync_metadata");
         });
-
     }
 
     // Get document count

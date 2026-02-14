@@ -4312,6 +4312,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
      * Perform project deletion
      */
     private async performProjectDeletion(projectPath: string, projectName: string): Promise<void> {
+        // Close the SQLite index database before deleting the project folder to prevent
+        // writing to an orphaned file descriptor (same guard as swap and update).
+        try {
+            const { clearSQLiteIndexManager } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+            );
+            await clearSQLiteIndexManager();
+            debugLog("SQLite index manager closed before project deletion");
+        } catch (e) {
+            debugLog("Warning: could not close SQLite index manager before deletion:", e);
+        }
+
         try {
             // Use vscode.workspace.fs.delete with the recursive flag
             const projectUri = vscode.Uri.file(projectPath);
