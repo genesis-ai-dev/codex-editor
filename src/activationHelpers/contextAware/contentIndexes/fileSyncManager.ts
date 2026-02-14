@@ -254,12 +254,35 @@ export class FileSyncManager {
                 // Calculate logical line positions for all non-paratext cells (1-indexed)
                 let logicalLinePosition = 1;
 
+                // Extract book name from file path (filename without extension)
+                // e.g., "/path/to/GEN.codex" -> "GEN"
+                const fileName = filePath.split('/').pop() || '';
+                const bookName = fileName.replace(/\.(codex|source)$/i, '');
+
+                // Track chapter (milestone) and position within chapter for labels
+                let currentChapter = 0; // Will be set to 1 when first milestone is encountered
+                let positionInChapter = 0; // Reset on each new chapter
+
                 // Process all cells in the file using sync operations
-                for (const cell of fileData.cells) {
-                    const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
-                    const isParatext = cell.metadata?.type === "paratext";
+                for (let cellIndex = 0; cellIndex < fileData.cells.length; cellIndex++) {
+                    const cell = fileData.cells[cellIndex];
+                    const cellId = cell.metadata?.id || `${fileData.id}_${cellIndex}`;
+                    const isParatext = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.PARATEXT;
                     const isMilestone = cell.metadata?.type === CodexCellTypes.MILESTONE;
+                    const isStyle = cell.metadata?.type === CodexCellTypes.STYLE;
                     const hasContent = cell.value && cell.value.trim() !== "";
+
+                    // When we hit a milestone, increment chapter and reset position
+                    if (isMilestone) {
+                        currentChapter++;
+                        positionInChapter = 0;
+                        continue; // Don't index milestone cells themselves
+                    }
+
+                    // Skip non-content cells - don't index paratext or style cells
+                    if (isParatext || isStyle) {
+                        continue;
+                    }
 
                     // Check if this is a child cell (has parentId in metadata)
                     const isChildCell = cell.metadata?.parentId !== undefined;
@@ -267,7 +290,15 @@ export class FileSyncManager {
                     // Calculate line number for database storage
                     let lineNumberForDB: number | null = null;
 
-                    if (!isParatext && !isMilestone && !isChildCell) {
+                    // Compute cell label as "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
+                    // Only increment position for non-child cells
+                    let cellLabel: string | null = null;
+                    if (!isChildCell) {
+                        positionInChapter++;
+                        // Use chapter 1 if no milestone encountered yet
+                        const chapterNum = currentChapter > 0 ? currentChapter : 1;
+                        cellLabel = `${bookName} ${chapterNum}:${positionInChapter}`;
+
                         if (fileType === 'source') {
                             // Source cells: always store line numbers (they should always have content)
                             lineNumberForDB = logicalLinePosition;
@@ -280,11 +311,11 @@ export class FileSyncManager {
                             // If no content, lineNumberForDB stays null but logical position still increments
                         }
 
-                        // Always increment logical position for non-paratext, non-milestone, non-child cells
+                        // Always increment logical position for non-child cells
                         // This ensures stable line numbering even as cells get translated
                         logicalLinePosition++;
                     }
-                    // Paratext, milestone, and child cells: no line numbers, no position increment
+                    // Child cells: no line numbers, no position increment, no label
 
                     this.sqliteIndex.upsertCellSync(
                         cellId,
@@ -293,7 +324,9 @@ export class FileSyncManager {
                         cell.value,
                         lineNumberForDB ?? undefined, // Convert null to undefined for method signature compatibility
                         cell.metadata,
-                        cell.value // raw content same as value for now
+                        cell.value, // raw content same as value for now
+                        null, // milestone index (no longer used)
+                        cellLabel // cell label e.g., "GEN → 42"
                     );
                 }
 

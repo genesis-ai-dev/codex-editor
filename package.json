@@ -29,6 +29,24 @@
     "contributes": {
         "keybindings": [
             {
+                "command": "codex-editor-extension.toggleInTabSearch",
+                "key": "ctrl+f",
+                "mac": "cmd+f",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesAllFiles",
+                "key": "ctrl+shift+f",
+                "mac": "cmd+shift+f",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesWithReplace",
+                "key": "ctrl+shift+r",
+                "mac": "cmd+shift+r",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
                 "key": "cmd+shift+s",
                 "command": "codex-editor.preventSaveAs",
                 "when": "activeCustomEditorId == 'codex.cellEditor'"
@@ -471,6 +489,21 @@
                 "command": "codex-editor-extension.navigateToCellInComments",
                 "title": "Navigate to Cell in Comments",
                 "category": "Codex Comments"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesWithReplace",
+                "title": "Open Parallel Passages with Replace",
+                "category": "Codex Search"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesCurrentFile",
+                "title": "Search in Current File",
+                "category": "Codex Search"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesAllFiles",
+                "title": "Search in All Files",
+                "category": "Codex Search"
             }
         ],
         "configuration": [

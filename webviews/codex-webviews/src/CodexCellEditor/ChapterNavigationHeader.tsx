@@ -189,9 +189,10 @@ ChapterNavigationHeaderProps) {
     // Total navigation units (milestones)
     const totalNavigationUnits = milestoneIndex?.milestones.length || 0;
 
-    // Check if navigation buttons should be disabled (only 1 milestone and 1 subsection)
+    // Check if navigation buttons should be disabled (0-1 milestones and 0-1 subsections)
     const shouldDisableNavigation = useMemo(() => {
-        return !!(milestoneIndex?.milestones.length === 1 && subsections.length <= 1);
+        const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+        return milestoneCount === 0 || (milestoneCount === 1 && subsections.length <= 1);
     }, [milestoneIndex?.milestones.length, subsections.length]);
 
     // Helper to determine if any translation is in progress
@@ -591,6 +592,12 @@ ChapterNavigationHeaderProps) {
     // Navigation function for milestone-based navigation
     const jumpToMilestone = useCallback(
         (newMilestoneIdx: number, newSubsectionIdx: number = 0) => {
+            // Validate milestone index to prevent -1 or out-of-bounds requests
+            const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+            if (newMilestoneIdx < 0 || newMilestoneIdx >= milestoneCount) {
+                console.warn(`[jumpToMilestone] Invalid milestone index: ${newMilestoneIdx}, total: ${milestoneCount}`);
+                return;
+            }
             if (
                 !unsavedChanges &&
                 (newMilestoneIdx !== currentMilestoneIndex ||
@@ -601,7 +608,7 @@ ChapterNavigationHeaderProps) {
                 requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
             }
         },
-        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone]
+        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone, milestoneIndex?.milestones.length]
     );
 
     // Use dynamic responsive state variables based on content overflow
