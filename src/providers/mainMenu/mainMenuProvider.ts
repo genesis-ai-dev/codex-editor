@@ -22,13 +22,6 @@ import { manualUpdateCheck } from "../../utils/updateChecker";
 import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
-const DEBUG_MODE = false; // Set to true to enable debug logging
-
-function debugLog(...args: any[]): void {
-    if (DEBUG_MODE) {
-        console.log("[MainMenuProvider]", ...args);
-    }
-}
 
 class ProjectManagerStore {
     private preflightState: ProjectManagerState = {
@@ -603,7 +596,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "downloadSourceText":
             case "openAISettings":
             case "openSourceUpload":
-            case "toggleSpellcheck":
             case "openExportView":
             case "openLicenseSettings":
                 await this.executeCommandAndNotify(message.command);

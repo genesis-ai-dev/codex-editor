@@ -66,6 +66,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _cachedFileId: number | null = null;
     private _indexManager = getSQLiteIndexManager();
 
+    // Track cell IDs that have been modified since last save to avoid re-indexing ALL cells.
+    // Only cells in this set will be synced to the database on save.
+    private _dirtyCellIds: Set<string> = new Set();
+
     // Cache for milestone index to avoid rebuilding on every call
     private _cachedMilestoneIndex: MilestoneIndex | null = null;
     private _cachedMilestoneIndexCellsPerPage: number | null = null;
@@ -344,6 +348,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
             // If the UI needs to reflect the preview, it should use a separate webview-only channel.
             this._isDirty = true;
+            this._dirtyCellIds.add(cellId);
             // Notify both VS Code and the webview that edits changed, so the provider can mark dirty and VS Code can autosave
             this._onDidChangeForVsCodeAndWebview.fire({
                 edits: [{ cellId, newContent, editType }],
@@ -459,6 +464,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newContent, editType }],
         });
@@ -486,7 +492,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
             .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, ''); // Remove any remaining sup tags
 
-        // Step 2: Remove spell check markup and other unwanted elements
+        // Step 2: Remove suggestion markup and other unwanted elements
+        // (The spell-check regex strips legacy elements with "spell-check" CSS classes)
         cleanContent = cleanContent
             .replace(/<[^>]*class=["'][^"']*spell-check[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '')
             .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -712,8 +719,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Record save timestamp to prevent file watcher from reverting our own save
         this._lastSaveTimestamp = Date.now();
 
-        // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
-        await this.syncAllCellsToDatabase();
+        // Sync only modified cells to the database (not all 1000+ cells)
+        await this.syncDirtyCellsToDatabase();
 
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
@@ -728,11 +735,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const text = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
         await atomicWriteUriText(targetResource, text);
 
-        // IMMEDIATE AI LEARNING for non-backup saves
+        // Sync only modified cells for non-backup saves
         if (!backup) {
             // Record save timestamp to prevent file watcher from reverting our own save
             this._lastSaveTimestamp = Date.now();
-            await this.syncAllCellsToDatabase();
+            await this.syncDirtyCellsToDatabase();
             this._isDirty = false; // Reset dirty flag
         }
     }
@@ -745,6 +752,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this.invalidateMilestoneIndexCache();
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
+        this._dirtyCellIds.clear(); // Discard stale dirty IDs — document is back to saved state
         this._onDidChangeForWebview.fire({
             content: this.getText(),
             edits: [],
@@ -899,6 +907,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, timestamps }],
         });
@@ -973,6 +982,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, deleted: true }],
         });
@@ -1038,6 +1048,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(newCellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ newCellId, referenceCellId, cellType, data }],
         });
@@ -1379,31 +1390,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return;
         }
 
-        await this._indexManager.runInTransaction(() => {
-            // Prepare UPDATE statement once, reuse for all cells
-            const updateStatement = db.prepare(`
-                UPDATE cells 
-                SET milestone_index = ?
-                WHERE cell_id = ?
-            `);
+        await this._indexManager.runInTransaction(async () => {
+            // Update milestone_index for all cells
+            for (const cell of cells) {
+                const cellId = cell.metadata?.id;
+                if (!cellId) continue;
 
-            try {
-                for (const cell of cells) {
-                    const cellId = cell.metadata?.id;
-                    if (!cellId) continue;
+                const milestoneIndex = cell.metadata?.data?.milestoneIndex;
 
-                    const milestoneIndex = cell.metadata?.data?.milestoneIndex;
-
-                    // Execute UPDATE statement
-                    updateStatement.bind([
-                        milestoneIndex !== undefined ? milestoneIndex : null,
-                        cellId
-                    ]);
-                    updateStatement.step();
-                    updateStatement.reset();
-                }
-            } finally {
-                updateStatement.free();
+                // Execute UPDATE statement
+                await db.run(`
+                    UPDATE cells 
+                    SET milestone_index = ?
+                    WHERE cell_id = ?
+                `, [
+                    milestoneIndex !== undefined ? milestoneIndex : null,
+                    cellId
+                ]);
             }
         });
 
@@ -2094,6 +2097,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
         });
@@ -2173,6 +2177,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, isLocked }],
         });
@@ -2315,6 +2320,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2424,6 +2430,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2518,6 +2525,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     );
                     edit.validatedBy = finalValidatedBy;
                     changesDetected = true;
+                    if (cell.metadata?.id) {
+                        this._dirtyCellIds.add(cell.metadata.id);
+                    }
                 }
             }
         }
@@ -2805,6 +2815,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
 
         // Emit change events
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2876,6 +2887,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -2923,6 +2935,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3049,6 +3062,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3099,6 +3113,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3136,6 +3151,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3177,6 +3193,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     delete cell.metadata.selectedAudioId;
                     delete cell.metadata.selectionTimestamp;
                     hasChanges = true;
+                    if (cell.metadata?.id) {
+                        this._dirtyCellIds.add(cell.metadata.id);
+                    }
                 }
             }
 
@@ -3230,6 +3249,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3244,9 +3264,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
 
-    // Add method to sync all cells to database without modifying content
-    private async syncAllCellsToDatabase(): Promise<void> {
+    // Sync only dirty (modified) cells to the database on save.
+    // Previously this synced ALL cells on every save, causing ~390MB of disk writes
+    // for a single character edit (1,596 cells × full FTS5 upsert each).
+    // Now it only syncs cells that were actually modified since the last save.
+    private async syncDirtyCellsToDatabase(): Promise<void> {
         try {
+            // Snapshot and clear the dirty set immediately so edits during sync
+            // are captured in the next save cycle
+            const dirtyIds = new Set(this._dirtyCellIds);
+            this._dirtyCellIds.clear();
+
+            if (dirtyIds.size === 0) {
+                debug(`[CodexDocument] No dirty cells to sync — skipping database update`);
+                return;
+            }
+
             if (!this._indexManager) {
                 this._indexManager = getSQLiteIndexManager();
                 if (!this._indexManager) {
@@ -3269,12 +3302,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             let syncedCells = 0;
             let syncedValidations = 0;
 
-            // Process each cell, including those with audio-only validations
+            // Only process cells that were modified since the last save
             for (const cell of this._documentData.cells!) {
                 const cellId = cell.metadata?.id;
 
-                if (!cellId || !this._documentData.cells) {
-                    console.warn(`[CodexDocument] Skipping cell without valid ID or cells array`);
+                if (!cellId || !dirtyIds.has(cellId)) {
                     continue;
                 }
 
@@ -3374,10 +3406,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     syncedCells++;
                 } catch (error) {
                     console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
+                    // Re-add the failed cell so it is retried on the next save
+                    this._dirtyCellIds.add(cellId);
                 }
             }
 
-            debug(`[CodexDocument] ✅ AI knowledge updated: AI learned from ${syncedCells} cells, ${syncedValidations} cells with validation data`);
+            debug(`[CodexDocument] AI knowledge updated: synced ${syncedCells} dirty cells (of ${dirtyIds.size} marked), ${syncedValidations} with validation data`);
 
         } catch (error) {
             console.error(`[CodexDocument] Error during AI learning:`, error);

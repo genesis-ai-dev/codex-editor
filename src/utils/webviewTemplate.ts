@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
+import { getNonce } from "./getNonce";
 
 interface WebviewTemplateOptions {
     title?: string;

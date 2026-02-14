@@ -349,17 +349,6 @@ suite("editMapUtils Test Suite", () => {
             assert.deepStrictEqual(languagesEdit!.value, languagesValue, "Should have correct languages value");
         });
 
-        test("should use correct editMap for spellcheckIsEnabled", () => {
-            const metadata: { edits?: ProjectEditHistory<["spellcheckIsEnabled"]>[]; } = {};
-            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, "test-author");
-
-            const edits = metadata.edits!;
-            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled())), "Should have spellcheckIsEnabled editMap");
-            const spellcheckEdit = edits.find((e) => EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled()));
-            assert.ok(spellcheckEdit, "Should find spellcheckIsEnabled edit");
-            assert.strictEqual(spellcheckEdit!.value, true, "Should have correct spellcheckIsEnabled value");
-        });
-
         test("should deduplicate identical edits", () => {
             const metadata: { edits?: ProjectEditHistory<["projectName"]>[]; } = {};
             const testProjectName = "Test Project";
@@ -382,7 +371,7 @@ suite("editMapUtils Test Suite", () => {
             assert.strictEqual(metadata.edits!.length, 2, "Should have two edits before deduplication");
 
             // Add another edit which will trigger deduplication
-            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+            addProjectMetadataEdit(metadata, EditMapUtils.languages(), ["en"], testAuthor);
 
             // Should have deduplicated the duplicate projectName edit
             const projectNameEdits = metadata.edits!.filter((e) =>
@@ -415,7 +404,7 @@ suite("editMapUtils Test Suite", () => {
                     });
 
                     // Trigger deduplication
-                    addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+                    addProjectMetadataEdit(metadata, EditMapUtils.languages(), ["en"], testAuthor);
 
                     const projectNameEdits = metadata.edits!.filter((e) =>
                         EditMapUtils.equals(e.editMap, EditMapUtils.projectName())
@@ -445,7 +434,7 @@ suite("editMapUtils Test Suite", () => {
             });
 
             // Trigger deduplication
-            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+            addProjectMetadataEdit(metadata, EditMapUtils.languages(), ["en"], testAuthor);
 
             const projectNameEdits = metadata.edits!.filter((e) =>
                 EditMapUtils.equals(e.editMap, EditMapUtils.projectName())
@@ -461,13 +450,13 @@ suite("editMapUtils Test Suite", () => {
 
             addProjectMetadataEdit(metadata, EditMapUtils.projectName(), "Test Project", testAuthor);
             addProjectMetadataEdit(metadata, EditMapUtils.languages(), ["en", "fr"], testAuthor);
-            addProjectMetadataEdit(metadata, EditMapUtils.spellcheckIsEnabled(), true, testAuthor);
+            addProjectMetadataEdit(metadata, EditMapUtils.metaField("validationCount"), 5, testAuthor);
 
             const edits = metadata.edits!;
             assert.strictEqual(edits.length, 3, "Should preserve edits with different editMaps");
             assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.projectName())), "Should have projectName edit");
             assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.languages())), "Should have languages edit");
-            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled())), "Should have spellcheckIsEnabled edit");
+            assert.ok(edits.some((e) => EditMapUtils.equals(e.editMap, EditMapUtils.metaField("validationCount"))), "Should have meta.validationCount edit");
         });
     });
 

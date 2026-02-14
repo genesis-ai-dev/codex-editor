@@ -5,12 +5,6 @@ import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
 import { NavigationCell, getCorrespondingSourceUri, getCorrespondingCodexUri } from "./codexNotebookUtils";
 // import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
-import {
-    deserializeDictionaryEntries,
-    serializeDictionaryEntries,
-    repairDictionaryContent,
-} from "./dictionaryUtils/common";
-import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/client";
 import { CustomNotebookCellData, CustomNotebookMetadata } from "../../types";
 import { getWorkSpaceUri } from "./index";
 import { getCorpusMarkerForBook } from "../../sharedUtils/corpusUtils";

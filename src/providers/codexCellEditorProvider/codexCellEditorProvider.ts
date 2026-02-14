@@ -26,7 +26,7 @@ import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getNonce } from "../../utils/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";

@@ -27,21 +27,20 @@ export function normalizeUri(uri: string): string {
     }
 }
 
-export function searchTargetCellsByQuery(
+export async function searchTargetCellsByQuery(
     translationPairsIndex: IndexType,
     query: string,
     k: number = 5,
     fuzziness: number = 0.2
 ) {
-    return translationPairsIndex
-        .search(query, {
-            fields: ["targetContent"],
-            combineWith: "OR",
-            prefix: true,
-            fuzzy: fuzziness,
-            boost: { targetContent: 2, cellId: 1 },
-        })
-        .slice(0, k);
+    const results = await translationPairsIndex.search(query, {
+        fields: ["targetContent"],
+        combineWith: "OR",
+        prefix: true,
+        fuzzy: fuzziness,
+        boost: { targetContent: 2, cellId: 1 },
+    });
+    return results.slice(0, k);
 }
 
 export async function getSourceCellByCellIdFromAllSourceCells(
@@ -301,12 +300,12 @@ export async function getTranslationPairsFromSourceCellQuery(
     return translationPairs;
 }
 
-export function handleTextSelection(translationPairsIndex: IndexType, selectedText: string) {
-    return searchTargetCellsByQuery(translationPairsIndex, selectedText);
+export async function handleTextSelection(translationPairsIndex: IndexType, selectedText: string) {
+    return await searchTargetCellsByQuery(translationPairsIndex, selectedText);
 }
 
 
-export function searchSimilarCellIds(
+export async function searchSimilarCellIds(
     translationPairsIndex: IndexType,
     cellId: string,
     k: number = 5,
@@ -315,14 +314,14 @@ export function searchSimilarCellIds(
     // Parse the input cellId into book and chapter
     const match = cellId.match(/^(\w+)\s*(\d+)/);
     if (!match) {
-        return translationPairsIndex
-            .search(cellId, {
-                fields: ["cellId"],
-                combineWith: "OR",
-                prefix: true,
-                fuzzy: fuzziness,
-                boost: { cellId: 2 },
-            })
+        const results = await translationPairsIndex.search(cellId, {
+            fields: ["cellId"],
+            combineWith: "OR",
+            prefix: true,
+            fuzzy: fuzziness,
+            boost: { cellId: 2 },
+        });
+        return results
             .slice(0, k)
             .map((result: any) => ({
                 cellId: result.cellId,
@@ -332,12 +331,12 @@ export function searchSimilarCellIds(
 
     // Search for exact book+chapter prefix (e.g., "GEN 2")
     const bookChapterPrefix = match[0];
-    return translationPairsIndex
-        .search(bookChapterPrefix, {
-            fields: ["cellId"],
-            prefix: true,
-            combineWith: "AND",
-        })
+    const results = await translationPairsIndex.search(bookChapterPrefix, {
+        fields: ["cellId"],
+        prefix: true,
+        combineWith: "AND",
+    });
+    return results
         .slice(0, k)
         .map((result: any) => ({
             cellId: result.cellId,
@@ -470,14 +469,14 @@ export async function searchAllCells(
         // Add incomplete pairs (source-only cells) if requested
         if (includeIncomplete) {
             const existingIds = new Set(results.map((r) => r.cellId));
-            const sourceOnlyCells = sourceTextIndex
-                .search(query, {
-                    fields: ["content"],
-                    combineWith: "OR",
-                    prefix: true,
-                    fuzzy: 0.2,
-                    boost: { content: 2 },
-                })
+            const sourceSearchResults = await sourceTextIndex.search(query, {
+                fields: ["content"],
+                combineWith: "OR",
+                prefix: true,
+                fuzzy: 0.2,
+                boost: { content: 2 },
+            });
+            const sourceOnlyCells = sourceSearchResults
                 .filter((result: any) => {
                     // Skip if already in results
                     if (existingIds.has(result.cellId)) return false;

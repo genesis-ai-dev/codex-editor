@@ -20,10 +20,18 @@ export function setSQLiteIndexManager(manager: SQLiteIndexManager): void {
 }
 
 /**
- * Clear the global SQLite index manager instance
- * This should be called during extension deactivation
+ * Clear the global SQLite index manager instance.
+ * Closes the underlying database connection before releasing the reference.
+ * This should be called during extension deactivation.
  */
-export function clearSQLiteIndexManager(): void {
+export async function clearSQLiteIndexManager(): Promise<void> {
+    if (globalIndexManager) {
+        try {
+            await globalIndexManager.close();
+        } catch (e) {
+            console.error("[SQLiteIndexManager] Error closing index manager during cleanup:", e);
+        }
+    }
     globalIndexManager = null;
 }
 

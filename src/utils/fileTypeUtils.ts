@@ -5,7 +5,6 @@ import { FileType } from '../../types';
 export type FileTypeMap = {
     codex: string;
     source: string;
-    dictionary: string;
     tsv: string;
 };
 
@@ -40,10 +39,6 @@ export function isCodexFile(fileUri: vscode.Uri): boolean {
 
 export function isSourceFile(fileUri: vscode.Uri): boolean {
     return WebPathUtils.hasExtension(fileUri, 'source');
-}
-
-export function isDictionaryFile(fileUri: vscode.Uri): boolean {
-    return WebPathUtils.hasExtension(fileUri, 'dictionary');
 }
 
 export function isTsvFile(fileUri: vscode.Uri): boolean {
