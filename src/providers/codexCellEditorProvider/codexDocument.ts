@@ -565,19 +565,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             }
 
-            // Use cached file ID or get it once
-            let fileId = this._cachedFileId;
-            if (!fileId) {
-                const fileType = this.uri.toString().includes(".source") ? "source" : "codex";
-                fileId = await this._indexManager.upsertFile(
-                    this.uri.toString(),
-                    fileType,
-                    Date.now()
-                );
-                this._cachedFileId = fileId;
-            }
-
-            // Calculate logical line position based on cell structure
+            // Prepare data outside the transaction (no DB access needed)
             let logicalLinePosition: number | null = null;
             const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
 
@@ -598,9 +586,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         }
                     }
                     logicalLinePosition = logicalPosition;
-
-                    // Since this method is only called when content exists,
-                    // we always assign the logical position as the line number
                 }
                 // Paratext cells get lineNumber = null
             }
@@ -614,16 +599,33 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 ? { ...currentCell.metadata, editType, lastUpdated: Date.now() }
                 : { editType, lastUpdated: Date.now() };
 
-            // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
-            const result = await this._indexManager.upsertCellWithFTSSync(
-                cellId,
-                fileId,
-                this.getContentType(),
-                sanitizedContent,  // Sanitized content for search
-                logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
-                fullMetadata,  // Pass full cell metadata including type (e.g., MILESTONE)
-                content           // Raw content with HTML tags
-            );
+            // Wrap file upsert + cell upsert + FTS sync in a single transaction
+            // so a crash or concurrent write can't leave partial state.
+            const indexManager = this._indexManager;
+            await indexManager.runInTransaction(async () => {
+                // Use cached file ID or get it once
+                let fileId = this._cachedFileId;
+                if (!fileId) {
+                    const fileType = this.uri.toString().includes(".source") ? "source" : "codex";
+                    fileId = await indexManager.upsertFile(
+                        this.uri.toString(),
+                        fileType,
+                        Date.now()
+                    );
+                    this._cachedFileId = fileId;
+                }
+
+                // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
+                await indexManager.upsertCellWithFTSSync(
+                    cellId,
+                    fileId,
+                    this.getContentType(),
+                    sanitizedContent,  // Sanitized content for search
+                    logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
+                    fullMetadata,  // Pass full cell metadata including type (e.g., MILESTONE)
+                    content           // Raw content with HTML tags
+                );
+            });
 
             debug(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
 
@@ -3288,128 +3290,134 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             }
 
-            // Get file ID
-            let fileId = this._cachedFileId;
-            if (!fileId) {
-                fileId = await this._indexManager.upsertFile(
-                    this.uri.toString(),
-                    "codex",
-                    Date.now()
-                );
-                this._cachedFileId = fileId;
-            }
-
             let syncedCells = 0;
             let syncedValidations = 0;
 
-            // Only process cells that were modified since the last save
-            for (const cell of this._documentData.cells!) {
-                const cellId = cell.metadata?.id;
-
-                if (!cellId || !dirtyIds.has(cellId)) {
-                    continue;
+            // Wrap all DB writes (file upsert + cell upserts + FTS syncs)
+            // in a single transaction so a crash or concurrent write can't
+            // leave partial state in the database.
+            const indexManager = this._indexManager;
+            await indexManager.runInTransaction(async () => {
+                // Get file ID (inside the transaction so it's atomic with cell writes)
+                let fileId = this._cachedFileId;
+                if (!fileId) {
+                    fileId = await indexManager.upsertFile(
+                        this.uri.toString(),
+                        "codex",
+                        Date.now()
+                    );
+                    this._cachedFileId = fileId;
                 }
 
-                const hasContent = !!(cell.value && cell.value.trim() !== '');
+                // Only process cells that were modified since the last save
+                for (const cell of this._documentData.cells!) {
+                    const cellId = cell.metadata?.id;
 
-                const activeAudioValidators = (cell.metadata?.attachments &&
-                    Object.values(cell.metadata.attachments).flatMap((attachment: any) => {
-                        if (
-                            !attachment ||
-                            attachment.type !== "audio" ||
-                            attachment.isDeleted ||
-                            !Array.isArray(attachment.validatedBy)
-                        ) {
-                            return [];
-                        }
-                        return attachment.validatedBy.filter((entry: any) =>
-                            entry &&
-                            !entry.isDeleted &&
-                            typeof entry.username === "string" &&
-                            entry.username.trim().length > 0
-                        );
-                    })) || [];
+                    if (!cellId || !dirtyIds.has(cellId)) {
+                        continue;
+                    }
 
-                const hasAudioValidation = activeAudioValidators.length > 0;
+                    const hasContent = !!(cell.value && cell.value.trim() !== '');
 
-                if (!hasContent && !hasAudioValidation) {
-                    continue;
-                }
+                    const activeAudioValidators = (cell.metadata?.attachments &&
+                        Object.values(cell.metadata.attachments).flatMap((attachment: any) => {
+                            if (
+                                !attachment ||
+                                attachment.type !== "audio" ||
+                                attachment.isDeleted ||
+                                !Array.isArray(attachment.validatedBy)
+                            ) {
+                                return [];
+                            }
+                            return attachment.validatedBy.filter((entry: any) =>
+                                entry &&
+                                !entry.isDeleted &&
+                                typeof entry.username === "string" &&
+                                entry.username.trim().length > 0
+                            );
+                        })) || [];
 
-                try {
-                    // Calculate logical line position only when we have textual content
-                    let logicalLinePosition: number | null = null;
-                    if (hasContent) {
-                        const cellIndex = this._documentData.cells!.findIndex((c) => c.metadata?.id === cellId);
+                    const hasAudioValidation = activeAudioValidators.length > 0;
 
-                        if (cellIndex >= 0) {
-                            const isCurrentCellParatext = cell.metadata?.type === "paratext";
+                    if (!hasContent && !hasAudioValidation) {
+                        continue;
+                    }
 
-                            if (!isCurrentCellParatext) {
-                                // Count non-paratext cells before this cell
-                                let logicalPosition = 1;
-                                for (let i = 0; i < cellIndex; i++) {
-                                    const checkCell = this._documentData.cells![i];
-                                    const isParatext = checkCell.metadata?.type === "paratext";
-                                    if (!isParatext) {
-                                        logicalPosition++;
+                    try {
+                        // Calculate logical line position only when we have textual content
+                        let logicalLinePosition: number | null = null;
+                        if (hasContent) {
+                            const cellIndex = this._documentData.cells!.findIndex((c) => c.metadata?.id === cellId);
+
+                            if (cellIndex >= 0) {
+                                const isCurrentCellParatext = cell.metadata?.type === "paratext";
+
+                                if (!isCurrentCellParatext) {
+                                    // Count non-paratext cells before this cell
+                                    let logicalPosition = 1;
+                                    for (let i = 0; i < cellIndex; i++) {
+                                        const checkCell = this._documentData.cells![i];
+                                        const isParatext = checkCell.metadata?.type === "paratext";
+                                        if (!isParatext) {
+                                            logicalPosition++;
+                                        }
                                     }
+                                    logicalLinePosition = logicalPosition;
                                 }
-                                logicalLinePosition = logicalPosition;
                             }
                         }
+
+                        // Prepare metadata for database - this will handle validation extraction
+                        const cellMetadata = {
+                            edits: cell.metadata?.edits || [],
+                            attachments: cell.metadata?.attachments || {},
+                            selectedAudioId: cell.metadata?.selectedAudioId,
+                            selectionTimestamp: cell.metadata?.selectionTimestamp,
+                            type: cell.metadata?.type || null,
+                            lastUpdated: Date.now(),
+                        };
+
+                        // Check if this cell has text validation data for logging
+                        const edits = cell.metadata?.edits;
+                        const lastEdit = edits && edits.length > 0 ? edits[edits.length - 1] : null;
+                        const hasTextValidation = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
+
+                        if (hasTextValidation && lastEdit?.validatedBy) {
+                            syncedValidations++;
+                        }
+
+                        if (hasAudioValidation) {
+                            syncedValidations++;
+                        }
+
+                        // Sanitize content for search
+                        const sanitizedContent = hasContent ? this.sanitizeContent(cell.value) : "";
+
+                        const rawContentForSync = hasContent
+                            ? cell.value ?? ""
+                            : JSON.stringify({
+                                audioOnlyValidation: true,
+                                attachments: cell.metadata?.attachments ?? {},
+                            });
+
+                        await indexManager.upsertCellWithFTSSync(
+                            cellId,
+                            fileId,
+                            this.getContentType(),
+                            sanitizedContent,
+                            hasContent ? logicalLinePosition ?? undefined : undefined,
+                            cellMetadata,
+                            rawContentForSync
+                        );
+
+                        syncedCells++;
+                    } catch (error) {
+                        console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
+                        // Re-add the failed cell so it is retried on the next save
+                        this._dirtyCellIds.add(cellId);
                     }
-
-                    // Prepare metadata for database - this will handle validation extraction
-                    const cellMetadata = {
-                        edits: cell.metadata?.edits || [],
-                        attachments: cell.metadata?.attachments || {},
-                        selectedAudioId: cell.metadata?.selectedAudioId,
-                        selectionTimestamp: cell.metadata?.selectionTimestamp,
-                        type: cell.metadata?.type || null,
-                        lastUpdated: Date.now(),
-                    };
-
-                    // Check if this cell has text validation data for logging
-                    const edits = cell.metadata?.edits;
-                    const lastEdit = edits && edits.length > 0 ? edits[edits.length - 1] : null;
-                    const hasTextValidation = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
-
-                    if (hasTextValidation && lastEdit?.validatedBy) {
-                        syncedValidations++;
-                    }
-
-                    if (hasAudioValidation) {
-                        syncedValidations++;
-                    }
-
-                    // Sanitize content for search
-                    const sanitizedContent = hasContent ? this.sanitizeContent(cell.value) : "";
-
-                    const rawContentForSync = hasContent
-                        ? cell.value ?? ""
-                        : JSON.stringify({
-                            audioOnlyValidation: true,
-                            attachments: cell.metadata?.attachments ?? {},
-                        });
-
-                    await this._indexManager.upsertCellWithFTSSync(
-                        cellId,
-                        fileId,
-                        this.getContentType(),
-                        sanitizedContent,
-                        hasContent ? logicalLinePosition ?? undefined : undefined,
-                        cellMetadata,
-                        rawContentForSync
-                    );
-
-                    syncedCells++;
-                } catch (error) {
-                    console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
-                    // Re-add the failed cell so it is retried on the next save
-                    this._dirtyCellIds.add(cellId);
                 }
-            }
+            });
 
             debug(`[CodexDocument] AI knowledge updated: synced ${syncedCells} dirty cells (of ${dirtyIds.size} marked), ${syncedValidations} with validation data`);
 

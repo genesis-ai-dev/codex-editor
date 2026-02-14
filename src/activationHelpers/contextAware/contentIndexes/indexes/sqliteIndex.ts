@@ -232,7 +232,7 @@ export class SQLiteIndexManager {
             } catch (error) {
                 // Close the leaked connection before rethrowing
                 if (this.db) {
-                    try { await this.db.close(); } catch { /* ignore */ }
+                    try { await this.db.close(); } catch (closeErr) { debug(`Error closing DB during error recovery: ${closeErr}`); }
                     this.db = null;
                 }
                 throw error;
@@ -248,31 +248,36 @@ export class SQLiteIndexManager {
      * and must be re-applied every time the database is opened.
      */
     private async applyProductionPragmas(): Promise<void> {
-        if (!this.db) return;
+        if (this.closed || !this.db) return;
 
-        // WAL mode — best for read-heavy workloads with occasional writes.
-        // Persisted in the file, but safe to re-issue (no-op if already WAL).
-        await this.db.exec("PRAGMA journal_mode = WAL");
+        try {
+            // WAL mode — best for read-heavy workloads with occasional writes.
+            // Persisted in the file, but safe to re-issue (no-op if already WAL).
+            await this.db.exec("PRAGMA journal_mode = WAL");
 
-        // synchronous=NORMAL is safe with WAL (data survives process crashes;
-        // only an OS crash can lose the most recent transaction).
-        // Default is FULL which doubles fsync overhead for negligible safety gain with WAL.
-        await this.db.exec("PRAGMA synchronous = NORMAL");
+            // synchronous=NORMAL is safe with WAL (data survives process crashes;
+            // only an OS crash can lose the most recent transaction).
+            // Default is FULL which doubles fsync overhead for negligible safety gain with WAL.
+            await this.db.exec("PRAGMA synchronous = NORMAL");
 
-        // 8 MB page cache — covers typical hot working set for 1500+ cell documents
-        await this.db.exec("PRAGMA cache_size = -8000");
+            // 8 MB page cache — covers typical hot working set for 1500+ cell documents
+            await this.db.exec("PRAGMA cache_size = -8000");
 
-        // Store temp tables and indexes in memory (faster sorts / GROUP BY)
-        await this.db.exec("PRAGMA temp_store = MEMORY");
+            // Store temp tables and indexes in memory (faster sorts / GROUP BY)
+            await this.db.exec("PRAGMA temp_store = MEMORY");
 
-        // Enable foreign key enforcement
-        await this.db.exec("PRAGMA foreign_keys = ON");
+            // Enable foreign key enforcement
+            await this.db.exec("PRAGMA foreign_keys = ON");
 
-        // Busy timeout: wait up to 5 seconds for locks instead of failing immediately.
-        // Prevents SQLITE_BUSY when another connection/process touches the file.
-        this.db.configure("busyTimeout", 5000);
+            // Busy timeout: wait up to 5 seconds for locks instead of failing immediately.
+            // Prevents SQLITE_BUSY when another connection/process touches the file.
+            this.db.configure("busyTimeout", 5000);
 
-        debug("[SQLiteIndex] Production PRAGMAs applied (WAL, sync=NORMAL, cache=8MB, busyTimeout=5s)");
+            debug("[SQLiteIndex] Production PRAGMAs applied (WAL, sync=NORMAL, cache=8MB, busyTimeout=5s)");
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to apply production PRAGMAs: ${msg}`);
+        }
     }
 
     /**
@@ -282,7 +287,7 @@ export class SQLiteIndexManager {
      * If corruption is detected, the database file is deleted so the caller can recreate it.
      */
     private async quickIntegrityCheck(): Promise<void> {
-        if (!this.db) return;
+        if (this.closed || !this.db) return;
 
         try {
             // PRAGMA quick_check returns a column named "quick_check" (not "integrity_check").
@@ -474,7 +479,7 @@ export class SQLiteIndexManager {
             debug(`[SQLiteIndex] Recreating database: ${reason}`);
 
             if (this.db) {
-                try { await this.db.close(); } catch { /* ignore */ }
+                try { await this.db.close(); } catch (closeErr) { debug(`Error during cleanup close in nukeDatabaseAndRecreate: ${closeErr}`); }
                 this.db = null;
             }
 
@@ -2081,8 +2086,8 @@ export class SQLiteIndexManager {
  * This validation is version-agnostic and works with whatever the current schema version is
  */
     private async validateSchemaIntegrity(): Promise<boolean> {
-        if (!this.db) {
-            debug("Schema validation failed: No database connection");
+        if (this.closed || !this.db) {
+            debug("Schema validation failed: database is closed or not initialized");
             return false;
         }
 
@@ -2201,12 +2206,14 @@ export class SQLiteIndexManager {
         try {
             // Force FTS5 to rebuild its index
             await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
-        } catch (error) {
+        } catch (rebuildError) {
             // If rebuild fails, try optimize instead
             try {
                 await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
             } catch (optimizeError) {
-                // If both fail, silently continue - the triggers should handle synchronization
+                // Both rebuild and optimize failed — log for diagnostics.
+                // Triggers should still handle ongoing synchronization.
+                console.warn("[SQLiteIndex] FTS rebuild and optimize both failed:", rebuildError, optimizeError);
             }
         }
     }
@@ -2308,8 +2315,9 @@ export class SQLiteIndexManager {
             if (this.db) {
                 try {
                     await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-                } catch {
+                } catch (checkpointError) {
                     // Non-critical — WAL will be checkpointed on next open
+                    debug(`WAL checkpoint failed during close: ${checkpointError}`);
                 }
             }
 
@@ -2334,8 +2342,15 @@ export class SQLiteIndexManager {
      * Logs a warning when the WAL file exceeds 50 MB so we can detect
      * checkpoint failures early.
      */
-    async walCheckpoint(mode: string = "PASSIVE"): Promise<void> {
+    async walCheckpoint(mode: "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE" = "PASSIVE"): Promise<void> {
         this.ensureOpen();
+
+        // Runtime validation to prevent SQL injection — mode is interpolated into the PRAGMA
+        const validModes = ["PASSIVE", "FULL", "RESTART", "TRUNCATE"];
+        if (!validModes.includes(mode)) {
+            throw new Error(`Invalid WAL checkpoint mode: ${mode}`);
+        }
+
         try {
             // Log a warning when the WAL file is unusually large
             if (this.dbPath) {
@@ -2519,8 +2534,9 @@ export class SQLiteIndexManager {
             for (const fileUri of filesToDelete) {
                 try {
                     await vscode.workspace.fs.delete(fileUri);
-                } catch {
+                } catch (deleteErr) {
                     // File may not exist (e.g., SHM absent if already checkpointed)
+                    debug(`Could not delete ${fileUri.fsPath}: ${deleteErr}`);
                 }
             }
 
@@ -2639,8 +2655,9 @@ export class SQLiteIndexManager {
                             SET last_modified_ms = ?, file_size = ?
                             WHERE file_path = ?
                         `, [fileStat.mtime, fileStat.size, filePath]);
-                    } catch {
+                    } catch (updateError) {
                         // Non-critical — just means next check will re-read content
+                        debug(`Failed to update sync_metadata mtime/size for ${filePath}: ${updateError}`);
                     }
                 }
             } catch (error) {
@@ -2751,32 +2768,34 @@ export class SQLiteIndexManager {
     async cleanupSyncMetadata(existingFilePaths: string[]): Promise<number> {
         this.ensureOpen();
 
-        if (existingFilePaths.length === 0) {
-            // If no files exist, clear all sync metadata
-            const result = await this.db!.run("DELETE FROM sync_metadata");
+        return await this.runInTransaction(async () => {
+            if (existingFilePaths.length === 0) {
+                // If no files exist, clear all sync metadata
+                const result = await this.db!.run("DELETE FROM sync_metadata");
+                return result.changes;
+            }
+
+            // Use a temp table instead of IN (...) to stay under SQLite's 999-parameter limit
+            await this.db!.exec("CREATE TEMP TABLE IF NOT EXISTS _existing_paths (file_path TEXT PRIMARY KEY)");
+            await this.db!.exec("DELETE FROM _existing_paths");
+
+            const CHUNK = 500;
+            for (let i = 0; i < existingFilePaths.length; i += CHUNK) {
+                const slice = existingFilePaths.slice(i, i + CHUNK);
+                const placeholders = slice.map(() => "(?)").join(",");
+                await this.db!.run(
+                    `INSERT OR IGNORE INTO _existing_paths (file_path) VALUES ${placeholders}`,
+                    slice
+                );
+            }
+
+            const result = await this.db!.run(`
+                DELETE FROM sync_metadata
+                WHERE file_path NOT IN (SELECT file_path FROM _existing_paths)
+            `);
+            await this.db!.exec("DROP TABLE IF EXISTS _existing_paths");
             return result.changes;
-        }
-
-        // Use a temp table instead of IN (...) to stay under SQLite's 999-parameter limit
-        await this.db!.exec("CREATE TEMP TABLE IF NOT EXISTS _existing_paths (file_path TEXT PRIMARY KEY)");
-        await this.db!.exec("DELETE FROM _existing_paths");
-
-        const CHUNK = 500;
-        for (let i = 0; i < existingFilePaths.length; i += CHUNK) {
-            const slice = existingFilePaths.slice(i, i + CHUNK);
-            const placeholders = slice.map(() => "(?)").join(",");
-            await this.db!.run(
-                `INSERT OR IGNORE INTO _existing_paths (file_path) VALUES ${placeholders}`,
-                slice
-            );
-        }
-
-        const result = await this.db!.run(`
-            DELETE FROM sync_metadata
-            WHERE file_path NOT IN (SELECT file_path FROM _existing_paths)
-        `);
-        await this.db!.exec("DROP TABLE IF EXISTS _existing_paths");
-        return result.changes;
+        });
     }
 
     /**
@@ -2842,7 +2861,8 @@ export class SQLiteIndexManager {
                 try {
                     await this.db!.run("DELETE FROM cells_fts WHERE cell_id = ? AND content_type = 'source'", [duplicate.cellId]);
                 } catch (error) {
-                    // Continue even if FTS delete fails
+                    // Continue even if FTS delete fails — log for diagnostics
+                    debug(`FTS delete failed during dedup for cell ${duplicate.cellId}: ${error}`);
                 }
             }
 
@@ -3667,8 +3687,8 @@ export class SQLiteIndexManager {
         let schemaInfoRows: any[] = [];
         try {
             schemaInfoRows = await this.db!.all<any>("SELECT * FROM schema_info");
-        } catch {
-            // Table might not exist
+        } catch (err) {
+            debug(`schema_info table not readable: ${err}`);
         }
 
         // Check if cells table exists and its structure
@@ -3680,8 +3700,8 @@ export class SQLiteIndexManager {
                 cellsTableExists = true;
                 cellsColumns.push(row.name);
             }
-        } catch {
-            // Table might not exist
+        } catch (err) {
+            debug(`cells table not readable: ${err}`);
         }
 
         const hasNewStructure = cellsColumns.includes('s_content') && cellsColumns.includes('t_content');
