@@ -451,21 +451,27 @@ export class AsyncDatabase {
     ): Promise<number> {
         if (this.closed) return Promise.reject(new Error("Database connection is closed"));
         return new Promise((resolve, reject) => {
+            let settled = false;
             this.db.each(
                 sql,
                 params,
                 (err: Error | null, row: any) => {
+                    if (settled) return; // already resolved/rejected — stop processing rows
                     if (err) {
+                        settled = true;
                         reject(err);
                     } else {
                         try {
                             rowCallback(row as T);
                         } catch (callbackErr) {
+                            settled = true;
                             reject(callbackErr instanceof Error ? callbackErr : new Error(String(callbackErr)));
                         }
                     }
                 },
                 (err: Error | null, count: number) => {
+                    if (settled) return; // already rejected by a row error
+                    settled = true;
                     if (err) {
                         reject(err);
                     } else {

@@ -654,7 +654,7 @@ export class SQLiteIndexManager {
     }
 
     private async getSchemaVersion(): Promise<number> {
-        if (!this.db) return 0;
+        if (!this.db) return -1; // No connection — treat as "unknown", triggers recreate
 
         try {
             const countRow = await this.db.get<{ count: number }>(
@@ -679,9 +679,9 @@ export class SQLiteIndexManager {
 
 
     async setSchemaVersion(version: number): Promise<void> {
-        if (!this.db) return;
+        this.ensureOpen();
 
-        await this.db.run(`
+        await this.db!.run(`
             CREATE TABLE IF NOT EXISTS schema_info (
                 id INTEGER PRIMARY KEY CHECK(id = 1),
                 version INTEGER NOT NULL,

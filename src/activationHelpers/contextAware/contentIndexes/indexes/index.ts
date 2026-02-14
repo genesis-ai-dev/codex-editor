@@ -31,6 +31,7 @@ import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
+import { getSQLiteIndexManager } from "./sqliteIndexManager";
 
 /**
  * Show AI learning progress notification - the core UX for index rebuilds
@@ -1835,6 +1836,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     // Use setTimeout to avoid blocking the configuration change
                     setTimeout(async () => {
                         try {
+                            // Skip if DB was closed during the delay (e.g. extension deactivating)
+                            if (!getSQLiteIndexManager()) return;
+
                             const newThreshold = vscode.workspace.getConfiguration('codex-project-manager')
                                 .get('validationCount', 1);
 
@@ -1855,6 +1859,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     // Use setTimeout to avoid blocking the configuration change
                     setTimeout(async () => {
                         try {
+                            // Skip if DB was closed during the delay (e.g. extension deactivating)
+                            if (!getSQLiteIndexManager()) return;
+
                             const newThreshold = vscode.workspace.getConfiguration('codex-project-manager')
                                 .get('validationCountAudio', 1);
 
