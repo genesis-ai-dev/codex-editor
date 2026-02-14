@@ -4,7 +4,6 @@ import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { ActivationTiming } from "../../../../extension";
-import { debounce } from "lodash";
 import { EditMapUtils } from "../../../../utils/editMapUtils";
 import { MetadataManager } from "../../../../utils/metadataManager";
 
@@ -190,48 +189,10 @@ export class SQLiteIndexManager {
                 await this.ensureSchema();
             } catch (error) {
                 stepStart = this.trackProgress("Handle database error", stepStart);
-
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                const isCorruption = errorMessage.includes("database disk image is malformed") ||
-                    errorMessage.includes("file is not a database") ||
-                    errorMessage.includes("database is locked") ||
-                    errorMessage.includes("database corruption");
+                console.error(`[SQLiteIndex] Database error during load: ${errorMessage}`);
 
-                // Always close the old connection to avoid leaking file descriptors
-                // and to prevent writing to an unlinked inode after file deletion.
-                if (this.db) {
-                    try { await this.db.close(); } catch { /* ignore */ }
-                    this.db = null;
-                }
-
-                if (isCorruption) {
-                    debug(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
-                    debug("[SQLiteIndex] Deleting corrupt database and creating new one");
-
-                    try {
-                        await this.deleteDatabaseFile();
-                        stepStart = this.trackProgress("Delete corrupted database", stepStart);
-                    } catch (deleteError) {
-                        debug("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
-                    }
-                } else {
-                    console.error(`[SQLiteIndex] Non-corruption database error: ${errorMessage}`);
-                }
-
-                // Open a fresh connection (reuses existing file for non-corruption,
-                // creates new file if corruption path deleted it).
-                stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
-                debug("Creating new index database");
-                this.db = await AsyncDatabase.open(this.dbPath!);
-                await this.applyProductionPragmas();
-
-                await this.createSchema();
-
-                if (!(await this.validateSchemaIntegrity())) {
-                    throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
-                }
-
-                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                await this.nukeDatabaseAndRecreate(`database error during load: ${errorMessage}`);
             }
         } else {
             // No existing database - create a new one
@@ -323,10 +284,11 @@ export class SQLiteIndexManager {
 
         const schemaStart = globalThis.performance.now();
 
-        // Temporarily override PRAGMAs for fast bulk creation (OUTSIDE of transaction)
+        // Temporarily override PRAGMAs for fast bulk creation (OUTSIDE of transaction).
+        // We keep WAL mode active (set by applyProductionPragmas) so the database
+        // remains crash-safe even if the process dies during schema creation.
         debug("Optimizing database settings for fast creation...");
         await this.db.exec("PRAGMA synchronous = OFF");        // Disable fsync for speed
-        await this.db.exec("PRAGMA journal_mode = MEMORY");     // Use memory journal
         await this.db.exec("PRAGMA temp_store = MEMORY");       // Store temp data in memory
         await this.db.exec("PRAGMA cache_size = -64000");       // 64MB cache
         await this.db.exec("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
@@ -500,7 +462,6 @@ export class SQLiteIndexManager {
         // Restore normal database settings for production use (OUTSIDE of transaction)
         debug("Restoring production database settings...");
         await this.db.exec("PRAGMA synchronous = NORMAL");      // Restore safe sync mode
-        await this.db.exec("PRAGMA journal_mode = WAL");        // Use WAL mode for better concurrency
         await this.db.exec("PRAGMA foreign_keys = ON");         // Re-enable foreign key constraints
         await this.db.exec("PRAGMA cache_size = -8000");        // Reasonable cache size (8MB)
 
@@ -572,40 +533,15 @@ export class SQLiteIndexManager {
                 this.trackProgress("✨ AI learning structure organized", stepStart);
                 debug(`New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
             } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
-                // Scenario 2: ANY version mismatch (ahead, behind, or different) - ALWAYS recreate everything
-                // No partial migrations - we're senior database engineers who don't mess with bad/partial databases!
+                // Scenario 2: ANY version mismatch — full recreation (no partial migrations)
                 stepStart = this.trackProgress("Handle schema version mismatch", stepStart);
                 debug(`Database schema version ${currentVersion} does not match code version ${CURRENT_SCHEMA_VERSION}`);
-                debug("FULL RECREATION: No partial migrations - deleting and recreating database from scratch for maximum reliability");
 
-                // Log schema recreation to console instead of showing to user
-                debug(`[SQLiteIndex] 🔄 AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`);
-
-                // Close the old connection BEFORE deleting the file.
-                // On Unix/macOS, deleting an open file just unlinks the directory entry;
-                // the file descriptor would keep pointing at the orphaned inode, causing
-                // all subsequent writes to vanish when the process exits.
-                try { await this.db.close(); } catch { /* ignore */ }
-                this.db = null;
-
-                // Delete the database file (and WAL/SHM) completely
-                await this.deleteDatabaseFile();
-
-                // Reopen a fresh database at the same path
-                this.db = await AsyncDatabase.open(this.dbPath!);
-                await this.applyProductionPragmas();
-
-                // Recreate schema from scratch
-                await this.createSchema();
-
-                if (!(await this.validateSchemaIntegrity())) {
-                    throw new Error(`Schema validation failed after recreation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
-                }
-
-                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                await this.nukeDatabaseAndRecreate(
+                    `schema version mismatch (v${currentVersion} → v${CURRENT_SCHEMA_VERSION})`
+                );
 
                 this.trackProgress("Database complete recreation finished", stepStart);
-                debug(`Database completely recreated with schema version ${CURRENT_SCHEMA_VERSION} - no partial migrations used`);
             } else {
                 // Scenario 3: Correct version - load normally
                 stepStart = this.trackProgress("Verify database schema", stepStart);
@@ -614,20 +550,7 @@ export class SQLiteIndexManager {
                 // Verify the database belongs to this project (detects copied/mismatched DBs)
                 const identityValid = await this.verifyProjectIdentity();
                 if (!identityValid) {
-                    console.warn("[SQLiteIndex] Database belongs to a different project — recreating");
-
-                    try { await this.db!.close(); } catch { /* ignore */ }
-                    this.db = null;
-                    await this.deleteDatabaseFile();
-                    this.db = await AsyncDatabase.open(this.dbPath!);
-                    await this.applyProductionPragmas();
-                    await this.createSchema();
-
-                    if (!(await this.validateSchemaIntegrity())) {
-                        throw new Error(`Schema validation failed after project identity mismatch recreation`);
-                    }
-                    await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-                    debug("[SQLiteIndex] Database recreated due to project identity mismatch");
+                    await this.nukeDatabaseAndRecreate("project identity mismatch");
                 }
             }
 
@@ -641,32 +564,11 @@ export class SQLiteIndexManager {
 
             if (isCorruption) {
                 console.error(`[SQLiteIndex] Database corruption detected during schema operations: ${errorMessage}`);
-                debug("[SQLiteIndex] Recreating corrupted database");
                 stepStart = this.trackProgress("Recreate corrupted database", stepStart);
 
-                // Close old connection BEFORE deleting to avoid writing to unlinked inode
-                if (this.db) {
-                    try { await this.db.close(); } catch { /* ignore */ }
-                    this.db = null;
-                }
-                if (this.dbPath) {
-                    // Delete main file plus WAL/SHM auxiliaries
-                    await this.deleteDatabaseFile();
-                    this.db = await AsyncDatabase.open(this.dbPath);
-                    await this.applyProductionPragmas();
-                } else {
-                    throw new Error("Database path not set");
-                }
-                await this.createSchema();
-
-                if (!(await this.validateSchemaIntegrity())) {
-                    throw new Error(`Schema validation failed after corruption recovery for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
-                }
-
-                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                await this.nukeDatabaseAndRecreate(`corruption during schema ops: ${errorMessage}`);
 
                 this.trackProgress("Database corruption recovery complete", stepStart);
-                debug("Successfully recreated database after corruption");
             } else {
                 // Re-throw non-corruption errors
                 throw error;
@@ -674,43 +576,39 @@ export class SQLiteIndexManager {
         }
     }
 
-    private async recreateDatabase(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+    /**
+     * Nuclear option: close the current connection, delete the database file
+     * (plus WAL/SHM), reopen a fresh connection, recreate the schema from
+     * scratch, validate it, and stamp the schema version.
+     *
+     * This is the single canonical path for "throw everything away and start
+     * over." All callers (schema mismatch, corruption, identity mismatch)
+     * should go through this method rather than inlining the sequence.
+     */
+    private async nukeDatabaseAndRecreate(reason: string): Promise<void> {
+        debug(`[SQLiteIndex] Recreating database: ${reason}`);
 
-        debug("Dropping all existing tables...");
+        if (this.db) {
+            try { await this.db.close(); } catch { /* ignore */ }
+            this.db = null;
+        }
 
-        // Get all table names first
-        const tableRows = await this.db.all<{ name: string }>(`
-            SELECT name FROM sqlite_master 
-            WHERE type='table' AND name NOT LIKE 'sqlite_%'
-        `);
-        const tableNames = tableRows.map(r => r.name);
+        await this.deleteDatabaseFile();
 
-        // Drop all tables in a transaction
-        await this.runInTransaction(async () => {
-            if (tableNames.includes('cells_fts')) {
-                await this.db!.run("DROP TABLE IF EXISTS cells_fts");
-            }
-            for (const tableName of tableNames) {
-                if (tableName !== 'cells_fts') {
-                    await this.db!.run(`DROP TABLE IF EXISTS ${tableName}`);
-                }
-            }
-        });
+        if (!this.dbPath) {
+            throw new Error("Database path not set");
+        }
 
-        debug("Creating fresh schema...");
+        this.db = await AsyncDatabase.open(this.dbPath);
+        await this.applyProductionPragmas();
         await this.createSchema();
 
-        await new Promise(resolve => setImmediate(resolve));
-
         if (!(await this.validateSchemaIntegrity())) {
-            throw new Error(`Schema validation failed after recreation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+            throw new Error(`Schema validation failed after recreation: ${reason}`);
         }
 
         await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-
-        // Reclaim space left by dropped tables
-        await this.vacuum();
+        debug(`[SQLiteIndex] Database recreated successfully: ${reason}`);
     }
 
     private async getSchemaVersion(): Promise<number> {
@@ -767,7 +665,7 @@ export class SQLiteIndexManager {
      * Read the project identity (projectId and projectName) from metadata.json.
      * This is the canonical project identity that persists across renames and moves.
      */
-    private async getProjectIdentity(): Promise<{ projectId: string; projectName: string } | null> {
+    private async getProjectIdentity(): Promise<{ projectId: string; projectName: string | null } | null> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) return null;
         try {
@@ -778,7 +676,7 @@ export class SQLiteIndexManager {
             if (result.success && result.metadata?.projectId) {
                 return {
                     projectId: result.metadata.projectId,
-                    projectName: result.metadata.projectName ?? "Unknown",
+                    projectName: result.metadata.projectName ?? null,
                 };
             }
         } catch {
@@ -790,9 +688,17 @@ export class SQLiteIndexManager {
     /**
      * Check if the database belongs to the current project.
      * Compares the stored project_id against the projectId in metadata.json.
-     * Returns true if project identity matches or is not set (legacy DB).
+     *
+     * Returns false (triggers re-index) when:
+     *   - DB has a project_id that doesn't match metadata.json
+     *   - DB has no project_id but metadata.json has one (can't prove DB belongs here)
+     *
+     * Returns true (safe to keep) when:
+     *   - project_id matches metadata.json
+     *   - Both DB and metadata have no projectId (can't verify either way)
+     *   - metadata.json is unavailable (don't reject what we can't check)
      */
-    async verifyProjectIdentity(): Promise<boolean> {
+    private async verifyProjectIdentity(): Promise<boolean> {
         if (!this.db) return false;
 
         try {
@@ -800,22 +706,41 @@ export class SQLiteIndexManager {
                 "SELECT project_id FROM schema_info WHERE id = 1 LIMIT 1"
             );
 
-            if (!row || !row.project_id) {
-                // Legacy database without project_id — treat as valid
+            const storedId = row?.project_id ?? null;
+            const identity = await this.getProjectIdentity();
+
+            if (!storedId) {
+                // DB has no identity stamp.
+                if (identity) {
+                    // metadata.json now has a projectId but DB doesn't — we can't
+                    // prove this DB was created for this project (e.g., it could
+                    // have been copied before identity stamps were added, or a
+                    // swap occurred while the DB had no stamp). Re-index to be safe.
+                    console.warn(
+                        `[SQLiteIndex] DB has no project_id but metadata.json has ` +
+                        `projectId="${identity.projectId}" — re-indexing for safety`
+                    );
+                    return false;
+                }
+                // Both unknown — can't verify either way, treat as valid
                 return true;
             }
 
-            const identity = await this.getProjectIdentity();
-            if (!identity) return true; // Can't determine — don't reject
+            // DB has a stored project_id
+            if (!identity) {
+                // Can't read metadata — don't reject
+                return true;
+            }
 
-            if (row.project_id !== identity.projectId) {
+            if (storedId !== identity.projectId) {
                 console.warn(
-                    `[SQLiteIndex] Project identity mismatch: DB has project_id="${row.project_id}", ` +
+                    `[SQLiteIndex] Project identity mismatch: DB has project_id="${storedId}", ` +
                     `but metadata.json has projectId="${identity.projectId}" (${identity.projectName}). ` +
                     `Database may have been copied from another project.`
                 );
                 return false;
             }
+
             return true;
         } catch {
             // Column may not exist in legacy schema — treat as valid
@@ -1015,7 +940,6 @@ export class SQLiteIndexManager {
                 ${columns.map(col => `${col} = excluded.${col}`).join(', ')}
         `, [cellId, ...values]);
 
-        this.debouncedSave();
         return { id: cellId, isNew, contentChanged };
     }
 
@@ -1157,7 +1081,6 @@ export class SQLiteIndexManager {
                 ${columns.map(col => `${col} = excluded.${col}`).join(', ')}
         `, [cellId, ...values]);
 
-        // Note: Don't call debouncedSave() in sync version as it's async
         return { id: cellId, isNew, contentChanged };
     }
 
@@ -1198,10 +1121,6 @@ export class SQLiteIndexManager {
             await this.db!.run("DELETE FROM files");
         });
 
-        // Use setImmediate to make the save operation non-blocking
-        setImmediate(() => {
-            this.debouncedSave();
-        });
     }
 
     // Get document count
@@ -2378,19 +2297,12 @@ export class SQLiteIndexManager {
     }
 
     /**
-     * No-op: Native SQLite writes to disk automatically via WAL mode.
-     * Kept as a debounced no-op for backward compatibility with callers.
-     */
-    private debouncedSave = debounce(async () => {
-        // No-op: native SQLite writes to disk automatically
-    }, 0);
-
-    /**
-     * No-op: Native SQLite writes to disk automatically.
-     * Kept for backward compatibility with callers like FileSyncManager.
+     * Flush WAL data to the main database file.
+     * Called after batch operations (sync, targeted sync) to ensure data
+     * is merged into the main file and survives a force-quit.
      */
     async forceSave(): Promise<void> {
-        // No-op: native SQLite writes to disk automatically via WAL mode
+        await this.walCheckpoint();
     }
 
     // Force FTS index to rebuild/refresh for immediate search visibility
@@ -2410,19 +2322,12 @@ export class SQLiteIndexManager {
         }
     }
 
-    // Ensure all pending writes are committed and visible for search
+    /**
+     * Flush WAL data to the main database file so writes are visible
+     * to other connections and survive a force-quit.
+     */
     async flushPendingWrites(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
-
-        // Run an empty transaction through the mutex to ensure any
-        // preceding queued transactions have been committed first.
-        try {
-            await this.runInTransaction(async () => {
-                // no-op – just forces serialization with other transactions
-            });
-        } catch {
-            // Non-critical: WAL mode auto-commits anyway
-        }
+        await this.walCheckpoint();
     }
 
     // Immediate cell update with FTS synchronization
@@ -2478,17 +2383,6 @@ export class SQLiteIndexManager {
         const ftsCount = ftsResult?.count || 0;
 
         return { cellsCount, ftsCount };
-    }
-
-    /**
-     * No-op: Native native SQLite writes to disk automatically via WAL mode.
-     * Previously, this serialized the entire in-memory database (103MB+) to a Uint8Array
-     * and rewrote the entire file to disk. With native SQLite, only modified 4KB pages
-     * are flushed to disk automatically.
-     * @deprecated Native SQLite handles persistence automatically
-     */
-    async saveDatabase(): Promise<void> {
-        // No-op: native SQLite writes incrementally to disk via WAL mode
     }
 
     async close(): Promise<void> {
@@ -2728,11 +2622,8 @@ export class SQLiteIndexManager {
 
         for (const filePath of filePaths) {
             try {
-                // Get file stats
                 const fileUri = vscode.Uri.file(filePath);
                 const fileStat = await vscode.workspace.fs.stat(fileUri);
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                const newContentHash = createHash("sha256").update(fileContent).digest("hex");
 
                 // Check sync metadata
                 const existingRecord = await this.db!.get<{
@@ -2746,12 +2637,34 @@ export class SQLiteIndexManager {
                 `, [filePath]);
 
                 if (!existingRecord) {
+                    // New file — must sync. Read content for the detail hash.
+                    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                    const newContentHash = createHash("sha256").update(fileContent).digest("hex");
                     needsSync.push(filePath);
                     details.set(filePath, {
                         reason: "new file - not in sync metadata",
                         newHash: newContentHash
                     });
-                } else if (existingRecord.content_hash !== newContentHash) {
+                    continue;
+                }
+
+                // Fast path: if mtime AND size both match stored values, the file
+                // almost certainly hasn't changed. Skip the expensive read+hash.
+                if (existingRecord.last_modified_ms === fileStat.mtime &&
+                    existingRecord.file_size === fileStat.size) {
+                    unchanged.push(filePath);
+                    details.set(filePath, {
+                        reason: "no changes detected (mtime+size match)",
+                        oldHash: existingRecord.content_hash
+                    });
+                    continue;
+                }
+
+                // Slow path: mtime or size changed — read content and hash
+                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                const newContentHash = createHash("sha256").update(fileContent).digest("hex");
+
+                if (existingRecord.content_hash !== newContentHash) {
                     needsSync.push(filePath);
                     details.set(filePath, {
                         reason: "content changed - hash mismatch",
@@ -2759,31 +2672,24 @@ export class SQLiteIndexManager {
                         newHash: newContentHash
                     });
                 } else {
-                    // Content hash matches — file is byte-for-byte identical.
-                    // Don't re-sync just because mtime or size metadata drifted
-                    // (git operations, backups, etc. frequently touch mtimes
-                    //  without changing content, causing unnecessary full rebuilds).
+                    // Content hash matches — file is byte-for-byte identical despite
+                    // mtime/size drift (git operations, backups, etc.).
                     unchanged.push(filePath);
                     details.set(filePath, {
-                        reason: "no changes detected",
+                        reason: "no changes detected (hash verified after mtime/size drift)",
                         oldHash: existingRecord.content_hash,
                         newHash: newContentHash
                     });
 
-                    // Silently update stored mtime/size so the metadata stays fresh
-                    // (avoids re-reading file content on future checks if we later
-                    //  add a fast mtime-only pre-check path).
-                    if (existingRecord.last_modified_ms !== fileStat.mtime ||
-                        existingRecord.file_size !== fileStat.size) {
-                        try {
-                            await this.db!.run(`
-                                UPDATE sync_metadata
-                                SET last_modified_ms = ?, file_size = ?
-                                WHERE file_path = ?
-                            `, [fileStat.mtime, fileStat.size, filePath]);
-                        } catch {
-                            // Non-critical — just means next check will re-read content
-                        }
+                    // Update stored mtime/size so the fast path works next time
+                    try {
+                        await this.db!.run(`
+                            UPDATE sync_metadata
+                            SET last_modified_ms = ?, file_size = ?
+                            WHERE file_path = ?
+                        `, [fileStat.mtime, fileStat.size, filePath]);
+                    } catch {
+                        // Non-critical — just means next check will re-read content
                     }
                 }
             } catch (error) {
@@ -3775,11 +3681,7 @@ export class SQLiteIndexManager {
      * Force database recreation for testing/debugging purposes
      */
     async forceRecreateDatabase(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
-
-        debug("[SQLiteIndex] Force recreating database...");
-        await this.recreateDatabase();
-        debug("[SQLiteIndex] Database recreation completed");
+        await this.nukeDatabaseAndRecreate("forced recreation (debug/testing)");
     }
 
     /**
