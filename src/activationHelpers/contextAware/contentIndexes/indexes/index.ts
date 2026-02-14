@@ -187,9 +187,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     /**
      * Update rebuild state and persist to storage
      */
-    function updateRebuildState(updates: Partial<IndexRebuildState>) {
+    async function updateRebuildState(updates: Partial<IndexRebuildState>): Promise<void> {
+        // In-memory update is synchronous — critical for the check-then-set invariant
+        // in smartRebuildIndexes (no await between isRebuildAllowed and this call).
         rebuildState = { ...rebuildState, ...updates };
-        context.globalState.update('indexRebuildState', rebuildState);
+        await context.globalState.update('indexRebuildState', rebuildState);
     }
 
     /**
@@ -236,14 +238,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
         debug(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
 
-        // Check consecutive rebuilds protection
+        // Check consecutive rebuilds protection.
+        // INVARIANT: No `await` between isRebuildAllowed and updateRebuildState below,
+        // so JS single-threaded execution guarantees no concurrent caller can slip between
+        // the check and the flag-set.
         const rebuildCheck = isRebuildAllowed(reason, isForced);
         if (!rebuildCheck.allowed) {
             console.warn(`[Index] Skipping rebuild: ${rebuildCheck.reason}`);
             return;
         }
 
-        updateRebuildState({
+        await updateRebuildState({
             lastRebuildTime: Date.now(),
             lastRebuildReason: reason,
             rebuildInProgress: true,
@@ -311,7 +316,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             );
 
             // Reset consecutive rebuilds on successful completion
-            updateRebuildState({
+            await updateRebuildState({
                 rebuildInProgress: false,
                 consecutiveRebuilds: 0
             });
@@ -328,7 +333,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         } catch (error) {
             console.error("Error in smart sync rebuild:", error);
-            updateRebuildState({
+            await updateRebuildState({
                 rebuildInProgress: false
             });
             throw error;
@@ -377,7 +382,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         } catch (error) {
             console.warn("[Index] Error during health check:", error);
-            // Don't fail health check on file reading errors
+            // Treat health-check errors as unhealthy — hiding failures can mask real problems
+            return { isHealthy: false, criticalIssue: `health check failed: ${error}` };
         }
 
         return { isHealthy: true };
@@ -393,7 +399,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
     // Now reset the flag so a new rebuild can track its own progress.
     // Must persist to globalState — otherwise next startup still sees true.
-    updateRebuildState({ rebuildInProgress: false });
+    await updateRebuildState({ rebuildInProgress: false });
 
     // Check database health and determine if rebuild is needed
     const currentDocCount = await translationPairsIndex.getDocumentCount();
@@ -468,7 +474,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         // Reset consecutive rebuilds since we didn't need to rebuild
-        updateRebuildState({
+        await updateRebuildState({
             consecutiveRebuilds: 0
         });
     }
@@ -1460,6 +1466,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             async (filePaths?: string[]) => {
                 if (!filePaths || filePaths.length === 0) {
                     debug("[Index] No files specified for incremental indexing");
+                    return;
+                }
+
+                // Don't run incremental indexing while a full rebuild is in progress
+                if (rebuildState.rebuildInProgress) {
+                    debug("[Index] Skipping incremental index — full rebuild in progress");
                     return;
                 }
 

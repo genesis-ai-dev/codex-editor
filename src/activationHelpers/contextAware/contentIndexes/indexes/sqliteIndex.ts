@@ -30,6 +30,16 @@ export class SQLiteIndexManager {
     /** Set to true when close() is called — prevents new transactions and operations. */
     private closed = false;
 
+    /**
+     * Guard that checks both closed and db state. Call at the top of every
+     * public method that accesses the database. After this call returns,
+     * `this.db` is guaranteed non-null (use `this.db!` to assert).
+     */
+    private ensureOpen(): void {
+        if (this.closed) throw new Error("Database is closing or closed");
+        if (!this.db) throw new Error("Database not initialized");
+    }
+
     private trackProgress(step: string, stepStartTime: number): number {
         const stepEndTime = globalThis.performance.now();
         const duration = stepEndTime - stepStartTime; // Duration of THIS step only
@@ -201,15 +211,24 @@ export class SQLiteIndexManager {
             stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
             debug("Creating new index database");
             this.db = await AsyncDatabase.open(this.dbPath);
-            await this.applyProductionPragmas();
+            try {
+                await this.applyProductionPragmas();
 
-            await this.createSchema();
+                await this.createSchema();
 
-            if (!(await this.validateSchemaIntegrity())) {
-                throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+                if (!(await this.validateSchemaIntegrity())) {
+                    throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+                }
+
+                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+            } catch (error) {
+                // Close the leaked connection before rethrowing
+                if (this.db) {
+                    try { await this.db.close(); } catch { /* ignore */ }
+                    this.db = null;
+                }
+                throw error;
             }
-
-            await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
         }
 
         this.trackProgress("AI learning space ready", loadStart);
@@ -282,7 +301,7 @@ export class SQLiteIndexManager {
     }
 
     private async createSchema(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const schemaStart = globalThis.performance.now();
 
@@ -290,10 +309,10 @@ export class SQLiteIndexManager {
         // We keep WAL mode active (set by applyProductionPragmas) so the database
         // remains crash-safe even if the process dies during schema creation.
         debug("Optimizing database settings for fast creation...");
-        await this.db.exec("PRAGMA synchronous = OFF");        // Disable fsync for speed
-        await this.db.exec("PRAGMA temp_store = MEMORY");       // Store temp data in memory
-        await this.db.exec("PRAGMA cache_size = -64000");       // 64MB cache
-        await this.db.exec("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
+        await this.db!.exec("PRAGMA synchronous = OFF");        // Disable fsync for speed
+        await this.db!.exec("PRAGMA temp_store = MEMORY");       // Store temp data in memory
+        await this.db!.exec("PRAGMA cache_size = -64000");       // 64MB cache
+        await this.db!.exec("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
 
         try {
         // Batch all schema creation in a single transaction for massive speedup
@@ -485,7 +504,7 @@ export class SQLiteIndexManager {
      * Create remaining indexes after data insertion for better performance
      */
     async createDeferredIndexes(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         debug("Creating deferred indexes for optimal performance...");
         const indexStart = globalThis.performance.now();
@@ -513,7 +532,7 @@ export class SQLiteIndexManager {
     }
 
     private async ensureSchema(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const ensureStart = globalThis.performance.now();
         let stepStart = ensureStart;
@@ -596,31 +615,42 @@ export class SQLiteIndexManager {
     private async nukeDatabaseAndRecreate(reason: string): Promise<void> {
         if (this.closed) throw new Error("Database is closing or closed");
 
-        debug(`[SQLiteIndex] Recreating database: ${reason}`);
+        // Acquire the transaction lock so we don't yank the DB out from under
+        // a running transaction.
+        let releaseLock!: () => void;
+        const previousLock = this.transactionLock;
+        this.transactionLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+        await previousLock;
 
-        if (this.db) {
-            try { await this.db.close(); } catch { /* ignore */ }
-            this.db = null;
+        try {
+            debug(`[SQLiteIndex] Recreating database: ${reason}`);
+
+            if (this.db) {
+                try { await this.db.close(); } catch { /* ignore */ }
+                this.db = null;
+            }
+
+            await this.deleteDatabaseFile();
+
+            if (!this.dbPath) {
+                throw new Error("Database path not set");
+            }
+
+            this.db = await AsyncDatabase.open(this.dbPath);
+            // Fresh connection is valid — reset closed flag so operations can proceed
+            this.closed = false;
+            await this.applyProductionPragmas();
+            await this.createSchema();
+
+            if (!(await this.validateSchemaIntegrity())) {
+                throw new Error(`Schema validation failed after recreation: ${reason}`);
+            }
+
+            await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+            debug(`[SQLiteIndex] Database recreated successfully: ${reason}`);
+        } finally {
+            releaseLock();
         }
-
-        await this.deleteDatabaseFile();
-
-        if (!this.dbPath) {
-            throw new Error("Database path not set");
-        }
-
-        this.db = await AsyncDatabase.open(this.dbPath);
-        // Fresh connection is valid — reset closed flag so operations can proceed
-        this.closed = false;
-        await this.applyProductionPragmas();
-        await this.createSchema();
-
-        if (!(await this.validateSchemaIntegrity())) {
-            throw new Error(`Schema validation failed after recreation: ${reason}`);
-        }
-
-        await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-        debug(`[SQLiteIndex] Database recreated successfully: ${reason}`);
     }
 
     private async getSchemaVersion(): Promise<number> {
@@ -775,7 +805,7 @@ export class SQLiteIndexManager {
         fileType: "source" | "codex",
         lastModifiedMs: number
     ): Promise<number> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Handle both URI strings and file paths
         const fileUri = filePath.startsWith('file:') ? vscode.Uri.parse(filePath) : vscode.Uri.file(filePath);
@@ -800,7 +830,7 @@ export class SQLiteIndexManager {
         fileType: "source" | "codex",
         lastModifiedMs: number
     ): Promise<number> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const contentHash = this.computeContentHash(filePath + lastModifiedMs);
 
@@ -826,7 +856,7 @@ export class SQLiteIndexManager {
         rawContent?: string,
         milestoneIndex?: number | null
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Use rawContent if provided, otherwise fall back to content
         const actualRawContent = rawContent || content;
@@ -967,7 +997,7 @@ export class SQLiteIndexManager {
         rawContent?: string,
         milestoneIndex?: number | null
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Use rawContent if provided, otherwise fall back to content
         const actualRawContent = rawContent || content;
@@ -1123,7 +1153,7 @@ export class SQLiteIndexManager {
 
     // Remove all documents and sync metadata
     async removeAll(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Use a transaction for better performance and make it non-blocking
         await this.runInTransaction(async () => {
@@ -1146,9 +1176,9 @@ export class SQLiteIndexManager {
     }
 
     async getDocumentCount(): Promise<number> {
-        if (!this.db) return 0;
+        this.ensureOpen();
 
-        const row = await this.db.get<{ count: number }>("SELECT COUNT(DISTINCT cell_id) as count FROM cells");
+        const row = await this.db!.get<{ count: number }>("SELECT COUNT(DISTINCT cell_id) as count FROM cells");
         return (row?.count as number) || 0;
     }
 
@@ -1173,7 +1203,7 @@ export class SQLiteIndexManager {
      * @returns Array of search results with raw or sanitized content based on options
      */
     async search(query: string, options?: any): Promise<any[]> {
-        if (!this.db) return [];
+        this.ensureOpen();
 
         const limit = options?.limit || 50;
         const fuzzy = options?.fuzzy || 0.2;
@@ -1356,9 +1386,9 @@ export class SQLiteIndexManager {
 
     // Get document by ID (for source text index compatibility)
     async getById(cellId: string): Promise<any | null> {
-        if (!this.db) return null;
+        this.ensureOpen();
 
-        const row = await this.db.get<{
+        const row = await this.db!.get<{
             cell_id: string;
             s_content: string;
             s_raw_content: string;
@@ -1435,7 +1465,7 @@ export class SQLiteIndexManager {
     public async getSourceCellsMapForFile(
         sourceFilePath?: string
     ): Promise<{ [k: string]: { content: string; versions: string[]; }; }> {
-        if (!this.db) return {};
+        this.ensureOpen();
 
         const build = async (pathA?: string, pathB?: string): Promise<{ [k: string]: { content: string; versions: string[]; }; }> => {
             const result: { [k: string]: { content: string; versions: string[]; }; } = {};
@@ -1490,9 +1520,9 @@ export class SQLiteIndexManager {
 
     // Get cell by exact ID match (for translation pairs)
     async getCellById(cellId: string, cellType?: "source" | "target"): Promise<any | null> {
-        if (!this.db) return null;
+        this.ensureOpen();
 
-        const row = await this.db.get<{
+        const row = await this.db!.get<{
             cell_id: string;
             s_content: string;
             s_raw_content: string;
@@ -1604,7 +1634,7 @@ export class SQLiteIndexManager {
 
     // Get translation pair by cell ID
     async getTranslationPair(cellId: string): Promise<any | null> {
-        if (!this.db) return null;
+        this.ensureOpen();
 
         const sourceCell = await this.getCellById(cellId, "source");
         const targetCell = await this.getCellById(cellId, "target");
@@ -1628,7 +1658,7 @@ export class SQLiteIndexManager {
     // Previously each word was a separate auto-committed INSERT (N+1 problem);
     // wrapping in a transaction reduces disk I/O from N fsync calls to 1.
     async updateWordIndex(cellId: string, content: string): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Tokenize and count
         const words = content
@@ -1671,7 +1701,7 @@ export class SQLiteIndexManager {
         limit: number = 50,
         returnRawContent: boolean = false
     ): Promise<any[]> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Reuse the same escaping logic from the search method
         const escapeForFTS5 = (text: string): string => {
@@ -1741,7 +1771,7 @@ export class SQLiteIndexManager {
         sql += ` ORDER BY score ASC LIMIT ?`;
         params.push(limit);
 
-        const rows = await this.db.all<{
+        const rows = await this.db!.all<{
             cell_id: string;
             content: string;
             raw_content: string;
@@ -1786,7 +1816,7 @@ export class SQLiteIndexManager {
         cellType?: "source" | "target",
         limit: number = 50
     ): Promise<any[]> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         let sql: string;
         let params: any[];
@@ -1962,7 +1992,7 @@ export class SQLiteIndexManager {
     }
 
     async getFileStats(): Promise<Map<string, any>> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const rows = await this.db!.all<{
             id: number;
@@ -1999,7 +2029,7 @@ export class SQLiteIndexManager {
         cellsWithMissingContent: number;
         cellsWithMissingRawContent: number;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const result = await this.db!.get<{
             total_cells: number;
@@ -2055,7 +2085,7 @@ export class SQLiteIndexManager {
         orphanedSourceCells: number;
         orphanedTargetCells: number;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Count translation pairs from combined source/target rows (schema v8+)
         const pairsResult = await this.db!.get<{
@@ -2113,7 +2143,7 @@ export class SQLiteIndexManager {
         totalCells: number;
         problematicCells: Array<{ cellId: string, issue: string; }>;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const issues: string[] = [];
         const problematicCells: Array<{ cellId: string, issue: string; }> = [];
@@ -2174,7 +2204,7 @@ export class SQLiteIndexManager {
         cellsColumns: string[];
         ftsColumns: string[];
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const version = await this.getSchemaVersion();
 
@@ -2322,15 +2352,15 @@ export class SQLiteIndexManager {
 
     // Force FTS index to rebuild/refresh for immediate search visibility
     async refreshFTSIndex(): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         try {
             // Force FTS5 to rebuild its index
-            await this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
+            await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
         } catch (error) {
             // If rebuild fails, try optimize instead
             try {
-                await this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
+                await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
             } catch (optimizeError) {
                 // If both fail, silently continue - the triggers should handle synchronization
             }
@@ -2381,7 +2411,7 @@ export class SQLiteIndexManager {
 
     // Debug method to check if a cell is in the FTS index
     async isCellInFTSIndex(cellId: string): Promise<boolean> {
-        if (!this.db) return false;
+        this.ensureOpen();
 
         const row = await this.db!.get<{ cell_id: string }>("SELECT cell_id FROM cells_fts WHERE cell_id = ? LIMIT 1", [cellId]);
         return !!row;
@@ -2389,7 +2419,7 @@ export class SQLiteIndexManager {
 
     // Debug method to get FTS index count vs regular table count
     async getFTSDebugInfo(): Promise<{ cellsCount: number; ftsCount: number; }> {
-        if (!this.db) return { cellsCount: 0, ftsCount: 0 };
+        this.ensureOpen();
 
         const cellsResult = await this.db!.get<{ count: number }>("SELECT COUNT(*) as count FROM cells");
         const ftsResult = await this.db!.get<{ count: number }>("SELECT COUNT(*) as count FROM cells_fts");
@@ -2456,9 +2486,9 @@ export class SQLiteIndexManager {
      * Call after large batch operations (sync, rebuild, etc.).
      */
     async walCheckpoint(): Promise<void> {
-        if (!this.db) return;
+        this.ensureOpen();
         try {
-            await this.db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+            await this.db!.exec("PRAGMA wal_checkpoint(PASSIVE)");
             debug("[SQLiteIndex] WAL checkpoint completed");
         } catch (error) {
             // Non-critical — SQLite's autocheckpoint will handle it eventually
@@ -2476,10 +2506,10 @@ export class SQLiteIndexManager {
      * NOTE: VACUUM cannot run inside a transaction and temporarily doubles disk usage.
      */
     async vacuum(): Promise<void> {
-        if (!this.db) return;
+        this.ensureOpen();
         try {
             const start = globalThis.performance.now();
-            await this.db.exec("VACUUM");
+            await this.db!.exec("VACUUM");
             const elapsed = globalThis.performance.now() - start;
             debug(`[SQLiteIndex] VACUUM completed in ${elapsed.toFixed(0)}ms`);
         } catch (error) {
@@ -2493,8 +2523,7 @@ export class SQLiteIndexManager {
      * instead of hitting "cannot start a transaction within a transaction".
      */
     async runInTransaction<T>(callback: () => T | Promise<T>): Promise<T> {
-        if (this.closed) throw new Error("Database is closing or closed");
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Queue behind any already-running transaction
         let releaseLock!: () => void;
@@ -2507,14 +2536,14 @@ export class SQLiteIndexManager {
         await previousLock;
 
         try {
-            await this.db.run("BEGIN TRANSACTION");
+            await this.db!.run("BEGIN TRANSACTION");
             try {
                 const result = await callback();
-                await this.db.run("COMMIT");
+                await this.db!.run("COMMIT");
                 return result;
             } catch (error) {
                 try {
-                    await this.db.run("ROLLBACK");
+                    await this.db!.run("ROLLBACK");
                 } catch (rollbackError) {
                     debug(`[SQLiteIndex] ROLLBACK failed: ${rollbackError}`);
                 }
@@ -2646,7 +2675,7 @@ export class SQLiteIndexManager {
         unchanged: string[];
         details: Map<string, { reason: string; oldHash?: string; newHash?: string; }>;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const needsSync: string[] = [];
         const unchanged: string[] = [];
@@ -2759,7 +2788,7 @@ export class SQLiteIndexManager {
         fileSize: number,
         lastModifiedMs: number
     ): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         await this.db!.run(`
             INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
@@ -2784,7 +2813,7 @@ export class SQLiteIndexManager {
         oldestSync: Date | null;
         newestSync: Date | null;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const result = await this.db!.get<{
             total_files: number;
@@ -2826,10 +2855,11 @@ export class SQLiteIndexManager {
     }
 
     /**
-     * Remove sync metadata for files that no longer exist
+     * Remove sync metadata for files that no longer exist.
+     * Uses a temp table to avoid SQLite's 999-parameter limit for large projects.
      */
     async cleanupSyncMetadata(existingFilePaths: string[]): Promise<number> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         if (existingFilePaths.length === 0) {
             // If no files exist, clear all sync metadata
@@ -2837,12 +2867,25 @@ export class SQLiteIndexManager {
             return result.changes;
         }
 
-        // Create placeholders for IN clause
-        const placeholders = existingFilePaths.map(() => '?').join(',');
+        // Use a temp table instead of IN (...) to stay under SQLite's 999-parameter limit
+        await this.db!.exec("CREATE TEMP TABLE IF NOT EXISTS _existing_paths (file_path TEXT PRIMARY KEY)");
+        await this.db!.exec("DELETE FROM _existing_paths");
+
+        const CHUNK = 500;
+        for (let i = 0; i < existingFilePaths.length; i += CHUNK) {
+            const slice = existingFilePaths.slice(i, i + CHUNK);
+            const placeholders = slice.map(() => "(?)").join(",");
+            await this.db!.run(
+                `INSERT OR IGNORE INTO _existing_paths (file_path) VALUES ${placeholders}`,
+                slice
+            );
+        }
+
         const result = await this.db!.run(`
-            DELETE FROM sync_metadata 
-            WHERE file_path NOT IN (${placeholders})
-        `, existingFilePaths);
+            DELETE FROM sync_metadata
+            WHERE file_path NOT IN (SELECT file_path FROM _existing_paths)
+        `);
+        await this.db!.exec("DROP TABLE IF EXISTS _existing_paths");
         return result.changes;
     }
 
@@ -2855,7 +2898,7 @@ export class SQLiteIndexManager {
         cellsAffected: number;
         unknownFileRemoved: boolean;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         debug("Starting source cell deduplication...");
 
@@ -2930,7 +2973,7 @@ export class SQLiteIndexManager {
         });
 
         // Check if 'unknown' file now has any remaining cells
-        const remainingRow = await this.db.get<{ count: number }>(
+        const remainingRow = await this.db!.get<{ count: number }>(
             "SELECT COUNT(*) as count FROM cells WHERE s_file_id = ? OR t_file_id = ?",
             [unknownFileId, unknownFileId]
         );
@@ -2965,7 +3008,7 @@ export class SQLiteIndexManager {
         returnRawContent: boolean = false,
         searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search
     ): Promise<any[]> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Handle empty query by returning recent complete pairs
         if (!query || query.trim() === '') {
@@ -3209,7 +3252,7 @@ export class SQLiteIndexManager {
             return this.searchCompleteTranslationPairs(query, limit, returnRawContent, searchSourceOnly);
         }
 
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Handle empty query by returning recent complete validated pairs
         if (!query || query.trim() === '') {
@@ -3434,7 +3477,7 @@ export class SQLiteIndexManager {
      * @returns True if the target cell has been validated, false otherwise
      */
     private async isTargetCellFullyValidated(cellId: string): Promise<boolean> {
-        if (!this.db) return false;
+        this.ensureOpen();
 
         // Get the target cell's validation status from dedicated columns
         try {
@@ -3457,7 +3500,7 @@ export class SQLiteIndexManager {
      * Check if a target cell's audio is fully validated (for performance optimization)
      */
     private async isTargetCellAudioFullyValidated(cellId: string): Promise<boolean> {
-        if (!this.db) return false;
+        this.ensureOpen();
 
         // Get the target cell's audio validation status from dedicated columns
         try {
@@ -3501,7 +3544,7 @@ export class SQLiteIndexManager {
      * This should be called whenever the validation threshold setting changes
      */
     async recalculateAllValidationStatus(): Promise<{ updatedCells: number; }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const currentThreshold = this.getValidationThreshold();
 
@@ -3524,7 +3567,7 @@ export class SQLiteIndexManager {
      * This should be called whenever the audio validation threshold setting changes
      */
     async recalculateAllAudioValidationStatus(): Promise<{ updatedCells: number; }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const currentThreshold = this.getAudioValidationThreshold();
 
@@ -3726,7 +3769,7 @@ export class SQLiteIndexManager {
         cellsColumns: string[];
         hasNewStructure: boolean;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         const currentVersion = await this.getSchemaVersion();
 
@@ -3784,7 +3827,7 @@ export class SQLiteIndexManager {
             hasTargetContent: boolean;
         }>;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Get general stats
         const result = await this.db!.get<{
@@ -3899,7 +3942,7 @@ export class SQLiteIndexManager {
             editTimestamp: number | null;
         }>;
     }> {
-        if (!this.db) throw new Error("Database not initialized");
+        this.ensureOpen();
 
         // Get general stats about target cell timestamps
         const result = await this.db!.get<{

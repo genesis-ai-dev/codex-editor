@@ -186,6 +186,14 @@ export class FileSyncManager {
                 // Phase 2: Write all read files to the database in a single transaction.
                 // Track a local counter so we only credit syncedFiles after the commit
                 // succeeds — a rollback means nothing was actually persisted.
+                //
+                // Per-file errors are caught (not rethrown) so the batch transaction still
+                // commits successfully for the files that did work. This is safe because
+                // writeSingleFileToDB calls updateSyncMetadata as its *last* step — if a
+                // file fails partway through, no sync_metadata row is written for it, so the
+                // next sync will re-process it (self-healing). The trade-off is that partial
+                // cell data for a failed file may briefly exist in the DB until the next sync
+                // overwrites it via INSERT OR REPLACE.
                 if (readyFiles.length > 0) {
                     let batchSynced = 0;
                     try {

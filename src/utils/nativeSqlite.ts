@@ -173,8 +173,30 @@ function applyWrapper(): void {
     });
 
     // Database#each(sql, [bind1, bind2, ...], [callback], [complete])
+    // Unlike run/get/all, each() delivers rows asynchronously via callbacks.
+    // We must defer finalize() to the completion callback so the statement
+    // stays alive while rows are being iterated.
     Database.prototype.each = normalizeMethod(function (this: any, statement: NativeStatement, params: any[]) {
-        statement.each(...params).finalize();
+        const args = [...params];
+        // Find the completion callback (last function arg) and wrap it to finalize after
+        let foundCompletion = false;
+        for (let i = args.length - 1; i >= 0; i--) {
+            if (typeof args[i] === "function") {
+                // The last function is the completion callback (the one before it is the row callback)
+                const originalComplete = args[i];
+                args[i] = function (this: any, ...cbArgs: any[]) {
+                    statement.finalize();
+                    return originalComplete.apply(this, cbArgs);
+                };
+                foundCompletion = true;
+                break;
+            }
+        }
+        if (!foundCompletion) {
+            // No callbacks at all — add a completion callback that just finalizes
+            args.push(function () { statement.finalize(); });
+        }
+        statement.each(...args);
         return this;
     });
 
