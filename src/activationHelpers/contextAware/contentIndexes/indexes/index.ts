@@ -2130,12 +2130,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
-        // Make sure to close the database when extension deactivates
-        context.subscriptions.push({
-            dispose: async () => {
-                await indexManager.close();
-            },
-        });
+        // Database close is handled by clearSQLiteIndexManager() in deactivate(),
+        // which is properly awaited. Do NOT add an async dispose subscription here —
+        // VS Code's Disposable.dispose() is synchronous and won't await it, causing
+        // a race with the deactivate path.
 
         // Update the subscriptions
         context.subscriptions.push(

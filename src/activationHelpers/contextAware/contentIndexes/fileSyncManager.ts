@@ -335,17 +335,14 @@ export class FileSyncManager {
             );
         }
 
-        // Update sync metadata
-        await this.sqliteIndex.database?.run(`
-            INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
-            VALUES (?, ?, ?, ?, ?, strftime('%s', 'now') * 1000)
-            ON CONFLICT(file_path) DO UPDATE SET
-                content_hash = excluded.content_hash,
-                file_size = excluded.file_size,
-                last_modified_ms = excluded.last_modified_ms,
-                last_synced_ms = strftime('%s', 'now') * 1000,
-                updated_at = strftime('%s', 'now') * 1000
-        `, [filePath, fileType, contentHash, fileStat.size, fileStat.mtime]);
+        // Update sync metadata via the public API (not direct DB access)
+        await this.sqliteIndex.updateSyncMetadata(
+            filePath,
+            fileType,
+            contentHash,
+            fileStat.size,
+            fileStat.mtime
+        );
     }
 
     /**

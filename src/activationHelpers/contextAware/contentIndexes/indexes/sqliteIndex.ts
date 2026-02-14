@@ -27,6 +27,8 @@ export class SQLiteIndexManager {
     private enableRealtimeProgress: boolean = true;
     /** Mutex that serializes access to SQLite transactions (SQLite only allows one at a time). */
     private transactionLock: Promise<void> = Promise.resolve();
+    /** Set to true when close() is called — prevents new transactions and operations. */
+    private closed = false;
 
     private trackProgress(step: string, stepStartTime: number): number {
         const stepEndTime = globalThis.performance.now();
@@ -592,6 +594,8 @@ export class SQLiteIndexManager {
      * should go through this method rather than inlining the sequence.
      */
     private async nukeDatabaseAndRecreate(reason: string): Promise<void> {
+        if (this.closed) throw new Error("Database is closing or closed");
+
         debug(`[SQLiteIndex] Recreating database: ${reason}`);
 
         if (this.db) {
@@ -606,6 +610,8 @@ export class SQLiteIndexManager {
         }
 
         this.db = await AsyncDatabase.open(this.dbPath);
+        // Fresh connection is valid — reset closed flag so operations can proceed
+        this.closed = false;
         await this.applyProductionPragmas();
         await this.createSchema();
 
@@ -2395,6 +2401,9 @@ export class SQLiteIndexManager {
     }
 
     async close(): Promise<void> {
+        // Mark as closed immediately so no new transactions or operations start.
+        this.closed = true;
+
         // Clean up all timers to prevent memory leaks
         if (this.currentProgressTimer) {
             clearInterval(this.currentProgressTimer);
@@ -2406,26 +2415,39 @@ export class SQLiteIndexManager {
         this.currentProgressStartTime = null;
         this.progressTimings = [];
 
-        // Checkpoint WAL to merge it back into the main database file before closing.
-        // TRUNCATE mode resets the WAL file to zero bytes, keeping the directory tidy.
-        if (this.db) {
-            try {
-                await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-            } catch {
-                // Non-critical — WAL will be checkpointed on next open
-            }
-        }
+        // Wait for any in-flight transaction to complete before closing.
+        // We acquire the transaction lock so checkpoint + close cannot
+        // overlap with a running BEGIN/COMMIT.
+        let releaseLock!: () => void;
+        const previousLock = this.transactionLock;
+        this.transactionLock = new Promise<void>((resolve) => {
+            releaseLock = resolve;
+        });
+        await previousLock;
 
-        // Close database connection
-        if (this.db) {
-            try {
-                await this.db.close();
-                this.db = null;
-                debug("Database connection closed and resources cleaned up");
-            } catch (error) {
-                console.error("[SQLiteIndex] Error during database close:", error);
+        try {
+            // Checkpoint WAL to merge it back into the main database file before closing.
+            // TRUNCATE mode resets the WAL file to zero bytes, keeping the directory tidy.
+            if (this.db) {
+                try {
+                    await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+                } catch {
+                    // Non-critical — WAL will be checkpointed on next open
+                }
+            }
+
+            // Close database connection
+            if (this.db) {
+                try {
+                    await this.db.close();
+                    debug("Database connection closed and resources cleaned up");
+                } catch (error) {
+                    console.error("[SQLiteIndex] Error during database close:", error);
+                }
                 this.db = null;
             }
+        } finally {
+            releaseLock();
         }
     }
 
@@ -2471,6 +2493,7 @@ export class SQLiteIndexManager {
      * instead of hitting "cannot start a transaction within a transaction".
      */
     async runInTransaction<T>(callback: () => T | Promise<T>): Promise<T> {
+        if (this.closed) throw new Error("Database is closing or closed");
         if (!this.db) throw new Error("Database not initialized");
 
         // Queue behind any already-running transaction

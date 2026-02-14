@@ -267,6 +267,8 @@ export function isNativeSqliteReady(): boolean {
  */
 export class AsyncDatabase {
     private db: WrappedDatabase;
+    /** Set to true after close() — guards against use-after-close and double-close. */
+    private closed = false;
 
     private constructor(db: WrappedDatabase) {
         this.db = db;
@@ -310,6 +312,7 @@ export class AsyncDatabase {
      * Returns { lastID, changes }.
      */
     run(sql: string, params?: any[]): Promise<RunResult> {
+        if (this.closed) return Promise.reject(new Error("Database connection is closed"));
         return new Promise((resolve, reject) => {
             this.db.run(
                 sql,
@@ -332,6 +335,7 @@ export class AsyncDatabase {
         sql: string,
         params?: any[]
     ): Promise<T | undefined> {
+        if (this.closed) return Promise.reject(new Error("Database connection is closed"));
         return new Promise((resolve, reject) => {
             this.db.get(
                 sql,
@@ -354,6 +358,7 @@ export class AsyncDatabase {
         sql: string,
         params?: any[]
     ): Promise<T[]> {
+        if (this.closed) return Promise.reject(new Error("Database connection is closed"));
         return new Promise((resolve, reject) => {
             this.db.all(
                 sql,
@@ -374,6 +379,7 @@ export class AsyncDatabase {
      * Useful for DDL, PRAGMA, or multi-statement scripts.
      */
     exec(sql: string): Promise<void> {
+        if (this.closed) return Promise.reject(new Error("Database connection is closed"));
         return new Promise((resolve, reject) => {
             this.db.exec(sql, (err: Error | null) => {
                 if (err) {
@@ -387,8 +393,11 @@ export class AsyncDatabase {
 
     /**
      * Close the database connection.
+     * Double-close is a safe no-op.
      */
     close(): Promise<void> {
+        if (this.closed) return Promise.resolve();
+        this.closed = true;
         return new Promise((resolve, reject) => {
             this.db.close((err: Error | null) => {
                 if (err) {
@@ -405,6 +414,7 @@ export class AsyncDatabase {
      * Commonly used: configure("busyTimeout", 5000)
      */
     configure(option: string, value: any): void {
+        if (this.closed) throw new Error("Database connection is closed");
         this.db.configure(option, value);
     }
 
@@ -417,6 +427,7 @@ export class AsyncDatabase {
         params: any[],
         rowCallback: (row: T) => void
     ): Promise<number> {
+        if (this.closed) return Promise.reject(new Error("Database connection is closed"));
         return new Promise((resolve, reject) => {
             this.db.each(
                 sql,
@@ -447,6 +458,7 @@ export class AsyncDatabase {
      * Load a SQLite extension from a shared library file.
      */
     loadExtension(filepath: string): Promise<void> {
+        if (this.closed) return Promise.reject(new Error("Database connection is closed"));
         return new Promise((resolve, reject) => {
             this.db.loadExtension(filepath, (err: Error | null) => {
                 if (err) {

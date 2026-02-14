@@ -3647,12 +3647,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             console.error("Failed to ensure attachments structure:", e);
                         }
 
-                        // Remove indexes.sqlite so it can be rebuilt
-                        try {
+                        // Remove indexes.sqlite (and WAL/SHM) so it can be rebuilt
+                        {
                             const indexDbPath = vscode.Uri.joinPath(newProjectUri, ".project", "indexes.sqlite");
-                            await vscode.workspace.fs.delete(indexDbPath, { recursive: false, useTrash: false });
-                        } catch {
-                            // Missing index file is fine
+                            for (const suffix of ["", "-wal", "-shm"]) {
+                                try {
+                                    await vscode.workspace.fs.delete(
+                                        vscode.Uri.file(`${indexDbPath.fsPath}${suffix}`),
+                                        { recursive: false, useTrash: false }
+                                    );
+                                } catch {
+                                    // Missing file is fine
+                                }
+                            }
                         }
 
                         // 7. Initialize git repository (fresh .git)
