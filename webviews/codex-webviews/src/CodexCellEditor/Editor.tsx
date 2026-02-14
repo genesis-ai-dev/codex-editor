@@ -728,33 +728,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         (event: MessageEvent) => {
             if (quillRef.current) {
                 const quill = quillRef.current;
-                if (event.data.type === "providerSendsPromptedEditResponse") {
-                    const editedContent = event.data.content;
-                    // Use Quill's API to set content with "api" source (not "user")
-                    quill.clipboard.dangerouslyPasteHTML(editedContent, "api");
-
-                    // Update baseline for dirty checking - LLM content is the new "initial" state
-                    quillInitialContentRef.current = quill.root.innerHTML;
-
-                    // Mark as LLM content needing approval
-                    isLLMContentNeedingApprovalRef.current = true;
-
-                    // Manually update all state for programmatic changes
-                    const textContent = quill.getText();
-                    const charCount = textContent.trim().length;
-                    setCharacterCount(charCount);
-
-                    // Call onChange with processed content
-                    const contentIsEmpty = isQuillEmpty(quill);
-                    const finalContent = contentIsEmpty
-                        ? ""
-                        : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML));
-                    props.onChange?.({ html: finalContent });
-
-                    // Mark as dirty to ensure save button appears
-                    props.onDirtyChange?.(true, quill.root.innerHTML);
-                    setUnsavedChanges(true);
-                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     const completionCellId = event.data.content.cellId;
 
