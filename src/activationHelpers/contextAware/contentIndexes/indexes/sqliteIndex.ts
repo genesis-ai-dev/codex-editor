@@ -6,6 +6,17 @@ import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/re
 import { ActivationTiming } from "../../../../extension";
 import { EditMapUtils } from "../../../../utils/editMapUtils";
 import { MetadataManager } from "../../../../utils/metadataManager";
+import {
+    CURRENT_SCHEMA_VERSION,
+    CREATE_TABLES_SQL,
+    CREATE_INDEXES_SQL,
+    CREATE_DEFERRED_INDEXES_SQL,
+    CREATE_SCHEMA_INFO_SQL,
+    ALL_TRIGGERS,
+} from "./schema";
+
+// Re-export so existing consumers don't break
+export { CURRENT_SCHEMA_VERSION } from "./schema";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
@@ -13,9 +24,6 @@ const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
     DEBUG_MODE && console.log(`[SQLiteIndex] ${message}`, ...args);
 };
-
-// Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 13; // Added project_id and project_name to schema_info for resilience
 
 export class SQLiteIndexManager {
     private db: AsyncDatabase | null = null;
@@ -317,168 +325,22 @@ export class SQLiteIndexManager {
         try {
         // Batch all schema creation in a single transaction for massive speedup
         await this.runInTransaction(async () => {
-            // Create all tables in batch
             debug("Creating database tables...");
-
-            await this.db!.exec(`
-                CREATE TABLE IF NOT EXISTS sync_metadata (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_path TEXT NOT NULL UNIQUE,
-                    file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
-                    content_hash TEXT NOT NULL,
-                    file_size INTEGER NOT NULL,
-                    last_modified_ms INTEGER NOT NULL,
-                    last_synced_ms INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
-                    git_commit_hash TEXT,
-                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-                );
-
-                CREATE TABLE IF NOT EXISTS files (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_path TEXT NOT NULL UNIQUE,
-                    file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
-                    last_modified_ms INTEGER NOT NULL,
-                    content_hash TEXT NOT NULL,
-                    total_cells INTEGER DEFAULT 0,
-                    total_words INTEGER DEFAULT 0,
-                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-                );
-
-                CREATE TABLE IF NOT EXISTS cells (
-                    cell_id TEXT PRIMARY KEY,
-                    cell_type TEXT,
-                    s_file_id INTEGER,
-                    s_content TEXT,
-                    s_raw_content_hash TEXT,
-                    s_line_number INTEGER,
-                    s_word_count INTEGER DEFAULT 0,
-                    s_raw_content TEXT,
-                    s_created_at INTEGER,
-                    s_updated_at INTEGER,
-                    t_file_id INTEGER,
-                    t_content TEXT,
-                    t_raw_content_hash TEXT,
-                    t_line_number INTEGER,
-                    t_word_count INTEGER DEFAULT 0,
-                    t_raw_content TEXT,
-                    t_created_at INTEGER,
-                    t_current_edit_timestamp INTEGER,
-                    t_validation_count INTEGER DEFAULT 0,
-                    t_validated_by TEXT,
-                    t_is_fully_validated BOOLEAN DEFAULT FALSE,
-                    t_audio_validation_count INTEGER DEFAULT 0,
-                    t_audio_validated_by TEXT,
-                    t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
-                    milestone_index INTEGER,
-                    FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
-                    FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS words (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    word TEXT NOT NULL,
-                    cell_id TEXT NOT NULL,
-                    position INTEGER NOT NULL,
-                    frequency INTEGER DEFAULT 1,
-                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                    FOREIGN KEY (cell_id) REFERENCES cells(cell_id) ON DELETE CASCADE
-                );
-
-                CREATE VIRTUAL TABLE IF NOT EXISTS cells_fts USING fts5(
-                    cell_id,
-                    content,
-                    raw_content,
-                    content_type,
-                    tokenize='porter unicode61'
-                );
-            `);
+            await this.db!.exec(CREATE_TABLES_SQL);
         });
 
-        debug("Creating database indexes (deferred)...");
+        debug("Creating database indexes...");
         await this.runInTransaction(async () => {
-            await this.db!.exec(`
-                CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path);
-                CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path);
-                CREATE INDEX IF NOT EXISTS idx_cells_s_file_id ON cells(s_file_id);
-                CREATE INDEX IF NOT EXISTS idx_cells_t_file_id ON cells(t_file_id);
-                CREATE INDEX IF NOT EXISTS idx_cells_milestone_index ON cells(milestone_index);
-            `);
+            await this.db!.exec(CREATE_INDEXES_SQL);
         });
 
         debug("Creating database triggers...");
-        // Create triggers in batch - note: each trigger must be a separate exec() since
-        // SQLite's exec() processes one statement at a time for triggers with BEGIN/END
+        // Each trigger must be a separate statement because SQLite's exec()
+        // processes one statement at a time for triggers with BEGIN/END blocks.
         await this.runInTransaction(async () => {
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS update_sync_metadata_timestamp 
-                AFTER UPDATE ON sync_metadata
-                BEGIN
-                    UPDATE sync_metadata SET updated_at = strftime('%s', 'now') * 1000 
-                    WHERE id = NEW.id;
-                END
-            `);
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS update_files_timestamp 
-                AFTER UPDATE ON files
-                BEGIN
-                    UPDATE files SET updated_at = strftime('%s', 'now') * 1000 
-                    WHERE id = NEW.id;
-                END
-            `);
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS update_cells_s_timestamp 
-                AFTER UPDATE OF s_content, s_raw_content ON cells
-                BEGIN
-                    UPDATE cells SET s_updated_at = strftime('%s', 'now') * 1000 
-                    WHERE cell_id = NEW.cell_id;
-                END
-            `);
-            // Target timestamp trigger removed - timestamps now handled in application logic
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_source_insert 
-                AFTER INSERT ON cells
-                WHEN NEW.s_content IS NOT NULL
-                BEGIN
-                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
-                    VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
-                END
-            `);
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_target_insert 
-                AFTER INSERT ON cells
-                WHEN NEW.t_content IS NOT NULL
-                BEGIN
-                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
-                    VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
-                END
-            `);
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_source_update 
-                AFTER UPDATE OF s_content, s_raw_content ON cells
-                WHEN NEW.s_content IS NOT NULL
-                BEGIN
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
-                    VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
-                END
-            `);
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_target_update 
-                AFTER UPDATE OF t_content, t_raw_content ON cells
-                WHEN NEW.t_content IS NOT NULL
-                BEGIN
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
-                    VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
-                END
-            `);
-            await this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_delete 
-                AFTER DELETE ON cells
-                BEGIN
-                    DELETE FROM cells_fts WHERE cell_id = OLD.cell_id;
-                END
-            `);
+            for (const trigger of ALL_TRIGGERS) {
+                await this.db!.run(trigger);
+            }
         });
 
         } finally {
@@ -510,21 +372,7 @@ export class SQLiteIndexManager {
         const indexStart = globalThis.performance.now();
 
         await this.runInTransaction(async () => {
-            await this.db!.exec(`
-                CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash);
-                CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms);
-                CREATE INDEX IF NOT EXISTS idx_cells_s_content_hash ON cells(s_raw_content_hash);
-                CREATE INDEX IF NOT EXISTS idx_cells_t_content_hash ON cells(t_raw_content_hash);
-                CREATE INDEX IF NOT EXISTS idx_cells_t_is_fully_validated ON cells(t_is_fully_validated);
-                CREATE INDEX IF NOT EXISTS idx_cells_t_current_edit_timestamp ON cells(t_current_edit_timestamp);
-                CREATE INDEX IF NOT EXISTS idx_cells_t_validation_count ON cells(t_validation_count);
-                CREATE INDEX IF NOT EXISTS idx_cells_t_audio_is_fully_validated ON cells(t_audio_is_fully_validated);
-                CREATE INDEX IF NOT EXISTS idx_cells_t_audio_validation_count ON cells(t_audio_validation_count);
-                CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);
-                CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id);
-            `);
-
-            // Translation pairs indexes removed in schema v8 - table no longer exists
+            await this.db!.exec(CREATE_DEFERRED_INDEXES_SQL);
         });
 
         const indexEndTime = globalThis.performance.now();
@@ -681,14 +529,7 @@ export class SQLiteIndexManager {
     async setSchemaVersion(version: number): Promise<void> {
         this.ensureOpen();
 
-        await this.db!.run(`
-            CREATE TABLE IF NOT EXISTS schema_info (
-                id INTEGER PRIMARY KEY CHECK(id = 1),
-                version INTEGER NOT NULL,
-                project_id TEXT,
-                project_name TEXT
-            )
-        `);
+        await this.db!.run(CREATE_SCHEMA_INFO_SQL);
 
         // Read the real project identity from metadata.json so we can detect
         // when an indexes.sqlite is copied from a different project.
@@ -824,15 +665,18 @@ export class SQLiteIndexManager {
         return result?.id ?? 0;
     }
 
-    // Synchronous version for use within transactions
+    // Lightweight upsert for use within existing transactions (no file I/O).
+    // When a real content hash is available from the caller, pass it via
+    // contentHash; otherwise a synthetic hash is used as a fallback.
     async upsertFileSync(
         filePath: string,
         fileType: "source" | "codex",
-        lastModifiedMs: number
+        lastModifiedMs: number,
+        contentHash?: string
     ): Promise<number> {
         this.ensureOpen();
 
-        const contentHash = this.computeContentHash(filePath + lastModifiedMs);
+        const hash = contentHash ?? this.computeContentHash(filePath + lastModifiedMs);
 
         const result = await this.db!.get<{id: number}>(`
             INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
@@ -842,7 +686,7 @@ export class SQLiteIndexManager {
                 content_hash = excluded.content_hash,
                 updated_at = strftime('%s', 'now') * 1000
             RETURNING id
-        `, [filePath, fileType, lastModifiedMs, contentHash]);
+        `, [filePath, fileType, lastModifiedMs, hash]);
         return result?.id ?? 0;
     }
 
@@ -2287,7 +2131,7 @@ export class SQLiteIndexManager {
                 }
             }
 
-            // Check cells table has correct v8 structure
+            // Check cells table has all expected columns (see CURRENT_SCHEMA_VERSION)
             const cellsColumnsRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells)");
             const actualCellsColumns: string[] = [];
             for (const row of cellsColumnsRows) {
@@ -2431,6 +2275,9 @@ export class SQLiteIndexManager {
     }
 
     async close(): Promise<void> {
+        // Guard against double-close (e.g. deactivation racing with project deletion).
+        if (this.closed) return;
+
         // Mark as closed immediately so no new transactions or operations start.
         this.closed = true;
 
@@ -2484,15 +2331,33 @@ export class SQLiteIndexManager {
     /**
      * Checkpoint the WAL file to keep it from growing unboundedly.
      * Call after large batch operations (sync, rebuild, etc.).
+     * Logs a warning when the WAL file exceeds 50 MB so we can detect
+     * checkpoint failures early.
      */
-    async walCheckpoint(): Promise<void> {
+    async walCheckpoint(mode: string = "PASSIVE"): Promise<void> {
         this.ensureOpen();
         try {
-            await this.db!.exec("PRAGMA wal_checkpoint(PASSIVE)");
-            debug("[SQLiteIndex] WAL checkpoint completed");
+            // Log a warning when the WAL file is unusually large
+            if (this.dbPath) {
+                try {
+                    const fs = await import("fs/promises");
+                    const walPath = this.dbPath + "-wal";
+                    const stats = await fs.stat(walPath).catch(() => null);
+                    if (stats && stats.size > 50 * 1024 * 1024) {
+                        console.warn(
+                            `[SQLiteIndex] WAL file is large: ${(stats.size / 1024 / 1024).toFixed(1)}MB, running checkpoint(${mode})`
+                        );
+                    }
+                } catch {
+                    // WAL file may not exist (e.g. in-memory DB)
+                }
+            }
+
+            await this.db!.exec(`PRAGMA wal_checkpoint(${mode})`);
+            debug(`WAL checkpoint(${mode}) completed`);
         } catch (error) {
             // Non-critical — SQLite's autocheckpoint will handle it eventually
-            debug("[SQLiteIndex] WAL checkpoint failed (non-critical):", error);
+            debug(`WAL checkpoint(${mode}) failed (non-critical):`, error);
         }
     }
 
@@ -2552,6 +2417,31 @@ export class SQLiteIndexManager {
         } finally {
             releaseLock();
         }
+    }
+
+    /**
+     * Wrapper around runInTransaction that retries on transient SQLITE_BUSY
+     * errors with exponential backoff.  Use this for non-interactive bulk
+     * operations (e.g. file sync) where a brief retry is acceptable.
+     */
+    async runInTransactionWithRetry<T>(
+        callback: () => T | Promise<T>,
+        maxRetries = 3,
+        baseDelayMs = 100
+    ): Promise<T> {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return await this.runInTransaction(callback);
+            } catch (error: unknown) {
+                const msg = error instanceof Error ? error.message : String(error);
+                const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
+                if (!isBusy || attempt === maxRetries) throw error;
+                const delay = baseDelayMs * Math.pow(2, attempt);
+                debug(`SQLITE_BUSY, retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+                await new Promise((r) => setTimeout(r, delay));
+            }
+        }
+        throw new Error("Unreachable: runInTransactionWithRetry exhausted retries");
     }
 
     // Helper function to sanitize HTML content using enhanced regex parsing

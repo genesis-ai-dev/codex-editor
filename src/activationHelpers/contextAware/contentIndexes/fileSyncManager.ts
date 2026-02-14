@@ -290,11 +290,12 @@ export class FileSyncManager {
     ): Promise<void> {
         const fileType = filePath.includes('.source') ? 'source' : 'codex';
 
-        // Update/insert the file in the main files table
+        // Update/insert the file in the main files table (pass the real content hash)
         const fileId = await this.sqliteIndex.upsertFileSync(
             filePath,
             fileType,
-            fileStat.mtime
+            fileStat.mtime,
+            contentHash
         );
 
         // Calculate logical line positions for all non-paratext cells (1-indexed)
