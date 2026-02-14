@@ -4,7 +4,6 @@ import { render } from "@testing-library/react";
 import { QuillCellContent } from "../../../../../types";
 import { CodexCellTypes } from "../../../../../types/enums";
 import CellList from "../CellList";
-import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 
 // Mock the VSCode API
 const mockVscode = {
@@ -216,7 +215,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -284,7 +282,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -359,7 +356,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -431,7 +427,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -506,7 +501,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -605,7 +599,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -668,7 +661,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -715,7 +707,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -785,7 +776,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
@@ -855,7 +845,6 @@ describe("CellList - Footnote Offset Calculation", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,

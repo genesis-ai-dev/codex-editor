@@ -373,7 +373,6 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
@@ -630,7 +629,6 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
     : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
     : T extends readonly ["metadata", "fileDisplayName"] ? string
-    : T extends readonly ["metadata", "cellDisplayMode"] ? "inline" | "one-line-per-cell"
     : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
     : string | number | boolean | object;
@@ -751,7 +749,6 @@ export interface CustomNotebookMetadata {
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;
-    cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
     fontSize?: number;
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
@@ -779,6 +776,14 @@ export interface CustomNotebookMetadata {
      * This is the canonical home for attributes that do not vary per-cell.
      */
     importContext?: NotebookImportContext;
+    /**
+     * USFM round-trip export: original file content and line-to-cell mappings.
+     * Stored by the USFM Experimental importer so export can work without the file in attachments.
+     */
+    structureMetadata?: {
+        originalUsfmContent: string;
+        lineMappings?: Array<{ lineIndex: number; cellId?: string;[key: string]: unknown; }>;
+    };
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1361,7 +1366,9 @@ type ProjectManagerMessageFromWebview =
     | { command: "setGlobalLineNumbers"; }
     | { command: "getAsrSettings"; }
     | { command: "saveAsrSettings"; data: { endpoint: string; }; }
-    | { command: "fetchAsrModels"; data: { endpoint: string; }; };
+    | { command: "fetchAsrModels"; data: { endpoint: string; }; }
+    | { command: "setValidationCountDirect"; data: { count: number; }; }
+    | { command: "setValidationCountAudioDirect"; data: { count: number; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

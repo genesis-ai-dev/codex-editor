@@ -3325,7 +3325,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 fontSize: 16,
                 showInlineBacktranslations: false,
                 fileDisplayName: "Test File",
-                cellDisplayMode: "one-line-per-cell" as const,
                 audioOnly: true,
                 corpusMarker: "NT",
             };
@@ -3344,7 +3343,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFontSize())), "Should have fontSize edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataShowInlineBacktranslations())), "Should have showInlineBacktranslations edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFileDisplayName())), "Should have fileDisplayName edit");
-            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCellDisplayMode())), "Should have cellDisplayMode edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataAudioOnly())), "Should have audioOnly edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCorpusMarker())), "Should have corpusMarker edit");
 

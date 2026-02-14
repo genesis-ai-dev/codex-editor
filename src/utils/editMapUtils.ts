@@ -16,7 +16,6 @@ type MetadataFontSizeEditMap = ["metadata", "fontSize"];
 type MetadataAutoDownloadAudioOnOpenEditMap = ["metadata", "autoDownloadAudioOnOpen"];
 type MetadataShowInlineBacktranslationsEditMap = ["metadata", "showInlineBacktranslations"];
 type MetadataFileDisplayNameEditMap = ["metadata", "fileDisplayName"];
-type MetadataCellDisplayModeEditMap = ["metadata", "cellDisplayMode"];
 type MetadataAudioOnlyEditMap = ["metadata", "audioOnly"];
 type MetadataCorpusMarkerEditMap = ["metadata", "corpusMarker"];
 
@@ -103,10 +102,6 @@ export const EditMapUtils = {
 
     metadataFileDisplayName(): MetadataFileDisplayNameEditMap {
         return ["metadata", "fileDisplayName"];
-    },
-
-    metadataCellDisplayMode(): MetadataCellDisplayModeEditMap {
-        return ["metadata", "cellDisplayMode"];
     },
 
     metadataAudioOnly(): MetadataAudioOnlyEditMap {
@@ -270,9 +265,6 @@ export function addMetadataEdit(
             break;
         case "fileDisplayName":
             editMap = EditMapUtils.metadataFileDisplayName();
-            break;
-        case "cellDisplayMode":
-            editMap = EditMapUtils.metadataCellDisplayMode();
             break;
         case "audioOnly":
             editMap = EditMapUtils.metadataAudioOnly();

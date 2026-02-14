@@ -47,11 +47,13 @@ export const getCellValueData = (cell: QuillCellContent) => {
     // Ensure editHistory exists and is an array
     const editHistory = cell.editHistory || [];
 
-    // Find the latest edit that matches the current cell content
-    const latestEditThatMatchesCellValue = editHistory
-        .slice()
-        .reverse()
-        .find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent);
+    // Find the latest edit that matches the current cell content (strict match).
+    // Falls back to the latest value edit if the strict match fails, which can happen
+    // when the merge step during save subtly normalizes the stored value.
+    const reversed = editHistory.slice().reverse();
+    const latestEditThatMatchesCellValue =
+        reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent) ??
+        reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && !edit.preview);
 
     // Get audio validation from attachments instead of edits
     let audioValidatedBy: ValidationEntry[] = [];
@@ -144,16 +146,26 @@ export const cellHasAudioUsingAttachments = (
 
     if (selectedAudioId && atts[selectedAudioId]) {
         const att = atts[selectedAudioId];
-        return att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true;
+        return att && att.type === "audio" && !att.isDeleted && att.isMissing !== true;
     }
 
     return Object.values(atts).some(
-        (att: any) => att && att.type === "audio" && att.isDeleted === false && att.isMissing !== true
+        (att: any) => att && att.type === "audio" && !att.isDeleted && att.isMissing !== true
     );
 };
 
+// Count only active (non-deleted) validation entries. Requires isDeleted === false so legacy
+// or malformed entries (e.g. missing isDeleted) are not counted as validated.
+export function countActiveValidations(validatedBy: ValidationEntry[] | undefined): number {
+    return (validatedBy?.filter((v) => v && typeof v === "object" && v.isDeleted === false).length ?? 0);
+}
+
 export const computeValidationStats = (
-    cellValueData: Array<{ validatedBy?: ValidationEntry[]; audioValidatedBy?: ValidationEntry[]; }>,
+    cellValueData: Array<{
+        validatedBy?: ValidationEntry[];
+        audioValidatedBy?: ValidationEntry[];
+        cellContent?: string;
+    }>,
     minimumValidationsRequired: number,
     minimumAudioValidationsRequired: number
 ): {
@@ -161,22 +173,94 @@ export const computeValidationStats = (
     audioValidatedCells: number;
     fullyValidatedCells: number;
 } => {
+    // Only count a cell as text-validated if it has actual text content. Empty/placeholder
+    // cells should not inflate validation % when no validations are meaningfully applied.
     const validatedCells = cellValueData.filter((cell) => {
-        return (cell.validatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumValidationsRequired;
+        if (!hasTextContent(cell.cellContent)) return false;
+        return countActiveValidations(cell.validatedBy) >= minimumValidationsRequired;
     }).length;
 
     const audioValidatedCells = cellValueData.filter((cell) => {
-        return (cell.audioValidatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumAudioValidationsRequired;
+        return countActiveValidations(cell.audioValidatedBy) >= minimumAudioValidationsRequired;
     }).length;
 
     const fullyValidatedCells = cellValueData.filter((cell) => {
-        const textOk = (cell.validatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumValidationsRequired;
-        const audioOk = (cell.audioValidatedBy?.filter((v) => !v.isDeleted).length || 0) >= minimumAudioValidationsRequired;
+        const textOk =
+            hasTextContent(cell.cellContent) &&
+            countActiveValidations(cell.validatedBy) >= minimumValidationsRequired;
+        const audioOk = countActiveValidations(cell.audioValidatedBy) >= minimumAudioValidationsRequired;
         return textOk && audioOk;
     }).length;
 
     return { validatedCells, audioValidatedCells, fullyValidatedCells };
 };
+
+/**
+ * Cell-like shape used for progress exclusion checks (notebook cell or serialized cell).
+ */
+export type CellForProgressCheck = {
+    metadata?: {
+        id?: string;
+        type?: string;
+        parentId?: string;
+        data?: { merged?: boolean; parentId?: string; type?: string; };
+    };
+};
+
+/**
+ * Returns true if the cell should be excluded from progress (not counted in totalCells).
+ * Paratext and child cells (e.g. type "text" with parentId) must not count toward progress.
+ */
+export function shouldExcludeCellFromProgress(cell: CellForProgressCheck): boolean {
+    const md = cell.metadata;
+    const cellData = md?.data as { merged?: boolean; parentId?: string; type?: string; } | undefined;
+    const cellId = (md?.id ?? "").toString();
+
+    if (md?.type === "milestone" || cellData?.merged) {
+        return true;
+    }
+    const isParatext =
+        md?.type === "paratext" ||
+        cellData?.type === "paratext" ||
+        cellId.includes("paratext-");
+    if (isParatext) {
+        return true;
+    }
+    if (!cellId || cellId.trim() === "") {
+        return true;
+    }
+    const parentId = md?.parentId ?? cellData?.parentId;
+    if (parentId != null && parentId !== "") {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Returns true if the cell should be excluded from progress when already in QuillCellContent form.
+ * Use this to filter lists before computing validation stats so paratext/child never count.
+ */
+export function shouldExcludeQuillCellFromProgress(cell: QuillCellContent): boolean {
+    const cellId = (cell.cellMarkers?.[0] ?? "").toString();
+    if (!cellId || cellId.trim() === "") {
+        return true;
+    }
+    if (cell.merged) {
+        return true;
+    }
+    const typeLower = (cell.cellType ?? "").toString().toLowerCase();
+    if (typeLower === "milestone") {
+        return true;
+    }
+    if (typeLower === "paratext" || cellId.includes("paratext-")) {
+        return true;
+    }
+    const parentId = cell.metadata?.parentId ?? cell.data?.parentId;
+    if (parentId != null && parentId !== "") {
+        return true;
+    }
+    return false;
+}
 
 export const computeProgressPercents = (
     totalCells: number,

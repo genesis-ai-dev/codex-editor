@@ -17,7 +17,10 @@ import AudioValidationButton from "./AudioValidationButton";
 import { shouldDisableValidation } from "@sharedUtils";
 import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
-import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell display modes
+import { CELL_DISPLAY_MODES } from "../lib/types";
+
+/** Display is always one line per cell; display mode is no longer configurable. */
+const CELL_DISPLAY_MODE = CELL_DISPLAY_MODES.ONE_LINE_PER_CELL;
 import "./TranslationAnimations.css"; // Import the animation CSS
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
@@ -50,7 +53,6 @@ interface CellContentDisplayProps {
     allTranslationsComplete?: boolean;
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
-    cellDisplayMode: CELL_DISPLAY_MODES;
     audioAttachments?: {
         [cellId: string]:
             | "available"
@@ -416,15 +418,14 @@ const AudioPlayButton: React.FC<{
 // Cell Label Text Component
 const CellLabelText: React.FC<{
     label: string;
-    cellDisplayMode: CELL_DISPLAY_MODES;
     forceLabelTopRow: boolean;
-}> = React.memo(({ label, cellDisplayMode, forceLabelTopRow }) => {
+}> = React.memo(({ label, forceLabelTopRow }) => {
     return (
         <div
             className="cell-label-text text-primary inline-block text-right relative -top-[2px] ml-px"
             style={{
                 fontWeight:
-                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? 500 : "normal",
+                    CELL_DISPLAY_MODE === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? 500 : "normal",
                 lineHeight: 1.2,
                 overflowWrap: "anywhere",
                 flexBasis: forceLabelTopRow ? "100%" : "auto",
@@ -453,7 +454,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         allTranslationsComplete = false,
         handleCellTranslation,
         handleCellClick,
-        cellDisplayMode,
         audioAttachments,
         footnoteOffset = 0,
         isCorrectionEditorMode = false,
@@ -727,8 +727,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 };
             }
 
-            // Determine if we're in inline mode based on the cellDisplayMode prop
-            const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
+            const isInlineMode = CELL_DISPLAY_MODE !== CELL_DISPLAY_MODES.ONE_LINE_PER_CELL;
 
             // Get the translation style from our new utility
             return getTranslationStyle(
@@ -740,8 +739,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // We don't need the CSS class anymore since we're using inline styles
         // But we do need to handle any className returned from getTranslationStyle for animations
         const getAnimationClassName = () => {
-            // Determine if we're in inline mode based on the cellDisplayMode prop
-            const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
+            const isInlineMode = CELL_DISPLAY_MODE !== CELL_DISPLAY_MODES.ONE_LINE_PER_CELL;
 
             // Get the translation style which may include a className
             const style = getTranslationStyle(
@@ -757,7 +755,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Function to check if we should show cell header elements
         const shouldShowHeaderElements = () => {
-            return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
+            return CELL_DISPLAY_MODE === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL;
         };
 
         const handleAuthModalLogIn = () => {
@@ -949,13 +947,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         >
                             <CellLabelText
                                 label={lineNumber}
-                                cellDisplayMode={cellDisplayMode}
                                 forceLabelTopRow={forceLabelTopRow}
                             />
                         </div>
                     ) : null}
                     <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
-                        {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
+                        {CELL_DISPLAY_MODE === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL && (
                             <div
                                 className={`cell-actions flex justify-start items-center ${
                                     lineNumbersEnabled ? "flex-col gap-[0.25rem]" : "flex-row"
@@ -1254,7 +1251,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     {label && (
                         <CellLabelText
                             label={label}
-                            cellDisplayMode={cellDisplayMode}
                             forceLabelTopRow={forceLabelTopRow}
                         />
                     )}
