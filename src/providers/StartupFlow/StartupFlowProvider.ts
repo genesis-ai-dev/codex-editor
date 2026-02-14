@@ -4426,6 +4426,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         showSuccessMessage: boolean = true,
         currentUsername?: string
     ): Promise<void> {
+        // Close the SQLite index database before any file operations to prevent
+        // writing to an orphaned file descriptor after the project folder is moved/deleted.
+        try {
+            const { clearSQLiteIndexManager } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+            );
+            await clearSQLiteIndexManager();
+            debugLog("SQLite index manager closed before project update");
+        } catch (e) {
+            debugLog("Warning: could not close SQLite index manager before update:", e);
+        }
+
         const cleanedPath = await this.cleanupStaleUpdateState(projectPath, projectName);
         if (cleanedPath && cleanedPath !== projectPath) {
             projectPath = cleanedPath;

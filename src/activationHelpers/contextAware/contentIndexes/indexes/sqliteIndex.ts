@@ -6,6 +6,7 @@ import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/re
 import { ActivationTiming } from "../../../../extension";
 import { debounce } from "lodash";
 import { EditMapUtils } from "../../../../utils/editMapUtils";
+import { MetadataManager } from "../../../../utils/metadataManager";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
@@ -15,7 +16,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index column for O(1) milestone lookup
+export const CURRENT_SCHEMA_VERSION = 13; // Added project_id and project_name to schema_info for resilience
 
 export class SQLiteIndexManager {
     private db: AsyncDatabase | null = null;
@@ -610,7 +611,24 @@ export class SQLiteIndexManager {
                 stepStart = this.trackProgress("Verify database schema", stepStart);
                 debug(`Schema is up to date (version ${currentVersion})`);
 
-                // Schema is current - no additional checks needed
+                // Verify the database belongs to this project (detects copied/mismatched DBs)
+                const identityValid = await this.verifyProjectIdentity();
+                if (!identityValid) {
+                    console.warn("[SQLiteIndex] Database belongs to a different project — recreating");
+
+                    try { await this.db!.close(); } catch { /* ignore */ }
+                    this.db = null;
+                    await this.deleteDatabaseFile();
+                    this.db = await AsyncDatabase.open(this.dbPath!);
+                    await this.applyProductionPragmas();
+                    await this.createSchema();
+
+                    if (!(await this.validateSchemaIntegrity())) {
+                        throw new Error(`Schema validation failed after project identity mismatch recreation`);
+                    }
+                    await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                    debug("[SQLiteIndex] Database recreated due to project identity mismatch");
+                }
             }
 
             this.trackProgress("Database Schema Setup Complete", ensureStart);
@@ -725,16 +743,86 @@ export class SQLiteIndexManager {
         await this.db.run(`
             CREATE TABLE IF NOT EXISTS schema_info (
                 id INTEGER PRIMARY KEY CHECK(id = 1),
-                version INTEGER NOT NULL
+                version INTEGER NOT NULL,
+                project_id TEXT,
+                project_name TEXT
             )
         `);
 
+        // Read the real project identity from metadata.json so we can detect
+        // when an indexes.sqlite is copied from a different project.
+        const identity = await this.getProjectIdentity();
+
         await this.runInTransaction(async () => {
             await this.db!.run("DELETE FROM schema_info");
-            await this.db!.run("INSERT INTO schema_info (id, version) VALUES (1, ?)", [version]);
-            debug(`Schema version updated to ${version}`);
+            await this.db!.run(
+                "INSERT INTO schema_info (id, version, project_id, project_name) VALUES (1, ?, ?, ?)",
+                [version, identity?.projectId ?? null, identity?.projectName ?? null]
+            );
+            debug(`Schema version updated to ${version}, project_id=${identity?.projectId}, project_name=${identity?.projectName}`);
         });
     }
+
+    /**
+     * Read the project identity (projectId and projectName) from metadata.json.
+     * This is the canonical project identity that persists across renames and moves.
+     */
+    private async getProjectIdentity(): Promise<{ projectId: string; projectName: string } | null> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) return null;
+        try {
+            const result = await MetadataManager.safeReadMetadata<{
+                projectId?: string;
+                projectName?: string;
+            }>(workspaceFolder.uri);
+            if (result.success && result.metadata?.projectId) {
+                return {
+                    projectId: result.metadata.projectId,
+                    projectName: result.metadata.projectName ?? "Unknown",
+                };
+            }
+        } catch {
+            // metadata.json may not exist yet — that's fine
+        }
+        return null;
+    }
+
+    /**
+     * Check if the database belongs to the current project.
+     * Compares the stored project_id against the projectId in metadata.json.
+     * Returns true if project identity matches or is not set (legacy DB).
+     */
+    async verifyProjectIdentity(): Promise<boolean> {
+        if (!this.db) return false;
+
+        try {
+            const row = await this.db.get<{ project_id: string | null }>(
+                "SELECT project_id FROM schema_info WHERE id = 1 LIMIT 1"
+            );
+
+            if (!row || !row.project_id) {
+                // Legacy database without project_id — treat as valid
+                return true;
+            }
+
+            const identity = await this.getProjectIdentity();
+            if (!identity) return true; // Can't determine — don't reject
+
+            if (row.project_id !== identity.projectId) {
+                console.warn(
+                    `[SQLiteIndex] Project identity mismatch: DB has project_id="${row.project_id}", ` +
+                    `but metadata.json has projectId="${identity.projectId}" (${identity.projectName}). ` +
+                    `Database may have been copied from another project.`
+                );
+                return false;
+            }
+            return true;
+        } catch {
+            // Column may not exist in legacy schema — treat as valid
+            return true;
+        }
+    }
+
 
     private computeContentHash(content: string): string {
         return createHash("sha256").update(content).digest("hex");

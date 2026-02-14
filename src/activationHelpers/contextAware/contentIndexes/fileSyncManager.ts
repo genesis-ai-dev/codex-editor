@@ -207,6 +207,17 @@ export class FileSyncManager {
                 }
 
                 processedCount += batch.length;
+
+                // Periodic WAL checkpoint every 5 batches during large syncs to keep
+                // the WAL file bounded and flush data to the main file. This ensures
+                // data survives a force-quit even if dispose() never runs.
+                if (batches.length > 5 && (batchIndex + 1) % 5 === 0) {
+                    try {
+                        await this.sqliteIndex.walCheckpoint();
+                    } catch {
+                        // Non-critical — WAL will be checkpointed eventually
+                    }
+                }
             }
 
             // Cleanup sync metadata for files that no longer exist

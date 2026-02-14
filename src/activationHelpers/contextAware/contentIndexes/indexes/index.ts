@@ -125,8 +125,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         const savedRebuildState = context.globalState.get<IndexRebuildState>('indexRebuildState');
         if (savedRebuildState) {
             rebuildState = { ...rebuildState, ...savedRebuildState };
-            // Reset rebuild progress flag on startup
-            rebuildState.rebuildInProgress = false;
+            // Keep rebuildInProgress as-is for now — we use it below as a hint
+            // that the previous session was interrupted. It will be reset after
+            // the rebuild decision is made.
         }
     }
 
@@ -383,6 +384,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         return { isHealthy: true };
     }
 
+    // Detect if the previous session was interrupted mid-rebuild.
+    // If rebuildInProgress was still true when we loaded state, the previous
+    // sync never completed — skip the health check (which may pass for a
+    // partially-indexed DB) and go straight to the sync check.
+    const previousRebuildWasInterrupted = rebuildState.rebuildInProgress;
+    if (previousRebuildWasInterrupted) {
+        console.log("[Index] Previous rebuild was interrupted — will run sync check regardless of health");
+    }
+    // Now reset the flag so a new rebuild can track its own progress
+    rebuildState.rebuildInProgress = false;
+
     // Check database health and determine if rebuild is needed
     const currentDocCount = await translationPairsIndex.getDocumentCount();
     const healthCheck = await validateIndexHealthConservatively();
@@ -397,6 +409,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         needsRebuild = true;
         rebuildReason = healthCheck.criticalIssue || 'health check failed';
         console.log(`[Index] Rebuild triggered by HEALTH CHECK: ${rebuildReason}`);
+    } else if (previousRebuildWasInterrupted) {
+        // Health check passed but previous session was interrupted.
+        // The DB may be partially indexed — always run the sync check.
+        const changeCheck = await checkIfRebuildNeeded();
+        if (changeCheck.needsRebuild) {
+            needsRebuild = true;
+            rebuildReason = `interrupted rebuild recovery: ${changeCheck.reason}`;
+            console.log(`[Index] Rebuild triggered by INTERRUPTED REBUILD RECOVERY: ${rebuildReason}`);
+        } else {
+            console.log(`[Index] Previous rebuild was interrupted but DB appears complete (${currentDocCount} documents)`);
+        }
     } else {
         // Health check passed - database is structurally sound
         // Check for file changes to determine if sync is needed
