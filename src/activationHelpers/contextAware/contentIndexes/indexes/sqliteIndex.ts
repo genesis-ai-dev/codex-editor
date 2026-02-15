@@ -212,7 +212,18 @@ export class SQLiteIndexManager {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error(`[SQLiteIndex] Database error during load: ${errorMessage}`);
 
-                await this.nukeDatabaseAndRecreate(`database error during load: ${errorMessage}`);
+                try {
+                    await this.nukeDatabaseAndRecreate(`database error during load: ${errorMessage}`);
+                } catch (nukeError) {
+                    // Recovery itself failed. Ensure we don't leave a half-open connection
+                    // and log the fatal error so it's diagnosable.
+                    console.error(`[SQLiteIndex] FATAL: Database recovery also failed: ${nukeError}`);
+                    if (this.db) {
+                        try { await this.db.close(); } catch { /* best-effort */ }
+                        this.db = null;
+                    }
+                    throw nukeError;
+                }
             }
         } else {
             // No existing database - create a new one
@@ -352,10 +363,17 @@ export class SQLiteIndexManager {
             // Always restore production PRAGMAs, even if schema creation threw.
             // Leaving synchronous=OFF or foreign_keys=OFF would compromise data safety.
             if (this.db) {
-                debug("Restoring production database settings...");
-                await this.db.exec("PRAGMA synchronous = NORMAL");
-                await this.db.exec("PRAGMA foreign_keys = ON");
-                await this.db.exec("PRAGMA cache_size = -8000");
+                try {
+                    debug("Restoring production database settings...");
+                    await this.db.exec("PRAGMA synchronous = NORMAL");
+                    await this.db.exec("PRAGMA foreign_keys = ON");
+                    await this.db.exec("PRAGMA cache_size = -8000");
+                } catch (pragmaErr) {
+                    // Log but don't mask the original error from the try block.
+                    // If PRAGMAs can't be restored, the DB is likely in a bad state
+                    // and the original error (schema creation failure) is more important.
+                    console.error(`[SQLiteIndex] CRITICAL: Failed to restore production PRAGMAs after schema creation: ${pragmaErr}`);
+                }
             }
         }
 
@@ -492,14 +510,28 @@ export class SQLiteIndexManager {
             this.db = await AsyncDatabase.open(this.dbPath);
             // Fresh connection is valid — reset closed flag so operations can proceed
             this.closed = false;
-            await this.applyProductionPragmas();
-            await this.createSchema();
 
-            if (!(await this.validateSchemaIntegrity())) {
-                throw new Error(`Schema validation failed after recreation: ${reason}`);
+            try {
+                await this.applyProductionPragmas();
+                await this.createSchema();
+
+                if (!(await this.validateSchemaIntegrity())) {
+                    throw new Error(`Schema validation failed after recreation: ${reason}`);
+                }
+
+                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+            } catch (schemaError) {
+                // Clean up the partially-created DB so the next attempt starts fresh
+                // instead of finding a zombie file with no/broken schema.
+                console.error(`[SQLiteIndex] Schema setup failed during recreation, cleaning up: ${schemaError}`);
+                if (this.db) {
+                    try { await this.db.close(); } catch { /* best-effort */ }
+                    this.db = null;
+                }
+                try { await this.deleteDatabaseFile(); } catch (cleanupErr) { debug(`Cleanup delete also failed: ${cleanupErr}`); }
+                throw schemaError;
             }
 
-            await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
             debug(`[SQLiteIndex] Database recreated successfully: ${reason}`);
         } finally {
             releaseLock();
@@ -2238,23 +2270,18 @@ export class SQLiteIndexManager {
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         const result = await this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent);
 
-        // Force FTS synchronization for immediate search visibility
+        // Force FTS synchronization for immediate search visibility.
+        // Errors are NOT caught here — callers wrap this in runInTransaction(),
+        // so an FTS failure will roll back both the cell upsert and the FTS insert
+        // atomically, preventing cells/cells_fts divergence.
         if (result.contentChanged) {
-            try {
-                // Sanitize content for FTS search (same as upsertCell does)
-                const sanitizedContent = this.sanitizeContent(content);
-                const actualRawContent = rawContent || content;
+            const sanitizedContent = this.sanitizeContent(content);
+            const actualRawContent = rawContent || content;
 
-                // Manually sync this specific cell to FTS if triggers didn't work
-                // Use sanitized content for the content field (for searching) and raw content for raw_content field
-                await this.db!.run(`
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
-                    VALUES (?, ?, ?, ?)
-                `, [cellId, sanitizedContent, actualRawContent, cellType]);
-            } catch (error) {
-                console.error("Error syncing cell to FTS index:", error);
-                // Trigger should have handled it, but log the error for debugging
-            }
+            await this.db!.run(`
+                INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                VALUES (?, ?, ?, ?)
+            `, [cellId, sanitizedContent, actualRawContent, cellType]);
         }
 
         return result;
@@ -2516,34 +2543,43 @@ export class SQLiteIndexManager {
      * SQLite when a new database is created at the same path.
      */
     private async deleteDatabaseFile(): Promise<void> {
-        try {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
-                throw new Error("No workspace folder found");
-            }
-
-            const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
-
-            // Delete main database file plus WAL-mode auxiliary files
-            const filesToDelete = [
-                dbPath,
-                vscode.Uri.file(`${dbPath.fsPath}-wal`),
-                vscode.Uri.file(`${dbPath.fsPath}-shm`),
-            ];
-
-            for (const fileUri of filesToDelete) {
-                try {
-                    await vscode.workspace.fs.delete(fileUri);
-                } catch (deleteErr) {
-                    // File may not exist (e.g., SHM absent if already checkpointed)
-                    debug(`Could not delete ${fileUri.fsPath}: ${deleteErr}`);
-                }
-            }
-
-            debug("Database file and auxiliary files deleted successfully");
-        } catch (error) {
-            console.error("[SQLiteIndex] Error deleting database file:", error);
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found for database deletion");
         }
+
+        const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
+
+        // Delete the main database file first. This MUST succeed (or be "not found")
+        // for corruption recovery to work. If the file is locked or permissions fail,
+        // we rethrow so the caller knows the corrupted DB was NOT removed.
+        try {
+            await vscode.workspace.fs.delete(dbPath);
+        } catch (mainDeleteErr) {
+            // "FileNotFound" / "EntryNotFound" is fine — the file is already gone
+            const msg = mainDeleteErr instanceof Error ? mainDeleteErr.message : String(mainDeleteErr);
+            const isNotFound = msg.includes("ENOENT") || msg.includes("FileNotFound") || msg.includes("EntryNotFound (FileSystemError)");
+            if (!isNotFound) {
+                console.error(`[SQLiteIndex] CRITICAL: Could not delete main DB file ${dbPath.fsPath}: ${mainDeleteErr}`);
+                throw mainDeleteErr;
+            }
+            debug(`Main DB file already absent: ${dbPath.fsPath}`);
+        }
+
+        // Auxiliary files (WAL, SHM) are best-effort — they may not exist
+        const auxiliaryFiles = [
+            vscode.Uri.file(`${dbPath.fsPath}-wal`),
+            vscode.Uri.file(`${dbPath.fsPath}-shm`),
+        ];
+        for (const fileUri of auxiliaryFiles) {
+            try {
+                await vscode.workspace.fs.delete(fileUri);
+            } catch (deleteErr) {
+                debug(`Could not delete ${fileUri.fsPath}: ${deleteErr}`);
+            }
+        }
+
+        debug("Database file and auxiliary files deleted successfully");
     }
 
     // Manual command to delete database and trigger reindex

@@ -603,11 +603,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // so a crash or concurrent write can't leave partial state.
             const indexManager = this._indexManager;
             await indexManager.runInTransaction(async () => {
-                // Use cached file ID or get it once
+                // Use cached file ID or get it once.
+                // Use upsertFileSync (not upsertFile) to avoid disk I/O while
+                // holding the transaction lock — upsertFile reads the file from
+                // disk, which would block all other DB operations.
                 let fileId = this._cachedFileId;
                 if (!fileId) {
                     const fileType = this.uri.toString().includes(".source") ? "source" : "codex";
-                    fileId = await indexManager.upsertFile(
+                    fileId = await indexManager.upsertFileSync(
                         this.uri.toString(),
                         fileType,
                         Date.now()
@@ -3298,10 +3301,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // leave partial state in the database.
             const indexManager = this._indexManager;
             await indexManager.runInTransaction(async () => {
-                // Get file ID (inside the transaction so it's atomic with cell writes)
+                // Get file ID (inside the transaction so it's atomic with cell writes).
+                // Use upsertFileSync (not upsertFile) to avoid disk I/O while
+                // holding the transaction lock.
                 let fileId = this._cachedFileId;
                 if (!fileId) {
-                    fileId = await indexManager.upsertFile(
+                    fileId = await indexManager.upsertFileSync(
                         this.uri.toString(),
                         "codex",
                         Date.now()
