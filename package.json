@@ -940,7 +940,7 @@
                     "codex-editor-extension.abTestingProbability": {
                         "title": "A/B Testing Probability",
                         "type": "number",
-                        "default": 0.15,
+                        "default": 0.01,
                         "minimum": 0,
                         "maximum": 1,
                         "description": "Probability (0-1) that any eligible event will run a true A/B test. When not triggered, the system returns identical variants to keep UX consistent without doubling compute."
