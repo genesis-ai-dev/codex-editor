@@ -197,7 +197,10 @@ export class FileSyncManager {
                 if (readyFiles.length > 0) {
                     let batchSynced = 0;
                     try {
-                        await this.sqliteIndex.runInTransaction(async () => {
+                        // Use runInTransactionWithRetry for batch operations —
+                        // if another connection or process holds a lock, we retry
+                        // with exponential backoff instead of failing immediately.
+                        await this.sqliteIndex.runInTransactionWithRetry(async () => {
                             for (const { fileData, filePath, fileStat, contentHash } of readyFiles) {
                                 try {
                                     await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
@@ -493,8 +496,8 @@ export class FileSyncManager {
                     ]);
                     const contentHash = createHash("sha256").update(fileContent).digest("hex");
 
-                    // Write to DB in a transaction
-                    await this.sqliteIndex.runInTransaction(async () => {
+                    // Write to DB in a transaction with retry for SQLITE_BUSY resilience
+                    await this.sqliteIndex.runInTransactionWithRetry(async () => {
                         await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
                     });
                     syncedFiles++;

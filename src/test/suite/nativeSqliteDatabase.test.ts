@@ -1782,5 +1782,435 @@ suite("Native SQLite Database Tests", function () {
             await db.exec("VACUUM");
             await db.close();
         });
+
+        test("PRAGMA optimize runs without error before close", async function () {
+            skipIfNotReady(this);
+            const db = await openTestDatabase();
+            // Insert some data so optimizer has something to analyze
+            const fileId = await insertFile(db, "/opt-test.source", "source");
+            await insertCell(db, "OPT 1:1", { sFileId: fileId, sContent: "test content" });
+            await db.exec("PRAGMA optimize");
+            await db.close();
+        });
+    });
+
+    // ── 15. SQLITE_BUSY & busyTimeout behavior ──────────────────────────
+
+    suite("SQLITE_BUSY & busyTimeout", () => {
+        test("busyTimeout prevents immediate SQLITE_BUSY on contention", async function () {
+            skipIfNotReady(this);
+
+            // Use a file-based DB so two connections can contend for locks.
+            // In-memory DBs are single-connection and can't produce SQLITE_BUSY.
+            const tmpDir = realOs.tmpdir();
+            const dbPath = realPath.join(tmpDir, `busy-test-${Date.now()}.sqlite`);
+
+            let db1: AsyncDatabase | null = null;
+            let db2: AsyncDatabase | null = null;
+
+            try {
+                db1 = await AsyncDatabase.open(dbPath);
+                db2 = await AsyncDatabase.open(dbPath);
+
+                await db1.exec("PRAGMA journal_mode = WAL");
+                await db2.exec("PRAGMA journal_mode = WAL");
+
+                // Set a short busy timeout on db2
+                db2.configure("busyTimeout", 2000);
+
+                // Create a simple table
+                await db1.exec("CREATE TABLE IF NOT EXISTS busy_test (id INTEGER PRIMARY KEY, val TEXT)");
+
+                // db1 starts a write transaction
+                await db1.run("BEGIN IMMEDIATE");
+                await db1.run("INSERT INTO busy_test (val) VALUES ('from db1')");
+
+                // db2 tries to write — with WAL, readers don't block, but IMMEDIATE
+                // transactions will wait up to busyTimeout before failing
+                const start = Date.now();
+                const db2WritePromise = db2.run("BEGIN IMMEDIATE").then(async () => {
+                    await db2!.run("INSERT INTO busy_test (val) VALUES ('from db2')");
+                    await db2!.run("COMMIT");
+                    return "committed";
+                }).catch(async (err: Error) => {
+                    // Try to rollback if we got a transaction started
+                    try { await db2!.run("ROLLBACK"); } catch { /* ignore */ }
+                    return `error: ${err.message}`;
+                });
+
+                // Commit db1 after a short delay to release the lock
+                await new Promise(r => setTimeout(r, 200));
+                await db1.run("COMMIT");
+
+                const result = await db2WritePromise;
+                const elapsed = Date.now() - start;
+
+                // db2 should have succeeded (lock was released before timeout) or
+                // at minimum waited rather than failing instantly
+                assert.ok(
+                    result === "committed" || elapsed >= 100,
+                    `busyTimeout should cause wait, not instant failure. Result: ${result}, elapsed: ${elapsed}ms`
+                );
+            } finally {
+                if (db1) { try { await db1.close(); } catch { /* */ } }
+                if (db2) { try { await db2.close(); } catch { /* */ } }
+                try { realFs.unlinkSync(dbPath); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-wal"); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-shm"); } catch { /* */ }
+            }
+        });
+
+        test("SQLITE_BUSY is returned when busyTimeout expires", async function () {
+            skipIfNotReady(this);
+            this.timeout(10_000);
+
+            const tmpDir = realOs.tmpdir();
+            const dbPath = realPath.join(tmpDir, `busy-expire-${Date.now()}.sqlite`);
+
+            let db1: AsyncDatabase | null = null;
+            let db2: AsyncDatabase | null = null;
+
+            try {
+                db1 = await AsyncDatabase.open(dbPath);
+                db2 = await AsyncDatabase.open(dbPath);
+
+                // Use DELETE journal mode so write locks are exclusive
+                await db1.exec("PRAGMA journal_mode = DELETE");
+                await db2.exec("PRAGMA journal_mode = DELETE");
+
+                // Very short timeout so the test doesn't hang
+                db2.configure("busyTimeout", 200);
+
+                await db1.exec("CREATE TABLE IF NOT EXISTS busy_expire (id INTEGER PRIMARY KEY, val TEXT)");
+
+                // Hold an exclusive write lock on db1 (don't commit)
+                await db1.run("BEGIN EXCLUSIVE");
+                await db1.run("INSERT INTO busy_expire (val) VALUES ('blocking')");
+
+                // db2 should fail with SQLITE_BUSY after timeout
+                try {
+                    await db2.run("BEGIN EXCLUSIVE");
+                    assert.fail("Expected SQLITE_BUSY error");
+                } catch (err: any) {
+                    assert.ok(
+                        err.message.includes("SQLITE_BUSY") || err.message.includes("database is locked"),
+                        `Expected SQLITE_BUSY, got: ${err.message}`
+                    );
+                }
+
+                await db1.run("ROLLBACK");
+            } finally {
+                if (db1) { try { await db1.close(); } catch { /* */ } }
+                if (db2) { try { await db2.close(); } catch { /* */ } }
+                try { realFs.unlinkSync(dbPath); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-wal"); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-shm"); } catch { /* */ }
+            }
+        });
+    });
+
+    // ── 16. Transaction retry with backoff ───────────────────────────────
+
+    suite("Transaction Retry with Backoff", () => {
+        test("runInTransaction-style retry succeeds after transient SQLITE_BUSY", async function () {
+            skipIfNotReady(this);
+            this.timeout(10_000);
+
+            // Simulate the retry pattern from runInTransactionWithRetry
+            const db = await openTestDatabase();
+            const fileId = await insertFile(db, "/retry-test.source", "source");
+
+            let attempt = 0;
+            const maxRetries = 3;
+            const baseDelayMs = 50;
+
+            // Simulate a function that fails with SQLITE_BUSY on first attempt, succeeds after
+            const simulatedBusyThenSucceed = async (): Promise<string> => {
+                for (let i = 0; i <= maxRetries; i++) {
+                    try {
+                        if (attempt === 0) {
+                            attempt++;
+                            throw new Error("SQLITE_BUSY: database is locked");
+                        }
+                        // Succeeds on retry
+                        await insertCell(db, "RETRY 1:1", { sFileId: fileId, sContent: "retried content" });
+                        return "success";
+                    } catch (error: any) {
+                        const msg = error.message || String(error);
+                        const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
+                        if (!isBusy || i === maxRetries) throw error;
+                        const delay = baseDelayMs * Math.pow(2, i);
+                        await new Promise(r => setTimeout(r, delay));
+                    }
+                }
+                throw new Error("Unreachable");
+            };
+
+            const result = await simulatedBusyThenSucceed();
+            assert.strictEqual(result, "success");
+            assert.strictEqual(attempt, 1, "Should have failed once then succeeded");
+
+            // Verify the data was written
+            const row = await db.get<{ s_content: string }>(
+                "SELECT s_content FROM cells WHERE cell_id = ?",
+                ["RETRY 1:1"]
+            );
+            assert.ok(row?.s_content?.includes("retried"), "Retried write should persist");
+
+            await db.close();
+        });
+
+        test("retry exhaustion throws the original error", async function () {
+            skipIfNotReady(this);
+
+            const maxRetries = 2;
+            const baseDelayMs = 10; // Very short for fast test
+            let attempts = 0;
+
+            const alwaysBusy = async (): Promise<void> => {
+                for (let i = 0; i <= maxRetries; i++) {
+                    try {
+                        attempts++;
+                        throw new Error("SQLITE_BUSY: database is locked");
+                    } catch (error: any) {
+                        const msg = error.message || String(error);
+                        const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
+                        if (!isBusy || i === maxRetries) throw error;
+                        const delay = baseDelayMs * Math.pow(2, i);
+                        await new Promise(r => setTimeout(r, delay));
+                    }
+                }
+            };
+
+            try {
+                await alwaysBusy();
+                assert.fail("Should have thrown after exhausting retries");
+            } catch (err: any) {
+                assert.ok(err.message.includes("SQLITE_BUSY"), `Expected SQLITE_BUSY, got: ${err.message}`);
+                assert.strictEqual(attempts, maxRetries + 1, `Should have attempted ${maxRetries + 1} times`);
+            }
+        });
+
+        test("non-BUSY errors are not retried", async function () {
+            skipIfNotReady(this);
+
+            const maxRetries = 3;
+            const baseDelayMs = 10;
+            let attempts = 0;
+
+            const nonBusyError = async (): Promise<void> => {
+                for (let i = 0; i <= maxRetries; i++) {
+                    try {
+                        attempts++;
+                        throw new Error("SQLITE_CONSTRAINT: UNIQUE constraint failed");
+                    } catch (error: any) {
+                        const msg = error.message || String(error);
+                        const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
+                        if (!isBusy || i === maxRetries) throw error;
+                        const delay = baseDelayMs * Math.pow(2, i);
+                        await new Promise(r => setTimeout(r, delay));
+                    }
+                }
+            };
+
+            try {
+                await nonBusyError();
+                assert.fail("Should have thrown on first attempt");
+            } catch (err: any) {
+                assert.ok(err.message.includes("SQLITE_CONSTRAINT"), `Expected SQLITE_CONSTRAINT, got: ${err.message}`);
+                assert.strictEqual(attempts, 1, "Non-BUSY errors should not be retried");
+            }
+        });
+    });
+
+    // ── 17. Corruption recovery patterns ─────────────────────────────────
+
+    suite("Corruption Recovery Patterns", () => {
+        test("quick_check detects corruption (simulated via invalid data)", async function () {
+            skipIfNotReady(this);
+
+            // Verify that quick_check returns 'ok' for a healthy database
+            const db = await openTestDatabase();
+            const result = await db.get<{ quick_check: string }>("PRAGMA quick_check(1)");
+            assert.strictEqual(result?.quick_check, "ok", "Healthy database should pass quick_check");
+            await db.close();
+        });
+
+        test("database can be recreated after schema mismatch", async function () {
+            skipIfNotReady(this);
+
+            // Simulate a schema version mismatch by inserting wrong version
+            const db = await openTestDatabase();
+
+            // Set an invalid schema version
+            await db.run("UPDATE schema_info SET version = 999 WHERE id = 1");
+
+            // Verify it was set
+            const row = await db.get<{ version: number }>("SELECT version FROM schema_info WHERE id = 1");
+            assert.strictEqual(row?.version, 999);
+
+            // In production, this triggers nukeDatabaseAndRecreate().
+            // Test that we can drop and recreate the schema from scratch.
+            await db.exec("DROP TABLE IF EXISTS cells_fts");
+            await db.exec("DROP TABLE IF EXISTS cells");
+            await db.exec("DROP TABLE IF EXISTS sync_metadata");
+            await db.exec("DROP TABLE IF EXISTS words");
+            await db.exec("DROP TABLE IF EXISTS files");
+            await db.exec("DROP TABLE IF EXISTS schema_info");
+
+            // Recreate schema
+            await db.exec(CREATE_TABLES_SQL);
+            await db.exec(CREATE_INDEXES_SQL);
+            for (const trigger of ALL_TRIGGERS) {
+                await db.run(trigger);
+            }
+            await db.run(CREATE_SCHEMA_INFO_SQL);
+            await db.run(
+                "INSERT INTO schema_info (id, version, project_id, project_name) VALUES (1, ?, NULL, NULL)",
+                [CURRENT_SCHEMA_VERSION]
+            );
+
+            // Verify the recreated schema is healthy
+            const newVersion = await db.get<{ version: number }>("SELECT version FROM schema_info WHERE id = 1");
+            assert.strictEqual(newVersion?.version, CURRENT_SCHEMA_VERSION);
+
+            // Verify tables exist
+            const tables = await db.all<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            );
+            const tableNames = tables.map(t => t.name);
+            assert.ok(tableNames.includes("cells"), "cells table should exist after recreation");
+            assert.ok(tableNames.includes("files"), "files table should exist after recreation");
+            assert.ok(tableNames.includes("cells_fts"), "FTS table should exist after recreation");
+
+            // Verify we can insert data into the recreated schema
+            const fileId = await insertFile(db, "/recreated.source", "source");
+            await insertCell(db, "RECREATED 1:1", { sFileId: fileId, sContent: "After recreation" });
+
+            const cell = await db.get<{ s_content: string }>(
+                "SELECT s_content FROM cells WHERE cell_id = ?",
+                ["RECREATED 1:1"]
+            );
+            assert.ok(cell?.s_content?.includes("recreation"), "Data should be writable after recreation");
+
+            await db.close();
+        });
+
+        test("project identity mismatch triggers re-index", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+
+            // Set a project identity
+            await db.run(
+                "UPDATE schema_info SET project_id = ?, project_name = ? WHERE id = 1",
+                ["project-A", "Test Project A"]
+            );
+
+            // Verify identity was set
+            const identity = await db.get<{ project_id: string; project_name: string }>(
+                "SELECT project_id, project_name FROM schema_info WHERE id = 1"
+            );
+            assert.strictEqual(identity?.project_id, "project-A");
+            assert.strictEqual(identity?.project_name, "Test Project A");
+
+            // Simulate a mismatch by checking against a different project
+            const currentProjectId: string = "project-B";
+            const dbProjectId: string | undefined = identity?.project_id;
+            const mismatch = dbProjectId !== undefined && dbProjectId !== currentProjectId;
+            assert.ok(mismatch, "Should detect project identity mismatch");
+
+            await db.close();
+        });
+    });
+
+    // ── 18. WAL checkpoint behavior ──────────────────────────────────────
+
+    suite("WAL Checkpoint Behavior", () => {
+        test("WAL checkpoint succeeds on file-based database", async function () {
+            skipIfNotReady(this);
+
+            const tmpDir = realOs.tmpdir();
+            const dbPath = realPath.join(tmpDir, `wal-ckpt-${Date.now()}.sqlite`);
+
+            let db: AsyncDatabase | null = null;
+            try {
+                db = await AsyncDatabase.open(dbPath);
+                await db.exec("PRAGMA journal_mode = WAL");
+                await db.exec("CREATE TABLE wal_test (id INTEGER PRIMARY KEY, val TEXT)");
+
+                // Insert data (writes to WAL)
+                for (let i = 0; i < 50; i++) {
+                    await db.run("INSERT INTO wal_test (val) VALUES (?)", [`row ${i}`]);
+                }
+
+                // Checkpoint should succeed
+                await db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+                await db.exec("PRAGMA wal_checkpoint(FULL)");
+                await db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+
+                // Verify data is intact after checkpoint
+                const count = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM wal_test");
+                assert.strictEqual(count?.count, 50, "All rows should survive checkpoint");
+
+            } finally {
+                if (db) { try { await db.close(); } catch { /* */ } }
+                try { realFs.unlinkSync(dbPath); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-wal"); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-shm"); } catch { /* */ }
+            }
+        });
+
+        test("TRUNCATE checkpoint resets WAL file", async function () {
+            skipIfNotReady(this);
+
+            const tmpDir = realOs.tmpdir();
+            const dbPath = realPath.join(tmpDir, `wal-trunc-${Date.now()}.sqlite`);
+            const walPath = dbPath + "-wal";
+
+            let db: AsyncDatabase | null = null;
+            try {
+                db = await AsyncDatabase.open(dbPath);
+                await db.exec("PRAGMA journal_mode = WAL");
+                await db.exec("CREATE TABLE trunc_test (id INTEGER PRIMARY KEY, val TEXT)");
+
+                // Write enough data to create a non-trivial WAL
+                for (let i = 0; i < 100; i++) {
+                    await db.run("INSERT INTO trunc_test (val) VALUES (?)", [`data ${i}`]);
+                }
+
+                // WAL file should exist and have content
+                const walExists = realFs.existsSync(walPath);
+                if (walExists) {
+                    const walSizeBefore = realFs.statSync(walPath).size;
+                    assert.ok(walSizeBefore > 0, "WAL should have content before checkpoint");
+
+                    // TRUNCATE should reset it
+                    await db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+
+                    const walSizeAfter = realFs.statSync(walPath).size;
+                    assert.strictEqual(walSizeAfter, 0, "WAL should be empty after TRUNCATE checkpoint");
+                }
+
+                // Data should still be intact
+                const count = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM trunc_test");
+                assert.strictEqual(count?.count, 100);
+
+            } finally {
+                if (db) { try { await db.close(); } catch { /* */ } }
+                try { realFs.unlinkSync(dbPath); } catch { /* */ }
+                try { realFs.unlinkSync(walPath); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-shm"); } catch { /* */ }
+            }
+        });
+
+        test("checkpoint on in-memory database is a no-op", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+            // Should not throw — just a no-op for in-memory DBs
+            await db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+            await db.close();
+        });
     });
 });

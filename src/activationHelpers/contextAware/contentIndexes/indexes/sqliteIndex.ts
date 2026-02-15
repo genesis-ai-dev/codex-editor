@@ -332,8 +332,10 @@ export class SQLiteIndexManager {
         // Temporarily override PRAGMAs for fast bulk creation (OUTSIDE of transaction).
         // We keep WAL mode active (set by applyProductionPragmas) so the database
         // remains crash-safe even if the process dies during schema creation.
+        // NOTE: We keep synchronous=NORMAL (same as production) rather than OFF
+        // to avoid corruption risk if the process crashes mid-schema-creation.
+        // The performance difference for DDL is negligible.
         debug("Optimizing database settings for fast creation...");
-        await this.db!.exec("PRAGMA synchronous = OFF");        // Disable fsync for speed
         await this.db!.exec("PRAGMA temp_store = MEMORY");       // Store temp data in memory
         await this.db!.exec("PRAGMA cache_size = -64000");       // 64MB cache
         await this.db!.exec("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
@@ -361,11 +363,11 @@ export class SQLiteIndexManager {
 
         } finally {
             // Always restore production PRAGMAs, even if schema creation threw.
-            // Leaving synchronous=OFF or foreign_keys=OFF would compromise data safety.
+            // foreign_keys=OFF and the large cache must be reverted; synchronous is
+            // already at NORMAL (we no longer set it to OFF during creation).
             if (this.db) {
                 try {
                     debug("Restoring production database settings...");
-                    await this.db.exec("PRAGMA synchronous = NORMAL");
                     await this.db.exec("PRAGMA foreign_keys = ON");
                     await this.db.exec("PRAGMA cache_size = -8000");
                 } catch (pragmaErr) {
@@ -2337,14 +2339,23 @@ export class SQLiteIndexManager {
         await previousLock;
 
         try {
-            // Checkpoint WAL to merge it back into the main database file before closing.
-            // TRUNCATE mode resets the WAL file to zero bytes, keeping the directory tidy.
             if (this.db) {
+                // Let SQLite update its query planner statistics based on usage patterns.
+                // PRAGMA optimize is cheap (<1ms typically) and improves query performance
+                // for the next session by persisting better index statistics.
+                try {
+                    await this.db.exec("PRAGMA optimize");
+                } catch {
+                    // Non-critical — next session will still work fine
+                }
+
+                // Checkpoint WAL to merge it back into the main database file before closing.
+                // TRUNCATE mode resets the WAL file to zero bytes, keeping the directory tidy.
                 try {
                     await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
                 } catch (checkpointError) {
                     // Non-critical — WAL will be checkpointed on next open
-                    debug(`WAL checkpoint failed during close: ${checkpointError}`);
+                    console.warn(`[SQLiteIndex] WAL checkpoint failed during close (non-critical):`, checkpointError);
                 }
             }
 
@@ -2398,8 +2409,9 @@ export class SQLiteIndexManager {
             await this.db!.exec(`PRAGMA wal_checkpoint(${mode})`);
             debug(`WAL checkpoint(${mode}) completed`);
         } catch (error) {
-            // Non-critical — SQLite's autocheckpoint will handle it eventually
-            debug(`WAL checkpoint(${mode}) failed (non-critical):`, error);
+            // Non-critical — SQLite's autocheckpoint will handle it eventually,
+            // but log at warn level so failures are visible in production logs.
+            console.warn(`[SQLiteIndex] WAL checkpoint(${mode}) failed (non-critical):`, error);
         }
     }
 
