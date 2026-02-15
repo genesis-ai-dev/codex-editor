@@ -1536,11 +1536,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             async () => {
                 try {
                     if (translationPairsIndex instanceof SQLiteIndexManager) {
-                        const db = translationPairsIndex.database;
-                        if (!db) {
-                            vscode.window.showErrorMessage("Database not available");
-                            return;
-                        }
+                        const db = translationPairsIndex.database; // throws if closed/not init
 
                         // Check target cell timestamp information
                         const timestampResult = await db.get<{
@@ -1703,61 +1699,59 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 try {
                     if (translationPairsIndex instanceof SQLiteIndexManager) {
                         const schemaInfo = await translationPairsIndex.getDetailedSchemaInfo();
-                        const db = translationPairsIndex.database;
+                        const db = translationPairsIndex.database; // throws if closed/not init
 
-                        if (db) {
-                            // Check what columns actually exist in the cells table
-                            const pragmaRows = await db.all<{ name: string; type: string; }>("PRAGMA table_info(cells)");
-                            const actualColumns: Array<{ name: string; type: string; }> = [];
+                        // Check what columns actually exist in the cells table
+                        const pragmaRows = await db.all<{ name: string; type: string; }>("PRAGMA table_info(cells)");
+                        const actualColumns: Array<{ name: string; type: string; }> = [];
 
-                            for (const row of pragmaRows) {
-                                actualColumns.push({
-                                    name: row.name as string,
-                                    type: row.type as string
-                                });
-                            }
-
-                            let message = `Database Schema Diagnosis (Expected v8):\n\n`;
-                            message += `📊 Schema Version: ${schemaInfo.currentVersion}\n`;
-                            message += `📁 Tables Exist: ${schemaInfo.cellsTableExists ? 'Yes' : 'No'}\n`;
-                            message += `🏗️ New Structure: ${schemaInfo.hasNewStructure ? 'Yes' : 'No'}\n\n`;
-
-                            message += `🔍 Cells Table Columns (${actualColumns.length}):\n`;
-
-                            // Check specifically for the timestamp columns
-                            const hasTargetUpdatedAt = actualColumns.some(col => col.name === 't_updated_at');
-                            const hasTargetCurrentEdit = actualColumns.some(col => col.name === 't_current_edit_timestamp');
-                            const hasSourceUpdatedAt = actualColumns.some(col => col.name === 's_updated_at');
-
-                            for (const col of actualColumns) {
-                                let indicator = '';
-                                if (col.name === 't_updated_at') {
-                                    indicator = ' ❌ (SHOULD NOT EXIST)';
-                                } else if (col.name === 't_current_edit_timestamp') {
-                                    indicator = ' ✅ (CORRECT)';
-                                } else if (col.name === 's_updated_at') {
-                                    indicator = ' ✅ (CORRECT FOR SOURCE)';
-                                }
-                                message += `• ${col.name} (${col.type})${indicator}\n`;
-                            }
-
-                            message += `\n🎯 Timestamp Column Analysis:\n`;
-                            message += `• t_updated_at exists: ${hasTargetUpdatedAt ? '❌ YES (PROBLEM!)' : '✅ No'}\n`;
-                            message += `• t_current_edit_timestamp exists: ${hasTargetCurrentEdit ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n`;
-                            message += `• s_updated_at exists: ${hasSourceUpdatedAt ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n\n`;
-
-                            if (hasTargetUpdatedAt) {
-                                message += `🚨 ISSUE FOUND: t_updated_at should NOT exist in schema v8!\n`;
-                                message += `This suggests an old database that wasn't properly recreated.\n\n`;
-                                message += `💡 SOLUTION: Force recreate the database:\n`;
-                                message += `1. Run "Codex: Force Schema Reset" command\n`;
-                                message += `2. Or delete .project/indexes.sqlite and restart extension\n`;
-                            } else {
-                                message += `✅ Timestamp columns are correct for schema v8!\n`;
-                            }
-
-                            vscode.window.showInformationMessage(message);
+                        for (const row of pragmaRows) {
+                            actualColumns.push({
+                                name: row.name as string,
+                                type: row.type as string
+                            });
                         }
+
+                        let message = `Database Schema Diagnosis (Expected v8):\n\n`;
+                        message += `📊 Schema Version: ${schemaInfo.currentVersion}\n`;
+                        message += `📁 Tables Exist: ${schemaInfo.cellsTableExists ? 'Yes' : 'No'}\n`;
+                        message += `🏗️ New Structure: ${schemaInfo.hasNewStructure ? 'Yes' : 'No'}\n\n`;
+
+                        message += `🔍 Cells Table Columns (${actualColumns.length}):\n`;
+
+                        // Check specifically for the timestamp columns
+                        const hasTargetUpdatedAt = actualColumns.some(col => col.name === 't_updated_at');
+                        const hasTargetCurrentEdit = actualColumns.some(col => col.name === 't_current_edit_timestamp');
+                        const hasSourceUpdatedAt = actualColumns.some(col => col.name === 's_updated_at');
+
+                        for (const col of actualColumns) {
+                            let indicator = '';
+                            if (col.name === 't_updated_at') {
+                                indicator = ' ❌ (SHOULD NOT EXIST)';
+                            } else if (col.name === 't_current_edit_timestamp') {
+                                indicator = ' ✅ (CORRECT)';
+                            } else if (col.name === 's_updated_at') {
+                                indicator = ' ✅ (CORRECT FOR SOURCE)';
+                            }
+                            message += `• ${col.name} (${col.type})${indicator}\n`;
+                        }
+
+                        message += `\n🎯 Timestamp Column Analysis:\n`;
+                        message += `• t_updated_at exists: ${hasTargetUpdatedAt ? '❌ YES (PROBLEM!)' : '✅ No'}\n`;
+                        message += `• t_current_edit_timestamp exists: ${hasTargetCurrentEdit ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n`;
+                        message += `• s_updated_at exists: ${hasSourceUpdatedAt ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n\n`;
+
+                        if (hasTargetUpdatedAt) {
+                            message += `🚨 ISSUE FOUND: t_updated_at should NOT exist in schema v8!\n`;
+                            message += `This suggests an old database that wasn't properly recreated.\n\n`;
+                            message += `💡 SOLUTION: Force recreate the database:\n`;
+                            message += `1. Run "Codex: Force Schema Reset" command\n`;
+                            message += `2. Or delete .project/indexes.sqlite and restart extension\n`;
+                        } else {
+                            message += `✅ Timestamp columns are correct for schema v8!\n`;
+                        }
+
+                        vscode.window.showInformationMessage(message);
                     } else {
                         vscode.window.showErrorMessage("SQLite index not available");
                     }
@@ -1927,8 +1921,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             debug("[SQLiteIndex] 🔍 Analyzing audio validation columns...");
                             progress.report({ message: "Checking audio validation data..." });
 
-                            const db = translationPairsIndex.database;
-                            if (db) {
+                            const db = translationPairsIndex.database; // throws if closed/not init
+                            {
                                 try {
                                     // Get audio validation statistics (excluding milestone cells)
                                     const audioValidationResult = await db.get<{
@@ -2018,8 +2012,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                 } catch (error) {
                                     vscode.window.showErrorMessage(`Audio validation analysis failed: ${error}`);
                                 }
-                            } else {
-                                vscode.window.showErrorMessage("Database not available");
                             }
                         });
                     } else {
@@ -2046,8 +2038,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             debug("[SQLiteIndex] 🔍 Analyzing validation columns...");
                             progress.report({ message: "Checking validation data..." });
 
-                            const db = translationPairsIndex.database;
-                            if (db) {
+                            const db = translationPairsIndex.database; // throws if closed/not init
+                            {
                                 try {
                                     // Get validation statistics
                                     const validationResult = await db.get<{
@@ -2136,8 +2128,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                 } catch (error) {
                                     vscode.window.showErrorMessage(`Validation analysis failed: ${error}`);
                                 }
-                            } else {
-                                vscode.window.showErrorMessage("Database not available");
                             }
                         });
                     } else {

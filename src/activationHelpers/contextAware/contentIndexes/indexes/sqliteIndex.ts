@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { existsSync } from "fs";
 import { AsyncDatabase } from "../../../../utils/nativeSqlite";
 import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
@@ -20,6 +21,122 @@ export { CURRENT_SCHEMA_VERSION } from "./schema";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
+// ── Typed result interfaces for public API ──────────────────────────────────
+
+/** Options accepted by the search() method. */
+export interface SearchOptions {
+    /** Maximum results to return (default: 50). */
+    limit?: number;
+    /** Fuzzy matching threshold (default: 0.2). */
+    fuzzy?: number;
+    /** Per-field boost weights (MiniSearch compat). */
+    boost?: Record<string, number>;
+    /** If true, return raw content with HTML; if false, return sanitized content (default: false). */
+    returnRawContent?: boolean;
+    /** If true, this search is for the parallel passages webview display (default: false). */
+    isParallelPassagesWebview?: boolean;
+    // Legacy MiniSearch compatibility options — accepted but ignored by the FTS5 engine.
+    /** @deprecated Legacy MiniSearch option — ignored by FTS5. */
+    fields?: string[];
+    /** @deprecated Legacy MiniSearch option — ignored by FTS5. */
+    combineWith?: string;
+    /** @deprecated Legacy MiniSearch option — ignored by FTS5. */
+    prefix?: boolean;
+    /** @deprecated Legacy MiniSearch option — ignored by FTS5. */
+    filter?: (result: SearchResult) => boolean;
+}
+
+/** A single result from the search() or searchSanitized() methods. */
+export interface SearchResult {
+    id: string;
+    cellId: string;
+    score: number;
+    /** MiniSearch compatibility stub — always `{}`. */
+    match: Record<string, never>;
+    uri: string;
+    line: number;
+    sourceContent?: string;
+    targetContent?: string;
+    content?: string;
+    sanitizedContent?: string;
+    rawContent?: string;
+    sanitizedTargetContent?: string;
+    rawTargetContent?: string;
+}
+
+/** A single result from searchCells() or searchGreekText(). */
+export interface CellSearchResult {
+    cellId: string;
+    cell_id: string;
+    content: string;
+    rawContent: string;
+    sourceContent?: string;
+    targetContent?: string;
+    cell_type: "source" | "target";
+    uri: string;
+    line: number;
+    score: number;
+    word_count: number;
+    file_type: string;
+}
+
+/** Metadata attached to a cell retrieved by getById() or getCellById(). */
+export interface CellValidationMetadata {
+    currentEditTimestamp: number | null;
+    validationCount: number;
+    validatedBy: string[];
+    isFullyValidated: boolean;
+    audioValidationCount: number;
+    audioValidatedBy: string[];
+    audioIsFullyValidated: boolean;
+}
+
+/** Result from getById(). */
+export interface CellByIdResult {
+    cellId: string;
+    content: string;
+    versions: string[];
+    sourceContent: string;
+    targetContent: string;
+    sourceRawContent: string;
+    targetRawContent: string;
+    source_file_path: string;
+    target_file_path: string;
+    source_metadata: Record<string, never>;
+    target_metadata: CellValidationMetadata;
+}
+
+/** Result from getCellById(). */
+export interface CellDetailResult {
+    cellId: string;
+    content: string;
+    rawContent: string;
+    cell_type: "source" | "target";
+    uri: string;
+    line: number;
+    [key: string]: unknown;
+}
+
+/** Result from getTranslationPair(). */
+export interface TranslationPairResult {
+    cellId: string;
+    sourceContent: string;
+    targetContent: string;
+    rawSourceContent: string;
+    rawTargetContent: string;
+    uri: string | undefined;
+    line: number | undefined;
+}
+
+/** A single entry from getFileStats(). */
+export interface FileStatEntry {
+    id: number;
+    file_path: string;
+    file_type: string;
+    cell_count: number;
+    total_words: number;
+}
+
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
     DEBUG_MODE && console.log(`[SQLiteIndex] ${message}`, ...args);
@@ -37,22 +154,103 @@ export class SQLiteIndexManager {
     private transactionLock: Promise<void> = Promise.resolve();
     /** Set to true when close() is called — prevents new transactions and operations. */
     private closed = false;
+    /** Tracks whether deferred indexes have been created to skip redundant DDL on subsequent syncs. */
+    private deferredIndexesCreated = false;
+    /** Consecutive WAL checkpoint failure count — used to escalate checkpoint mode. */
+    private walCheckpointFailureCount = 0;
+    /** Maximum consecutive checkpoint failures before escalating to RESTART mode. */
+    private static readonly MAX_CHECKPOINT_FAILURES = 5;
+    /** Handle for the periodic full integrity check timer (cleared on close). */
+    private integrityCheckTimer: NodeJS.Timeout | null = null;
+    /** Timestamp of the last dbPath existence check (used by ensureOpen for periodic validation). */
+    private lastDbPathCheckMs = 0;
+    /** Interval (ms) between dbPath existence checks in ensureOpen(). */
+    private static readonly DB_PATH_CHECK_INTERVAL_MS = 30_000;
+    /** Interval for periodic full integrity checks (default: 30 minutes). */
+    private static readonly INTEGRITY_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
     /**
      * Guard that checks both closed and db state. Call at the top of every
      * public method that accesses the database. After this call returns,
      * `this.db` is guaranteed non-null (use `this.db!` to assert).
+     *
+     * Additionally performs a periodic (every 30 s) lightweight check that
+     * the database file still exists on disk. If the .project directory was
+     * deleted externally (e.g. `git clean -fdx`), this avoids cryptic
+     * "disk I/O error" messages by failing fast with a descriptive error.
      */
     private ensureOpen(): void {
         if (this.closed) throw new Error("Database is closing or closed");
         if (!this.db) throw new Error("Database not initialized");
+
+        // Periodic dbPath existence check (lightweight, sync I/O, throttled)
+        if (this.dbPath) {
+            const now = Date.now();
+            if (now - this.lastDbPathCheckMs >= SQLiteIndexManager.DB_PATH_CHECK_INTERVAL_MS) {
+                this.lastDbPathCheckMs = now;
+                if (!existsSync(this.dbPath)) {
+                    this.closed = true;
+                    console.error(`[SQLiteIndex] Database file no longer exists: ${this.dbPath}`);
+                    throw new Error("Database file was deleted — the .project directory may have been removed");
+                }
+            }
+        }
     }
+
+    /**
+     * Public read-only flag so callers (e.g. CodexCellDocument) can detect
+     * when this manager has been closed (e.g. after a project swap) and
+     * needs to be replaced with a fresh instance from the global singleton.
+     */
+    get isClosed(): boolean {
+        return this.closed;
+    }
+
+    /**
+     * Open a database file with retry logic for transient SQLITE_BUSY / locked errors.
+     * Uses the same exponential-backoff pattern as runInTransactionWithRetry.
+     */
+    private async openWithRetry(
+        path: string,
+        maxRetries = 3,
+        baseDelayMs = 100
+    ): Promise<AsyncDatabase> {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return await AsyncDatabase.open(path);
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
+                if (!isBusy || attempt === maxRetries) throw error;
+                const delay = baseDelayMs * Math.pow(2, attempt);
+                debug(`[SQLiteIndex] DB open busy, retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+                await new Promise((r) => setTimeout(r, delay));
+            }
+        }
+        throw new Error("Unreachable: openWithRetry exhausted retries");
+    }
+
+    /**
+     * Detect disk-full / out-of-space errors that should NOT be retried.
+     */
+    private static isDiskFullError(msg: string): boolean {
+        return msg.includes("SQLITE_FULL") || msg.includes("ENOSPC") || msg.includes("no space left");
+    }
+
+    /** Maximum number of progress timing entries to keep to prevent unbounded memory growth in long sessions. */
+    private static readonly MAX_PROGRESS_ENTRIES = 200;
 
     private trackProgress(step: string, stepStartTime: number): number {
         const stepEndTime = globalThis.performance.now();
         const duration = stepEndTime - stepStartTime; // Duration of THIS step only
 
         this.progressTimings.push({ step, duration, startTime: stepStartTime });
+
+        // Cap the array to prevent unbounded growth in long sessions with many rebuilds
+        if (this.progressTimings.length > SQLiteIndexManager.MAX_PROGRESS_ENTRIES) {
+            this.progressTimings = this.progressTimings.slice(-SQLiteIndexManager.MAX_PROGRESS_ENTRIES);
+        }
+
         debug(`${step}: ${duration.toFixed(2)}ms`);
 
         // Stop any previous real-time timer
@@ -153,6 +351,9 @@ export class SQLiteIndexManager {
         // Load or create database
         await this.loadOrCreateDatabase();
 
+        // Start background periodic integrity checks (every 30 min)
+        this.startPeriodicIntegrityCheck();
+
         this.trackProgress("AI learning capabilities ready", initStart);
     }
 
@@ -172,8 +373,14 @@ export class SQLiteIndexManager {
         const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
         try {
             await vscode.workspace.fs.createDirectory(projectDir);
-        } catch {
-            // Directory might already exist
+        } catch (err) {
+            // "EntryExists" / "EEXIST" means the directory already exists — expected.
+            // Any other error (EACCES, ENOSPC, etc.) is a real problem.
+            const msg = err instanceof Error ? err.message : String(err);
+            const isAlreadyExists = msg.includes("EEXIST") || msg.includes("EntryExists") || msg.includes("FileExists");
+            if (!isAlreadyExists) {
+                throw new Error(`Failed to create .project directory: ${msg}`);
+            }
         }
 
         stepStart = this.trackProgress("Check for existing database", stepStart);
@@ -192,7 +399,7 @@ export class SQLiteIndexManager {
                 stepStart = this.trackProgress("AI accessing previous learning", stepStart);
 
                 // Open the existing file directly - no buffer loading needed
-                this.db = await AsyncDatabase.open(this.dbPath);
+                this.db = await this.openWithRetry(this.dbPath);
 
                 // Apply production PRAGMAs on every open (not just schema creation).
                 // WAL is persisted in the file, but all other PRAGMAs are per-connection.
@@ -229,7 +436,7 @@ export class SQLiteIndexManager {
             // No existing database - create a new one
             stepStart = this.trackProgress("AI preparing fresh learning space", stepStart);
             debug("Creating new index database");
-            this.db = await AsyncDatabase.open(this.dbPath);
+            this.db = await this.openWithRetry(this.dbPath);
             try {
                 await this.applyProductionPragmas();
 
@@ -393,6 +600,13 @@ export class SQLiteIndexManager {
     async createDeferredIndexes(): Promise<void> {
         this.ensureOpen();
 
+        // Skip if already created this session — the DDL uses CREATE INDEX IF NOT EXISTS
+        // so it's idempotent, but running it on every sync adds unnecessary overhead.
+        if (this.deferredIndexesCreated) {
+            debug("Deferred indexes already created this session — skipping");
+            return;
+        }
+
         debug("Creating deferred indexes for optimal performance...");
         const indexStart = globalThis.performance.now();
 
@@ -400,6 +614,7 @@ export class SQLiteIndexManager {
             await this.db!.exec(CREATE_DEFERRED_INDEXES_SQL);
         });
 
+        this.deferredIndexesCreated = true;
         const indexEndTime = globalThis.performance.now();
         debug(`Deferred indexes created in ${(indexEndTime - indexStart).toFixed(2)}ms`);
     }
@@ -433,15 +648,24 @@ export class SQLiteIndexManager {
                 this.trackProgress("✨ AI learning structure organized", stepStart);
                 debug(`New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
             } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
-                // Scenario 2: ANY version mismatch — full recreation (no partial migrations)
+                // Scenario 2: Version mismatch — try incremental migration first,
+                // fall back to full recreation if no migration path exists.
                 stepStart = this.trackProgress("Handle schema version mismatch", stepStart);
                 debug(`Database schema version ${currentVersion} does not match code version ${CURRENT_SCHEMA_VERSION}`);
 
-                await this.nukeDatabaseAndRecreate(
-                    `schema version mismatch (v${currentVersion} → v${CURRENT_SCHEMA_VERSION})`
-                );
+                // Only attempt incremental migration for forward upgrades
+                let migrated = false;
+                if (currentVersion > 0 && currentVersion < CURRENT_SCHEMA_VERSION) {
+                    migrated = await this.tryIncrementalMigration(currentVersion, CURRENT_SCHEMA_VERSION);
+                }
 
-                this.trackProgress("Database complete recreation finished", stepStart);
+                if (!migrated) {
+                    await this.nukeDatabaseAndRecreate(
+                        `schema version mismatch (v${currentVersion} → v${CURRENT_SCHEMA_VERSION})`
+                    );
+                }
+
+                this.trackProgress("Database schema upgrade finished", stepStart);
             } else {
                 // Scenario 3: Correct version - load normally
                 stepStart = this.trackProgress("Verify database schema", stepStart);
@@ -503,15 +727,20 @@ export class SQLiteIndexManager {
                 this.db = null;
             }
 
+            // Best-effort backup: copy the database file before deletion so we
+            // have a forensic snapshot for diagnosing recurring corruption.
+            await this.backupDatabaseFile();
+
             await this.deleteDatabaseFile();
 
             if (!this.dbPath) {
                 throw new Error("Database path not set");
             }
 
-            this.db = await AsyncDatabase.open(this.dbPath);
-            // Fresh connection is valid — reset closed flag so operations can proceed
+            this.db = await this.openWithRetry(this.dbPath);
+            // Fresh connection is valid — reset state so operations can proceed
             this.closed = false;
+            this.deferredIndexesCreated = false;
 
             try {
                 await this.applyProductionPragmas();
@@ -1066,10 +1295,13 @@ export class SQLiteIndexManager {
     }
 
     /**
-     * Get database instance for advanced operations (use with caution)
+     * Get database instance for advanced operations (use with caution).
+     * Throws if the manager has been closed or the database is not initialized,
+     * preventing use-after-close bugs.
      */
-    get database(): AsyncDatabase | null {
-        return this.db;
+    get database(): AsyncDatabase {
+        this.ensureOpen();
+        return this.db!;
     }
 
     // Search with MiniSearch-compatible interface (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
@@ -1085,7 +1317,7 @@ export class SQLiteIndexManager {
      * @param options.isParallelPassagesWebview - If true, this search is for the search passages webview display (default: false)
      * @returns Array of search results with raw or sanitized content based on options
      */
-    async search(query: string, options?: any): Promise<any[]> {
+    async search(query: string, options?: SearchOptions): Promise<SearchResult[]> {
         this.ensureOpen();
 
         const limit = options?.limit || 50;
@@ -1222,7 +1454,7 @@ export class SQLiteIndexManager {
             const contentToReturn = returnRawContent ? rawContent : content;
 
             // Format result to match MiniSearch output (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
-            const result: any = {
+            const result: SearchResult = {
                 id: row.cell_id,
                 cellId: row.cell_id,
                 score: row.score,
@@ -1245,9 +1477,6 @@ export class SQLiteIndexManager {
                 result.rawTargetContent = rawContent;
             }
 
-            // Add metadata fields
-            Object.assign(result, metadata);
-
             results.push(result);
         }
 
@@ -1263,12 +1492,12 @@ export class SQLiteIndexManager {
      * @param options - Search options (same as search method)
      * @returns Array of search results with sanitized content (no HTML tags)
      */
-    async searchSanitized(query: string, options?: any): Promise<any[]> {
+    async searchSanitized(query: string, options?: SearchOptions): Promise<SearchResult[]> {
         return await this.search(query, { ...options, returnRawContent: false });
     }
 
     // Get document by ID (for source text index compatibility)
-    async getById(cellId: string): Promise<any | null> {
+    async getById(cellId: string): Promise<CellByIdResult | null> {
         this.ensureOpen();
 
         const row = await this.db!.get<{
@@ -1359,14 +1588,14 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 WHERE c.s_content IS NOT NULL AND c.s_content != ''
             `;
-            const params: any[] = [];
+            const params: string[] = [];
 
             if (pathA || pathB) {
                 if (pathA && pathB && pathA !== pathB) {
                     sql += ` AND (s_file.file_path = ? OR s_file.file_path = ?)`;
                     params.push(pathA, pathB);
                 } else {
-                    const only = pathA || pathB;
+                    const only = pathA ?? pathB ?? "";
                     sql += ` AND s_file.file_path = ?`;
                     params.push(only);
                 }
@@ -1402,7 +1631,7 @@ export class SQLiteIndexManager {
     }
 
     // Get cell by exact ID match (for translation pairs)
-    async getCellById(cellId: string, cellType?: "source" | "target"): Promise<any | null> {
+    async getCellById(cellId: string, cellType?: "source" | "target"): Promise<CellDetailResult | null> {
         this.ensureOpen();
 
         const row = await this.db!.get<{
@@ -1516,7 +1745,7 @@ export class SQLiteIndexManager {
     }
 
     // Get translation pair by cell ID
-    async getTranslationPair(cellId: string): Promise<any | null> {
+    async getTranslationPair(cellId: string): Promise<TranslationPairResult | null> {
         this.ensureOpen();
 
         const sourceCell = await this.getCellById(cellId, "source");
@@ -1526,14 +1755,12 @@ export class SQLiteIndexManager {
 
         return {
             cellId,
-            sourceContent: sourceCell?.content || "",
-            targetContent: targetCell?.content || "",
-            rawSourceContent: sourceCell?.rawContent || "",
-            rawTargetContent: targetCell?.rawContent || "",
-            document: sourceCell?.document || targetCell?.document,
-            section: sourceCell?.section || targetCell?.section,
-            uri: sourceCell?.uri || targetCell?.uri,
-            line: sourceCell?.line || targetCell?.line,
+            sourceContent: sourceCell?.content ?? "",
+            targetContent: targetCell?.content ?? "",
+            rawSourceContent: sourceCell?.rawContent ?? "",
+            rawTargetContent: targetCell?.rawContent ?? "",
+            uri: sourceCell?.uri ?? targetCell?.uri,
+            line: sourceCell?.line ?? targetCell?.line,
         };
     }
 
@@ -1583,7 +1810,7 @@ export class SQLiteIndexManager {
         cellType?: "source" | "target",
         limit: number = 50,
         returnRawContent: boolean = false
-    ): Promise<any[]> {
+    ): Promise<CellSearchResult[]> {
         this.ensureOpen();
 
         // Reuse the same escaping logic from the search method
@@ -1644,7 +1871,7 @@ export class SQLiteIndexManager {
             WHERE cells_fts MATCH ?
         `;
 
-        const params: any[] = [`content: ${ftsQuery}`];
+        const params: (string | number)[] = [`content: ${ftsQuery}`];
 
         if (cellType) {
             sql += ` AND cells_fts.content_type = ?`;
@@ -1681,7 +1908,7 @@ export class SQLiteIndexManager {
                 rawContent: row.raw_content,
                 sourceContent: row.cell_type === 'source' ? row.content : undefined,
                 targetContent: row.cell_type === 'target' ? row.content : undefined,
-                cell_type: row.cell_type,
+                cell_type: row.cell_type as "source" | "target",
                 uri: row.file_path,
                 line: row.line,
                 score: row.score,
@@ -1698,7 +1925,7 @@ export class SQLiteIndexManager {
         query: string,
         cellType?: "source" | "target",
         limit: number = 50
-    ): Promise<any[]> {
+    ): Promise<CellSearchResult[]> {
         this.ensureOpen();
 
         let sql: string;
@@ -1862,7 +2089,7 @@ export class SQLiteIndexManager {
                 rawContent: row.raw_content,
                 sourceContent: row.cell_type === 'source' ? row.content : undefined,
                 targetContent: row.cell_type === 'target' ? row.content : undefined,
-                cell_type: row.cell_type,
+                cell_type: row.cell_type as "source" | "target",
                 uri: row.uri,
                 line: row.line,
                 score: row.score,
@@ -1874,7 +2101,7 @@ export class SQLiteIndexManager {
         return results;
     }
 
-    async getFileStats(): Promise<Map<string, any>> {
+    async getFileStats(): Promise<Map<string, FileStatEntry>> {
         this.ensureOpen();
 
         const rows = await this.db!.all<{
@@ -2289,6 +2516,18 @@ export class SQLiteIndexManager {
         return result;
     }
 
+    /**
+     * Update only the milestone_index column for a single cell.
+     * Intended to be called inside a transaction (e.g. from updateCellMilestoneIndices).
+     */
+    async updateCellMilestoneIndex(cellId: string, milestoneIndex: number | null): Promise<void> {
+        this.ensureOpen();
+        await this.db!.run(
+            `UPDATE cells SET milestone_index = ? WHERE cell_id = ?`,
+            [milestoneIndex, cellId]
+        );
+    }
+
     // Debug method to check if a cell is in the FTS index
     async isCellInFTSIndex(cellId: string): Promise<boolean> {
         this.ensureOpen();
@@ -2322,6 +2561,7 @@ export class SQLiteIndexManager {
             clearInterval(this.currentProgressTimer);
             this.currentProgressTimer = null;
         }
+        this.stopPeriodicIntegrityCheck();
 
         // Reset progress tracking state to prevent memory leaks
         this.currentProgressName = null;
@@ -2389,6 +2629,13 @@ export class SQLiteIndexManager {
             throw new Error(`Invalid WAL checkpoint mode: ${mode}`);
         }
 
+        // If we've hit repeated failures, escalate to RESTART mode which forces
+        // WAL pages to be written even when readers hold snapshots.
+        const effectiveMode =
+            this.walCheckpointFailureCount >= SQLiteIndexManager.MAX_CHECKPOINT_FAILURES && mode === "PASSIVE"
+                ? "RESTART"
+                : mode;
+
         try {
             // Log a warning when the WAL file is unusually large
             if (this.dbPath) {
@@ -2398,7 +2645,7 @@ export class SQLiteIndexManager {
                     const stats = await fs.stat(walPath).catch(() => null);
                     if (stats && stats.size > 50 * 1024 * 1024) {
                         console.warn(
-                            `[SQLiteIndex] WAL file is large: ${(stats.size / 1024 / 1024).toFixed(1)}MB, running checkpoint(${mode})`
+                            `[SQLiteIndex] WAL file is large: ${(stats.size / 1024 / 1024).toFixed(1)}MB, running checkpoint(${effectiveMode})`
                         );
                     }
                 } catch {
@@ -2406,12 +2653,21 @@ export class SQLiteIndexManager {
                 }
             }
 
-            await this.db!.exec(`PRAGMA wal_checkpoint(${mode})`);
-            debug(`WAL checkpoint(${mode}) completed`);
+            await this.db!.exec(`PRAGMA wal_checkpoint(${effectiveMode})`);
+            debug(`WAL checkpoint(${effectiveMode}) completed`);
+
+            // Reset failure counter on success
+            this.walCheckpointFailureCount = 0;
         } catch (error) {
-            // Non-critical — SQLite's autocheckpoint will handle it eventually,
-            // but log at warn level so failures are visible in production logs.
-            console.warn(`[SQLiteIndex] WAL checkpoint(${mode}) failed (non-critical):`, error);
+            this.walCheckpointFailureCount++;
+            const level = this.walCheckpointFailureCount >= SQLiteIndexManager.MAX_CHECKPOINT_FAILURES ? "error" : "warn";
+            const msg = `[SQLiteIndex] WAL checkpoint(${effectiveMode}) failed ` +
+                `(attempt ${this.walCheckpointFailureCount}, non-critical):`;
+            if (level === "error") {
+                console.error(msg, error);
+            } else {
+                console.warn(msg, error);
+            }
         }
     }
 
@@ -2466,6 +2722,13 @@ export class SQLiteIndexManager {
                 } catch (rollbackError) {
                     debug(`[SQLiteIndex] ROLLBACK failed: ${rollbackError}`);
                 }
+                // Surface disk-full errors with a user-visible message
+                const errMsg = error instanceof Error ? error.message : String(error);
+                if (SQLiteIndexManager.isDiskFullError(errMsg)) {
+                    vscode.window.showErrorMessage(
+                        "Codex: Disk is full — database writes are failing. Please free up disk space and try again."
+                    );
+                }
                 throw error;
             }
         } finally {
@@ -2488,6 +2751,10 @@ export class SQLiteIndexManager {
                 return await this.runInTransaction(callback);
             } catch (error: unknown) {
                 const msg = error instanceof Error ? error.message : String(error);
+
+                // Disk-full errors will not self-resolve — don't retry
+                if (SQLiteIndexManager.isDiskFullError(msg)) throw error;
+
                 const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
                 if (!isBusy || attempt === maxRetries) throw error;
                 const delay = baseDelayMs * Math.pow(2, attempt);
@@ -2496,6 +2763,43 @@ export class SQLiteIndexManager {
             }
         }
         throw new Error("Unreachable: runInTransactionWithRetry exhausted retries");
+    }
+
+    /**
+     * Run a callback inside a named SAVEPOINT within an existing transaction.
+     * Unlike runInTransaction, this does NOT acquire the mutex or issue BEGIN —
+     * it is meant to be called *inside* a runInTransaction callback to get
+     * partial-rollback capability.
+     *
+     * If the callback throws, only the work since the SAVEPOINT is rolled back;
+     * the outer transaction remains intact.
+     *
+     * @param name  Savepoint name (must be alphanumeric / underscore).
+     * @param callback  The work to execute inside the savepoint.
+     */
+    async runInSavepoint<T>(name: string, callback: () => T | Promise<T>): Promise<T> {
+        this.ensureOpen();
+
+        // Validate savepoint name to prevent SQL injection
+        if (!/^[a-zA-Z_]\w*$/.test(name)) {
+            throw new Error(`Invalid savepoint name: ${name}`);
+        }
+
+        await this.db!.run(`SAVEPOINT ${name}`);
+        try {
+            const result = await callback();
+            await this.db!.run(`RELEASE SAVEPOINT ${name}`);
+            return result;
+        } catch (error) {
+            try {
+                await this.db!.run(`ROLLBACK TO SAVEPOINT ${name}`);
+                // Release the savepoint even after rollback so it doesn't linger
+                await this.db!.run(`RELEASE SAVEPOINT ${name}`);
+            } catch (rollbackError) {
+                debug(`[SQLiteIndex] ROLLBACK TO SAVEPOINT ${name} failed: ${rollbackError}`);
+            }
+            throw error;
+        }
     }
 
     // Helper function to sanitize HTML content using enhanced regex parsing
@@ -2555,33 +2859,42 @@ export class SQLiteIndexManager {
      * SQLite when a new database is created at the same path.
      */
     private async deleteDatabaseFile(): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            throw new Error("No workspace folder found for database deletion");
+        // Use the stored dbPath when available — it was set by loadOrCreateDatabase
+        // and is the canonical path for this instance. Recomputing from
+        // workspaceFolders[0] can mismatch in multi-root workspaces.
+        let dbFsPath: string;
+        if (this.dbPath) {
+            dbFsPath = this.dbPath;
+        } else {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found for database deletion");
+            }
+            dbFsPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH).fsPath;
         }
 
-        const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
+        const dbUri = vscode.Uri.file(dbFsPath);
 
         // Delete the main database file first. This MUST succeed (or be "not found")
         // for corruption recovery to work. If the file is locked or permissions fail,
         // we rethrow so the caller knows the corrupted DB was NOT removed.
         try {
-            await vscode.workspace.fs.delete(dbPath);
+            await vscode.workspace.fs.delete(dbUri);
         } catch (mainDeleteErr) {
             // "FileNotFound" / "EntryNotFound" is fine — the file is already gone
             const msg = mainDeleteErr instanceof Error ? mainDeleteErr.message : String(mainDeleteErr);
             const isNotFound = msg.includes("ENOENT") || msg.includes("FileNotFound") || msg.includes("EntryNotFound (FileSystemError)");
             if (!isNotFound) {
-                console.error(`[SQLiteIndex] CRITICAL: Could not delete main DB file ${dbPath.fsPath}: ${mainDeleteErr}`);
+                console.error(`[SQLiteIndex] CRITICAL: Could not delete main DB file ${dbFsPath}: ${mainDeleteErr}`);
                 throw mainDeleteErr;
             }
-            debug(`Main DB file already absent: ${dbPath.fsPath}`);
+            debug(`Main DB file already absent: ${dbFsPath}`);
         }
 
         // Auxiliary files (WAL, SHM) are best-effort — they may not exist
         const auxiliaryFiles = [
-            vscode.Uri.file(`${dbPath.fsPath}-wal`),
-            vscode.Uri.file(`${dbPath.fsPath}-shm`),
+            vscode.Uri.file(`${dbFsPath}-wal`),
+            vscode.Uri.file(`${dbFsPath}-shm`),
         ];
         for (const fileUri of auxiliaryFiles) {
             try {
@@ -2592,6 +2905,25 @@ export class SQLiteIndexManager {
         }
 
         debug("Database file and auxiliary files deleted successfully");
+    }
+
+    /**
+     * Best-effort backup: copy the main database file to a `.bak` sibling.
+     * This gives us a forensic snapshot when we're about to nuke-and-recreate
+     * so corruption patterns can be investigated after the fact.
+     * Failures are swallowed — a failed backup must never prevent recovery.
+     */
+    private async backupDatabaseFile(): Promise<void> {
+        try {
+            if (!this.dbPath) return;
+            const fs = await import("fs/promises");
+            const backupPath = `${this.dbPath}.bak`;
+            await fs.copyFile(this.dbPath, backupPath);
+            debug(`[SQLiteIndex] Database backed up to ${backupPath}`);
+        } catch (backupErr) {
+            // Swallow — the original file may already be gone or inaccessible
+            debug(`[SQLiteIndex] Database backup failed (non-critical): ${backupErr}`);
+        }
     }
 
     // Manual command to delete database and trigger reindex
@@ -2622,7 +2954,11 @@ export class SQLiteIndexManager {
     }
 
     /**
-     * Check which files need synchronization based on content hash and modification time
+     * Check which files need synchronization based on content hash and modification time.
+     *
+     * Optimized to batch-load all sync_metadata records in a single query (via temp table)
+     * instead of running one SELECT per file (N+1 problem). File I/O (stat/read) is still
+     * per-file since it depends on the metadata comparison result.
      */
     async checkFilesForSync(filePaths: string[]): Promise<{
         needsSync: string[];
@@ -2635,21 +2971,55 @@ export class SQLiteIndexManager {
         const unchanged: string[] = [];
         const details = new Map<string, { reason: string; oldHash?: string; newHash?: string; }>();
 
+        // ── Phase 1: Batch-load all sync_metadata records in one query ──
+        // Use a temp table to avoid the 999-parameter limit on large projects.
+        const metadataMap = new Map<string, { content_hash: string; last_modified_ms: number; file_size: number; }>();
+
+        if (filePaths.length > 0) {
+            await this.db!.exec("CREATE TEMP TABLE IF NOT EXISTS _check_paths (file_path TEXT PRIMARY KEY)");
+            await this.db!.exec("DELETE FROM _check_paths");
+
+            const CHUNK = 500;
+            for (let i = 0; i < filePaths.length; i += CHUNK) {
+                const slice = filePaths.slice(i, i + CHUNK);
+                const placeholders = slice.map(() => "(?)").join(",");
+                await this.db!.run(
+                    `INSERT OR IGNORE INTO _check_paths (file_path) VALUES ${placeholders}`,
+                    slice
+                );
+            }
+
+            const rows = await this.db!.all<{
+                file_path: string;
+                content_hash: string;
+                last_modified_ms: number;
+                file_size: number;
+            }>(
+                `SELECT sm.file_path, sm.content_hash, sm.last_modified_ms, sm.file_size
+                 FROM sync_metadata sm
+                 INNER JOIN _check_paths cp ON sm.file_path = cp.file_path`
+            );
+            for (const row of rows) {
+                metadataMap.set(row.file_path, {
+                    content_hash: row.content_hash,
+                    last_modified_ms: row.last_modified_ms,
+                    file_size: row.file_size,
+                });
+            }
+
+            // Clean up temp table
+            await this.db!.exec("DELETE FROM _check_paths");
+        }
+
+        // Collect mtime/size drift updates to batch them in a single transaction
+        const driftUpdates: Array<{ mtime: number; size: number; path: string; }> = [];
+
+        // ── Phase 2: Compare each file against its cached metadata ──
         for (const filePath of filePaths) {
             try {
                 const fileUri = vscode.Uri.file(filePath);
                 const fileStat = await vscode.workspace.fs.stat(fileUri);
-
-                // Check sync metadata
-                const existingRecord = await this.db!.get<{
-                    content_hash: string;
-                    last_modified_ms: number;
-                    file_size: number;
-                }>(`
-                    SELECT content_hash, last_modified_ms, file_size 
-                    FROM sync_metadata 
-                    WHERE file_path = ?
-                `, [filePath]);
+                const existingRecord = metadataMap.get(filePath);
 
                 if (!existingRecord) {
                     // New file — must sync. Read content for the detail hash.
@@ -2696,17 +3066,8 @@ export class SQLiteIndexManager {
                         newHash: newContentHash
                     });
 
-                    // Update stored mtime/size so the fast path works next time
-                    try {
-                        await this.db!.run(`
-                            UPDATE sync_metadata
-                            SET last_modified_ms = ?, file_size = ?
-                            WHERE file_path = ?
-                        `, [fileStat.mtime, fileStat.size, filePath]);
-                    } catch (updateError) {
-                        // Non-critical — just means next check will re-read content
-                        debug(`Failed to update sync_metadata mtime/size for ${filePath}: ${updateError}`);
-                    }
+                    // Queue mtime/size update so the fast path works next time
+                    driftUpdates.push({ mtime: fileStat.mtime, size: fileStat.size, path: filePath });
                 }
             } catch (error) {
                 console.error(`[SQLiteIndex] Error checking file ${filePath}:`, error);
@@ -2714,6 +3075,23 @@ export class SQLiteIndexManager {
                 details.set(filePath, {
                     reason: `error checking file: ${error instanceof Error ? error.message : 'unknown error'}`
                 });
+            }
+        }
+
+        // ── Phase 3: Batch-update mtime/size drift in a single transaction ──
+        if (driftUpdates.length > 0) {
+            try {
+                await this.runInTransaction(async () => {
+                    for (const { mtime, size, path } of driftUpdates) {
+                        await this.db!.run(
+                            `UPDATE sync_metadata SET last_modified_ms = ?, file_size = ? WHERE file_path = ?`,
+                            [mtime, size, path]
+                        );
+                    }
+                });
+            } catch (updateError) {
+                // Non-critical — just means next check will re-read content
+                debug(`Failed to batch-update sync_metadata mtime/size: ${updateError}`);
             }
         }
 
@@ -2902,16 +3280,16 @@ export class SQLiteIndexManager {
             return { duplicatesRemoved: 0, cellsAffected: 0, unknownFileRemoved: false };
         }
 
-        // Remove duplicates from 'unknown' file in batches
+        // Remove duplicates from 'unknown' file in batches.
+        // FTS deletes and cells updates are in the same transaction so they
+        // are atomically committed or rolled back together — preventing FTS
+        // from getting out of sync with the cells table.
         let duplicatesRemoved = 0;
         await this.runInTransaction(async () => {
             for (const duplicate of duplicatesToRemove) {
-                try {
-                    await this.db!.run("DELETE FROM cells_fts WHERE cell_id = ? AND content_type = 'source'", [duplicate.cellId]);
-                } catch (error) {
-                    // Continue even if FTS delete fails — log for diagnostics
-                    debug(`FTS delete failed during dedup for cell ${duplicate.cellId}: ${error}`);
-                }
+                // Rethrow FTS errors so the entire transaction rolls back,
+                // keeping FTS and cells in sync.
+                await this.db!.run("DELETE FROM cells_fts WHERE cell_id = ? AND content_type = 'source'", [duplicate.cellId]);
             }
 
             for (const duplicate of duplicatesToRemove) {
@@ -2945,8 +3323,14 @@ export class SQLiteIndexManager {
             debug("Removed empty 'unknown' file entry");
         }
 
-        // Refresh FTS index to ensure consistency
-        await this.refreshFTSIndex();
+        // Refresh FTS index to ensure consistency after bulk deduplication.
+        // Non-fatal if it fails — triggers keep FTS in sync for ongoing operations
+        // and the next sync will rebuild as needed.
+        try {
+            await this.refreshFTSIndex();
+        } catch (ftsError) {
+            console.warn(`[SQLiteIndex] FTS refresh after deduplication failed (non-critical):`, ftsError);
+        }
 
         debug(`Deduplication complete: removed ${duplicatesRemoved} duplicate cells`);
         debug(`Cells affected: ${duplicatesToRemove.length}`);
@@ -4032,5 +4416,177 @@ export class SQLiteIndexManager {
             sampleTargetCells: sampleCells,
             timestampConsistencyIssues
         };
+    }
+
+    // ── Periodic full integrity check ───────────────────────────────────────
+
+    /**
+     * Run a full `PRAGMA integrity_check` — validates B-tree structure, indexes,
+     * and foreign-key constraints.  Much slower than quick_check (~seconds on
+     * large databases) but catches subtle corruption that quick_check misses.
+     *
+     * Returns `true` if the database is healthy, `false` otherwise.
+     * On failure the result string is logged at error level.
+     */
+    async fullIntegrityCheck(): Promise<boolean> {
+        this.ensureOpen();
+
+        try {
+            const start = globalThis.performance.now();
+            const result = await this.db!.get<{ integrity_check: string }>(
+                "PRAGMA integrity_check"
+            );
+            const elapsed = globalThis.performance.now() - start;
+            const value = result
+                ? (result.integrity_check ?? Object.values(result)[0])
+                : undefined;
+
+            if (value && String(value) === "ok") {
+                debug(`[SQLiteIndex] Full integrity check passed in ${elapsed.toFixed(0)}ms`);
+                return true;
+            }
+
+            console.error(`[SQLiteIndex] Full integrity check FAILED (${elapsed.toFixed(0)}ms): ${value}`);
+            return false;
+        } catch (error) {
+            console.error("[SQLiteIndex] Full integrity check threw:", error);
+            return false;
+        }
+    }
+
+    /**
+     * Start a periodic background integrity check that runs every
+     * INTEGRITY_CHECK_INTERVAL_MS (30 min by default).  The timer is
+     * automatically cleared when the database is closed.
+     *
+     * If corruption is detected the database is nuked and recreated.
+     */
+    startPeriodicIntegrityCheck(): void {
+        // Clear any existing timer (idempotent)
+        this.stopPeriodicIntegrityCheck();
+
+        this.integrityCheckTimer = setInterval(async () => {
+            if (this.closed || !this.db) return;
+
+            try {
+                const healthy = await this.fullIntegrityCheck();
+                if (!healthy) {
+                    console.error("[SQLiteIndex] Periodic integrity check detected corruption — recreating database");
+                    await this.nukeDatabaseAndRecreate("corruption detected by periodic integrity check");
+                }
+            } catch (error) {
+                // Don't let the timer crash the extension
+                console.error("[SQLiteIndex] Periodic integrity check error:", error);
+            }
+        }, SQLiteIndexManager.INTEGRITY_CHECK_INTERVAL_MS);
+
+        // Don't let the timer keep the Node process alive during shutdown
+        if (this.integrityCheckTimer.unref) {
+            this.integrityCheckTimer.unref();
+        }
+
+        debug("[SQLiteIndex] Periodic integrity check started (every 30 min)");
+    }
+
+    /** Stop the periodic integrity check timer. */
+    stopPeriodicIntegrityCheck(): void {
+        if (this.integrityCheckTimer) {
+            clearInterval(this.integrityCheckTimer);
+            this.integrityCheckTimer = null;
+        }
+    }
+
+    // ── FTS orphan cleanup ──────────────────────────────────────────────────
+
+    /**
+     * Remove FTS entries whose cell_id no longer exists in the cells table.
+     * The cells_fts_delete trigger normally keeps them in sync, but edge cases
+     * (partial transaction failures, external DB edits) can leave orphans.
+     *
+     * This is safe to call at any time and is idempotent.
+     */
+    async cleanupOrphanedFTSEntries(): Promise<number> {
+        this.ensureOpen();
+
+        try {
+            // Find orphaned FTS entries (cell_id in FTS but not in cells)
+            const orphans = await this.db!.all<{ cell_id: string }>(
+                `SELECT DISTINCT fts.cell_id
+                 FROM cells_fts fts
+                 LEFT JOIN cells c ON fts.cell_id = c.cell_id
+                 WHERE c.cell_id IS NULL`
+            );
+
+            if (orphans.length === 0) {
+                debug("[SQLiteIndex] No orphaned FTS entries found");
+                return 0;
+            }
+
+            console.warn(`[SQLiteIndex] Found ${orphans.length} orphaned FTS entries — cleaning up`);
+
+            await this.runInTransaction(async () => {
+                for (const { cell_id } of orphans) {
+                    await this.db!.run("DELETE FROM cells_fts WHERE cell_id = ?", [cell_id]);
+                }
+            });
+
+            debug(`[SQLiteIndex] Cleaned up ${orphans.length} orphaned FTS entries`);
+            return orphans.length;
+        } catch (error) {
+            console.warn("[SQLiteIndex] FTS orphan cleanup failed (non-critical):", error);
+            return 0;
+        }
+    }
+
+    // ── Incremental schema migration framework ──────────────────────────────
+
+    /**
+     * Registry of incremental migration functions keyed by target version.
+     * Each function receives the database and upgrades it from version N-1 to N.
+     *
+     * When a migration is available for the gap between the current DB version
+     * and CURRENT_SCHEMA_VERSION, it will be used instead of nuke-and-recreate.
+     * Add entries here as the schema evolves to avoid full rebuilds.
+     *
+     * Example:
+     *   MIGRATIONS.set(14, async (db) => {
+     *       await db.exec("ALTER TABLE cells ADD COLUMN new_col TEXT");
+     *   });
+     */
+    private static readonly MIGRATIONS = new Map<number, (db: AsyncDatabase) => Promise<void>>();
+
+    /**
+     * Attempt to incrementally migrate from `fromVersion` to `toVersion`.
+     * Returns true if all intermediate migrations exist and succeeded,
+     * false if any migration is missing (caller should fall back to nuke).
+     */
+    private async tryIncrementalMigration(fromVersion: number, toVersion: number): Promise<boolean> {
+        // Check that we have a complete migration path
+        for (let v = fromVersion + 1; v <= toVersion; v++) {
+            if (!SQLiteIndexManager.MIGRATIONS.has(v)) {
+                debug(`[SQLiteIndex] No migration for v${v - 1} → v${v}, falling back to recreation`);
+                return false;
+            }
+        }
+
+        debug(`[SQLiteIndex] Attempting incremental migration v${fromVersion} → v${toVersion}`);
+
+        try {
+            await this.runInTransaction(async () => {
+                for (let v = fromVersion + 1; v <= toVersion; v++) {
+                    const migrate = SQLiteIndexManager.MIGRATIONS.get(v)!;
+                    debug(`[SQLiteIndex] Running migration v${v - 1} → v${v}`);
+                    await migrate(this.db!);
+                }
+            });
+
+            // Stamp the new version
+            await this.setSchemaVersion(toVersion);
+            debug(`[SQLiteIndex] Incremental migration to v${toVersion} succeeded`);
+            return true;
+        } catch (error) {
+            console.error(`[SQLiteIndex] Incremental migration failed — will nuke and recreate:`, error);
+            return false;
+        }
     }
 }

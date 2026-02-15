@@ -54,8 +54,8 @@ export async function getSourceCellByCellIdFromAllSourceCells(
             return {
                 cellId: result.cellId,
                 content: result.content,
-                versions: result.versions || [],
-                notebookId: result.notebookId || "",
+                versions: result.versions ?? [],
+                notebookId: result.source_file_path ?? "",
             };
         }
     }
@@ -110,7 +110,7 @@ export async function getTranslationPairFromProject(
     const searchResults = await translationPairsIndex.search(cellId, {
         fields: ["cellId", "sourceContent", "targetContent"],
         combineWith: "OR",
-        filter: (result: any) => result.cellId === cellId,
+        filter: (result) => result.cellId === cellId,
         isParallelPassagesWebview, // Pass through for raw content handling
     });
 
@@ -164,7 +164,15 @@ export async function getTranslationPairFromProject(
     let sourceOnlyResult: SourceCellVersions | null = null;
 
     if (sourceTextIndex instanceof SQLiteIndexManager) {
-        sourceOnlyResult = await sourceTextIndex.getById(cellId);
+        const byIdResult = await sourceTextIndex.getById(cellId);
+        if (byIdResult) {
+            sourceOnlyResult = {
+                cellId: byIdResult.cellId,
+                content: byIdResult.content,
+                versions: byIdResult.versions ?? [],
+                notebookId: byIdResult.source_file_path ?? "",
+            };
+        }
     }
 
     if (sourceOnlyResult) {
@@ -368,7 +376,7 @@ export async function findNextUntranslatedSourceCell(
             if (!hasTranslation) {
                 return {
                     cellId: result.cellId,
-                    content: result.content,
+                    content: result.content ?? "",
                 };
             }
         }

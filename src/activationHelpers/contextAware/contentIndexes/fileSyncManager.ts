@@ -3,10 +3,15 @@ import { createHash } from "crypto";
 import { SQLiteIndexManager } from "./indexes/sqliteIndex";
 import { FileData, readSourceAndTargetFiles } from "./indexes/fileReaders";
 import { CodexCellTypes } from "../../../../types/enums";
+import { isDBShuttingDown } from "./indexes/sqliteIndexManager";
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
     DEBUG_MODE && console.log(`[FileSyncManager] ${message}`, ...args);
 };
+
+/** Maximum file size (bytes) that the sync manager will attempt to read into memory. */
+const MAX_SYNC_FILE_SIZE_MB = 50;
+const MAX_SYNC_FILE_SIZE = MAX_SYNC_FILE_SIZE_MB * 1024 * 1024;
 
 export interface FileSyncResult {
     totalFiles: number;
@@ -84,6 +89,12 @@ export class FileSyncManager {
         const syncStart = performance.now();
         const { forceSync = false, progressCallback } = options;
 
+        // Bail early if the database is being torn down (project swap / deactivation)
+        if (isDBShuttingDown()) {
+            debug("[FileSyncManager] DB shutting down — aborting sync");
+            return { totalFiles: 0, syncedFiles: 0, unchangedFiles: 0, errors: [], duration: 0, details: new Map() };
+        }
+
         debug(`[FileSyncManager] Starting optimized file sync (force: ${forceSync})...`);
         progressCallback?.("Initializing sync process...", 0);
 
@@ -149,6 +160,12 @@ export class FileSyncManager {
 
             let processedCount = 0;
             for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+                // Check shutdown between batches so a project swap isn't blocked
+                if (isDBShuttingDown()) {
+                    debug("[FileSyncManager] DB shutting down mid-sync — aborting remaining batches");
+                    break;
+                }
+
                 const batch = batches[batchIndex];
                 const progress = 20 + (batchIndex / batches.length) * 60; // Reserve 20% for cleanup
                 progressCallback?.(`Syncing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)...`, progress);
@@ -157,10 +174,14 @@ export class FileSyncManager {
                 const readResults = await Promise.allSettled(
                     batch.map(async (fileData) => {
                         const filePath = fileData.uri.fsPath;
-                        const [fileStat, fileContent] = await Promise.all([
-                            vscode.workspace.fs.stat(fileData.uri),
-                            vscode.workspace.fs.readFile(fileData.uri),
-                        ]);
+                        const fileStat = await vscode.workspace.fs.stat(fileData.uri);
+
+                        // Guard: skip oversized files to avoid OOM
+                        if (fileStat.size > MAX_SYNC_FILE_SIZE) {
+                            throw new Error(`File too large (${(fileStat.size / 1024 / 1024).toFixed(1)}MB > ${MAX_SYNC_FILE_SIZE_MB}MB limit) — skipped`);
+                        }
+
+                        const fileContent = await vscode.workspace.fs.readFile(fileData.uri);
                         const contentHash = createHash("sha256").update(fileContent).digest("hex");
                         return { fileData, filePath, fileStat, contentHash };
                     })
@@ -489,11 +510,14 @@ export class FileSyncManager {
                 progressCallback?.(`Syncing ${i + 1}/${filesToProcess.length}: ${fileData.id}`, progress);
 
                 try {
-                    // Read file I/O
-                    const [fileStat, fileContent] = await Promise.all([
-                        vscode.workspace.fs.stat(fileData.uri),
-                        vscode.workspace.fs.readFile(fileData.uri),
-                    ]);
+                    // Read file I/O — stat first so we can guard oversized files
+                    const fileStat = await vscode.workspace.fs.stat(fileData.uri);
+                    if (fileStat.size > MAX_SYNC_FILE_SIZE) {
+                        console.warn(`[FileSyncManager] Skipping oversized file (${(fileStat.size / 1024 / 1024).toFixed(1)}MB): ${filePath}`);
+                        errors.push({ file: fileData.id, error: `File too large (${(fileStat.size / 1024 / 1024).toFixed(1)}MB)` });
+                        continue;
+                    }
+                    const fileContent = await vscode.workspace.fs.readFile(fileData.uri);
                     const contentHash = createHash("sha256").update(fileContent).digest("hex");
 
                     // Write to DB in a transaction with retry for SQLITE_BUSY resilience
@@ -509,7 +533,25 @@ export class FileSyncManager {
                 }
             }
 
-            // Cleanup and finalize
+            // Cleanup sync metadata for files that were requested but no longer exist.
+            // Without this, deleted files leave orphaned metadata rows until the next
+            // full sync. Use the full project file list so we catch all deletions.
+            if (missingPaths.length > 0) {
+                progressCallback?.("Cleaning up obsolete metadata...", 90);
+                try {
+                    const { sourceFiles: allSource, targetFiles: allTarget } = await readSourceAndTargetFiles();
+                    const allProjectPaths = [...allSource, ...allTarget].map(f => f.uri.fsPath);
+                    const removedCount = await this.sqliteIndex.cleanupSyncMetadata(allProjectPaths);
+                    if (removedCount > 0) {
+                        debug(`[FileSyncManager] Cleaned up ${removedCount} obsolete sync records during targeted sync`);
+                    }
+                } catch (cleanupError) {
+                    console.warn("[FileSyncManager] Error cleaning up sync metadata during targeted sync:", cleanupError);
+                    // Non-fatal — orphaned metadata will be cleaned up on next full sync
+                }
+            }
+
+            // Finalize
             progressCallback?.("Finalizing targeted sync...", 95);
             await this.sqliteIndex.forceSave();
 

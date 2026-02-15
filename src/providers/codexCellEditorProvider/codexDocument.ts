@@ -22,7 +22,7 @@ import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
-import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
@@ -78,6 +78,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
         content: string;
         editType: EditType;
     }> = [];
+
+    /**
+     * Maximum number of pending index operations to queue. Beyond this limit
+     * new operations are not queued (they are still tracked via _dirtyCellIds
+     * and will be picked up on the next full save/sync).
+     */
+    private static readonly MAX_PENDING_INDEX_OPS = 500;
 
     // Cache for milestone index to avoid rebuilding on every call
     private _cachedMilestoneIndex: MilestoneIndex | null = null;
@@ -182,8 +189,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     public async populateSourceCellMapFromIndex(sourceFilePath?: string): Promise<void> {
         try {
+            if (this._indexManager?.isClosed) {
+                this._indexManager = null;
+                this.invalidateIndexCaches();
+            }
             if (!this._indexManager) {
                 this._indexManager = getSQLiteIndexManager();
+                if (this._indexManager) { this.invalidateIndexCaches(); }
             }
 
             if (this._indexManager) {
@@ -533,8 +545,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     // Public method to ensure a cell is indexed (useful for waiting after transcription)
     public async ensureCellIndexed(cellId: string, timeoutMs: number = 5000): Promise<boolean> {
+        if (this._indexManager?.isClosed) {
+            this._indexManager = null;
+            this.invalidateIndexCaches();
+        }
         if (!this._indexManager) {
             this._indexManager = getSQLiteIndexManager();
+            if (this._indexManager) { this.invalidateIndexCaches(); }
             if (!this._indexManager) return false;
         }
 
@@ -559,13 +576,38 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
-     * Try to acquire the index manager and flush any pending operations that were
-     * queued while the index manager was unavailable (e.g. during project swap or
-     * initialization). Returns the index manager if available, or null.
+     * Invalidate caches that are tied to a specific database instance.
+     * Must be called whenever the index manager is replaced (e.g. after a
+     * project swap) to prevent stale file IDs from the old database leaking
+     * into the new one.
+     */
+    private invalidateIndexCaches(): void {
+        this._cachedFileId = null;
+    }
+
+    /**
+     * Try to acquire a valid (non-closed) index manager and flush any pending
+     * operations that were queued while the index manager was unavailable
+     * (e.g. during project swap or initialization).
+     *
+     * Detects stale managers that have been closed (e.g. after a project swap)
+     * and replaces them with the current global instance.
+     *
+     * Returns the index manager if available, or null.
      */
     private async acquireIndexManagerAndFlush(): Promise<typeof this._indexManager> {
+        // Detect a closed/stale manager and replace it with the current global instance
+        if (this._indexManager?.isClosed) {
+            debug(`[CodexDocument] Detected closed index manager — refreshing`);
+            this._indexManager = null;
+            this.invalidateIndexCaches();
+        }
         if (!this._indexManager) {
             this._indexManager = getSQLiteIndexManager();
+            if (this._indexManager) {
+                // New manager → old file IDs are invalid
+                this.invalidateIndexCaches();
+            }
         }
         if (this._indexManager && this._pendingIndexOps.length > 0) {
             // Drain the queue — take a snapshot so new ops during flush are queued separately
@@ -590,16 +632,35 @@ export class CodexCellDocument implements vscode.CustomDocument {
         content: string,
         editType: EditType
     ): Promise<void> {
+        // Bail early if the database is being torn down (project swap / deactivation)
+        if (isDBShuttingDown()) {
+            this._dirtyCellIds.add(cellId);
+            return;
+        }
+        const hadCachedFileId = this._cachedFileId !== null;
         try {
+            // Detect a closed/stale manager and replace it
+            if (this._indexManager?.isClosed) {
+                this._indexManager = null;
+                this.invalidateIndexCaches();
+            }
             // Refresh index manager reference if it's not available
             if (!this._indexManager) {
                 this._indexManager = getSQLiteIndexManager();
+                if (this._indexManager) {
+                    this.invalidateIndexCaches();
+                }
                 if (!this._indexManager) {
                     // Queue the operation so it's replayed when the index manager becomes available,
-                    // rather than silently dropping the update.
-                    this._pendingIndexOps.push({ cellId, content, editType });
+                    // rather than silently dropping the update. Cap the queue to avoid unbounded
+                    // memory growth — excess cells are still tracked via _dirtyCellIds.
                     this._dirtyCellIds.add(cellId);
-                    console.warn(`[CodexDocument] Index manager not available — queued indexing for cell ${cellId} (${this._pendingIndexOps.length} pending)`);
+                    if (this._pendingIndexOps.length < CodexCellDocument.MAX_PENDING_INDEX_OPS) {
+                        this._pendingIndexOps.push({ cellId, content, editType });
+                        console.warn(`[CodexDocument] Index manager not available — queued indexing for cell ${cellId} (${this._pendingIndexOps.length} pending)`);
+                    } else if (this._pendingIndexOps.length === CodexCellDocument.MAX_PENDING_INDEX_OPS) {
+                        console.warn(`[CodexDocument] Pending index ops cap reached (${CodexCellDocument.MAX_PENDING_INDEX_OPS}) — further ops tracked via dirty cells only`);
+                    }
                     return;
                 }
             }
@@ -640,8 +701,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
             // Wrap file upsert + cell upsert + FTS sync in a single transaction
             // so a crash or concurrent write can't leave partial state.
+            // Use retry variant to handle SQLITE_BUSY if a background sync holds the lock.
             const indexManager = this._indexManager;
-            await indexManager.runInTransaction(async () => {
+            await indexManager.runInTransactionWithRetry(async () => {
                 // Use cached file ID or get it once.
                 // Use upsertFileSync (not upsertFile) to avoid disk I/O while
                 // holding the transaction lock — upsertFile reads the file from
@@ -672,6 +734,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
             debug(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
 
         } catch (error) {
+            // If we set _cachedFileId inside the transaction and it rolled back,
+            // the ID is from an uncommitted INSERT — invalidate it so the next
+            // attempt gets a fresh one.
+            if (!hadCachedFileId) {
+                this.invalidateIndexCaches();
+            }
             console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
             throw error;
         }
@@ -781,6 +849,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Sync only modified cells for non-backup saves
         if (!backup) {
+            // If saving to a different path, invalidate the cached file ID so the
+            // index picks up the correct file URI on the next sync. The provider
+            // framework may or may not update this.uri after saveAs — by clearing
+            // the cache we ensure whichever URI is current gets used.
+            if (targetResource.toString() !== this.uri.toString()) {
+                this.invalidateIndexCaches();
+            }
+
             // Record save timestamp to prevent file watcher from reverting our own save
             this._lastSaveTimestamp = Date.now();
             await this.syncDirtyCellsToDatabase();
@@ -1392,8 +1468,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * This should be called after buildMilestoneIndex() to persist the milestone indices.
      */
     public async updateCellMilestoneIndices(): Promise<void> {
+        // Detect a closed/stale manager and replace it
+        if (this._indexManager?.isClosed) {
+            this._indexManager = null;
+            this.invalidateIndexCaches();
+        }
         if (!this._indexManager) {
             this._indexManager = getSQLiteIndexManager();
+            if (this._indexManager) {
+                this.invalidateIndexCaches();
+            }
             if (!this._indexManager) {
                 console.warn(`[CodexDocument] Index manager not available for milestone index update`);
                 return;
@@ -1416,47 +1500,48 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const contentType = this.getContentType();
         const indexManager = this._indexManager;
+        const hadCachedFileId = this._cachedFileId !== null;
 
-        // Use targeted UPDATE statement instead of full upserts
-        const db = indexManager.database;
-        if (!db) {
-            console.warn(`[CodexDocument] Database not available for milestone index update`);
-            return;
+        try {
+            // Use retry variant to handle SQLITE_BUSY if a background sync holds the lock.
+            await indexManager.runInTransactionWithRetry(async () => {
+                // Get file ID inside the transaction for atomicity.
+                // Use upsertFileSync (not upsertFile) to avoid disk I/O while
+                // holding the transaction lock — consistent with addCellToIndexImmediately
+                // and syncDirtyCellsToDatabase.
+                let fileId = this._cachedFileId;
+                if (!fileId) {
+                    fileId = await indexManager.upsertFileSync(
+                        this.uri.toString(),
+                        contentType === "source" ? "source" : "codex",
+                        Date.now()
+                    );
+                    this._cachedFileId = fileId;
+                }
+
+                // Update milestone_index for all cells using the index manager's
+                // updateCellMilestoneIndex method instead of raw db.run, so we go
+                // through ensureOpen() and stay consistent with the manager's API.
+                for (const cell of cells) {
+                    const cellId = cell.metadata?.id;
+                    if (!cellId) continue;
+
+                    const milestoneIndex = cell.metadata?.data?.milestoneIndex;
+                    await indexManager.updateCellMilestoneIndex(
+                        cellId,
+                        milestoneIndex !== undefined ? milestoneIndex : null
+                    );
+                }
+            });
+        } catch (error) {
+            // If _cachedFileId was set inside the rolled-back transaction,
+            // invalidate it so the next attempt gets a fresh one.
+            if (!hadCachedFileId) {
+                this.invalidateIndexCaches();
+            }
+            console.error(`[CodexDocument] Error updating milestone indices:`, error);
+            return; // Non-fatal — milestones will be retried on next call
         }
-
-        await indexManager.runInTransaction(async () => {
-            // Get file ID inside the transaction for atomicity.
-            // Use upsertFileSync (not upsertFile) to avoid disk I/O while
-            // holding the transaction lock — consistent with addCellToIndexImmediately
-            // and syncDirtyCellsToDatabase.
-            let fileId = this._cachedFileId;
-            if (!fileId) {
-                fileId = await indexManager.upsertFileSync(
-                    this.uri.toString(),
-                    contentType === "source" ? "source" : "codex",
-                    Date.now()
-                );
-                this._cachedFileId = fileId;
-            }
-
-            // Update milestone_index for all cells
-            for (const cell of cells) {
-                const cellId = cell.metadata?.id;
-                if (!cellId) continue;
-
-                const milestoneIndex = cell.metadata?.data?.milestoneIndex;
-
-                // Execute UPDATE statement
-                await db.run(`
-                    UPDATE cells 
-                    SET milestone_index = ?
-                    WHERE cell_id = ?
-                `, [
-                    milestoneIndex !== undefined ? milestoneIndex : null,
-                    cellId
-                ]);
-            }
-        });
 
         // Track that we've updated for this cell count
         this._lastUpdatedMilestoneIndexCellCount = currentCellCount;
@@ -3317,11 +3402,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // for a single character edit (1,596 cells × full FTS5 upsert each).
     // Now it only syncs cells that were actually modified since the last save.
     private async syncDirtyCellsToDatabase(): Promise<void> {
+        // Bail early if the database is being torn down (project swap / deactivation).
+        // Dirty cells stay in the set and will be picked up after re-initialization.
+        if (isDBShuttingDown()) {
+            debug(`[CodexDocument] DB shutting down — skipping dirty cell sync`);
+            return;
+        }
+
+        // Snapshot and clear the dirty set immediately so edits during sync
+        // are captured in the next save cycle. Declared outside try so the
+        // catch can re-add IDs on failure.
+        const dirtyIds = new Set(this._dirtyCellIds);
+        this._dirtyCellIds.clear();
+        const hadCachedFileId = this._cachedFileId !== null;
         try {
-            // Snapshot and clear the dirty set immediately so edits during sync
-            // are captured in the next save cycle
-            const dirtyIds = new Set(this._dirtyCellIds);
-            this._dirtyCellIds.clear();
 
             if (dirtyIds.size === 0) {
                 debug(`[CodexDocument] No dirty cells to sync — skipping database update`);
@@ -3345,7 +3439,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Wrap all DB writes (file upsert + cell upserts + FTS syncs)
             // in a single transaction so a crash or concurrent write can't
             // leave partial state in the database.
-            await indexManager.runInTransaction(async () => {
+            // Use retry variant to handle SQLITE_BUSY if a background sync holds the lock.
+            await indexManager.runInTransactionWithRetry(async () => {
                 // Get file ID (inside the transaction so it's atomic with cell writes).
                 // Use upsertFileSync (not upsertFile) to avoid disk I/O while
                 // holding the transaction lock.
@@ -3472,7 +3567,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
             debug(`[CodexDocument] AI knowledge updated: synced ${syncedCells} dirty cells (of ${dirtyIds.size} marked), ${syncedValidations} with validation data`);
 
         } catch (error) {
-            console.error(`[CodexDocument] Error during AI learning:`, error);
+            // Transaction failed (SQLITE_BUSY, closed DB, etc.) — re-add dirty IDs
+            // so they aren't lost. They'll be retried on the next save cycle.
+            for (const id of dirtyIds) {
+                this._dirtyCellIds.add(id);
+            }
+            // If _cachedFileId was set inside the rolled-back transaction, the ID
+            // is from an uncommitted INSERT — always invalidate on any failure.
+            if (!hadCachedFileId) {
+                this.invalidateIndexCaches();
+            }
+            // If the error was due to a closed DB, also clear the stale manager so
+            // the next attempt gets a fresh one.
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes("closing or closed") || msg.includes("not initialized")) {
+                this._indexManager = null;
+            }
+            console.error(`[CodexDocument] Error during AI learning (${dirtyIds.size} dirty cells re-queued):`, error);
         }
     }
 }
