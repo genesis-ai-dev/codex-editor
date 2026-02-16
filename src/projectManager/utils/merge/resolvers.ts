@@ -786,9 +786,6 @@ function applyEditToMetadata(metadata: CustomNotebookMetadata, edit: FileEditHis
                 case 'fileDisplayName':
                     metadata.fileDisplayName = value as string;
                     break;
-                case 'cellDisplayMode':
-                    metadata.cellDisplayMode = value as "inline" | "one-line-per-cell";
-                    break;
                 case 'audioOnly':
                     metadata.audioOnly = value as boolean;
                     break;

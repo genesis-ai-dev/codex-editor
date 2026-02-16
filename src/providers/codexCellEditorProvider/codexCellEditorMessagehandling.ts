@@ -1514,20 +1514,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },
 
-    updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode"; }>;
-        const updatedMetadata = {
-            cellDisplayMode: typedEvent.mode,
-        };
-        await document.updateNotebookMetadata(updatedMetadata);
-        await document.save(new vscode.CancellationTokenSource().token);
-        debug("Cell display mode updated successfully.");
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerUpdatesNotebookMetadataForWebview",
-            content: await document.getNotebookMetadata(),
-        });
-    },
-
     validateCell: async ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "validateCell"; }>;
         if (typedEvent.content?.cellId) {

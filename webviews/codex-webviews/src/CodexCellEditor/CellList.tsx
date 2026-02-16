@@ -9,7 +9,10 @@ import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } 
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
-import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import { CELL_DISPLAY_MODES } from "../lib/types";
+
+/** Display is always one line per cell; display mode is no longer configurable. */
+const CELL_DISPLAY_MODE = CELL_DISPLAY_MODES.ONE_LINE_PER_CELL;
 import { WebviewApi } from "vscode-webview";
 import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
@@ -29,7 +32,6 @@ export interface CellListProps {
     handleSaveHtml: () => void;
     vscode: any;
     textDirection: "ltr" | "rtl";
-    cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
@@ -91,7 +93,6 @@ const CellList: React.FC<CellListProps> = ({
     handleSaveHtml,
     vscode,
     textDirection,
-    cellDisplayMode,
     isSourceText,
     windowHeight,
     headerHeight,
@@ -782,10 +783,10 @@ const CellList: React.FC<CellListProps> = ({
         (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
                 key={`group-${group[0]?.cellMarkers?.[0] ?? startIndex}`}
-                className={`verse-group cell-display-${cellDisplayMode}`}
+                className={`verse-group cell-display-${CELL_DISPLAY_MODE}`}
                 style={{
                     direction: textDirection,
-                    display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline" : "block",
+                    display: "block",
                     backgroundColor: "transparent",
                 }}
             >
@@ -802,10 +803,7 @@ const CellList: React.FC<CellListProps> = ({
                         <span
                             key={`${cellMarkers[0]}:${startIndex + index}`}
                             style={{
-                                display:
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "inline"
-                                        : "block",
+                                display: "block",
                                 verticalAlign: "middle",
                                 backgroundColor: "transparent",
                                 opacity: cell.merged ? 0.5 : 1,
@@ -829,7 +827,6 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={successfulCompletions.size > 0} // Assuming all complete if there are successful completions
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
-                                cellDisplayMode={cellDisplayMode}
                                 audioAttachments={audioAttachments}
                                 footnoteOffset={calculateFootnoteOffset(startIndex + index)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
@@ -851,7 +848,6 @@ const CellList: React.FC<CellListProps> = ({
             </span>
         ),
         [
-            cellDisplayMode,
             textDirection,
             showInlineBacktranslations,
             backtranslationsMap,
@@ -962,7 +958,7 @@ const CellList: React.FC<CellListProps> = ({
 
                 // Only render empty cells in one-line-per-cell mode or if it's the next empty cell to render
                 if (
-                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
+                    CELL_DISPLAY_MODE === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
                     !isCellContentEmpty(workingTranslationUnits[i - 1]?.cellContent) ||
                     i === 0
                 ) {
@@ -977,10 +973,7 @@ const CellList: React.FC<CellListProps> = ({
                         <span
                             key={`${cellMarkers[0]}:${i}`}
                             style={{
-                                display:
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "inline"
-                                        : "block",
+                                display: "block",
                                 verticalAlign: "middle",
                                 backgroundColor: "transparent",
                                 opacity: workingTranslationUnits[i].merged ? 0.5 : 1,
@@ -1004,7 +997,6 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={successfulCompletions.size > 0}
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
-                                cellDisplayMode={cellDisplayMode}
                                 audioAttachments={audioAttachments as any}
                                 footnoteOffset={calculateFootnoteOffset(i)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
@@ -1052,7 +1044,6 @@ const CellList: React.FC<CellListProps> = ({
         saveRetryCount,
         calculateFootnoteOffset,
         renderCellGroup,
-        cellDisplayMode,
         lineNumbersEnabled,
         vscode,
         alertColorCodes,
@@ -1156,7 +1147,7 @@ const CellList: React.FC<CellListProps> = ({
             style={{
                 direction: textDirection,
                 overflowY: "auto",
-                display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline-block" : "block",
+                display: "block",
                 width: "100%",
                 backgroundColor: "transparent",
                 maxWidth: "100%",
