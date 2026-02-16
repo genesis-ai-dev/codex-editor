@@ -59,13 +59,18 @@ export async function clearSQLiteIndexManager(): Promise<void> {
 }
 
 /**
- * Force refresh the FTS index for immediate search visibility
- * Call this when you need to ensure the latest data is searchable
+ * Force refresh the FTS index for immediate search visibility.
+ * Call this when you need to ensure the latest data is searchable.
+ *
+ * @returns `true` if the refresh was performed, `false` if the
+ *          index manager is not available (e.g. during shutdown).
  */
-export async function refreshSearchIndex(): Promise<void> {
+export async function refreshSearchIndex(): Promise<boolean> {
     if (globalIndexManager) {
         await globalIndexManager.refreshFTSIndex();
+        return true;
     }
+    return false;
 }
 
 /**

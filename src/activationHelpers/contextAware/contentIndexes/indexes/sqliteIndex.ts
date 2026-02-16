@@ -166,6 +166,10 @@ export class SQLiteIndexManager {
     private lastDbPathCheckMs = 0;
     /** Interval (ms) between dbPath existence checks in ensureOpen(). */
     private static readonly DB_PATH_CHECK_INTERVAL_MS = 30_000;
+    /** Track non-critical error frequencies for operational visibility. */
+    private _nonCriticalErrorCounts: Map<string, number> = new Map();
+    /** Threshold at which non-critical errors are escalated to error level. */
+    private static readonly NON_CRITICAL_ERROR_ESCALATION_THRESHOLD = 5;
     /** Interval for periodic full integrity checks (default: 30 minutes). */
     private static readonly INTEGRITY_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
@@ -174,19 +178,24 @@ export class SQLiteIndexManager {
      * public method that accesses the database. After this call returns,
      * `this.db` is guaranteed non-null (use `this.db!` to assert).
      *
-     * Additionally performs a periodic (every 30 s) lightweight check that
-     * the database file still exists on disk. If the .project directory was
-     * deleted externally (e.g. `git clean -fdx`), this avoids cryptic
-     * "disk I/O error" messages by failing fast with a descriptive error.
+     * Additionally performs a periodic lightweight check that the database
+     * file still exists on disk. If the .project directory was deleted
+     * externally (e.g. `git clean -fdx`), this avoids cryptic "disk I/O error"
+     * messages by failing fast with a descriptive error.
+     *
+     * @param forceFileCheck  If true, bypass the throttle and check the file
+     *                        immediately. Used by `runInTransaction` so writes
+     *                        always validate the DB file before starting.
      */
-    private ensureOpen(): void {
+    private ensureOpen(forceFileCheck = false): void {
         if (this.closed) throw new Error("Database is closing or closed");
         if (!this.db) throw new Error("Database not initialized");
 
-        // Periodic dbPath existence check (lightweight, sync I/O, throttled)
-        if (this.dbPath) {
+        // Periodic dbPath existence check (lightweight, sync I/O, throttled).
+        // Skip for in-memory databases (":memory:") which have no file on disk.
+        if (this.dbPath && this.dbPath !== ":memory:") {
             const now = Date.now();
-            if (now - this.lastDbPathCheckMs >= SQLiteIndexManager.DB_PATH_CHECK_INTERVAL_MS) {
+            if (forceFileCheck || now - this.lastDbPathCheckMs >= SQLiteIndexManager.DB_PATH_CHECK_INTERVAL_MS) {
                 this.lastDbPathCheckMs = now;
                 if (!existsSync(this.dbPath)) {
                     this.closed = true;
@@ -207,6 +216,34 @@ export class SQLiteIndexManager {
     }
 
     /**
+     * Log a non-critical error with frequency tracking.
+     * First few occurrences are logged at warn level; repeated failures
+     * escalate to error level so they're visible in telemetry without
+     * flooding logs on every call.
+     */
+    private logNonCriticalError(operation: string, err: unknown): void {
+        const count = (this._nonCriticalErrorCounts.get(operation) ?? 0) + 1;
+        this._nonCriticalErrorCounts.set(operation, count);
+        const msg = err instanceof Error ? err.message : String(err);
+
+        if (count <= 3 || count % 10 === 0) {
+            console.warn(`[SQLiteIndex] ${operation} failed (${count}x): ${msg}`);
+        }
+        if (count === SQLiteIndexManager.NON_CRITICAL_ERROR_ESCALATION_THRESHOLD) {
+            console.error(
+                `[SQLiteIndex] ${operation} has failed ${count} consecutive times — may need investigation`
+            );
+        }
+    }
+
+    /**
+     * Reset the error counter for a specific operation (e.g., after a successful run).
+     */
+    private resetNonCriticalErrorCount(operation: string): void {
+        this._nonCriticalErrorCounts.delete(operation);
+    }
+
+    /**
      * Open a database file with retry logic for transient SQLITE_BUSY / locked errors.
      * Uses the same exponential-backoff pattern as runInTransactionWithRetry.
      */
@@ -220,8 +257,7 @@ export class SQLiteIndexManager {
                 return await AsyncDatabase.open(path);
             } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);
-                const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
-                if (!isBusy || attempt === maxRetries) throw error;
+                if (!SQLiteIndexManager.isBusyError(msg) || attempt === maxRetries) throw error;
                 const delay = baseDelayMs * Math.pow(2, attempt);
                 debug(`[SQLiteIndex] DB open busy, retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
                 await new Promise((r) => setTimeout(r, delay));
@@ -235,6 +271,38 @@ export class SQLiteIndexManager {
      */
     private static isDiskFullError(msg: string): boolean {
         return msg.includes("SQLITE_FULL") || msg.includes("ENOSPC") || msg.includes("no space left");
+    }
+
+    /**
+     * Detect transient SQLITE_BUSY / database-locked errors that can be retried.
+     */
+    private static isBusyError(msg: string): boolean {
+        return msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
+    }
+
+    /**
+     * Retry a standalone (non-transactional) database operation on SQLITE_BUSY.
+     * Use this for individual upserts that run outside of `runInTransaction`.
+     * Disk-full errors are never retried.
+     */
+    private async withBusyRetry<T>(
+        fn: () => Promise<T>,
+        maxRetries = 2,
+        baseDelayMs = 50
+    ): Promise<T> {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return await fn();
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                if (SQLiteIndexManager.isDiskFullError(msg)) throw error;
+                if (!SQLiteIndexManager.isBusyError(msg) || attempt === maxRetries) throw error;
+                const delay = baseDelayMs * Math.pow(2, attempt);
+                debug(`[SQLiteIndex] SQLITE_BUSY on standalone op, retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
+                await new Promise((r) => setTimeout(r, delay));
+            }
+        }
+        throw new Error("Unreachable: withBusyRetry exhausted retries");
     }
 
     /** Maximum number of progress timing entries to keep to prevent unbounded memory growth in long sessions. */
@@ -491,7 +559,13 @@ export class SQLiteIndexManager {
             // Prevents SQLITE_BUSY when another connection/process touches the file.
             this.db.configure("busyTimeout", 5000);
 
-            debug("[SQLiteIndex] Production PRAGMAs applied (WAL, sync=NORMAL, cache=8MB, busyTimeout=5s)");
+            // Auto-checkpoint after 500 WAL pages (~2 MB) instead of the default 1000.
+            // Keeps the WAL file smaller in a VS Code extension where unbounded growth
+            // is undesirable. Manual checkpoints (PASSIVE/TRUNCATE) are still used
+            // after large batch operations and on close.
+            await this.db.exec("PRAGMA wal_autocheckpoint = 500");
+
+            debug("[SQLiteIndex] Production PRAGMAs applied (WAL, sync=NORMAL, cache=8MB, busyTimeout=5s, autocheckpoint=500)");
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             throw new Error(`Failed to apply production PRAGMAs: ${msg}`);
@@ -509,7 +583,7 @@ export class SQLiteIndexManager {
 
         try {
             // PRAGMA quick_check returns a column named "quick_check" (not "integrity_check").
-            const result = await this.db.get<{ quick_check: string }>(
+            const result = await this.db.get<{ quick_check: string; }>(
                 "PRAGMA quick_check(1)"
             );
             // The first (and only) value in the result row is "ok" when healthy.
@@ -548,25 +622,25 @@ export class SQLiteIndexManager {
         await this.db!.exec("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
 
         try {
-        // Batch all schema creation in a single transaction for massive speedup
-        await this.runInTransaction(async () => {
-            debug("Creating database tables...");
-            await this.db!.exec(CREATE_TABLES_SQL);
-        });
+            // Batch all schema creation in a single transaction for massive speedup
+            await this.runInTransaction(async () => {
+                debug("Creating database tables...");
+                await this.db!.exec(CREATE_TABLES_SQL);
+            });
 
-        debug("Creating database indexes...");
-        await this.runInTransaction(async () => {
-            await this.db!.exec(CREATE_INDEXES_SQL);
-        });
+            debug("Creating database indexes...");
+            await this.runInTransaction(async () => {
+                await this.db!.exec(CREATE_INDEXES_SQL);
+            });
 
-        debug("Creating database triggers...");
-        // Each trigger must be a separate statement because SQLite's exec()
-        // processes one statement at a time for triggers with BEGIN/END blocks.
-        await this.runInTransaction(async () => {
-            for (const trigger of ALL_TRIGGERS) {
-                await this.db!.run(trigger);
-            }
-        });
+            debug("Creating database triggers...");
+            // Each trigger must be a separate statement because SQLite's exec()
+            // processes one statement at a time for triggers with BEGIN/END blocks.
+            await this.runInTransaction(async () => {
+                for (const trigger of ALL_TRIGGERS) {
+                    await this.db!.run(trigger);
+                }
+            });
 
         } finally {
             // Always restore production PRAGMAs, even if schema creation threw.
@@ -773,17 +847,17 @@ export class SQLiteIndexManager {
         if (!this.db) return -1; // No connection — treat as "unknown", triggers recreate
 
         try {
-            const countRow = await this.db.get<{ count: number }>(
+            const countRow = await this.db.get<{ count: number; }>(
                 "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'"
             );
             if (!countRow || countRow.count === 0) return 0;
 
-            const tableRow = await this.db.get<{ name: string }>(
+            const tableRow = await this.db.get<{ name: string; }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_info'"
             );
             if (!tableRow) return -1;
 
-            const versionRow = await this.db.get<{ version: number }>(
+            const versionRow = await this.db.get<{ version: number; }>(
                 "SELECT version FROM schema_info WHERE id = 1 LIMIT 1"
             );
             return versionRow?.version ?? -1;
@@ -817,7 +891,7 @@ export class SQLiteIndexManager {
      * Read the project identity (projectId and projectName) from metadata.json.
      * This is the canonical project identity that persists across renames and moves.
      */
-    private async getProjectIdentity(): Promise<{ projectId: string; projectName: string | null } | null> {
+    private async getProjectIdentity(): Promise<{ projectId: string; projectName: string | null; } | null> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) return null;
         try {
@@ -854,7 +928,7 @@ export class SQLiteIndexManager {
         if (!this.db) return false;
 
         try {
-            const row = await this.db.get<{ project_id: string | null }>(
+            const row = await this.db.get<{ project_id: string | null; }>(
                 "SELECT project_id FROM schema_info WHERE id = 1 LIMIT 1"
             );
 
@@ -921,16 +995,19 @@ export class SQLiteIndexManager {
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
         const contentHash = this.computeContentHash(fileContent.toString());
 
-        const result = await this.db!.get<{id: number}>(`
-            INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(file_path) DO UPDATE SET
-                last_modified_ms = excluded.last_modified_ms,
-                content_hash = excluded.content_hash,
-                updated_at = strftime('%s', 'now') * 1000
-            RETURNING id
-        `, [filePath, fileType, lastModifiedMs, contentHash]);
-        return result?.id ?? 0;
+        // Retry on SQLITE_BUSY since this runs outside a transaction
+        return this.withBusyRetry(async () => {
+            const result = await this.db!.get<{ id: number; }>(`
+                INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(file_path) DO UPDATE SET
+                    last_modified_ms = excluded.last_modified_ms,
+                    content_hash = excluded.content_hash,
+                    updated_at = strftime('%s', 'now') * 1000
+                RETURNING id
+            `, [filePath, fileType, lastModifiedMs, contentHash]);
+            return result?.id ?? 0;
+        });
     }
 
     // Lightweight upsert for use within existing transactions (no file I/O).
@@ -946,7 +1023,7 @@ export class SQLiteIndexManager {
 
         const hash = contentHash ?? this.computeContentHash(filePath + lastModifiedMs);
 
-        const result = await this.db!.get<{id: number}>(`
+        const result = await this.db!.get<{ id: number; }>(`
             INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(file_path) DO UPDATE SET
@@ -1065,7 +1142,7 @@ export class SQLiteIndexManager {
                 // If no content, t_created_at remains NULL (will be set when first content is added)
             } else {
                 // Existing target cell: check if t_created_at is NULL and we're adding first content
-                const createdAtRow = await this.db!.get<{t_created_at: number | null}>(`
+                const createdAtRow = await this.db!.get<{ t_created_at: number | null; }>(`
                     SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
                 `, [cellId]);
                 const currentCreatedAt = createdAtRow?.t_created_at ?? null;
@@ -1206,7 +1283,7 @@ export class SQLiteIndexManager {
                 // If no content, t_created_at remains NULL (will be set when first content is added)
             } else {
                 // Existing target cell: check if t_created_at is NULL and we're adding first content
-                const createdAtRow = await this.db!.get<{t_created_at: number | null}>(`
+                const createdAtRow = await this.db!.get<{ t_created_at: number | null; }>(`
                     SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
                 `, [cellId]);
                 const currentCreatedAt = createdAtRow?.t_created_at ?? null;
@@ -1290,7 +1367,7 @@ export class SQLiteIndexManager {
     async getDocumentCount(): Promise<number> {
         this.ensureOpen();
 
-        const row = await this.db!.get<{ count: number }>("SELECT COUNT(DISTINCT cell_id) as count FROM cells");
+        const row = await this.db!.get<{ count: number; }>("SELECT COUNT(DISTINCT cell_id) as count FROM cells");
         return (row?.count as number) || 0;
     }
 
@@ -1601,7 +1678,7 @@ export class SQLiteIndexManager {
                 }
             }
 
-            const rows = await this.db!.all<{ cell_id: string; content: string }>(sql, params);
+            const rows = await this.db!.all<{ cell_id: string; content: string; }>(sql, params);
             for (const row of rows) {
                 const cellId = String(row.cell_id);
                 const content = String(row.content || "");
@@ -1765,8 +1842,8 @@ export class SQLiteIndexManager {
     }
 
     // Update word index for a cell — batched in a single transaction for performance.
-    // Previously each word was a separate auto-committed INSERT (N+1 problem);
-    // wrapping in a transaction reduces disk I/O from N fsync calls to 1.
+    // Uses chunked bulk INSERT to reduce round-trips (e.g., 200 words → 4 statements
+    // instead of 200).  Uses runInTransactionWithRetry for SQLITE_BUSY resilience.
     async updateWordIndex(cellId: string, content: string): Promise<void> {
         this.ensureOpen();
 
@@ -1780,16 +1857,25 @@ export class SQLiteIndexManager {
             wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
         }
 
-        await this.runInTransaction(async () => {
+        const entries = [...wordCounts.entries()];
+        const CHUNK_SIZE = 50;
+
+        await this.runInTransactionWithRetry(async () => {
             // Clear existing words for this cell
             await this.db!.run("DELETE FROM words WHERE cell_id = ?", [cellId]);
 
-            // Batch insert all words inside the same transaction
+            // Bulk insert words in chunks of CHUNK_SIZE for fewer round-trips
             let position = 0;
-            for (const [word, frequency] of wordCounts) {
+            for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+                const chunk = entries.slice(i, i + CHUNK_SIZE);
+                const placeholders = chunk.map(() => "(?, ?, ?, ?)").join(", ");
+                const params: (string | number)[] = [];
+                for (const [word, frequency] of chunk) {
+                    params.push(word, cellId, position++, frequency);
+                }
                 await this.db!.run(
-                    "INSERT INTO words (word, cell_id, position, frequency) VALUES (?, ?, ?, ?)",
-                    [word, cellId, position++, frequency]
+                    `INSERT INTO words (word, cell_id, position, frequency) VALUES ${placeholders}`,
+                    params
                 );
             }
         });
@@ -2216,7 +2302,7 @@ export class SQLiteIndexManager {
         const incompletePairs = pairsResult?.incomplete_pairs || 0;
 
         // Count orphaned source cells (source cells with no corresponding target)
-        const orphanedSourceResult = await this.db!.get<{ count: number }>(`
+        const orphanedSourceResult = await this.db!.get<{ count: number; }>(`
             SELECT COUNT(*) as count
             FROM cells c
             WHERE c.s_content IS NOT NULL 
@@ -2227,7 +2313,7 @@ export class SQLiteIndexManager {
         const orphanedSourceCells = orphanedSourceResult?.count || 0;
 
         // Count orphaned target cells (target cells with no corresponding source)
-        const orphanedTargetResult = await this.db!.get<{ count: number }>(`
+        const orphanedTargetResult = await this.db!.get<{ count: number; }>(`
             SELECT COUNT(*) as count
             FROM cells c
             WHERE c.t_content IS NOT NULL 
@@ -2296,7 +2382,7 @@ export class SQLiteIndexManager {
         }
 
         // Get total cell count
-        const countResult = await this.db!.get<{ total: number }>("SELECT COUNT(*) as total FROM cells");
+        const countResult = await this.db!.get<{ total: number; }>("SELECT COUNT(*) as total FROM cells");
         const totalCells = countResult?.total || 0;
 
         return {
@@ -2319,21 +2405,21 @@ export class SQLiteIndexManager {
         const version = await this.getSchemaVersion();
 
         // Get all tables
-        const tablesRows = await this.db!.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'");
+        const tablesRows = await this.db!.all<{ name: string; }>("SELECT name FROM sqlite_master WHERE type='table'");
         const tables: string[] = [];
         for (const row of tablesRows) {
             tables.push(row.name);
         }
 
         // Get cells table columns
-        const cellsColumnsRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells)");
+        const cellsColumnsRows = await this.db!.all<{ name: string; }>("PRAGMA table_info(cells)");
         const cellsColumns: string[] = [];
         for (const row of cellsColumnsRows) {
             cellsColumns.push(row.name);
         }
 
         // Get FTS table columns
-        const ftsColumnsRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells_fts)");
+        const ftsColumnsRows = await this.db!.all<{ name: string; }>("PRAGMA table_info(cells_fts)");
         const ftsColumns: string[] = [];
         for (const row of ftsColumnsRows) {
             ftsColumns.push(row.name);
@@ -2384,7 +2470,7 @@ export class SQLiteIndexManager {
             ];
 
             // Check tables exist
-            const tablesRows = await this.db!.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'");
+            const tablesRows = await this.db!.all<{ name: string; }>("SELECT name FROM sqlite_master WHERE type='table'");
             const actualTables: string[] = [];
             for (const row of tablesRows) {
                 actualTables.push(row.name);
@@ -2398,7 +2484,7 @@ export class SQLiteIndexManager {
             }
 
             // Check cells table has all expected columns (see CURRENT_SCHEMA_VERSION)
-            const cellsColumnsRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells)");
+            const cellsColumnsRows = await this.db!.all<{ name: string; }>("PRAGMA table_info(cells)");
             const actualCellsColumns: string[] = [];
             for (const row of cellsColumnsRows) {
                 actualCellsColumns.push(row.name);
@@ -2412,7 +2498,7 @@ export class SQLiteIndexManager {
             }
 
             // Check essential indexes exist
-            const indexesRows = await this.db!.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'");
+            const indexesRows = await this.db!.all<{ name: string; }>("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'");
             const actualIndexes: string[] = [];
             for (const row of indexesRows) {
                 actualIndexes.push(row.name);
@@ -2467,14 +2553,15 @@ export class SQLiteIndexManager {
         try {
             // Force FTS5 to rebuild its index
             await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
+            this.resetNonCriticalErrorCount("refreshFTSIndex");
         } catch (rebuildError) {
             // If rebuild fails, try optimize instead
             try {
                 await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
+                this.resetNonCriticalErrorCount("refreshFTSIndex");
             } catch (optimizeError) {
-                // Both rebuild and optimize failed — log for diagnostics.
-                // Triggers should still handle ongoing synchronization.
-                console.warn("[SQLiteIndex] FTS rebuild and optimize both failed:", rebuildError, optimizeError);
+                // Both rebuild and optimize failed — track for visibility
+                this.logNonCriticalError("refreshFTSIndex", optimizeError);
             }
         }
     }
@@ -2532,7 +2619,7 @@ export class SQLiteIndexManager {
     async isCellInFTSIndex(cellId: string): Promise<boolean> {
         this.ensureOpen();
 
-        const row = await this.db!.get<{ cell_id: string }>("SELECT cell_id FROM cells_fts WHERE cell_id = ? LIMIT 1", [cellId]);
+        const row = await this.db!.get<{ cell_id: string; }>("SELECT cell_id FROM cells_fts WHERE cell_id = ? LIMIT 1", [cellId]);
         return !!row;
     }
 
@@ -2540,8 +2627,8 @@ export class SQLiteIndexManager {
     async getFTSDebugInfo(): Promise<{ cellsCount: number; ftsCount: number; }> {
         this.ensureOpen();
 
-        const cellsResult = await this.db!.get<{ count: number }>("SELECT COUNT(*) as count FROM cells");
-        const ftsResult = await this.db!.get<{ count: number }>("SELECT COUNT(*) as count FROM cells_fts");
+        const cellsResult = await this.db!.get<{ count: number; }>("SELECT COUNT(*) as count FROM cells");
+        const ftsResult = await this.db!.get<{ count: number; }>("SELECT COUNT(*) as count FROM cells_fts");
 
         const cellsCount = cellsResult?.count || 0;
         const ftsCount = ftsResult?.count || 0;
@@ -2567,6 +2654,7 @@ export class SQLiteIndexManager {
         this.currentProgressName = null;
         this.currentProgressStartTime = null;
         this.progressTimings = [];
+        this._nonCriticalErrorCounts.clear();
 
         // Wait for any in-flight transaction to complete before closing.
         // We acquire the transaction lock so checkpoint + close cannot
@@ -2656,18 +2744,12 @@ export class SQLiteIndexManager {
             await this.db!.exec(`PRAGMA wal_checkpoint(${effectiveMode})`);
             debug(`WAL checkpoint(${effectiveMode}) completed`);
 
-            // Reset failure counter on success
+            // Reset failure counters on success
             this.walCheckpointFailureCount = 0;
+            this.resetNonCriticalErrorCount("walCheckpoint");
         } catch (error) {
             this.walCheckpointFailureCount++;
-            const level = this.walCheckpointFailureCount >= SQLiteIndexManager.MAX_CHECKPOINT_FAILURES ? "error" : "warn";
-            const msg = `[SQLiteIndex] WAL checkpoint(${effectiveMode}) failed ` +
-                `(attempt ${this.walCheckpointFailureCount}, non-critical):`;
-            if (level === "error") {
-                console.error(msg, error);
-            } else {
-                console.warn(msg, error);
-            }
+            this.logNonCriticalError("walCheckpoint", error);
         }
     }
 
@@ -2687,8 +2769,9 @@ export class SQLiteIndexManager {
             await this.db!.exec("VACUUM");
             const elapsed = globalThis.performance.now() - start;
             debug(`[SQLiteIndex] VACUUM completed in ${elapsed.toFixed(0)}ms`);
+            this.resetNonCriticalErrorCount("vacuum");
         } catch (error) {
-            console.warn("[SQLiteIndex] VACUUM failed (non-critical):", error);
+            this.logNonCriticalError("vacuum", error);
         }
     }
 
@@ -2698,7 +2781,10 @@ export class SQLiteIndexManager {
      * instead of hitting "cannot start a transaction within a transaction".
      */
     async runInTransaction<T>(callback: () => T | Promise<T>): Promise<T> {
-        this.ensureOpen();
+        // Force a file-existence check before every transaction to fail fast
+        // if the DB was deleted (e.g. git clean) instead of getting a cryptic
+        // "disk I/O error" mid-transaction.
+        this.ensureOpen(/* forceFileCheck */ true);
 
         // Queue behind any already-running transaction
         let releaseLock!: () => void;
@@ -2755,8 +2841,7 @@ export class SQLiteIndexManager {
                 // Disk-full errors will not self-resolve — don't retry
                 if (SQLiteIndexManager.isDiskFullError(msg)) throw error;
 
-                const isBusy = msg.includes("SQLITE_BUSY") || msg.includes("database is locked");
-                if (!isBusy || attempt === maxRetries) throw error;
+                if (!SQLiteIndexManager.isBusyError(msg) || attempt === maxRetries) throw error;
                 const delay = baseDelayMs * Math.pow(2, attempt);
                 debug(`SQLITE_BUSY, retry ${attempt + 1}/${maxRetries} after ${delay}ms`);
                 await new Promise((r) => setTimeout(r, delay));
@@ -2922,7 +3007,7 @@ export class SQLiteIndexManager {
             debug(`[SQLiteIndex] Database backed up to ${backupPath}`);
         } catch (backupErr) {
             // Swallow — the original file may already be gone or inaccessible
-            debug(`[SQLiteIndex] Database backup failed (non-critical): ${backupErr}`);
+            this.logNonCriticalError("backupDatabaseFile", backupErr);
         }
     }
 
@@ -3238,7 +3323,7 @@ export class SQLiteIndexManager {
         debug("Starting source cell deduplication...");
 
         // First, identify the "unknown" file ID
-        const unknownFileRow = await this.db!.get<{ id: number }>(`
+        const unknownFileRow = await this.db!.get<{ id: number; }>(`
             SELECT id FROM files WHERE file_path = 'unknown' AND file_type = 'source'
         `);
         const unknownFileId: number | null = unknownFileRow?.id ?? null;
@@ -3266,7 +3351,7 @@ export class SQLiteIndexManager {
             )
         `;
 
-        const duplicateRows = await this.db!.all<{ cell_id: string }>(duplicateQuery, [unknownFileId, unknownFileId]);
+        const duplicateRows = await this.db!.all<{ cell_id: string; }>(duplicateQuery, [unknownFileId, unknownFileId]);
         const duplicatesToRemove: Array<{ cellId: string; }> = [];
         for (const row of duplicateRows) {
             duplicatesToRemove.push({
@@ -3309,7 +3394,7 @@ export class SQLiteIndexManager {
         });
 
         // Check if 'unknown' file now has any remaining cells
-        const remainingRow = await this.db!.get<{ count: number }>(
+        const remainingRow = await this.db!.get<{ count: number; }>(
             "SELECT COUNT(*) as count FROM cells WHERE s_file_id = ? OR t_file_id = ?",
             [unknownFileId, unknownFileId]
         );
@@ -3823,7 +3908,7 @@ export class SQLiteIndexManager {
 
         // Get the target cell's validation status from dedicated columns
         try {
-            const row = await this.db!.get<{ t_is_fully_validated: number | null }>(`
+            const row = await this.db!.get<{ t_is_fully_validated: number | null; }>(`
                 SELECT t_is_fully_validated FROM cells 
                 WHERE cell_id = ? AND t_content IS NOT NULL
                 LIMIT 1
@@ -3846,7 +3931,7 @@ export class SQLiteIndexManager {
 
         // Get the target cell's audio validation status from dedicated columns
         try {
-            const row = await this.db!.get<{ t_audio_is_fully_validated: number | null }>(`
+            const row = await this.db!.get<{ t_audio_is_fully_validated: number | null; }>(`
                 SELECT t_audio_is_fully_validated FROM cells 
                 WHERE cell_id = ? AND t_content IS NOT NULL
                 LIMIT 1
@@ -4127,7 +4212,7 @@ export class SQLiteIndexManager {
         let cellsTableExists = false;
         const cellsColumns: string[] = [];
         try {
-            const cellsColumnRows = await this.db!.all<{ name: string }>("PRAGMA table_info(cells)");
+            const cellsColumnRows = await this.db!.all<{ name: string; }>("PRAGMA table_info(cells)");
             for (const row of cellsColumnRows) {
                 cellsTableExists = true;
                 cellsColumns.push(row.name);
@@ -4433,7 +4518,7 @@ export class SQLiteIndexManager {
 
         try {
             const start = globalThis.performance.now();
-            const result = await this.db!.get<{ integrity_check: string }>(
+            const result = await this.db!.get<{ integrity_check: string; }>(
                 "PRAGMA integrity_check"
             );
             const elapsed = globalThis.performance.now() - start;
@@ -4510,7 +4595,7 @@ export class SQLiteIndexManager {
 
         try {
             // Find orphaned FTS entries (cell_id in FTS but not in cells)
-            const orphans = await this.db!.all<{ cell_id: string }>(
+            const orphans = await this.db!.all<{ cell_id: string; }>(
                 `SELECT DISTINCT fts.cell_id
                  FROM cells_fts fts
                  LEFT JOIN cells c ON fts.cell_id = c.cell_id
@@ -4524,16 +4609,23 @@ export class SQLiteIndexManager {
 
             console.warn(`[SQLiteIndex] Found ${orphans.length} orphaned FTS entries — cleaning up`);
 
+            // Batched DELETE instead of per-row deletes for better performance
+            const CHUNK_SIZE = 500;
             await this.runInTransaction(async () => {
-                for (const { cell_id } of orphans) {
-                    await this.db!.run("DELETE FROM cells_fts WHERE cell_id = ?", [cell_id]);
+                for (let i = 0; i < orphans.length; i += CHUNK_SIZE) {
+                    const chunk = orphans.slice(i, i + CHUNK_SIZE);
+                    const placeholders = chunk.map(() => "?").join(",");
+                    await this.db!.run(
+                        `DELETE FROM cells_fts WHERE cell_id IN (${placeholders})`,
+                        chunk.map(o => o.cell_id)
+                    );
                 }
             });
 
             debug(`[SQLiteIndex] Cleaned up ${orphans.length} orphaned FTS entries`);
             return orphans.length;
         } catch (error) {
-            console.warn("[SQLiteIndex] FTS orphan cleanup failed (non-critical):", error);
+            this.logNonCriticalError("cleanupOrphanedFTSEntries", error);
             return 0;
         }
     }

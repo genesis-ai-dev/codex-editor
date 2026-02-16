@@ -189,14 +189,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     public async populateSourceCellMapFromIndex(sourceFilePath?: string): Promise<void> {
         try {
-            if (this._indexManager?.isClosed) {
-                this._indexManager = null;
-                this.invalidateIndexCaches();
-            }
-            if (!this._indexManager) {
-                this._indexManager = getSQLiteIndexManager();
-                if (this._indexManager) { this.invalidateIndexCaches(); }
-            }
+            this.refreshIndexManager();
 
             if (this._indexManager) {
                 this._sourceCellMap = await this._indexManager.getSourceCellsMapForFile(
@@ -545,15 +538,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     // Public method to ensure a cell is indexed (useful for waiting after transcription)
     public async ensureCellIndexed(cellId: string, timeoutMs: number = 5000): Promise<boolean> {
-        if (this._indexManager?.isClosed) {
-            this._indexManager = null;
-            this.invalidateIndexCaches();
-        }
-        if (!this._indexManager) {
-            this._indexManager = getSQLiteIndexManager();
-            if (this._indexManager) { this.invalidateIndexCaches(); }
-            if (!this._indexManager) return false;
-        }
+        if (!this.refreshIndexManager()) return false;
 
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
@@ -586,6 +571,29 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Centralized helper: detect a closed/stale index manager and replace it
+     * with the current global instance.  Returns the manager if available, or null.
+     *
+     * This eliminates the repeated "if closed → null → get → invalidate" pattern
+     * that was duplicated across populateSourceCellMapFromIndex, ensureCellIndexed,
+     * addCellToIndexImmediately, updateCellMilestoneIndices, and acquireIndexManagerAndFlush.
+     */
+    private refreshIndexManager(): typeof this._indexManager {
+        if (this._indexManager?.isClosed) {
+            debug(`[CodexDocument] Detected closed index manager — refreshing`);
+            this._indexManager = null;
+            this.invalidateIndexCaches();
+        }
+        if (!this._indexManager) {
+            this._indexManager = getSQLiteIndexManager();
+            if (this._indexManager) {
+                this.invalidateIndexCaches();
+            }
+        }
+        return this._indexManager;
+    }
+
+    /**
      * Try to acquire a valid (non-closed) index manager and flush any pending
      * operations that were queued while the index manager was unavailable
      * (e.g. during project swap or initialization).
@@ -596,19 +604,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * Returns the index manager if available, or null.
      */
     private async acquireIndexManagerAndFlush(): Promise<typeof this._indexManager> {
-        // Detect a closed/stale manager and replace it with the current global instance
-        if (this._indexManager?.isClosed) {
-            debug(`[CodexDocument] Detected closed index manager — refreshing`);
-            this._indexManager = null;
-            this.invalidateIndexCaches();
-        }
-        if (!this._indexManager) {
-            this._indexManager = getSQLiteIndexManager();
-            if (this._indexManager) {
-                // New manager → old file IDs are invalid
-                this.invalidateIndexCaches();
-            }
-        }
+        this.refreshIndexManager();
+
         if (this._indexManager && this._pendingIndexOps.length > 0) {
             // Drain the queue — take a snapshot so new ops during flush are queued separately
             const ops = [...this._pendingIndexOps];
@@ -639,30 +636,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         const hadCachedFileId = this._cachedFileId !== null;
         try {
-            // Detect a closed/stale manager and replace it
-            if (this._indexManager?.isClosed) {
-                this._indexManager = null;
-                this.invalidateIndexCaches();
-            }
-            // Refresh index manager reference if it's not available
-            if (!this._indexManager) {
-                this._indexManager = getSQLiteIndexManager();
-                if (this._indexManager) {
-                    this.invalidateIndexCaches();
+            if (!this.refreshIndexManager()) {
+                // Queue the operation so it's replayed when the index manager becomes available,
+                // rather than silently dropping the update. Cap the queue to avoid unbounded
+                // memory growth — excess cells are still tracked via _dirtyCellIds.
+                this._dirtyCellIds.add(cellId);
+                if (this._pendingIndexOps.length < CodexCellDocument.MAX_PENDING_INDEX_OPS) {
+                    this._pendingIndexOps.push({ cellId, content, editType });
+                    console.warn(`[CodexDocument] Index manager not available — queued indexing for cell ${cellId} (${this._pendingIndexOps.length} pending)`);
+                } else if (this._pendingIndexOps.length === CodexCellDocument.MAX_PENDING_INDEX_OPS) {
+                    console.warn(`[CodexDocument] Pending index ops cap reached (${CodexCellDocument.MAX_PENDING_INDEX_OPS}) — further ops tracked via dirty cells only`);
                 }
-                if (!this._indexManager) {
-                    // Queue the operation so it's replayed when the index manager becomes available,
-                    // rather than silently dropping the update. Cap the queue to avoid unbounded
-                    // memory growth — excess cells are still tracked via _dirtyCellIds.
-                    this._dirtyCellIds.add(cellId);
-                    if (this._pendingIndexOps.length < CodexCellDocument.MAX_PENDING_INDEX_OPS) {
-                        this._pendingIndexOps.push({ cellId, content, editType });
-                        console.warn(`[CodexDocument] Index manager not available — queued indexing for cell ${cellId} (${this._pendingIndexOps.length} pending)`);
-                    } else if (this._pendingIndexOps.length === CodexCellDocument.MAX_PENDING_INDEX_OPS) {
-                        console.warn(`[CodexDocument] Pending index ops cap reached (${CodexCellDocument.MAX_PENDING_INDEX_OPS}) — further ops tracked via dirty cells only`);
-                    }
-                    return;
-                }
+                return;
             }
 
             // Prepare data outside the transaction (no DB access needed)
@@ -702,7 +687,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Wrap file upsert + cell upsert + FTS sync in a single transaction
             // so a crash or concurrent write can't leave partial state.
             // Use retry variant to handle SQLITE_BUSY if a background sync holds the lock.
-            const indexManager = this._indexManager;
+            // Non-null guaranteed by refreshIndexManager() guard above.
+            const indexManager = this._indexManager!;
             await indexManager.runInTransactionWithRetry(async () => {
                 // Use cached file ID or get it once.
                 // Use upsertFileSync (not upsertFile) to avoid disk I/O while
@@ -1468,20 +1454,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * This should be called after buildMilestoneIndex() to persist the milestone indices.
      */
     public async updateCellMilestoneIndices(): Promise<void> {
-        // Detect a closed/stale manager and replace it
-        if (this._indexManager?.isClosed) {
-            this._indexManager = null;
-            this.invalidateIndexCaches();
-        }
-        if (!this._indexManager) {
-            this._indexManager = getSQLiteIndexManager();
-            if (this._indexManager) {
-                this.invalidateIndexCaches();
-            }
-            if (!this._indexManager) {
-                console.warn(`[CodexDocument] Index manager not available for milestone index update`);
-                return;
-            }
+        if (!this.refreshIndexManager()) {
+            console.warn(`[CodexDocument] Index manager not available for milestone index update`);
+            return;
         }
 
         const cells = this._documentData.cells || [];
@@ -1499,7 +1474,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const contentType = this.getContentType();
-        const indexManager = this._indexManager;
+        // Non-null guaranteed by refreshIndexManager() guard above.
+        const indexManager = this._indexManager!;
         const hadCachedFileId = this._cachedFileId !== null;
 
         try {

@@ -529,21 +529,26 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!query) return []; // User cancelled the input
                     showInfo = true;
                 }
-                const results = await getTranslationPairsFromSourceCellQuery(
-                    translationPairsIndex,
-                    query,
-                    k,
-                    onlyValidated
-                );
-                if (showInfo) {
-                    const resultsString = results
-                        .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                try {
+                    const results = await getTranslationPairsFromSourceCellQuery(
+                        translationPairsIndex,
+                        query,
+                        k,
+                        onlyValidated
                     );
+                    if (showInfo) {
+                        const resultsString = results
+                            .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error("Error searching source cells:", error);
+                    return [];
                 }
-                return results;
             }
         );
 
@@ -565,23 +570,28 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     showInfo = true;
                 }
 
-                const manager = new SearchManager(translationPairsIndex);
-                const results = await manager.getTranslationPairsFromSourceCellQueryWithAlgorithm(
-                    algorithm,
-                    query,
-                    k,
-                    onlyValidated
-                );
-
-                if (showInfo) {
-                    const resultsString = results
-                        .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `(${algorithm}) Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                try {
+                    const manager = new SearchManager(translationPairsIndex);
+                    const results = await manager.getTranslationPairsFromSourceCellQueryWithAlgorithm(
+                        algorithm,
+                        query,
+                        k,
+                        onlyValidated
                     );
+
+                    if (showInfo) {
+                        const resultsString = results
+                            .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `(${algorithm}) Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error(`Error searching with algorithm ${algorithm}:`, error);
+                    return [];
                 }
-                return results;
             }
         );
 
@@ -596,20 +606,25 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!cellId) return null; // User cancelled the input
                     showInfo = true;
                 }
-                debug(
-                    `Executing getSourceCellByCellIdFromAllSourceCells for cellId: ${cellId}`
-                );
-                const results = await getSourceCellByCellIdFromAllSourceCells(
-                    sourceTextIndex,
-                    cellId
-                );
-                debug("getSourceCellByCellIdFromAllSourceCells results:", results);
-                if (showInfo && results) {
-                    vscode.window.showInformationMessage(
-                        `Source cell for ${cellId}: ${results.content}`
+                try {
+                    debug(
+                        `Executing getSourceCellByCellIdFromAllSourceCells for cellId: ${cellId}`
                     );
+                    const results = await getSourceCellByCellIdFromAllSourceCells(
+                        sourceTextIndex,
+                        cellId
+                    );
+                    debug("getSourceCellByCellIdFromAllSourceCells results:", results);
+                    if (showInfo && results) {
+                        vscode.window.showInformationMessage(
+                            `Source cell for ${cellId}: ${results.content}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error(`Error getting source cell for ${cellId}:`, error);
+                    return null;
                 }
-                return results;
             }
         );
 
@@ -624,34 +639,49 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!cellId) return; // User cancelled the input
                     showInfo = true;
                 }
-                const results = await getTargetCellByCellId(translationPairsIndex, cellId);
-                if (showInfo && results) {
-                    vscode.window.showInformationMessage(
-                        `Target cell for ${cellId}: ${JSON.stringify(results)}`
-                    );
+                try {
+                    const results = await getTargetCellByCellId(translationPairsIndex, cellId);
+                    if (showInfo && results) {
+                        vscode.window.showInformationMessage(
+                            `Target cell for ${cellId}: ${JSON.stringify(results)}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error(`Error getting target cell for ${cellId}:`, error);
+                    return null;
                 }
-                return results;
             }
         );
 
         const forceReindexCommand = vscode.commands.registerCommand(
             "codex-editor-extension.forceReindex",
             async () => {
-                await showAILearningProgress(async (progress) => {
-                    await smartRebuildIndexes("manual force reindex command", true);
-                });
+                try {
+                    await showAILearningProgress(async (progress) => {
+                        await smartRebuildIndexes("manual force reindex command", true);
+                    });
+                } catch (error) {
+                    console.error("Error during force reindex:", error);
+                    vscode.window.showErrorMessage("Reindex failed. Check the logs for details.");
+                }
             }
         );
 
         const showIndexOptionsCommand = vscode.commands.registerCommand(
             "codex-editor-extension.showIndexOptions",
             async () => {
-                const option = await vscode.window.showQuickPick(["Force Reindex"], {
-                    placeHolder: "Select an indexing option",
-                });
+                try {
+                    const option = await vscode.window.showQuickPick(["Force Reindex"], {
+                        placeHolder: "Select an indexing option",
+                    });
 
-                if (option === "Force Reindex") {
-                    await smartRebuildIndexes("manual force reindex from options", true);
+                    if (option === "Force Reindex") {
+                        await smartRebuildIndexes("manual force reindex from options", true);
+                    }
+                } catch (error) {
+                    console.error("Error during reindex from options:", error);
+                    vscode.window.showErrorMessage("Reindex failed. Check the logs for details.");
                 }
             }
         );
@@ -668,106 +698,116 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     showInfo = true;
                 }
 
-                // Use the reliable database-direct search for complete translation pairs
-                let searchResults: any[] = [];
-                const replaceMode = options?.replaceMode || false;
-                
-                if (translationPairsIndex instanceof SQLiteIndexManager) {
-                    if (replaceMode) {
-                        // In replace mode, use the reliable searchCompleteTranslationPairsWithValidation
-                        // Request a large limit since we'll filter to target-only matches
-                        const searchLimit = Math.max(k * 10, 5000);
-                        const allResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
-                            query,
-                            searchLimit,
-                            options?.isParallelPassagesWebview || false,
-                            false // onlyValidated
-                        );
-                        
-                        // Filter to only pairs where target content contains the query
-                        const stripHtml = (html: string): string => {
-                            let strippedText = html.replace(/<[^>]*>/g, "");
-                            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-                            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-                            strippedText = strippedText.replace(/&#\d+;/g, "");
-                            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-                            return strippedText.toLowerCase();
-                        };
-                        
-                        const queryLower = query.toLowerCase();
-                        const filteredResults: any[] = [];
-                        for (const result of allResults) {
-                            const targetContent = result.targetContent || "";
-                            if (!targetContent.trim()) continue;
+                try {
+                    // Use the reliable database-direct search for complete translation pairs
+                    let searchResults: any[] = [];
+                    const replaceMode = options?.replaceMode || false;
+                    
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        if (replaceMode) {
+                            // In replace mode, use the reliable searchCompleteTranslationPairsWithValidation
+                            // Request a large limit since we'll filter to target-only matches
+                            const searchLimit = Math.max(k * 10, 5000);
+                            const allResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                                query,
+                                searchLimit,
+                                options?.isParallelPassagesWebview || false,
+                                false // onlyValidated
+                            );
                             
-                            const cleanTarget = stripHtml(targetContent);
-                            if (cleanTarget.includes(queryLower)) {
-                                filteredResults.push(result);
+                            // Filter to only pairs where target content contains the query
+                            const stripHtml = (html: string): string => {
+                                let strippedText = html.replace(/<[^>]*>/g, "");
+                                strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+                                strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+                                strippedText = strippedText.replace(/&#\d+;/g, "");
+                                strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+                                return strippedText.toLowerCase();
+                            };
+                            
+                            const queryLower = query.toLowerCase();
+                            const filteredResults: any[] = [];
+                            for (const result of allResults) {
+                                const targetContent = result.targetContent || "";
+                                if (!targetContent.trim()) continue;
+                                
+                                const cleanTarget = stripHtml(targetContent);
+                                if (cleanTarget.includes(queryLower)) {
+                                    filteredResults.push(result);
+                                }
+                                
+                                if (filteredResults.length >= k) break;
                             }
-                            
-                            if (filteredResults.length >= k) break;
+                            searchResults = filteredResults;
+                        } else {
+                            // Use the new, reliable database-direct search with validation filtering
+                            // For searchParallelCells, we always want only complete pairs (both source and target)
+                            // and we can optionally filter by validation status if needed
+                            searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                                query,
+                                k,
+                                options?.isParallelPassagesWebview || false, // return raw content for webview display
+                                false // onlyValidated - for now, show all complete pairs regardless of validation
+                            );
                         }
-                        searchResults = filteredResults;
                     } else {
-                        // Use the new, reliable database-direct search with validation filtering
-                        // For searchParallelCells, we always want only complete pairs (both source and target)
-                        // and we can optionally filter by validation status if needed
-                        searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                        console.warn("[searchParallelCells] Non-SQLite index detected, using fallback");
+                        // Fallback to old method for non-SQLite indexes
+                        const results = await searchAllCells(
+                            translationPairsIndex,
+                            sourceTextIndex,
                             query,
                             k,
-                            options?.isParallelPassagesWebview || false, // return raw content for webview display
-                            false // onlyValidated - for now, show all complete pairs regardless of validation
+                            false,
+                            options
+                        );
+                        searchResults = results.slice(0, k);
+                    }
+
+                    // Convert search results to TranslationPair format
+                    const translationPairs: TranslationPair[] = searchResults.map((result) => ({
+                        cellId: result.cellId || result.cell_id,
+                        sourceCell: {
+                            cellId: result.cellId || result.cell_id,
+                            content: result.sourceContent || result.content || "",
+                            uri: result.uri || "",
+                            line: result.line || 0,
+                        },
+                        targetCell: {
+                            cellId: result.cellId || result.cell_id,
+                            content: result.targetContent || "",
+                            uri: result.uri || "",
+                            line: result.line || 0,
+                        },
+                    }));
+
+                    if (showInfo) {
+                        const resultsString = translationPairs
+                            .map(
+                                (r: TranslationPair) =>
+                                    `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${r.targetCell.content}`
+                            )
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `Found ${translationPairs.length} complete translation pairs for query: ${query}\n${resultsString}`
                         );
                     }
-                } else {
-                    console.warn("[searchParallelCells] Non-SQLite index detected, using fallback");
-                    // Fallback to old method for non-SQLite indexes
-                    const results = await searchAllCells(
-                        translationPairsIndex,
-                        sourceTextIndex,
-                        query,
-                        k,
-                        false,
-                        options
-                    );
-                    searchResults = results.slice(0, k);
+                    return translationPairs;
+                } catch (error) {
+                    console.error("Error searching parallel cells:", error);
+                    return [];
                 }
-
-                // Convert search results to TranslationPair format
-                const translationPairs: TranslationPair[] = searchResults.map((result) => ({
-                    cellId: result.cellId || result.cell_id,
-                    sourceCell: {
-                        cellId: result.cellId || result.cell_id,
-                        content: result.sourceContent || result.content || "",
-                        uri: result.uri || "",
-                        line: result.line || 0,
-                    },
-                    targetCell: {
-                        cellId: result.cellId || result.cell_id,
-                        content: result.targetContent || "",
-                        uri: result.uri || "",
-                        line: result.line || 0,
-                    },
-                }));
-
-                if (showInfo) {
-                    const resultsString = translationPairs
-                        .map(
-                            (r: TranslationPair) =>
-                                `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${r.targetCell.content}`
-                        )
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `Found ${translationPairs.length} complete translation pairs for query: ${query}\n${resultsString}`
-                    );
-                }
-                return translationPairs;
             }
         );
         const searchSimilarCellIdsCommand = vscode.commands.registerCommand(
             "codex-editor-extension.searchSimilarCellIds",
             async (cellId: string) => {
-                return await searchSimilarCellIds(translationPairsIndex, cellId);
+                try {
+                    return await searchSimilarCellIds(translationPairsIndex, cellId);
+                } catch (error) {
+                    console.error(`Error searching similar cell IDs for ${cellId}:`, error);
+                    return [];
+                }
             }
         );
         const getTranslationPairFromProjectCommand = vscode.commands.registerCommand(
@@ -781,24 +821,29 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!cellId) return; // User cancelled the input
                     showInfo = true;
                 }
-                const result = await getTranslationPairFromProject(
-                    translationPairsIndex,
-                    sourceTextIndex,
-                    cellId,
-                    options
-                );
-                if (showInfo) {
-                    if (result) {
-                        vscode.window.showInformationMessage(
-                            `Translation pair for ${cellId}: Source: ${result.sourceCell.content}, Target: ${result.targetCell.content}`
-                        );
-                    } else {
-                        vscode.window.showInformationMessage(
-                            `No translation pair found for ${cellId}`
-                        );
+                try {
+                    const result = await getTranslationPairFromProject(
+                        translationPairsIndex,
+                        sourceTextIndex,
+                        cellId,
+                        options
+                    );
+                    if (showInfo) {
+                        if (result) {
+                            vscode.window.showInformationMessage(
+                                `Translation pair for ${cellId}: Source: ${result.sourceCell.content}, Target: ${result.targetCell.content}`
+                            );
+                        } else {
+                            vscode.window.showInformationMessage(
+                                `No translation pair found for ${cellId}`
+                            );
+                        }
                     }
+                    return result;
+                } catch (error) {
+                    console.error(`Error getting translation pair for ${cellId}:`, error);
+                    return null;
                 }
-                return result;
             }
         );
 
@@ -820,24 +865,29 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     });
                     if (!cellId) return null; // User cancelled the input
                 }
-                const result = await findNextUntranslatedSourceCell(
-                    sourceTextIndex,
-                    translationPairsIndex,
-                    query,
-                    cellId
-                );
-                if (showInfo) {
-                    if (result) {
-                        vscode.window.showInformationMessage(
-                            `Next untranslated source cell: ${result.cellId}\nContent: ${result.content}`
-                        );
-                    } else {
-                        vscode.window.showInformationMessage(
-                            "No untranslated source cell found matching the query."
-                        );
+                try {
+                    const result = await findNextUntranslatedSourceCell(
+                        sourceTextIndex,
+                        translationPairsIndex,
+                        query,
+                        cellId
+                    );
+                    if (showInfo) {
+                        if (result) {
+                            vscode.window.showInformationMessage(
+                                `Next untranslated source cell: ${result.cellId}\nContent: ${result.content}`
+                            );
+                        } else {
+                            vscode.window.showInformationMessage(
+                                "No untranslated source cell found matching the query."
+                            );
+                        }
                     }
+                    return result;
+                } catch (error) {
+                    console.error("Error finding next untranslated source cell:", error);
+                    return null;
                 }
-                return result;
             }
         );
 
@@ -859,117 +909,122 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     showInfo = true;
                 }
 
-                const searchScope = options?.searchScope || "both";
-                const selectedFiles = options?.selectedFiles || [];
-                const completeOnly = options?.completeOnly || false;
-                const isParallelPassagesWebview = options?.isParallelPassagesWebview || false;
+                try {
+                    const searchScope = options?.searchScope || "both";
+                    const selectedFiles = options?.selectedFiles || [];
+                    const completeOnly = options?.completeOnly || false;
+                    const isParallelPassagesWebview = options?.isParallelPassagesWebview || false;
 
-                let results: TranslationPair[] = [];
+                    let results: TranslationPair[] = [];
 
-                // When includeIncomplete=false, use optimized SQLite path for complete pairs only
-                // When includeIncomplete=true, use searchAllCells which adds source-only cells
-                if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
-                    // Determine search mode based on scope
-                    // searchSourceOnly=true means only search source content
-                    // searchSourceOnly=false means search both source and target
-                    const searchSourceOnly = searchScope === "source";
+                    // When includeIncomplete=false, use optimized SQLite path for complete pairs only
+                    // When includeIncomplete=true, use searchAllCells which adds source-only cells
+                    if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
+                        // Determine search mode based on scope
+                        // searchSourceOnly=true means only search source content
+                        // searchSourceOnly=false means search both source and target
+                        const searchSourceOnly = searchScope === "source";
 
-                    // Request extra results to account for post-filtering
-                    const searchLimit = k * 2;
+                        // Request extra results to account for post-filtering
+                        const searchLimit = k * 2;
 
-                    const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
-                        query,
-                        searchLimit,
-                        isParallelPassagesWebview,
-                        completeOnly, // Pass through completeOnly for validation filtering
-                        searchSourceOnly
-                    );
+                        const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                            query,
+                            searchLimit,
+                            isParallelPassagesWebview,
+                            completeOnly, // Pass through completeOnly for validation filtering
+                            searchSourceOnly
+                        );
 
-                    // Convert to TranslationPair format
-                    let translationPairs: TranslationPair[] = searchResults.map((result) => ({
-                        cellId: result.cellId || result.cell_id,
-                        sourceCell: {
+                        // Convert to TranslationPair format
+                        let translationPairs: TranslationPair[] = searchResults.map((result) => ({
                             cellId: result.cellId || result.cell_id,
-                            content: result.sourceContent || result.content || "",
-                            uri: result.uri || "",
-                            line: result.line || 0,
-                        },
-                        targetCell: {
-                            cellId: result.cellId || result.cell_id,
-                            content: result.targetContent || "",
-                            uri: result.uri || "",
-                            line: result.line || 0,
-                        },
-                    }));
+                            sourceCell: {
+                                cellId: result.cellId || result.cell_id,
+                                content: result.sourceContent || result.content || "",
+                                uri: result.uri || "",
+                                line: result.line || 0,
+                            },
+                            targetCell: {
+                                cellId: result.cellId || result.cell_id,
+                                content: result.targetContent || "",
+                                uri: result.uri || "",
+                                line: result.line || 0,
+                            },
+                        }));
 
-                    // Filter out pairs with empty or minimal content
-                    // Strip HTML and check for meaningful content (not just whitespace or very short text)
-                    translationPairs = translationPairs.filter((pair) => {
-                        const sourceText = stripHtml(pair.sourceCell.content || "").trim();
-                        const targetText = stripHtml(pair.targetCell.content || "").trim();
-                        // Require both source and target to have meaningful content (more than 3 chars)
-                        return sourceText.length > 3 && targetText.length > 3;
-                    });
-
-                    // Apply searchScope content filtering - verify query actually appears in content
-                    if (query.trim()) {
-                        const queryLower = query.toLowerCase();
+                        // Filter out pairs with empty or minimal content
+                        // Strip HTML and check for meaningful content (not just whitespace or very short text)
                         translationPairs = translationPairs.filter((pair) => {
-                            const cleanSource = stripHtml(pair.sourceCell.content || "");
-                            const cleanTarget = stripHtml(pair.targetCell.content || "");
-
-                            if (searchScope === "source") {
-                                return cleanSource.includes(queryLower);
-                            } else if (searchScope === "target") {
-                                return cleanTarget.includes(queryLower);
-                            } else {
-                                // "both" - query should appear in either source or target
-                                return cleanSource.includes(queryLower) || cleanTarget.includes(queryLower);
-                            }
+                            const sourceText = stripHtml(pair.sourceCell.content || "").trim();
+                            const targetText = stripHtml(pair.targetCell.content || "").trim();
+                            // Require both source and target to have meaningful content (more than 3 chars)
+                            return sourceText.length > 3 && targetText.length > 3;
                         });
-                    }
 
-                    // Apply selectedFiles filtering
-                    if (selectedFiles.length > 0) {
-                        translationPairs = translationPairs.filter((pair) => {
-                            const sourceUri = pair.sourceCell?.uri || "";
-                            const targetUri = pair.targetCell?.uri || "";
-                            const normalizedSource = normalizeUri(sourceUri);
-                            const normalizedTarget = normalizeUri(targetUri);
-                            return selectedFiles.some((selectedUri: string) => {
-                                const normalizedSelected = normalizeUri(selectedUri);
-                                return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+                        // Apply searchScope content filtering - verify query actually appears in content
+                        if (query.trim()) {
+                            const queryLower = query.toLowerCase();
+                            translationPairs = translationPairs.filter((pair) => {
+                                const cleanSource = stripHtml(pair.sourceCell.content || "");
+                                const cleanTarget = stripHtml(pair.targetCell.content || "");
+
+                                if (searchScope === "source") {
+                                    return cleanSource.includes(queryLower);
+                                } else if (searchScope === "target") {
+                                    return cleanTarget.includes(queryLower);
+                                } else {
+                                    // "both" - query should appear in either source or target
+                                    return cleanSource.includes(queryLower) || cleanTarget.includes(queryLower);
+                                }
                             });
-                        });
+                        }
+
+                        // Apply selectedFiles filtering
+                        if (selectedFiles.length > 0) {
+                            translationPairs = translationPairs.filter((pair) => {
+                                const sourceUri = pair.sourceCell?.uri || "";
+                                const targetUri = pair.targetCell?.uri || "";
+                                const normalizedSource = normalizeUri(sourceUri);
+                                const normalizedTarget = normalizeUri(targetUri);
+                                return selectedFiles.some((selectedUri: string) => {
+                                    const normalizedSelected = normalizeUri(selectedUri);
+                                    return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+                                });
+                            });
+                        }
+
+                        results = translationPairs.slice(0, k);
+                    } else {
+                        // Fallback for incomplete searches or non-SQLite indexes
+                        results = await searchAllCells(
+                            translationPairsIndex,
+                            sourceTextIndex,
+                            query,
+                            k,
+                            includeIncomplete,
+                            options
+                        );
                     }
 
-                    results = translationPairs.slice(0, k);
-                } else {
-                    // Fallback for incomplete searches or non-SQLite indexes
-                    results = await searchAllCells(
-                        translationPairsIndex,
-                        sourceTextIndex,
-                        query,
-                        k,
-                        includeIncomplete,
-                        options
-                    );
-                }
+                    debug(`Search results for "${query}":`, results);
 
-                debug(`Search results for "${query}":`, results);
-
-                if (showInfo) {
-                    const resultsString = results
-                        .map((r) => {
-                            const targetContent = r.targetCell.content || "(No target text)";
-                            return `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${targetContent}`;
-                        })
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `Found ${results.length} cells for query: ${query}\n${resultsString}`
-                    );
+                    if (showInfo) {
+                        const resultsString = results
+                            .map((r) => {
+                                const targetContent = r.targetCell.content || "(No target text)";
+                                return `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${targetContent}`;
+                            })
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `Found ${results.length} cells for query: ${query}\n${resultsString}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error("Error searching all cells:", error);
+                    return [];
                 }
-                return results;
             }
         );
 

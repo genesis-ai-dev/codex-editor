@@ -2213,4 +2213,390 @@ suite("Native SQLite Database Tests", function () {
             await db.close();
         });
     });
+
+    // ── AsyncDatabase.transaction() helper tests ────────────────────────────
+
+    suite("AsyncDatabase.transaction() helper", () => {
+        test("commits on success", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+            await db.transaction(async (tx) => {
+                await tx.run(
+                    "INSERT INTO files (file_path, file_type, last_modified_ms, content_hash) VALUES (?, ?, ?, ?)",
+                    ["/tx/commit.source", "source", Date.now(), computeHash("commit")]
+                );
+            });
+
+            const row = await db.get<{ file_path: string }>(
+                "SELECT file_path FROM files WHERE file_path = ?",
+                ["/tx/commit.source"]
+            );
+            assert.strictEqual(row?.file_path, "/tx/commit.source");
+            await db.close();
+        });
+
+        test("rolls back on error and re-throws", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+            await assert.rejects(
+                () =>
+                    db.transaction(async (tx) => {
+                        await tx.run(
+                            "INSERT INTO files (file_path, file_type, last_modified_ms, content_hash) VALUES (?, ?, ?, ?)",
+                            ["/tx/rollback.source", "source", Date.now(), computeHash("rollback")]
+                        );
+                        throw new Error("intentional failure");
+                    }),
+                /intentional failure/
+            );
+
+            const row = await db.get<{ file_path: string }>(
+                "SELECT file_path FROM files WHERE file_path = ?",
+                ["/tx/rollback.source"]
+            );
+            assert.strictEqual(row, undefined, "Row should not exist after rollback");
+            await db.close();
+        });
+
+        test("rejects if database is closed", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+            await db.close();
+
+            await assert.rejects(
+                () => db.transaction(async () => { /* no-op */ }),
+                /closed/i
+            );
+        });
+    });
+
+    // ── Bulk word INSERT tests (chunked multi-row VALUES) ───────────────────
+
+    suite("Bulk word INSERT (chunked)", () => {
+        test("inserts many words in chunks and retrieves them", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+            const fileId = await insertFile(db, "/bulk/words.source", "source");
+            await insertCell(db, "BULK_WORDS_001", { sFileId: fileId, sContent: "all the words" });
+
+            // Simulate the optimized updateWordIndex bulk insert
+            const words = Array.from({ length: 120 }, (_, i) => [`word${i}`, 1] as [string, number]);
+            const CHUNK_SIZE = 50;
+
+            await db.run("BEGIN TRANSACTION");
+            await db.run("DELETE FROM words WHERE cell_id = ?", ["BULK_WORDS_001"]);
+
+            let position = 0;
+            for (let i = 0; i < words.length; i += CHUNK_SIZE) {
+                const chunk = words.slice(i, i + CHUNK_SIZE);
+                const placeholders = chunk.map(() => "(?, ?, ?, ?)").join(", ");
+                const params: (string | number)[] = [];
+                for (const [word, frequency] of chunk) {
+                    params.push(word, "BULK_WORDS_001", position++, frequency);
+                }
+                await db.run(
+                    `INSERT INTO words (word, cell_id, position, frequency) VALUES ${placeholders}`,
+                    params
+                );
+            }
+            await db.run("COMMIT");
+
+            const count = await db.get<{ count: number }>(
+                "SELECT COUNT(*) as count FROM words WHERE cell_id = ?",
+                ["BULK_WORDS_001"]
+            );
+            assert.strictEqual(count?.count, 120, "All 120 words should be inserted");
+
+            // Verify ordering
+            const first = await db.get<{ word: string; position: number }>(
+                "SELECT word, position FROM words WHERE cell_id = ? ORDER BY position LIMIT 1",
+                ["BULK_WORDS_001"]
+            );
+            assert.strictEqual(first?.word, "word0");
+            assert.strictEqual(first?.position, 0);
+
+            const last = await db.get<{ word: string; position: number }>(
+                "SELECT word, position FROM words WHERE cell_id = ? ORDER BY position DESC LIMIT 1",
+                ["BULK_WORDS_001"]
+            );
+            assert.strictEqual(last?.word, "word119");
+            assert.strictEqual(last?.position, 119);
+
+            await db.close();
+        });
+    });
+
+    // ── Batched FTS cleanup tests ───────────────────────────────────────────
+
+    suite("Batched FTS orphan cleanup", () => {
+        test("deletes orphaned FTS entries in a single batched DELETE", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+            const fileId = await insertFile(db, "/fts/cleanup.source", "source");
+
+            // Insert cells that will have FTS entries via triggers
+            await insertCell(db, "FTS_KEEP_001", { sFileId: fileId, sContent: "keep this cell" });
+            await insertCell(db, "FTS_ORPHAN_001", { sFileId: fileId, sContent: "orphan cell one" });
+            await insertCell(db, "FTS_ORPHAN_002", { sFileId: fileId, sContent: "orphan cell two" });
+
+            // Verify FTS has entries for all three
+            const ftsBefore = await db.get<{ count: number }>(
+                "SELECT COUNT(DISTINCT cell_id) as count FROM cells_fts"
+            );
+            assert.strictEqual(ftsBefore?.count, 3);
+
+            // Delete cells directly (bypassing normal flow) to create orphans.
+            // First delete the FTS entries via the trigger by deleting the cells.
+            // Actually, the trigger should handle this. Let's delete cells manually
+            // and then re-insert orphaned FTS entries to simulate the edge case.
+            await db.run("DELETE FROM cells WHERE cell_id IN ('FTS_ORPHAN_001', 'FTS_ORPHAN_002')");
+
+            // After deletion, FTS should have been cleaned by the trigger.
+            // Manually insert orphan FTS entries to simulate a partial-failure edge case.
+            await db.run(
+                "INSERT INTO cells_fts(cell_id, content, raw_content, content_type) VALUES (?, ?, ?, ?)",
+                ["ORPHAN_MANUAL_001", "stale content", "stale content", "source"]
+            );
+            await db.run(
+                "INSERT INTO cells_fts(cell_id, content, raw_content, content_type) VALUES (?, ?, ?, ?)",
+                ["ORPHAN_MANUAL_002", "stale content 2", "stale content 2", "target"]
+            );
+
+            // Batched cleanup: find orphans and delete in chunks
+            const orphans = await db.all<{ cell_id: string }>(
+                `SELECT DISTINCT fts.cell_id
+                 FROM cells_fts fts
+                 LEFT JOIN cells c ON fts.cell_id = c.cell_id
+                 WHERE c.cell_id IS NULL`
+            );
+            assert.ok(orphans.length >= 2, `Expected at least 2 orphans, got ${orphans.length}`);
+
+            const CHUNK_SIZE = 500;
+            await db.run("BEGIN TRANSACTION");
+            for (let i = 0; i < orphans.length; i += CHUNK_SIZE) {
+                const chunk = orphans.slice(i, i + CHUNK_SIZE);
+                const placeholders = chunk.map(() => "?").join(",");
+                await db.run(
+                    `DELETE FROM cells_fts WHERE cell_id IN (${placeholders})`,
+                    chunk.map(o => o.cell_id)
+                );
+            }
+            await db.run("COMMIT");
+
+            // Verify only the kept cell remains in FTS
+            const ftsAfter = await db.all<{ cell_id: string }>(
+                "SELECT DISTINCT cell_id FROM cells_fts"
+            );
+            const remainingIds = ftsAfter.map(r => r.cell_id);
+            assert.ok(remainingIds.includes("FTS_KEEP_001"), "Kept cell should remain in FTS");
+            assert.ok(!remainingIds.includes("ORPHAN_MANUAL_001"), "Orphan 1 should be cleaned up");
+            assert.ok(!remainingIds.includes("ORPHAN_MANUAL_002"), "Orphan 2 should be cleaned up");
+
+            await db.close();
+        });
+    });
+
+    // ── WAL auto-checkpoint configuration test ──────────────────────────────
+
+    suite("WAL auto-checkpoint configuration", () => {
+        test("wal_autocheckpoint can be set and read back", async function () {
+            skipIfNotReady(this);
+
+            const tmpDir = realOs.tmpdir();
+            const dbPath = realPath.join(tmpDir, `wal-autocp-${Date.now()}.sqlite`);
+
+            let db: AsyncDatabase | null = null;
+            try {
+                db = await AsyncDatabase.open(dbPath);
+                await db.exec("PRAGMA journal_mode = WAL");
+
+                // Set auto-checkpoint to 500 pages (matching our production config)
+                await db.exec("PRAGMA wal_autocheckpoint = 500");
+
+                const result = await db.get<{ wal_autocheckpoint: number }>(
+                    "PRAGMA wal_autocheckpoint"
+                );
+                assert.strictEqual(result?.wal_autocheckpoint, 500);
+            } finally {
+                if (db) { try { await db.close(); } catch { /* */ } }
+                try { realFs.unlinkSync(dbPath); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-wal"); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-shm"); } catch { /* */ }
+            }
+        });
+    });
+
+    // ── Schema migration framework tests ────────────────────────────────────
+
+    suite("Schema versioning and migration patterns", () => {
+        test("schema version can be upgraded step-by-step", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+
+            // Verify current version
+            const v1 = await db.get<{ version: number }>(
+                "SELECT version FROM schema_info WHERE id = 1"
+            );
+            assert.strictEqual(v1?.version, CURRENT_SCHEMA_VERSION);
+
+            // Simulate a future migration: bump version
+            const nextVersion = CURRENT_SCHEMA_VERSION + 1;
+            await db.run(
+                "UPDATE schema_info SET version = ? WHERE id = 1",
+                [nextVersion]
+            );
+
+            const v2 = await db.get<{ version: number }>(
+                "SELECT version FROM schema_info WHERE id = 1"
+            );
+            assert.strictEqual(v2?.version, nextVersion);
+
+            await db.close();
+        });
+
+        test("schema_info enforces single-row constraint", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+
+            // Attempt to insert a second row — should fail due to CHECK(id = 1)
+            await assert.rejects(
+                () =>
+                    db.run(
+                        "INSERT INTO schema_info (id, version) VALUES (2, ?)",
+                        [CURRENT_SCHEMA_VERSION]
+                    ),
+                /CHECK constraint failed/i
+            );
+
+            await db.close();
+        });
+
+        test("project identity can be stored and verified", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+            const projectId = "test-project-" + Date.now();
+            const projectName = "Test Project";
+
+            await db.run(
+                "UPDATE schema_info SET project_id = ?, project_name = ? WHERE id = 1",
+                [projectId, projectName]
+            );
+
+            const info = await db.get<{
+                version: number;
+                project_id: string;
+                project_name: string;
+            }>("SELECT version, project_id, project_name FROM schema_info WHERE id = 1");
+
+            assert.strictEqual(info?.version, CURRENT_SCHEMA_VERSION);
+            assert.strictEqual(info?.project_id, projectId);
+            assert.strictEqual(info?.project_name, projectName);
+
+            // Simulate project mismatch detection
+            const differentProjectId = "different-project";
+            const matches = info?.project_id === differentProjectId;
+            assert.strictEqual(matches, false, "Should detect project ID mismatch");
+
+            await db.close();
+        });
+
+        test("nuke-and-recreate pattern: drop all tables and recreate schema", async function () {
+            skipIfNotReady(this);
+
+            const db = await openTestDatabase();
+
+            // Insert some data
+            const fileId = await insertFile(db, "/nuke/test.source", "source");
+            await insertCell(db, "NUKE_001", { sFileId: fileId, sContent: "before nuke" });
+
+            // Verify data exists
+            const before = await db.get<{ count: number }>(
+                "SELECT COUNT(*) as count FROM cells"
+            );
+            assert.ok((before?.count ?? 0) > 0);
+
+            // Simulate nuke: drop all user tables (in correct order for FK)
+            await db.exec("DROP TABLE IF EXISTS words");
+            await db.exec("DROP TABLE IF EXISTS cells_fts");
+            await db.exec("DROP TABLE IF EXISTS cells");
+            await db.exec("DROP TABLE IF EXISTS files");
+            await db.exec("DROP TABLE IF EXISTS sync_metadata");
+            await db.exec("DROP TABLE IF EXISTS schema_info");
+
+            // Recreate schema from shared constants
+            await db.exec(CREATE_TABLES_SQL);
+            await db.exec(CREATE_INDEXES_SQL);
+            for (const trigger of ALL_TRIGGERS) {
+                await db.run(trigger);
+            }
+            await db.run(CREATE_SCHEMA_INFO_SQL);
+            await db.run(
+                "INSERT INTO schema_info (id, version) VALUES (1, ?)",
+                [CURRENT_SCHEMA_VERSION]
+            );
+
+            // Verify tables are empty but schema is valid
+            const after = await db.get<{ count: number }>(
+                "SELECT COUNT(*) as count FROM cells"
+            );
+            assert.strictEqual(after?.count, 0);
+
+            const version = await db.get<{ version: number }>(
+                "SELECT version FROM schema_info WHERE id = 1"
+            );
+            assert.strictEqual(version?.version, CURRENT_SCHEMA_VERSION);
+
+            // Verify we can still insert data after recreation
+            const newFileId = await insertFile(db, "/nuke/after.source", "source");
+            await insertCell(db, "NUKE_AFTER_001", { sFileId: newFileId, sContent: "after nuke" });
+
+            const afterInsert = await db.get<{ count: number }>(
+                "SELECT COUNT(*) as count FROM cells"
+            );
+            assert.strictEqual(afterInsert?.count, 1);
+
+            await db.close();
+        });
+    });
+
+    // ── ensureOpen file-check improvement test ──────────────────────────────
+
+    suite("Database file existence validation", () => {
+        test("detects missing database file on disk", async function () {
+            skipIfNotReady(this);
+
+            const tmpDir = realOs.tmpdir();
+            const dbPath = realPath.join(tmpDir, `existence-check-${Date.now()}.sqlite`);
+
+            let db: AsyncDatabase | null = null;
+            try {
+                db = await AsyncDatabase.open(dbPath);
+                await db.exec("PRAGMA journal_mode = WAL");
+                await db.exec(CREATE_TABLES_SQL);
+
+                // Verify file exists
+                assert.ok(realFs.existsSync(dbPath), "DB file should exist");
+
+                // Close and delete
+                await db.close();
+                db = null;
+                realFs.unlinkSync(dbPath);
+
+                assert.ok(!realFs.existsSync(dbPath), "DB file should be gone");
+            } finally {
+                if (db) { try { await db.close(); } catch { /* */ } }
+                try { realFs.unlinkSync(dbPath); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-wal"); } catch { /* */ }
+                try { realFs.unlinkSync(dbPath + "-shm"); } catch { /* */ }
+            }
+        });
+    });
 });

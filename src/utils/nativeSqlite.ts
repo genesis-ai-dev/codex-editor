@@ -432,12 +432,42 @@ export class AsyncDatabase {
     }
 
     /**
-     * Configure database options.
+     * Configure database options (synchronous).
      * Commonly used: configure("busyTimeout", 5000)
+     *
+     * NOTE: Unlike the other methods on AsyncDatabase which return rejected
+     * Promises when the connection is closed, this method throws synchronously
+     * because the underlying native `configure()` is itself synchronous.
+     * Callers should handle this with a try/catch (not `.catch()`).
      */
     configure(option: string, value: any): void {
         if (this.closed) throw new Error("Database connection is closed");
         this.db.configure(option, value);
+    }
+
+    /**
+     * Execute a callback inside a BEGIN/COMMIT transaction.
+     * If the callback throws, the transaction is rolled back and the error is re-thrown.
+     *
+     * This is a convenience wrapper around raw BEGIN/COMMIT/ROLLBACK SQL.
+     * For serialized (mutex-protected) transactions, use SQLiteIndexManager.runInTransaction()
+     * which adds a promise-based lock to prevent concurrent transactions.
+     */
+    async transaction<T>(fn: (db: AsyncDatabase) => Promise<T>): Promise<T> {
+        if (this.closed) return Promise.reject(new Error("Database connection is closed"));
+        await this.run("BEGIN TRANSACTION");
+        try {
+            const result = await fn(this);
+            await this.run("COMMIT");
+            return result;
+        } catch (err) {
+            try {
+                await this.run("ROLLBACK");
+            } catch {
+                // Swallow ROLLBACK errors — the original error is more important
+            }
+            throw err;
+        }
     }
 
     /**
