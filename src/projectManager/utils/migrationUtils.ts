@@ -1186,9 +1186,6 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
     }
 };
 
-// Gently migrate A/B testing probability from older explicit 25% to 5% with user consent
-// (removed) migration_abTestingProbabilityDefault — intentionally deleted for now
-
 async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
     try {
         // Read the file content using serializer for proper deserialization

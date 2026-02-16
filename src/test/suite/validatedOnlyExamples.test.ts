@@ -117,8 +117,6 @@ suite("Validated-only examples behavior", () => {
             if (section === "codex-editor-extension") {
                 return {
                     get: (key: string) => {
-                        if (key === "abTestingEnabled") return true;
-                        if (key === "abTestingProbability") return 1; // force
                         if (key === "useOnlyValidatedExamples") return true;
                         if (key === "searchAlgorithm") return "sbs";
                         return (cfg as any)?.get?.(key);

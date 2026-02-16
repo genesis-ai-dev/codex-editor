@@ -1,3 +1,9 @@
+/**
+ * Probability (0–1) that any eligible completion triggers a local A/B test.
+ * 0.01 = 1 in 100.  Change this single constant to adjust frequency everywhere.
+ */
+export const AB_TEST_PROBABILITY = 0.01;
+
 type ABTestResultPayload<TVariant> = TVariant[] | {
   variants: TVariant[];
   isAttentionCheck?: boolean;

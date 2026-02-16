@@ -7,7 +7,7 @@ import { CodexCellTypes } from "../../../types/enums";
 import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs } from "./shared";
-import { abTestingRegistry } from "../../utils/abTestingRegistry";
+import { abTestingRegistry, AB_TEST_PROBABILITY } from "../../utils/abTestingRegistry";
 
 // Helper function to build A/B test context object
 function buildABTestContext(
@@ -249,23 +249,21 @@ export async function llmCompletion(
             // A/B testing is disabled during batch operations (chapter autocomplete, batch transcription)
             // to avoid interrupting the user with variant selection UI
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
-            const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true) && !isBatchOperation;
-            const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
-            const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.01));
+            // A/B testing is always enabled but skipped during batch operations.
+            // Probability is hardcoded in AB_TEST_PROBABILITY (single source of truth).
+            const abEnabled = !isBatchOperation;
             const randomValue = Math.random();
-            const triggerAB = abEnabled && randomValue < abProbability;
+            const triggerAB = abEnabled && randomValue < AB_TEST_PROBABILITY;
 
             if (completionConfig.debugMode) {
-                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, isBatchOperation=${isBatchOperation}, probability=${abProbability}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
+                console.debug(`[llmCompletion] A/B testing: enabled=${abEnabled}, isBatchOperation=${isBatchOperation}, probability=${AB_TEST_PROBABILITY}, random=${randomValue.toFixed(3)}, trigger=${triggerAB}`);
             }
 
             if (!triggerAB && completionConfig.debugMode) {
                 if (isBatchOperation) {
                     console.debug(`[llmCompletion] A/B testing disabled during batch operation`);
-                } else if (!abEnabled) {
-                    console.debug(`[llmCompletion] A/B testing disabled in settings`);
                 } else {
-                    console.debug(`[llmCompletion] A/B test not triggered (random ${randomValue.toFixed(3)} >= probability ${abProbability})`);
+                    console.debug(`[llmCompletion] A/B test not triggered (random ${randomValue.toFixed(3)} >= probability ${AB_TEST_PROBABILITY})`);
                 }
             }
 

@@ -340,7 +340,6 @@ export async function generateChatSystemMessage(
             numberOfFewShotExamples: 0,
             debugMode: false,
             useOnlyValidatedExamples: false,
-            abTestingEnabled: false,
             allowHtmlPredictions: allowHtmlPredictions,
             fewShotExampleFormat: "source-and-target",
         };
