@@ -281,7 +281,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         editType: EditType,
         shouldUpdateValue = true,
         retainValidations = false,
-        skipAutoValidation = false
+        skipAutoValidation = false,
+        health?: number
     ) {
         debug("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
@@ -315,6 +316,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return;
         }
 
+        // Set health on cell metadata if provided (for LLM generations)
+        // Only assign health when the cell has actual content - empty cells should not have health scores
+        const hasContent = newContent && newContent.trim().length > 0 && newContent !== "<span></span>";
+        if (health !== undefined && hasContent) {
+            cellToUpdate.metadata.health = health;
+        } else if (cellToUpdate.metadata.health === undefined && hasContent) {
+            // Initialize with base health if not set and cell has content
+            cellToUpdate.metadata.health = 0.3;
+        } else if (!hasContent) {
+            // Clear health if cell becomes empty
+            cellToUpdate.metadata.health = undefined;
+        }
+
+        // For user edits, only add the edit if content has actually changed
+        if (editType === EditType.USER_EDIT && cellToUpdate.value === newContent) {
+            return; // Skip adding edit if normalized content hasn't changed
+        }
 
         // Special case: for non-persisting LLM previews, do not update the cell value
         // but DO record an LLM_GENERATION edit in metadata so history/auditing is preserved
@@ -420,6 +438,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                                 isDeleted: false,
                             },
                         ];
+                        // Set health to 100% when validation is retained
+                        cellToUpdate.metadata.health = 1.0;
                     }
                 }
             } else {
@@ -435,6 +455,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                             isDeleted: false,
                         },
                     ];
+                    // Set health to 100% when user edit creates a validation
+                    cellToUpdate.metadata.health = 1.0;
                 }
             }
         }
@@ -606,6 +628,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const fullMetadata = currentCell?.metadata
                 ? { ...currentCell.metadata, editType, lastUpdated: Date.now() }
                 : { editType, lastUpdated: Date.now() };
+
+            // Debug: Log health value being sent to SQLite
+            console.log(`[CodexDocument] 📊 addCellToIndexImmediately for ${cellId}:`, {
+                hasCurrentCell: !!currentCell,
+                hasMetadata: !!currentCell?.metadata,
+                healthInMetadata: currentCell?.metadata?.health,
+                healthInFullMetadata: fullMetadata.health,
+                fullMetadataKeys: Object.keys(fullMetadata)
+            });
 
             // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
             const result = await this._indexManager.upsertCellWithFTSSync(
@@ -1644,6 +1675,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        averageHealth?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1655,6 +1687,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            averageHealth?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1738,6 +1771,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     audioValidationLevels: [],
                     requiredTextValidations: minimumValidationsRequired,
                     requiredAudioValidations: minimumAudioValidationsRequired,
+                    averageHealth: undefined,
                 };
                 continue;
             }
@@ -1799,12 +1833,35 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 fullyValidatedCells
             );
 
+            // Backfill health for cells that predate the health system
+            for (let i = 0; i < subsectionCells.length; i++) {
+                const cell = subsectionCells[i];
+                if (cell.metadata && cell.metadata.health === undefined && cell.cellContent && cell.cellContent.trim().length > 0 && cell.cellContent !== "<span></span>") {
+                    const hasActiveValidation = countNonDeleted(cellWithValidatedData[i].validatedBy) > 0;
+                    cell.metadata.health = hasActiveValidation ? 1.0 : 0.3;
+                }
+            }
+
+            // Calculate average health for cells with content
+            const healthValues = subsectionCells
+                .filter((cell) =>
+                    cell.cellContent &&
+                    cell.cellContent.trim().length > 0 &&
+                    cell.cellContent !== "<span></span>"
+                )
+                .map((cell) => cell.metadata?.health)
+                .filter((h): h is number => typeof h === 'number');
+            const averageHealth = healthValues.length > 0
+                ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
+                : undefined;
+
             progress[subsectionIdx] = {
                 ...progressPercentages,
                 textValidationLevels,
                 audioValidationLevels,
                 requiredTextValidations: minimumValidationsRequired,
                 requiredAudioValidations: minimumAudioValidationsRequired,
+                averageHealth,
             };
         }
 
@@ -2313,6 +2370,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // The milestone structure doesn't change, but progress needs to be recalculated
         this.invalidateMilestoneIndexCache();
 
+        // Update health based on validation state
+        if (validate) {
+            // Set health to 100% when validated (text validation = full confidence)
+            cellToUpdate.metadata.health = 1.0;
+        } else {
+            // When un-validating, check if any active validations remain
+            const activeValidations = latestEdit.validatedBy.filter(
+                (entry) => this.isValidValidationEntry(entry) && !entry.isDeleted
+            );
+            if (activeValidations.length === 0) {
+                // No validations remain, reset health to baseline
+                cellToUpdate.metadata.health = 0.3;
+            } else {
+                // Still have validations, health should remain at 1.0
+                // Explicitly set it to ensure it's updated in the event
+                cellToUpdate.metadata.health = 1.0;
+            }
+        }
+
         // Mark document as dirty
         this._isDirty = true;
 
@@ -2322,12 +2398,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellId,
                 type: "validation",
                 validatedBy: latestEdit.validatedBy,
+                health: cellToUpdate.metadata.health,
             }),
             edits: [
                 {
                     cellId,
                     type: "validation",
                     validatedBy: latestEdit.validatedBy,
+                    health: cellToUpdate.metadata.health,
                 },
             ],
         });
@@ -2338,10 +2416,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
             username,
             validationCount: latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
             cellHasContent: !!(cellToUpdate.value && cellToUpdate.value.trim()),
-            editsCount: cellToUpdate.metadata.edits.length
+            editsCount: cellToUpdate.metadata.edits.length,
+            healthAfterValidation: cellToUpdate.metadata.health
         });
 
-        // Database update will happen automatically when document is saved
+        // Immediately sync health to SQLite so example queries get up-to-date values
+        if (cellToUpdate.value) {
+            Promise.resolve(this.addCellToIndexImmediately(cellId, cellToUpdate.value, EditType.USER_EDIT)).catch(error => {
+                console.error(`[CodexDocument] Failed to sync health to SQLite for cell ${cellId}:`, error);
+            });
+        }
     }
 
     // Method to validate a cell's audio by a user
@@ -2422,6 +2506,21 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
         cellToUpdate.metadata.attachments[attachmentId] = attachment;
 
+        // Update health based on validation state
+        if (validate) {
+            // Set health to 100% when audio is validated (audio validation = full confidence)
+            cellToUpdate.metadata.health = 1.0;
+        } else {
+            // When un-validating, check if any active validations remain
+            const activeValidations = attachment.validatedBy.filter(
+                (entry: any) => this.isValidValidationEntry(entry) && !entry.isDeleted
+            );
+            if (activeValidations.length === 0) {
+                // No audio validations remain, reset health to baseline
+                cellToUpdate.metadata.health = 0.3;
+            }
+        }
+
         // Mark document as dirty
         this._isDirty = true;
 
@@ -2431,17 +2530,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellId,
                 type: "audioValidation",
                 validatedBy: attachment.validatedBy,
+                health: cellToUpdate.metadata.health,
             }),
             edits: [
                 {
                     cellId,
                     type: "audioValidation",
                     validatedBy: attachment.validatedBy,
+                    health: cellToUpdate.metadata.health,
                 },
             ],
         });
 
-        // Database update will happen automatically when document is saved
+        // Immediately sync health to SQLite so example queries get up-to-date values
+        if (cellToUpdate.value) {
+            Promise.resolve(this.addCellToIndexImmediately(cellId, cellToUpdate.value, EditType.USER_EDIT)).catch(error => {
+                console.error(`[CodexDocument] Failed to sync health to SQLite for cell ${cellId}:`, error);
+            });
+        }
     }
 
     /**
@@ -3336,6 +3442,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         selectionTimestamp: cell.metadata?.selectionTimestamp,
                         type: cell.metadata?.type || null,
                         lastUpdated: Date.now(),
+                        health: cell.metadata?.health,
                     };
 
                     // Check if this cell has text validation data for logging

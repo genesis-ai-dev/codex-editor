@@ -47,6 +47,7 @@ export interface ProgressPercentages {
     audioValidationLevels?: number[];
     requiredTextValidations?: number;
     requiredAudioValidations?: number;
+    averageHealth?: number;
 }
 
 export interface Subsection {

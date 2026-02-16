@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import { QuillCellContent, ValidationEntry } from "../../../../types";
-import { getCellValueData } from "@sharedUtils";
+import { QuillCellContent } from "../../../../types";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import { isValidValidationEntry, textPopoverTracker } from "./validationUtils";
+import { textPopoverTracker } from "./validationUtils";
 import { useTextValidationStatus } from "./hooks/useTextValidationStatus";
 import ValidatorPopover from "./components/ValidatorPopover";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
@@ -19,8 +18,20 @@ interface ValidationButtonProps {
     setShowSparkleButton?: Dispatch<SetStateAction<boolean>>;
     disabled?: boolean;
     disabledReason?: string;
+    health?: number; // Health score (0-1) for radial progress when unverified
+    showHealthIndicators?: boolean; // Whether to show health indicators
 }
 
+/**
+ * ValidationButton - Provider is the source of truth
+ *
+ * This component relies entirely on:
+ * 1. The `cell` prop (updated by provider)
+ * 2. The `useTextValidationStatus` hook (derives state from `cell`)
+ * 3. Provider messages for validation progress
+ *
+ * Local state is only used for UI-specific concerns (popover, keyboard focus, pending state).
+ */
 const ValidationButton: React.FC<ValidationButtonProps> = ({
     cellId,
     cell,
@@ -31,33 +42,24 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     setShowSparkleButton,
     disabled: externallyDisabled,
     disabledReason,
+    health,
+    showHealthIndicators = false,
 }) => {
-    const [isValidated, setIsValidated] = useState(false);
-    const [username, setUsername] = useState<string | null>(currentUsername ?? null);
-    const [requiredValidations, setRequiredValidations] = useState(requiredValidationsProp ?? 1);
-    const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
+    // UI-specific local state only
     const [showPopover, setShowPopover] = useState(false);
-    const [validationUsers, setValidationUsers] = useState<ValidationEntry[]>([]);
     const [isPendingValidation, setIsPendingValidation] = useState(false);
-    const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
+
     const buttonRef = useRef<HTMLDivElement>(null);
     const uniqueId = useRef(`validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`);
     const closeTimerRef = useRef<number | null>(null);
     const ignoreHoverRef = useRef(false);
     const wasKeyboardNavigationRef = useRef(false);
 
-    const clearCloseTimer = () => {
-        if (closeTimerRef.current != null) {
-            clearTimeout(closeTimerRef.current);
-            closeTimerRef.current = null;
-        }
-    };
-    const scheduleCloseTimer = (callback: () => void, delay = 100) => {
-        clearCloseTimer();
-        closeTimerRef.current = window.setTimeout(callback, delay);
-    };
+    // Use currentUsername prop directly - no local state duplication
+    const username = currentUsername ?? null;
 
+    // Provider-derived state via hook - this is the source of truth
     const {
         validators: uniqueValidationUsers,
         currentValidations,
@@ -70,144 +72,84 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         disabled: Boolean(externallyDisabled) || isSourceText,
     });
 
+    // Debug logging for health and validation state
     useEffect(() => {
-        setIsValidated(Boolean(isValidatedByCurrentUser));
-    }, [isValidatedByCurrentUser]);
+        console.log("[ValidationButton] State update:", {
+            cellId,
+            healthProp: health,
+            healthFromCell: cell.metadata?.health,
+            healthMatch: health === cell.metadata?.health,
+            currentValidations,
+            isValidatedByCurrentUser,
+            validatorsCount: uniqueValidationUsers.length,
+            showHealthIndicators,
+        });
+    }, [
+        cellId,
+        health,
+        cell.metadata?.health,
+        currentValidations,
+        isValidatedByCurrentUser,
+        uniqueValidationUsers.length,
+        showHealthIndicators,
+    ]);
 
-    // Update validation state when editHistory changes
-    useEffect(() => {
-        // Validation count is now bundled with initial content, no need to fetch repeatedly
+    // Use prop directly with fallback - no local state needed
+    const requiredValidations = requiredValidationsProp ?? 1;
 
-        // Check if there are any edits
-        if (!cell.editHistory || cell.editHistory.length === 0) {
-            return;
+    const clearCloseTimer = () => {
+        if (closeTimerRef.current != null) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
         }
+    };
 
-        // Get the latest edit
-        const cellValueData = getCellValueData(cell);
-        if (!cellValueData) {
-            return;
-        }
-        setUserCreatedLatestEdit(
-            cellValueData.author === username && cellValueData.editType === "user-edit"
-        );
+    const scheduleCloseTimer = (callback: () => void, delay = 100) => {
+        clearCloseTimer();
+        closeTimerRef.current = window.setTimeout(callback, delay);
+    };
 
-        // Check if the current user has already validated this edit
-        if (cellValueData.validatedBy && username) {
-            // Look for the user's entry in validatedBy and check if isDeleted is false
-            const userEntry = cellValueData.validatedBy.find(
-                (entry) =>
-                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
-            );
-            setIsValidated(!!userEntry);
-
-            // Get all active validation users
-            const activeValidations = cellValueData.validatedBy.filter(
-                (entry) => isValidValidationEntry(entry) && !entry.isDeleted
-            );
-            setValidationUsers(activeValidations);
-        }
-    }, [cell, username]);
-
-    // Get the current username when component mounts and listen for configuration changes
-    useEffect(() => {
-        // Username is now bundled with initial content and passed down from parent
-        if (currentUsername) {
-            setUsername(currentUsername);
-        }
-        // No need to request username separately - it comes bundled with initial content
-    }, [currentUsername]);
-
-    // Update requiredValidations when prop changes
-    useEffect(() => {
-        if (requiredValidationsProp !== undefined && requiredValidationsProp !== null) {
-            setRequiredValidations(requiredValidationsProp);
-        }
-    }, [requiredValidationsProp]);
-
+    // Listen for provider messages to clear pending state
     useMessageHandler(
         `validationButton-${cellId}-${uniqueId.current}`,
         (event: MessageEvent) => {
             const message = event.data;
-            if (!currentUsername && message.type === "currentUsername") {
-                setUsername(message.content.username);
-            } else if (requiredValidationsProp == null && message.type === "validationCount") {
-                setRequiredValidations(message.content);
 
-                // The component will re-render with the new requiredValidations value
-                // which will recalculate isFullyValidated in the render function
-            } else if (message.type === "providerUpdatesValidationState") {
-                // Handle validation state updates from the backend
+            if (message.type === "providerUpdatesValidationState") {
+                // Provider has confirmed the validation state - clear pending
                 if (message.content.cellId === cellId) {
-                    const validatedBy = message.content.validatedBy || [];
-                    if (username) {
-                        // Check if the user has an active validation (not deleted)
-                        const userEntry = validatedBy.find(
-                            (entry: any) =>
-                                isValidValidationEntry(entry) &&
-                                entry.username === username &&
-                                !entry.isDeleted
-                        );
-                        setIsValidated(!!userEntry);
-
-                        // Update the list of validation users
-                        const activeValidations = validatedBy.filter(
-                            (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
-                        );
-                        setValidationUsers(activeValidations);
-
-                        // Validation is complete, clear pending state
-                        setIsPendingValidation(false);
-                        setIsValidationInProgress(false);
-                    }
+                    setIsPendingValidation(false);
                 }
-            } else if (message.type === "configurationChanged") {
-                // Configuration changes now send validationCount directly, no need to refetch
-                console.log("Configuration changed - validation count will be sent directly");
-            } else if (message.command === "updateValidationCount") {
-                setValidationUsers(message.content.validations || []);
-                if (requiredValidationsProp == null) {
-                    setRequiredValidations(message.content.requiredValidations || 1);
-                }
-                setIsValidated(message.content.isValidated);
-                setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
             } else if (message.type === "validationInProgress") {
-                // Handle validation in progress message
-                if (message.content.cellId === cellId) {
-                    setIsValidationInProgress(message.content.inProgress);
-                    if (!message.content.inProgress) {
-                        // If validation is complete, clear pending state as well
-                        setIsPendingValidation(false);
-                    }
+                // Backend is processing - keep pending state
+                if (message.content.cellId === cellId && !message.content.inProgress) {
+                    setIsPendingValidation(false);
                 }
             } else if (message.type === "pendingValidationCleared") {
-                // Handle when all pending validations are cleared
                 if (message.content.cellIds.includes(cellId)) {
                     setIsPendingValidation(false);
                 }
             }
         },
-        [cellId, username, currentUsername, requiredValidationsProp]
+        [cellId]
     );
 
-    // Check if we should close our popover when another becomes active
+    // Close popover when another becomes active
     useEffect(() => {
         if (showPopover && textPopoverTracker.getActivePopover() !== uniqueId.current) {
             setShowPopover(false);
         }
     }, [showPopover]);
 
-    // Track keyboard navigation globally to detect when focus is achieved via keyboard
+    // Track keyboard navigation for accessibility
     useEffect(() => {
         const handleDocumentKeyDown = (e: KeyboardEvent) => {
-            // Track Tab, Arrow keys, and Enter as keyboard navigation
             if (e.key === "Tab" || e.key.startsWith("Arrow") || e.key === "Enter") {
                 wasKeyboardNavigationRef.current = true;
             }
         };
 
         const handleDocumentMouseDown = () => {
-            // Reset keyboard navigation flag when mouse is used
             wasKeyboardNavigationRef.current = false;
         };
 
@@ -222,8 +164,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsPendingValidation(true);
-        // Add to validation queue for sequential processing
-        enqueueValidation(cellId, !isValidated)
+
+        // Send to provider - it will update the cell, which will update the hook
+        enqueueValidation(cellId, !isValidatedByCurrentUser)
             .then(() => {})
             .catch((error) => {
                 console.error("Validation queue error:", error);
@@ -239,21 +182,16 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         e.stopPropagation();
         if (isDisabled) return;
 
-        // Briefly ignore hover so the popover can't re-open immediately after clicking.
         ignoreHoverRef.current = true;
         window.setTimeout(() => {
             ignoreHoverRef.current = false;
         }, 200);
 
-        // Mark that this was a mouse click, not keyboard navigation
         wasKeyboardNavigationRef.current = false;
         setIsKeyboardFocused(false);
 
-        // Blur the button after mouse click to remove focus (prevents pulse from continuing)
-        // Use setTimeout to ensure blur happens after the click event completes
         window.setTimeout(() => {
             if (buttonRef.current) {
-                // Find the actual button element within the VSCodeButton component
                 const buttonElement = buttonRef.current.querySelector(
                     "button"
                 ) as HTMLButtonElement;
@@ -263,7 +201,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             }
         }, 0);
 
-        if (!isValidated) {
+        if (!isValidatedByCurrentUser) {
             handleValidate(e);
             closePopover();
         }
@@ -274,7 +212,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         e.preventDefault();
 
         if (isDisabled) return;
-
         if (ignoreHoverRef.current) return;
 
         clearCloseTimer();
@@ -284,7 +221,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        // Mark that keyboard navigation is being used
         wasKeyboardNavigationRef.current = true;
 
         if (e.key === "Enter") {
@@ -300,7 +236,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     };
 
     const handleFocus = () => {
-        // If focus was achieved via keyboard, add the class for pulse animation
         if (wasKeyboardNavigationRef.current) {
             setIsKeyboardFocused(true);
         }
@@ -341,6 +276,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         justifyContent: "center",
     };
 
+    // Show as in-progress when pending (waiting for provider response)
+    const isValidationInProgress = isPendingValidation;
     const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
 
     // Don't show validation button for source text or if no username is available
@@ -361,9 +298,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 appearance="icon"
                 style={{
                     ...buttonStyle,
-                    // Add orange border for pending validations - use a consistent orange color
+                    // Add orange border for pending validations
                     ...(isPendingValidation && {
-                        border: "2px solid #f5a623", // Consistent orange color for both themes
+                        border: "2px solid #f5a623",
                         borderRadius: "50%",
                     }),
                 }}
@@ -371,22 +308,28 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 onKeyDown={handleKeyDown}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
-                // Disable for source text, in-progress, or when externally requested (e.g., no audio/text)
                 disabled={isDisabled}
                 title={
-                    isDisabled ? disabledReason || "Validation requires text and audio" : undefined
+                    isPendingValidation
+                        ? "Validating..."
+                        : isDisabled
+                        ? disabledReason || "Validation requires text and audio"
+                        : undefined
                 }
             >
                 <ValidationStatusIcon
+                    key={`${cellId}-${health}-${currentValidations}`}
                     isValidationInProgress={isValidationInProgress}
                     isDisabled={isDisabled}
                     currentValidations={currentValidations}
                     requiredValidations={requiredValidations}
-                    isValidatedByCurrentUser={isValidated}
+                    isValidatedByCurrentUser={isValidatedByCurrentUser}
+                    health={health}
+                    showHealthRadial={showHealthIndicators}
+                    isPendingValidation={isPendingValidation}
                 />
             </VSCodeButton>
 
-            {/* Add style for spinner animation */}
             <style>
                 {`
                 @keyframes spin {
@@ -394,14 +337,14 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     to { transform: rotate(360deg); }
                 }
                 .validation-button-container .pending {
-                    border: 2px solid #f5a623; /* Consistent orange color for both themes */
+                    border: 2px solid #f5a623;
                     border-radius: 50%;
                 }
                 `}
             </style>
 
-            {/* Popover for validation users */}
-            {showPopover && uniqueValidationUsers.length > 0 && (
+            {/* Popover for validation users OR health status - uses hook data directly */}
+            {showPopover && (
                 <ValidatorPopover
                     anchorRef={buttonRef as any}
                     show={showPopover}
@@ -413,16 +356,25 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     cancelCloseTimer={() => {}}
                     scheduleCloseTimer={scheduleCloseTimer}
                     onRemoveSelf={() => {
+                        setIsPendingValidation(true);
                         enqueueValidation(cellId, false)
                             .then(() => {})
-                            .catch((error) => console.error("Validation queue error:", error));
-                        processValidationQueue(vscode).catch((error) =>
-                            console.error("Validation queue processing error:", error)
-                        );
+                            .catch((error) => {
+                                console.error("Validation queue error:", error);
+                                setIsPendingValidation(false);
+                            });
+                        processValidationQueue(vscode).catch((error) => {
+                            console.error("Validation queue processing error:", error);
+                            setIsPendingValidation(false);
+                        });
                         closePopover();
                     }}
                     title="Validators"
                     popoverTracker={textPopoverTracker}
+                    health={currentValidations > 0 ? 1.0 : health}
+                    showHealthWhenNoValidators={showHealthIndicators}
+                    isPendingValidation={isPendingValidation}
+                    currentValidations={currentValidations}
                 />
             )}
         </div>

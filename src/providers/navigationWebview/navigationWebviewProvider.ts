@@ -571,6 +571,16 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const textValidationLevels = computeLevelPercents(textValidationCounts, minimumValidationsRequired);
             const audioValidationLevels = computeLevelPercents(audioValidationCounts, minimumAudioValidationsRequired);
 
+            // Compute average health from cells - only include cells that have content
+            // Empty cells should not have health scores and should not count towards average
+            const healthValues = unmergedCells
+                .filter((cell) => cell.value && cell.value.trim().length > 0 && cell.value !== "<span></span>")
+                .map((cell) => cell.metadata?.health)
+                .filter((h): h is number => typeof h === 'number');
+            const averageHealth = healthValues.length > 0
+                ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
+                : undefined; // No health data for files with only empty cells
+
             const {
                 percentTranslationsCompleted,
                 percentAudioTranslationsCompleted,
@@ -607,6 +617,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     audioValidationLevels,
                     requiredTextValidations: minimumValidationsRequired,
                     requiredAudioValidations: minimumAudioValidationsRequired,
+                    averageHealth,
                 },
                 sortOrder,
                 fileDisplayName: metadata?.fileDisplayName,
@@ -683,6 +694,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const averageTextValidationLevels = avgArray('textValidationLevels', textLen);
             const averageAudioValidationLevels = avgArray('audioValidationLevels', audioLen);
 
+            // Compute average health for the corpus group - only from items that have health data
+            const healthValues = itemsInGroup
+                .map((item) => item.progress?.averageHealth)
+                .filter((h): h is number => typeof h === 'number');
+            const groupAverageHealth = healthValues.length > 0
+                ? healthValues.reduce((sum, h) => sum + h, 0) / healthValues.length
+                : undefined; // No health data if no items have health
+
             const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {
                     return a.sortOrder.localeCompare(b.sortOrder);
@@ -707,6 +726,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     audioValidationLevels: averageAudioValidationLevels,
                     requiredTextValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCount", 1) || 1,
                     requiredAudioValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCountAudio", 1) || 1,
+                    averageHealth: groupAverageHealth,
                 },
             });
         });
@@ -836,10 +856,16 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 this.serializeItem(item)
             );
 
+            // Get feature flag for health indicators
+            const showHealthIndicators = vscode.workspace
+                .getConfiguration("codex-project-manager")
+                .get<boolean>("showHealthIndicators", false);
+
             safePostMessageToView(this._view, {
                 command: "updateItems",
                 codexItems: serializedCodexItems,
                 dictionaryItems: serializedDictItems,
+                showHealthIndicators,
             });
 
             if (this.bibleBookMap) {

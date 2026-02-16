@@ -76,6 +76,7 @@ interface CellContentDisplayProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
+    showHealthIndicators?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -469,6 +470,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        showHealthIndicators = false,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -1119,33 +1121,31 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             {lineNumber}
                                         </div>
                                     )}
-                                    {/* Audio Validation Button - show for non-source text only */}
-                                    {!isSourceText && SHOW_VALIDATION_BUTTON && (
-                                        <div className="flex items-center justify-center gap-x-px">
-                                            <AudioValidationButton
-                                                cellId={cellIds[0]}
-                                                cell={cell}
-                                                vscode={vscode}
-                                                isSourceText={isSourceText}
-                                                currentUsername={currentUsername}
-                                                requiredAudioValidations={requiredAudioValidations}
-                                                setShowSparkleButton={setShowSparkleButton}
-                                                disabled={
-                                                    isInTranslationProcess ||
-                                                    audioState === "none" ||
-                                                    audioState === "deletedOnly"
-                                                }
-                                                disabledReason={
-                                                    isInTranslationProcess
-                                                        ? "Translation in progress"
-                                                        : audioState === "none" ||
-                                                          audioState === "deletedOnly"
-                                                        ? "Audio validation requires audio"
-                                                        : undefined
-                                                }
-                                            />
-                                        </div>
-                                    )}
+                                    {/* Audio Validation Button - show only when audio exists */}
+                                    {!isSourceText &&
+                                        SHOW_VALIDATION_BUTTON &&
+                                        audioState !== "none" &&
+                                        audioState !== "deletedOnly" && (
+                                            <div className="flex items-center justify-center gap-x-px">
+                                                <AudioValidationButton
+                                                    cellId={cellIds[0]}
+                                                    cell={cell}
+                                                    vscode={vscode}
+                                                    isSourceText={isSourceText}
+                                                    currentUsername={currentUsername}
+                                                    requiredAudioValidations={
+                                                        requiredAudioValidations
+                                                    }
+                                                    setShowSparkleButton={setShowSparkleButton}
+                                                    disabled={isInTranslationProcess}
+                                                    disabledReason={
+                                                        isInTranslationProcess
+                                                            ? "Translation in progress"
+                                                            : undefined
+                                                    }
+                                                />
+                                            </div>
+                                        )}
                                     {/* Audio Play Button - show for both source and non-source text */}
                                     {audioAttachments &&
                                         audioAttachments[cellIds[0]] !== undefined &&
@@ -1208,6 +1208,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         ? "Validation disabled: no text"
                                                         : undefined;
                                                 })()}
+                                                health={cell.metadata?.health}
+                                                showHealthIndicators={showHealthIndicators}
                                             />
                                         </div>
                                     )}

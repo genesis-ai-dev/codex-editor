@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index column for O(1) milestone lookup
+export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index and t_health columns
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -302,10 +302,13 @@ export class SQLiteIndexManager {
                     t_audio_validation_count INTEGER DEFAULT 0,
                     t_audio_validated_by TEXT,
                     t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
-                    
+
                     -- Milestone index for O(1) lookup (0-based milestone index, NULL if no milestone)
                     milestone_index INTEGER,
-                    
+
+                    -- Health score for translation quality (0.0-1.0, default 0.3 for unverified)
+                    t_health REAL DEFAULT 0.3,
+
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
                 )
@@ -866,7 +869,7 @@ export class SQLiteIndexManager {
         // Add target-specific metadata columns
         if (cellType === 'target') {
             columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
-                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
+                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated', 't_health');
             values.push(
                 actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
                 extractedMetadata.validationCount || 0,
@@ -874,7 +877,8 @@ export class SQLiteIndexManager {
                 extractedMetadata.isFullyValidated ? 1 : 0,
                 extractedMetadata.audioValidationCount || 0,
                 extractedMetadata.audioValidatedBy || null,
-                extractedMetadata.audioIsFullyValidated ? 1 : 0
+                extractedMetadata.audioIsFullyValidated ? 1 : 0,
+                extractedMetadata.health ?? 0.3
             );
         }
 
@@ -1034,7 +1038,7 @@ export class SQLiteIndexManager {
         // Add target-specific metadata columns
         if (cellType === 'target') {
             columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
-                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
+                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated', 't_health');
             values.push(
                 actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
                 extractedMetadata.validationCount || 0,
@@ -1042,7 +1046,8 @@ export class SQLiteIndexManager {
                 extractedMetadata.isFullyValidated ? 1 : 0,
                 extractedMetadata.audioValidationCount || 0,
                 extractedMetadata.audioValidatedBy || null,
-                extractedMetadata.audioIsFullyValidated ? 1 : 0
+                extractedMetadata.audioIsFullyValidated ? 1 : 0,
+                extractedMetadata.health ?? 0.3
             );
         }
 
@@ -1594,6 +1599,33 @@ export class SQLiteIndexManager {
         }
 
         return null;
+    }
+
+    // Get health values for multiple cells
+    async getCellsHealth(cellIds: string[]): Promise<Map<string, number>> {
+        if (!this.db || cellIds.length === 0) return new Map();
+
+        const placeholders = cellIds.map(() => '?').join(',');
+        const stmt = this.db.prepare(`
+            SELECT cell_id, t_health
+            FROM cells
+            WHERE cell_id IN (${placeholders})
+        `);
+
+        const result = new Map<string, number>();
+        try {
+            stmt.bind(cellIds);
+            while (stmt.step()) {
+                const row = stmt.getAsObject() as { cell_id: string; t_health: number | null; };
+                const health = row.t_health ?? 0.3;
+                result.set(row.cell_id, health);
+                console.log(`[SQLiteIndex] getCellsHealth: ${row.cell_id} -> ${health} (raw: ${row.t_health})`);
+            }
+        } finally {
+            stmt.free();
+        }
+        console.log(`[SQLiteIndex] getCellsHealth: queried ${cellIds.length} cells, found ${result.size}`);
+        return result;
     }
 
     // Get translation pair by cell ID
@@ -3582,6 +3614,7 @@ export class SQLiteIndexManager {
         audioValidationCount?: number;
         audioValidatedBy?: string;
         audioIsFullyValidated?: boolean;
+        health?: number;
     } {
         const result: {
             currentEditTimestamp?: number | null;
@@ -3591,6 +3624,7 @@ export class SQLiteIndexManager {
             audioValidationCount?: number;
             audioValidatedBy?: string;
             audioIsFullyValidated?: boolean;
+            health?: number;
         } = {};
 
         if (!metadata || typeof metadata !== "object" || cellType !== "target") {
@@ -3644,6 +3678,13 @@ export class SQLiteIndexManager {
         if (!result.currentEditTimestamp && audioDetails.latestTimestamp !== null) {
             result.currentEditTimestamp = audioDetails.latestTimestamp;
         }
+
+        // Extract health from metadata (if set)
+        // Health is optional - if not present, it will default to 0.3 when used
+        if (typeof metadata.health === 'number') {
+            result.health = metadata.health;
+        }
+        // No need to log when health is missing - it's expected for cells without health scores
 
         return result;
     }
