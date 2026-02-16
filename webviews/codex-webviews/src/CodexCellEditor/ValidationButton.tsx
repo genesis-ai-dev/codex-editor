@@ -85,6 +85,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
         // Get the latest edit
         const cellValueData = getCellValueData(cell);
+        if (!cellValueData) {
+            return;
+        }
         setUserCreatedLatestEdit(
             cellValueData.author === username && cellValueData.editType === "user-edit"
         );

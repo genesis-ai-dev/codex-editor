@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { CELL_DISPLAY_MODES, extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
+import { extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
@@ -41,8 +41,6 @@ interface ChapterNavigationHeaderProps {
     isAutocompletingChapter: boolean;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
-    onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
-    cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     totalChapters: number;
     untranslatedCellIds: string[];
@@ -103,8 +101,6 @@ export function ChapterNavigationHeader({
     isAutocompletingChapter,
     onSetTextDirection,
     textDirection,
-    onSetCellDisplayMode,
-    cellDisplayMode,
     isSourceText,
     totalChapters,
     untranslatedCellIds,
@@ -677,8 +673,6 @@ ChapterNavigationHeaderProps) {
                         isSourceText={isSourceText}
                         textDirection={textDirection}
                         onSetTextDirection={onSetTextDirection}
-                        cellDisplayMode={cellDisplayMode}
-                        onSetCellDisplayMode={onSetCellDisplayMode}
                         fontSize={fontSize}
                         onFontSizeChange={handleFontSizeChange}
                         metadata={metadata}
@@ -1092,39 +1086,6 @@ ChapterNavigationHeaderProps) {
                                 {showInlineBacktranslations ? "On" : "Off"}
                             </span>
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                            onClick={() => {
-                                const newMode =
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                        : CELL_DISPLAY_MODES.INLINE;
-                                onSetCellDisplayMode(newMode);
-                                vscode.postMessage({
-                                    command: "updateCellDisplayMode",
-                                    mode: newMode,
-                                });
-                            }}
-                            disabled={unsavedChanges}
-                            className="cursor-pointer"
-                        >
-                            <i
-                                className={`codicon ${
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "codicon-symbol-enum"
-                                        : "codicon-symbol-constant"
-                                } mr-2 h-4 w-4`}
-                            />
-                            <span>
-                                Display Mode (
-                                {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                    ? "Inline"
-                                    : "One Line"}
-                                )
-                            </span>
-                        </DropdownMenuItem>
-
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             onClick={() => {

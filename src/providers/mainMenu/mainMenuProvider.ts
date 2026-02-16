@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -616,6 +616,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "selectCategory":
                 // For backward compatibility, redirect to setValidationCount
                 await this.executeCommandAndNotify("setValidationCount");
+                break;
+            case "setValidationCountDirect":
+                await this.handleSetValidationCountDirect(message.data?.count, "validationCount");
+                break;
+            case "setValidationCountAudioDirect":
+                await this.handleSetValidationCountDirect(message.data?.count, "validationCountAudio");
                 break;
             case "openEditAnalysis":
                 await vscode.commands.executeCommand("codex-editor-extension.analyzeEdits");
@@ -1775,6 +1781,60 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 console.error("Failed to show error message:", dialogError);
             }
         }
+    }
+
+    private async handleSetValidationCountDirect(count: number | undefined, configKey: "validationCount" | "validationCountAudio"): Promise<void> {
+        if (count === undefined || count < 1 || count > 15) return;
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return;
+
+        disableSyncTemporarily();
+
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        await config.update(configKey, count, vscode.ConfigurationTarget.Workspace);
+
+        let author = "unknown";
+        try {
+            const authApi = await getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            if (userInfo?.username) {
+                author = userInfo.username;
+            }
+        } catch (_) {
+            // Silent fallback
+        }
+
+        const result = await MetadataManager.safeUpdateMetadata(
+            workspaceFolder,
+            (project: Record<string, unknown>) => {
+                const meta = (project.meta as Record<string, unknown>) || {};
+                const original = meta[configKey];
+                meta[configKey] = count;
+                project.meta = meta;
+
+                if (original !== count) {
+                    if (!project.edits) {
+                        project.edits = [];
+                    }
+                    addProjectMetadataEdit(
+                        project as Parameters<typeof addProjectMetadataEdit>[0],
+                        EditMapUtils.metaField(configKey),
+                        count,
+                        author,
+                    );
+                }
+                return project;
+            },
+            { author },
+        );
+
+        if (!result.success) {
+            console.error("Failed to update metadata:", result.error);
+        }
+
+        await this.store.refreshState();
+        await this.updateProjectOverview();
     }
 
     private async handleApplyTextDisplaySettings(settings: any): Promise<void> {
