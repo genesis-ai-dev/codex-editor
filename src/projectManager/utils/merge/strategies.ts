@@ -9,28 +9,15 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     ],
 
     // Simple JSON override files - keep newest version
-    [ConflictResolutionStrategy.OVERRIDE]: [
-        "chat-threads.json",
-        "files/chat_history.jsonl",
-        "files/silver_path_memories.json",
-        "files/smart_passages_memories.json",
-        ".project/dictionary.sqlite",
-    ],
+    [ConflictResolutionStrategy.OVERRIDE]: [],
 
     // Mergeable Comment arrays on commentThread array - combine recursively and deduplicate
     [ConflictResolutionStrategy.ARRAY]: [".project/comments.json"],
 
-    // JSONL files - combine and deduplicate
-    [ConflictResolutionStrategy.JSONL]: ["files/project.dictionary"],
-
     // Special JSON merges - merge based on timestamps
     [ConflictResolutionStrategy.SPECIAL]: [
-        "files/smart_edits.json",
         "metadata.json"
     ],
-
-    // Source files - keep newest version (DEPRECATED: now using CODEX_CUSTOM_MERGE)
-    [ConflictResolutionStrategy.SOURCE]: [],
 
     // Files to ignore
     [ConflictResolutionStrategy.IGNORE]: ["complete_drafts.txt"],

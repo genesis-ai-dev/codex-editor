@@ -171,7 +171,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -187,7 +186,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -218,7 +216,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -234,7 +231,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -267,7 +263,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -283,7 +278,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -324,7 +318,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -340,7 +333,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -385,7 +377,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -401,7 +392,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -441,7 +431,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -457,7 +446,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -496,7 +484,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -512,7 +499,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -553,7 +539,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -569,7 +554,6 @@ describe("Cell Line Numbers and Labels", () => {
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",

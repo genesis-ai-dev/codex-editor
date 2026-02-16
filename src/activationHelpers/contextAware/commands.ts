@@ -129,34 +129,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    const openDictionaryCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.openDictionaryFile",
-        async () => {
-            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-            if (!workspaceUri) {
-                vscode.window.showErrorMessage(
-                    "No workspace found. Please open a workspace first."
-                );
-                return;
-            }
-            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "files", "project.dictionary");
-            try {
-                // Ensure the files directory and dictionary file exist
-                const filesUri = vscode.Uri.joinPath(workspaceUri, "files");
-                await vscode.workspace.fs.createDirectory(filesUri);
-                try {
-                    await vscode.workspace.fs.stat(dictionaryUri);
-                } catch {
-                    // Create the file if it doesn't exist
-                    await vscode.workspace.fs.writeFile(dictionaryUri, new Uint8Array([]));
-                }
-                await vscode.commands.executeCommand("vscode.open", dictionaryUri);
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to open dictionary: ${error}`);
-            }
-        }
-    );
-
     const createCodexNotebookCommand = vscode.commands.registerCommand(
         "codex-editor-extension.createCodexNotebook",
         async () => {
@@ -374,7 +346,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         codexKernel,
         openChapterCommand,
         openFileCommand,
-        openDictionaryCommand,
         createCodexNotebookCommand,
         setEditorFontCommand,
         exportCodexContentCommand,

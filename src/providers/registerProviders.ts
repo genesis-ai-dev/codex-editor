@@ -5,7 +5,7 @@ import { NavigationWebviewProvider } from "./navigationWebview/navigationWebview
 import { MainMenuProvider } from "./mainMenu/mainMenuProvider";
 import { CustomWebviewProvider as CommentsProvider } from "./commentsWebview/customCommentsWebviewProvider";
 import { CustomWebviewProvider as ParallelProvider } from "./parallelPassagesWebview/customParallelPassagesWebviewProvider";
-import { WordsViewProvider } from "./WordsView/WordsViewProvider";
+
 import { GlobalProvider } from "../globalProvider";
 import { NewSourceUploaderProvider } from "./NewSourceUploader/NewSourceUploaderProvider";
 import { getWorkSpaceFolder } from "../utils";
@@ -78,14 +78,6 @@ export function registerProviders(context: vscode.ExtensionContext) {
         })
     );
 
-    // Register Words View Provider
-    const wordsViewProvider = new WordsViewProvider(context.extensionUri);
-
-    const showWordsViewCommand = vscode.commands.registerCommand("frontier.showWordsView", () => {
-        wordsViewProvider?.show();
-    });
-
-    context.subscriptions.push(showWordsViewCommand);
 
 
 

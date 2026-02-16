@@ -4,11 +4,10 @@ import {
     EditorPostMessages,
     QuillCellContent,
     EditHistory,
-    SpellCheckResponse,
     Timestamps,
 } from "../../../../types";
 import Editor, { EditorHandles } from "./Editor";
-import { getCleanedHtml } from "./react-quill-spellcheck";
+import { getCleanedHtml } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import { AddParatextButton } from "./AddParatextButton";
 import ReactMarkdown from "react-markdown";
@@ -107,7 +106,6 @@ interface CellEditorProps {
     cellContent: string;
     cellIndex: number;
     cellType: CodexCellTypes;
-    spellCheckResponse: SpellCheckResponse | null;
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
@@ -223,7 +221,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     editHistory,
     cellIndex,
     cellType,
-    spellCheckResponse,
     contentBeingUpdated,
     setContentBeingUpdated,
     handleCloseEditor,
@@ -729,7 +726,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
     const handleContentUpdate = (newContent: string) => {
-        // Clean spell check markup before updating content
+        // Clean suggestion markup before updating content
         const cleanedContent = getCleanedHtml(newContent);
 
         setContentBeingUpdated({
@@ -968,7 +965,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             try {
                 const parser = new DOMParser();
-                // Clean spell check markup before parsing
+                // Clean suggestion markup before parsing
                 const cleanedContent = getCleanedHtml(editorContent);
                 const doc = parser.parseFromString(cleanedContent, "text/html");
                 const footnoteElements = doc.querySelectorAll("sup.footnote-marker");
@@ -984,7 +981,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 footnoteElements.forEach((element) => {
                     const id = element.textContent || "";
                     const rawContent = element.getAttribute("data-footnote") || "";
-                    // Clean spell check markup from footnote content as well
+                    // Clean suggestion markup from footnote content as well
                     const content = getCleanedHtml(rawContent);
 
                     // Calculate the actual position of this element in the document
@@ -2155,10 +2152,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             currentLineId={cellMarkers[0]}
                             key={`${cellIndex}-quill`}
                             initialValue={editorContent}
-                            spellCheckResponse={spellCheckResponse}
                             editHistory={editHistory}
                             onChange={({ html }) => {
-                                // Clean spell check markup before processing
+                                // Clean suggestion markup before processing
                                 const cleanedHtml = getCleanedHtml(html);
                                 setEditorContent(cleanedHtml);
 
@@ -2504,7 +2500,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             onConfirm={() => {
                                                                 // Create DOM parser to edit the HTML directly
                                                                 const parser = new DOMParser();
-                                                                // Clean spell check markup before parsing
+                                                                // Clean suggestion markup before parsing
                                                                 const cleanedContent =
                                                                     getCleanedHtml(editorContent);
                                                                 const doc = parser.parseFromString(
@@ -2562,7 +2558,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 <div
                                                     className="text-sm p-2 rounded bg-muted"
                                                     dangerouslySetInnerHTML={{
-                                                        // Clean spell check markup from footnote content before displaying
+                                                        // Clean suggestion markup from footnote content before displaying
                                                         __html: getCleanedHtml(footnote.content),
                                                     }}
                                                 />

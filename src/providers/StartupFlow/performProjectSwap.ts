@@ -441,6 +441,19 @@ export async function performProjectSwap(
     swapReason?: string
 ): Promise<string> {
     debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID, swapInitiatedAt, swapInitiatedBy });
+
+    // Close the SQLite index database before any file operations to prevent
+    // writing to an orphaned file descriptor after the project folder is moved/deleted.
+    try {
+        const { clearSQLiteIndexManager } = await import(
+            "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+        );
+        await clearSQLiteIndexManager();
+        debugLog("SQLite index manager closed before swap");
+    } catch (e) {
+        debugLog("Warning: could not close SQLite index manager before swap:", e);
+    }
+
     const targetFolderName = extractProjectNameFromUrl(newProjectUrl) || projectName;
     const targetProjectPath = path.join(path.dirname(oldProjectPath), targetFolderName);
 
