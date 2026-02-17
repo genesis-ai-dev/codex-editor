@@ -15,6 +15,7 @@ import {
 } from '../../../components/ui/card';
 import { Progress } from '../../../components/ui/progress';
 import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { v4 as uuidv4 } from 'uuid';
 import { 
     FileText, 
     Upload, 
@@ -220,7 +221,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                             name: baseName, 
                             cells: simplifiedCells,
                             metadata: {
-                                id: `indesign-source-${Date.now()}`,
+                                id: uuidv4(),
                                 originalFileName: selectedFile.name,
                                 sourceFile: selectedFile.name,
                                 // Pass the original file bytes so the provider can persist it under .project/attachments/originals
@@ -253,7 +254,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                                 }
                             })),
                             metadata: {
-                                id: `indesign-codex-${Date.now()}`,
+                                id: uuidv4(),
                                 originalFileName: selectedFile.name,
                                 sourceFile: selectedFile.name,
                                 importerType: 'indesign',
