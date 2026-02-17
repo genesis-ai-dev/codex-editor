@@ -35,6 +35,15 @@ function ParallelView() {
     const [replaceErrors, setReplaceErrors] = useState<Array<{ cellId: string; error: string }>>(
         []
     );
+    const [forceReplaceExpanded, setForceReplaceExpanded] = useState(false);
+    const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+
+    // Auto-reset pin filter when all pins are removed
+    useEffect(() => {
+        if (pinnedVerses.length === 0 && showPinnedOnly) {
+            setShowPinnedOnly(false);
+        }
+    }, [pinnedVerses.length]);
 
     const dedupeByCellId = (items: TranslationPair[]) => {
         const seen = new Set<string>();
@@ -46,6 +55,7 @@ function ParallelView() {
             return true;
         });
     };
+
 
     // Re-search when replace text is first added (only if we already have search results)
     const prevReplaceTextRef = useRef<string>("");
@@ -63,6 +73,7 @@ function ParallelView() {
 
     // Re-search when query changes (if we already have results)
     const prevQueryRef = useRef<string>("");
+
     useEffect(() => {
         const queryChanged = prevQueryRef.current !== lastQuery;
         const hasQuery = lastQuery.trim().length > 0;
@@ -79,6 +90,13 @@ function ParallelView() {
 
         prevQueryRef.current = lastQuery;
     }, [lastQuery, verses.length, replaceText, searchScope]);
+
+    // Clear results when query is emptied, but keep pinned verses visible
+    useEffect(() => {
+        if (lastQuery.trim().length === 0 && verses.length > 0) {
+            setVerses(verses.filter((v) => pinnedVerses.some((p) => p.cellId === v.cellId)));
+        }
+    }, [lastQuery]);
 
     // Re-search when completeOnly setting changes (if we already have search results)
     const prevCompleteOnlyRef = useRef<boolean>(false);
@@ -153,7 +171,13 @@ function ParallelView() {
                 case "searchResults": {
                     let results = message.data as TranslationPair[];
                     results = dedupeByCellId(results);
-                    // Backend already filters for replace mode, so no need to filter again here
+                    // When in replace mode (replaceText is set), filter out results that cannot be replaced
+                    // This happens when the search query spans across HTML tag boundaries
+                    if (replaceText.trim()) {
+                        results = results.filter((result) =>
+                            canReplaceInHtml(result.targetCell.content || "", lastQuery)
+                        );
+                    }
                     // Remove duplicates - don't include pinned verses that are already in results
                     const pinnedNotInResults = pinnedVerses.filter(
                         (pinned) => !results.some((r) => r.cellId === pinned.cellId)
@@ -247,12 +271,54 @@ function ParallelView() {
                     }
                     break;
                 }
+                case "enableReplace": {
+                    // Triggered by keyboard shortcut to open with replace mode
+                    setForceReplaceExpanded(true);
+                    // Reset after a short delay so it can be triggered again
+                    setTimeout(() => setForceReplaceExpanded(false), 100);
+                    break;
+                }
+                case "populateSearch": {
+                    // Triggered from in-tab search to expand search to all files
+                    const { query: newQuery, replaceText: newReplaceText } = message;
+                    if (newQuery) {
+                        setLastQuery(newQuery);
+                        // Trigger search automatically
+                        vscode.postMessage({
+                            command: "search",
+                            query: newQuery,
+                            completeOnly,
+                            searchScope,
+                            selectedFiles,
+                        });
+                    }
+                    if (newReplaceText) {
+                        setReplaceText(newReplaceText);
+                        setForceReplaceExpanded(true);
+                        setTimeout(() => setForceReplaceExpanded(false), 100);
+                    }
+                    break;
+                }
             }
         };
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
     }, [pinnedVerses, lastQuery, replaceText]);
+
+    // Notify extension that webview is ready (for pending operations like populateSearch)
+    // Use a ref to ensure we only send this once, after the message listener is set up
+    const hasNotifiedReady = useRef(false);
+    useEffect(() => {
+        // Small delay to ensure message listener is attached first
+        const timeoutId = setTimeout(() => {
+            if (!hasNotifiedReady.current) {
+                hasNotifiedReady.current = true;
+                vscode.postMessage({ command: "webviewReady" });
+            }
+        }, 50);
+        return () => clearTimeout(timeoutId);
+    }, []);
 
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
@@ -374,6 +440,9 @@ function ParallelView() {
                 replaceErrors={replaceErrors}
                 onClearReplaceErrors={() => setReplaceErrors([])}
                 vscode={vscode}
+                forceReplaceExpanded={forceReplaceExpanded}
+                showPinnedOnly={showPinnedOnly}
+                onTogglePinnedFilter={() => setShowPinnedOnly((prev) => !prev)}
             />
         </div>
     );

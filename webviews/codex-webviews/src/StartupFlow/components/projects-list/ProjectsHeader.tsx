@@ -37,7 +37,7 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
         const typeFilteredProjects = projects.filter((project) => {
             if (filterType === "all") return true;
             if (filterType === "local") {
-                return ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+                return ["downloadedAndSynced", "localOnlyNotSynced", "orphaned", "serverUnreachable"].includes(project.syncStatus);
             }
             if (filterType === "remote") {
                 return project.syncStatus === "cloudOnlyNotSynced";

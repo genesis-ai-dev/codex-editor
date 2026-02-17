@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index column for O(1) milestone lookup
+export const CURRENT_SCHEMA_VERSION = 15; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -305,7 +305,10 @@ export class SQLiteIndexManager {
                     
                     -- Milestone index for O(1) lookup (0-based milestone index, NULL if no milestone)
                     milestone_index INTEGER,
-                    
+
+                    -- Semantic display label (e.g., "5:12" for chapter 5, cell 12)
+                    cell_label TEXT,
+
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
                 )
@@ -781,7 +784,8 @@ export class SQLiteIndexManager {
         lineNumber?: number,
         metadata?: any,
         rawContent?: string,
-        milestoneIndex?: number | null
+        milestoneIndex?: number | null,
+        cellLabel?: string | null
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -841,7 +845,8 @@ export class SQLiteIndexManager {
             `${prefix}line_number`,
             `${prefix}word_count`,
             `${prefix}raw_content`,
-            'milestone_index'
+            'milestone_index',
+            'cell_label'
         ];
 
         const values = [
@@ -852,7 +857,8 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            milestoneIndex !== undefined ? milestoneIndex : null
+            milestoneIndex !== undefined ? milestoneIndex : null,
+            cellLabel || null
         ];
 
         // Add timestamps based on cell type
@@ -949,7 +955,8 @@ export class SQLiteIndexManager {
         lineNumber?: number,
         metadata?: any,
         rawContent?: string,
-        milestoneIndex?: number | null
+        milestoneIndex?: number | null,
+        cellLabel?: string | null
     ): { id: string; isNew: boolean; contentChanged: boolean; } {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -1009,7 +1016,8 @@ export class SQLiteIndexManager {
             `${prefix}line_number`,
             `${prefix}word_count`,
             `${prefix}raw_content`,
-            'milestone_index'
+            'milestone_index',
+            'cell_label'
         ];
 
         const values = [
@@ -1020,7 +1028,8 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            milestoneIndex !== undefined ? milestoneIndex : null
+            milestoneIndex !== undefined ? milestoneIndex : null,
+            cellLabel || null
         ];
 
         // Add timestamps based on cell type
@@ -1250,10 +1259,11 @@ export class SQLiteIndexManager {
         }
 
         const stmt = this.db.prepare(`
-            SELECT 
+            SELECT
                 cells_fts.cell_id,
                 cells_fts.content,
                 cells_fts.content_type,
+                c.cell_label,
                 c.s_content,
                 c.s_raw_content,
                 c.s_line_number,
@@ -1268,7 +1278,7 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
-            ORDER BY score DESC
+            ORDER BY score ASC
             LIMIT ?
         `);
 
@@ -1317,6 +1327,7 @@ export class SQLiteIndexManager {
                 const result: any = {
                     id: row.cell_id,
                     cellId: row.cell_id,
+                    cellLabel: row.cell_label, // Semantic label like "GEN → 42"
                     score: row.score,
                     match: {}, // MiniSearch compatibility (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
                     uri: uri,
@@ -1499,8 +1510,9 @@ export class SQLiteIndexManager {
         if (!this.db) return null;
 
         const stmt = this.db.prepare(`
-            SELECT 
+            SELECT
                 c.cell_id,
+                c.cell_label,
                 -- Source columns
                 c.s_content,
                 c.s_raw_content,
@@ -1547,6 +1559,7 @@ export class SQLiteIndexManager {
                 if (cellType === "source" && row.s_content) {
                     return {
                         cellId: row.cell_id,
+                        cellLabel: row.cell_label, // NO FALLBACK
                         content: row.s_content,
                         rawContent: row.s_raw_content,
                         cell_type: "source",
@@ -1557,6 +1570,7 @@ export class SQLiteIndexManager {
                 } else if (cellType === "target" && row.t_content) {
                     return {
                         cellId: row.cell_id,
+                        cellLabel: row.cell_label, // NO FALLBACK
                         content: row.t_content,
                         rawContent: row.t_raw_content,
                         cell_type: "target",
@@ -1569,6 +1583,7 @@ export class SQLiteIndexManager {
                     if (row.s_content) {
                         return {
                             cellId: row.cell_id,
+                            cellLabel: row.cell_label, // NO FALLBACK
                             content: row.s_content,
                             rawContent: row.s_raw_content,
                             cell_type: "source",
@@ -1579,6 +1594,7 @@ export class SQLiteIndexManager {
                     } else if (row.t_content) {
                         return {
                             cellId: row.cell_id,
+                            cellLabel: row.cell_label, // NO FALLBACK
                             content: row.t_content,
                             rawContent: row.t_raw_content,
                             cell_type: "target",
@@ -1607,6 +1623,7 @@ export class SQLiteIndexManager {
 
         return {
             cellId,
+            cellLabel: sourceCell?.cellLabel ?? targetCell?.cellLabel ?? null, // NO || FALLBACK
             sourceContent: sourceCell?.content || "",
             targetContent: targetCell?.content || "",
             rawSourceContent: sourceCell?.rawContent || "",
@@ -1726,16 +1743,17 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
+                AND (c.cell_type = 'text' OR c.cell_type IS NULL)
         `;
 
-        const params: any[] = [`content: ${ftsQuery}`];
+        const params: (string | number)[] = [`content: ${ftsQuery}`];
 
         if (cellType) {
             sql += ` AND cells_fts.content_type = ?`;
             params.push(cellType);
         }
 
-        sql += ` ORDER BY score DESC LIMIT ?`;
+        sql += ` ORDER BY score ASC LIMIT ?`;
         params.push(limit);
 
         const stmt = this.db.prepare(sql);
@@ -1805,6 +1823,7 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE (c.s_content IS NOT NULL OR c.t_content IS NOT NULL)
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             `;
             params = [];
 
@@ -1903,6 +1922,7 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             `;
 
             params = [`content: ${ftsQuery}`];
@@ -1912,7 +1932,7 @@ export class SQLiteIndexManager {
                 params.push(cellType);
             }
 
-            sql += ` ORDER BY score DESC LIMIT ?`;
+            sql += ` ORDER BY score ASC LIMIT ?`;
             params.push(limit);
         }
 
@@ -2982,8 +3002,9 @@ export class SQLiteIndexManager {
         // Handle empty query by returning recent complete pairs
         if (!query || query.trim() === '') {
             const sql = `
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -2994,10 +3015,11 @@ export class SQLiteIndexManager {
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
-                WHERE c.s_content IS NOT NULL 
+                WHERE c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
                 ORDER BY c.cell_id DESC
                 LIMIT ?
             `;
@@ -3013,6 +3035,7 @@ export class SQLiteIndexManager {
                     results.push({
                         cellId: row.cell_id,
                         cell_id: row.cell_id,
+                        cellLabel: row.cell_label, // NO FALLBACK
                         sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                         targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
                         content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -3029,85 +3052,36 @@ export class SQLiteIndexManager {
             return results;
         }
 
-        // Debug: Check if we have any complete pairs in the database at all
-        const debugStmt = this.db.prepare(`
-            SELECT COUNT(*) as complete_pairs_count
-            FROM cells c
-            WHERE c.s_content IS NOT NULL 
-                AND c.s_content != ''
-                AND c.t_content IS NOT NULL 
-                AND c.t_content != ''
-        `);
-
-        let totalCompletePairs = 0;
-        try {
-            debugStmt.step();
-            totalCompletePairs = (debugStmt.getAsObject().complete_pairs_count as number) || 0;
-        } finally {
-            debugStmt.free();
-        }
-
-        // Use FTS5 with character-level n-grams (bigrams/trigrams) for fuzzy matching
-        // Extract words and generate character-level bigrams/trigrams from each word
-        const words = query
-            .trim()
-            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
-            .replace(/\s+/g, ' ') // Normalize whitespace
+        // Tokenize query - keep single characters for short queries
+        const trimmedQuery = query.trim();
+        const words = trimmedQuery
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
             .trim()
             .split(/\s+/)
-            .filter(token => token.length > 1); // Filter out single characters
+            .filter(token => token.length > 0);
 
+        // If no valid words after tokenization, return empty (don't fall back to random results)
         if (words.length === 0) {
-            return this.searchCompleteTranslationPairs('', limit, returnRawContent);
+            return [];
         }
 
-        // Generate character-level n-grams (bigrams and trigrams) from each word
-        const generateCharNGrams = (text: string, n: number): string[] => {
-            const grams: string[] = [];
-            if (text.length < n) return [];
-            for (let i = 0; i <= text.length - n; i++) {
-                grams.push(text.slice(i, i + n));
-            }
-            return grams;
-        };
-
-        // Common 2-char sequences that are too generic (filter out for performance)
-        const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
-
+        // Generate search terms for FTS5
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word (exact match is most important)
+            // Always add the full word
             searchTerms.push(word);
 
-            // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
-            // This helps with partial matching when FTS5 tokenizes words
-            if (word.length >= 2 && word.length <= 4) {
-                searchTerms.push(word + '*'); // Prefix wildcard for FTS5
-            }
-
-            // Generate n-grams for partial matching
-            // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
-            if (word.length >= 3) {
-                // Add character trigrams (3-char sequences) - more specific than bigrams
-                const trigrams = generateCharNGrams(word, 3);
-                searchTerms.push(...trigrams);
-            }
-
-            // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
+            // For words 2+ chars, add prefix wildcard for partial matching
             if (word.length >= 2) {
-                const bigrams = generateCharNGrams(word, 2);
-                const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
-                searchTerms.push(...filteredBigrams);
+                searchTerms.push(word + '*');
             }
         }
 
-        // Limit total terms to avoid huge queries (keep most relevant)
-        // Prioritize: full words first, then trigrams, then bigrams
-        const maxTerms = 50; // Reasonable limit for FTS5 performance
+        // Build FTS5 query - use OR matching, limit terms for performance
+        const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-
-        // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
-        const cleanQuery = finalTerms.join(' OR ');
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
 
         // Simple substring match for the original query - ensures "ccc" matches "cccb"
         // Escape % and _ for LIKE (SQL wildcards)
@@ -3125,8 +3099,9 @@ export class SQLiteIndexManager {
             : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
 
         const sql = `
-            SELECT DISTINCT 
+            SELECT DISTINCT
                 cell_id,
+                cell_label,
                 source_content,
                 raw_source_content,
                 target_content,
@@ -3136,8 +3111,9 @@ export class SQLiteIndexManager {
                 score
             FROM (
                 -- FTS5 search results
-                SELECT DISTINCT 
+                SELECT DISTINCT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3151,16 +3127,18 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
                     AND ${ftsContentTypeFilter}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
-                
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+
                 UNION
-                
+
                 -- LIKE substring search results (for cases FTS5 might miss)
-                SELECT DISTINCT 
+                SELECT DISTINCT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3172,12 +3150,13 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE ${likeConditions}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             )
-            ORDER BY score DESC
+            ORDER BY score ASC
             LIMIT ?
         `;
 
@@ -3204,6 +3183,7 @@ export class SQLiteIndexManager {
                 results.push({
                     cellId: row.cell_id,
                     cell_id: row.cell_id,
+                    cellLabel: row.cell_label, // NO FALLBACK
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -3219,8 +3199,6 @@ export class SQLiteIndexManager {
         } finally {
             stmt.free();
         }
-
-
 
         return results;
     }
@@ -3250,8 +3228,9 @@ export class SQLiteIndexManager {
         // Handle empty query by returning recent complete validated pairs
         if (!query || query.trim() === '') {
             const sql = `
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3262,10 +3241,11 @@ export class SQLiteIndexManager {
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
-                WHERE c.s_content IS NOT NULL 
+                WHERE c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
                     ${onlyValidated ? "AND c.t_is_fully_validated = 1" : ""}
                 ORDER BY c.cell_id DESC
                 LIMIT ?
@@ -3289,6 +3269,7 @@ export class SQLiteIndexManager {
                         results.push({
                             cellId: row.cell_id,
                             cell_id: row.cell_id,
+                            cellLabel: row.cell_label || null,
                             sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
                             content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -3306,67 +3287,36 @@ export class SQLiteIndexManager {
             return results;
         }
 
-        // Use FTS5 with character-level n-grams (bigrams/trigrams) for fuzzy matching
-        // Extract words and generate character-level bigrams/trigrams from each word
-        const words = query
-            .trim()
-            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
-            .replace(/\s+/g, ' ') // Normalize whitespace
+        // Tokenize query - keep single characters for short queries
+        const trimmedQuery = query.trim();
+        const words = trimmedQuery
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
             .trim()
             .split(/\s+/)
-            .filter(token => token.length > 1); // Filter out single characters
+            .filter(token => token.length > 0);
 
+        // If no valid words after tokenization, return empty (don't fall back to random results)
         if (words.length === 0) {
-            return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated, searchSourceOnly);
+            return [];
         }
 
-        // Generate character-level n-grams (bigrams and trigrams) from each word
-        const generateCharNGrams = (text: string, n: number): string[] => {
-            const grams: string[] = [];
-            if (text.length < n) return [];
-            for (let i = 0; i <= text.length - n; i++) {
-                grams.push(text.slice(i, i + n));
-            }
-            return grams;
-        };
-
-        // Common 2-char sequences that are too generic (filter out for performance)
-        const commonBigrams = new Set(['of', 'to', 'in', 'on', 'at', 'he', 'we', 'is', 'it', 'an', 'or', 'as', 'be', 'by', 'if', 'my', 'no', 'so', 'up', 'us', 'th', 'er', 'ed', 'ng', 'en', 'es', 're', 'le', 'te', 'de']);
-
+        // Generate search terms for FTS5
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word (exact match is most important)
+            // Always add the full word
             searchTerms.push(word);
 
-            // For shorter words (2-4 chars), add prefix wildcard to match partial tokens like "ccc" matching "cccb"
-            // This helps with partial matching when FTS5 tokenizes words
-            if (word.length >= 2 && word.length <= 4) {
-                searchTerms.push(word + '*'); // Prefix wildcard for FTS5
-            }
-
-            // Generate n-grams for partial matching
-            // Generate trigrams for words >= 3 chars (helps match "ccc" in "cccb")
-            if (word.length >= 3) {
-                // Add character trigrams (3-char sequences) - more specific than bigrams
-                const trigrams = generateCharNGrams(word, 3);
-                searchTerms.push(...trigrams);
-            }
-
-            // Generate bigrams for words >= 2 chars, but filter out common ones to reduce noise
+            // For words 2+ chars, add prefix wildcard for partial matching
             if (word.length >= 2) {
-                const bigrams = generateCharNGrams(word, 2);
-                const filteredBigrams = bigrams.filter(bg => !commonBigrams.has(bg));
-                searchTerms.push(...filteredBigrams);
+                searchTerms.push(word + '*');
             }
         }
 
-        // Limit total terms to avoid huge queries (keep most relevant)
-        // Prioritize: full words first, then trigrams, then bigrams
-        const maxTerms = 50; // Reasonable limit for FTS5 performance
+        // Build FTS5 query - use OR matching, limit terms for performance
+        const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-
-        // Use OR matching: any word or character n-gram can match, BM25 ranks by relevance
-        const cleanQuery = finalTerms.join(' OR ');
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
 
         // Simple substring match for the original query - ensures "ccc" matches "cccb"
         // Escape % and _ for LIKE (SQL wildcards)
@@ -3389,6 +3339,7 @@ export class SQLiteIndexManager {
         const sql = `
             SELECT DISTINCT
                 cell_id,
+                cell_label,
                 source_content,
                 raw_source_content,
                 line,
@@ -3396,8 +3347,9 @@ export class SQLiteIndexManager {
                 score
             FROM (
                 -- FTS5 search results
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.s_line_number as line,
@@ -3409,16 +3361,18 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
                     AND ${ftsContentTypeFilter}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
-                
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+
                 UNION
-                
+
                 -- LIKE substring search results (for cases FTS5 might miss)
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.s_line_number as line,
@@ -3428,12 +3382,13 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE ${likeConditions}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             )
-            ORDER BY score DESC
+            ORDER BY score ASC
             LIMIT ?
         `;
 
@@ -3484,6 +3439,7 @@ export class SQLiteIndexManager {
                         results.push({
                             cellId: row.cell_id,
                             cell_id: row.cell_id,
+                            cellLabel: row.cell_label, // NO FALLBACK - show raw value
                             sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
                             content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,

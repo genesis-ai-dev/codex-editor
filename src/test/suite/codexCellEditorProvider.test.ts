@@ -16,6 +16,29 @@ import { MetadataManager } from "../../utils/metadataManager";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep, createMockWebviewPanel } from "../testUtils";
 
+/**
+ * Read a file and JSON.parse with retry logic to handle Windows filesystem
+ * flush timing issues where readFile may return stale/partially-written content
+ * immediately after a writeFile completes.
+ */
+async function readJsonFromDiskWithRetry(uri: vscode.Uri, maxRetries = 3, delayMs = 100): Promise<any> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const raw = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+        try {
+            return JSON.parse(raw);
+        } catch (err) {
+            if (attempt < maxRetries) {
+                await sleep(delayMs * (attempt + 1));
+            } else {
+                throw new SyntaxError(
+                    `Failed to parse JSON from ${uri.fsPath} after ${maxRetries + 1} attempts ` +
+                    `(last read ${raw.length} chars): ${(err as Error).message}`
+                );
+            }
+        }
+    }
+}
+
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
     let context: vscode.ExtensionContext;
@@ -2959,9 +2982,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Then, perform search/replace without retainValidations (simulating updateCellContentDirect with retainValidations=false)
         await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, false, true);
 
-        // Persist to disk to assert the stored structure
+        // Persist to disk to assert the stored structure (retry to handle Windows filesystem flush timing)
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
-        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskData = await readJsonFromDiskWithRetry(document.uri);
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
         // Latest value edit should NOT have any validations (search/replace doesn't auto-validate)
@@ -3053,9 +3076,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Then, perform search/replace with retainValidations=true
         await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
 
-        // Persist to disk to assert the stored structure
+        // Persist to disk to assert the stored structure (retry to handle Windows filesystem flush timing)
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
-        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskData = await readJsonFromDiskWithRetry(document.uri);
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
         // Latest value edit should NOT have any validations (user hadn't validated before)
@@ -3101,9 +3124,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Should only retain user-one's validation, not user-two's
         await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
 
-        // Persist to disk to assert the stored structure
+        // Persist to disk to assert the stored structure (retry to handle Windows filesystem flush timing)
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
-        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskData = await readJsonFromDiskWithRetry(document.uri);
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
         // Latest value edit should only have user-one's validation
@@ -3335,7 +3358,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 fontSize: 16,
                 showInlineBacktranslations: false,
                 fileDisplayName: "Test File",
-                cellDisplayMode: "one-line-per-cell" as const,
                 audioOnly: true,
                 corpusMarker: "NT",
             };
@@ -3354,7 +3376,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFontSize())), "Should have fontSize edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataShowInlineBacktranslations())), "Should have showInlineBacktranslations edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataFileDisplayName())), "Should have fileDisplayName edit");
-            assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCellDisplayMode())), "Should have cellDisplayMode edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataAudioOnly())), "Should have audioOnly edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metadataCorpusMarker())), "Should have corpusMarker edit");
 
@@ -4615,10 +4636,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     selectedIndex: 1,
                     testId: "test-123",
                     testName: "Example Count Test",
-                    selectedVariant: "Test variant B",
+                    selectedContent: "Test variant B",
                     selectionTimeMs: 1500,
                     totalVariants: 2,
-                    names: ["15 examples", "30 examples"]
+                    variants: ["15 examples", "30 examples"]
                 }
             };
 
@@ -4633,40 +4654,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Verify message was handled without error
             // Note: Analytics posting is tested separately in abTestingAnalytics tests
             assert.ok(true, "Message handled successfully");
-        });
-
-        test("should handle adjustABTestingProbability message", async function () {
-            this.timeout(10000);
-
-            const document = await provider.openCustomDocument(
-                tempUri,
-                { backupId: undefined },
-                new vscode.CancellationTokenSource().token
-            );
-
-            const mockPanel = {
-                webview: {
-                    postMessage: sinon.stub().resolves(true)
-                }
-            } as any;
-
-            const event = {
-                command: "adjustABTestingProbability",
-                content: {
-                    delta: -0.1,
-                    buttonChoice: "less"
-                }
-            };
-
-            await handleMessages(
-                event,
-                mockPanel,
-                document,
-                () => { },
-                provider
-            );
-
-            assert.ok(true, "Should handle probability adjustment without error");
         });
 
         test("should send A/B test variants to webview when completion returns multiple variants", async function () {

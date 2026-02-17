@@ -4,7 +4,6 @@ import { render, screen } from "@testing-library/react";
 import { QuillCellContent } from "../../../../../types";
 import { CodexCellTypes } from "../../../../../types/enums";
 import CellContentDisplay from "../CellContentDisplay";
-import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 
 // Mock the VSCode API
 const mockVscode = {
@@ -133,7 +132,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-1": "available" as const,
                 },
@@ -204,7 +202,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-2": "missing" as const,
                 },
@@ -268,7 +265,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-source-1": "available" as const,
                 },
@@ -314,7 +310,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-source-2": "missing" as const,
                 },
@@ -366,7 +361,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-source-second": "available" as const,
                 },
@@ -406,7 +400,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-source-second": "available" as const,
                 },
@@ -445,7 +438,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-source-first": "available" as const,
                 },
@@ -487,7 +479,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-source-merged": "available" as const,
                 },
@@ -529,7 +520,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 translationState: null as any,
                 allTranslationsComplete: false,
                 handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 audioAttachments: {
                     "cell-mode-1": "available" as const,
                 },
@@ -558,38 +548,5 @@ describe("CellContentDisplay - Button Order Tests", () => {
             expect(audioPlayIndex).toBeLessThan(validationIndex);
         });
 
-        it("should not render action buttons in INLINE mode (buttons are hidden in inline view)", () => {
-            const mockCell = createMockCell("cell-mode-2");
-            const props = {
-                cell: mockCell,
-                vscode: mockVscode as any,
-                textDirection: "ltr" as const,
-                isSourceText: false,
-                hasDuplicateId: false,
-                alertColorCode: undefined,
-                highlightedCellId: null,
-                scrollSyncEnabled: true,
-                lineNumber: "2",
-                label: "Test Label",
-                lineNumbersEnabled: true,
-                isInTranslationProcess: false,
-                translationState: null as any,
-                allTranslationsComplete: false,
-                handleCellClick: vi.fn(),
-                cellDisplayMode: CELL_DISPLAY_MODES.INLINE,
-                audioAttachments: {
-                    "cell-mode-2": "available" as const,
-                },
-                currentUsername: "test-user",
-                requiredValidations: 1,
-                requiredAudioValidations: 1,
-            };
-
-            const { container } = render(<CellContentDisplay {...props} />);
-
-            // In INLINE mode, action-button-container should not be rendered
-            const actionContainer = container.querySelector(".action-button-container");
-            expect(actionContainer).toBeNull();
-        });
     });
 });

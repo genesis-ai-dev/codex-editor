@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -12,7 +12,7 @@ import {
     ProjectManagerMessageToWebview,
     ProjectManagerState,
 } from "../../../types";
-import { createNewWorkspaceAndProject, openProject, createNewProject, extractProjectIdFromFolderName } from "../../utils/projectCreationUtils/projectCreationUtils";
+import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
 import git from "isomorphic-git";
 // Note: avoid top-level http(s) imports to keep test bundling simple
 import * as fs from "fs";
@@ -588,7 +588,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 }
                 break;
             case "createNewWorkspaceAndProject":
-                await createNewWorkspaceAndProject();
+                await createNewWorkspaceAndProject(this._context);
                 break;
             case "changeProjectName":
                 await this.handleChangeProjectName(message.projectName);
@@ -616,6 +616,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "selectCategory":
                 // For backward compatibility, redirect to setValidationCount
                 await this.executeCommandAndNotify("setValidationCount");
+                break;
+            case "setValidationCountDirect":
+                await this.handleSetValidationCountDirect(message.data?.count, "validationCount");
+                break;
+            case "setValidationCountAudioDirect":
+                await this.handleSetValidationCountDirect(message.data?.count, "validationCountAudio");
                 break;
             case "openEditAnalysis":
                 await vscode.commands.executeCommand("codex-editor-extension.analyzeEdits");
@@ -862,40 +868,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await this.store.refreshState();
                 safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
                 break;
-            case "getProjectProgress": {
-                // Fetch and send progress data to the webview
-                try {
-                    // Check if frontier API is available for progress data
-                    if (!this.frontierApi) {
-                        await this.initializeFrontierApi();
-                    }
-
-                    if (this.frontierApi) {
-                        // Check authentication status first
-                        const authStatus = this.frontierApi.getAuthStatus();
-                        if (!authStatus?.isAuthenticated) {
-                            console.log("User not authenticated, skipping aggregated progress fetch");
-                            break;
-                        }
-
-                        const progressData = await vscode.commands.executeCommand(
-                            "frontier.getAggregatedProgress"
-                        );
-
-                        if (progressData && this._view) {
-                            safePostMessageToView(this._view, {
-                                command: "progressData",
-                                data: progressData,
-                            } as ProjectManagerMessageToWebview, "MainMenu");
-                        }
-                    } else {
-                        console.log("Frontier API not available for progress data");
-                    }
-                } catch (error) {
-                    console.error("Error fetching project progress:", error);
-                }
-                break;
-            }
             case "checkForUpdates": {
                 await this.handleUpdateCheck();
                 break;
@@ -916,16 +888,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 } catch (error) {
                     console.error("Error opening external URL:", error);
                     vscode.window.showErrorMessage(`Failed to open URL: ${error}`);
-                }
-                break;
-            }
-            case "showProgressDashboard": {
-                // Open the progress dashboard
-                try {
-                    await vscode.commands.executeCommand("frontier.showProgressDashboard");
-                } catch (error) {
-                    console.error("Error opening progress dashboard:", error);
-                    vscode.window.showErrorMessage("Failed to open progress dashboard");
                 }
                 break;
             }
@@ -1750,6 +1712,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             return;
         }
 
+        // Trim the project name from user input (but don't sanitize - display names can have spaces)
+        const trimmedName = newProjectName.trim();
+
         try {
             // Get current user name for edit tracking
             let author = "unknown";
@@ -1767,7 +1732,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             await config.update(
                 "projectName",
-                newProjectName,
+                trimmedName,
                 vscode.ConfigurationTarget.Workspace
             );
 
@@ -1776,15 +1741,15 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 workspaceFolder,
                 (project: any) => {
                     const originalProjectName = project.projectName;
-                    project.projectName = newProjectName;
+                    project.projectName = trimmedName;
 
                     // Track edit if projectName changed
-                    if (originalProjectName !== newProjectName) {
+                    if (originalProjectName !== trimmedName) {
                         // Ensure edits array exists
                         if (!project.edits) {
                             project.edits = [];
                         }
-                        addProjectMetadataEdit(project, EditMapUtils.projectName(), newProjectName, author);
+                        addProjectMetadataEdit(project, EditMapUtils.projectName(), trimmedName, author);
                     }
 
                     return project;
@@ -1816,6 +1781,60 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 console.error("Failed to show error message:", dialogError);
             }
         }
+    }
+
+    private async handleSetValidationCountDirect(count: number | undefined, configKey: "validationCount" | "validationCountAudio"): Promise<void> {
+        if (count === undefined || count < 1 || count > 15) return;
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return;
+
+        disableSyncTemporarily();
+
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        await config.update(configKey, count, vscode.ConfigurationTarget.Workspace);
+
+        let author = "unknown";
+        try {
+            const authApi = await getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            if (userInfo?.username) {
+                author = userInfo.username;
+            }
+        } catch (_) {
+            // Silent fallback
+        }
+
+        const result = await MetadataManager.safeUpdateMetadata(
+            workspaceFolder,
+            (project: Record<string, unknown>) => {
+                const meta = (project.meta as Record<string, unknown>) || {};
+                const original = meta[configKey];
+                meta[configKey] = count;
+                project.meta = meta;
+
+                if (original !== count) {
+                    if (!project.edits) {
+                        project.edits = [];
+                    }
+                    addProjectMetadataEdit(
+                        project as Parameters<typeof addProjectMetadataEdit>[0],
+                        EditMapUtils.metaField(configKey),
+                        count,
+                        author,
+                    );
+                }
+                return project;
+            },
+            { author },
+        );
+
+        if (!result.success) {
+            console.error("Failed to update metadata:", result.error);
+        }
+
+        await this.store.refreshState();
+        await this.updateProjectOverview();
     }
 
     private async handleApplyTextDisplaySettings(settings: any): Promise<void> {

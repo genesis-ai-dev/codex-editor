@@ -178,10 +178,7 @@ function processQuillContentForSaving(htmlContent: string): string {
                     // First paragraph becomes a span
                     const spanElement = `<span>${content}</span>`;
                     processedElements.push(spanElement);
-                    debug(
-                        `[processQuillContentForSaving] First paragraph as span:`,
-                        spanElement
-                    );
+                    debug(`[processQuillContentForSaving] First paragraph as span:`, spanElement);
                 } else {
                     // Subsequent paragraphs remain as paragraphs
                     const pElement = `<p>${content}</p>`;
@@ -284,10 +281,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
     const [footnoteCount, setFootnoteCount] = useState(1);
     const [characterCount, setCharacterCount] = useState(0);
-    
+
     // Track the baseline content for dirty checking (updated when LLM content is set)
     const quillInitialContentRef = useRef<string>("");
-    
+
     // Track whether current content is LLM-generated and needs explicit save to be considered "user content"
     const isLLMContentNeedingApprovalRef = useRef<boolean>(false);
 
@@ -338,8 +335,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     setSkipOnChange(true);
 
                                     return true;
-                                }
-                            }
+                                },
+                            },
                         },
                     },
                     spellChecker: {},
@@ -555,42 +552,35 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     renumberFootnotes();
                 }, 100);
             }
-            // Store initial content when editor is mounted
-            initialContentRef.current = quill.root.innerHTML;
-            let isFirstLoad = true;
-            
-            // Check if initial content is LLM-generated (needs explicit save)
-            const checkIfLLMContent = () => {
-                if (props.editHistory && props.editHistory.length > 0) {
-                    // Get the most recent edit
-                    const latestEdit = props.editHistory[props.editHistory.length - 1];
-                    // Check if it's an LLM generation or edit (not user edit)
-                    // Only mark as needing approval if it's a preview edit (not already saved)
-                    if (latestEdit.type === EditType.LLM_GENERATION || latestEdit.type === EditType.LLM_EDIT) {
-                        // Only mark as needing approval if this is a preview edit (preview: true)
-                        // Saved edits (addContentToValue: true) don't have preview flag, so they don't need approval
-                        const isPreviewEdit = (latestEdit as any).preview === true;
-                        if (isPreviewEdit) {
-                            isLLMContentNeedingApprovalRef.current = true;
-                            debug("Editor initialized with LLM content needing approval", { latestEdit });
-                        } else {
-                            // LLM content was already saved, so it doesn't need approval
-                            isLLMContentNeedingApprovalRef.current = false;
-                            debug("Editor initialized with saved LLM content (no approval needed)", { latestEdit });
-                        }
+            // Store initial content when editor is mounted (baseline for dirty - never overwrite in handler)
+            const mountedHtml = quill.root.innerHTML;
+            initialContentRef.current = mountedHtml;
+            quillInitialContentRef.current = mountedHtml;
+
+            // Check if initial content is LLM-generated (needs explicit save) at mount
+            if (props.editHistory && props.editHistory.length > 0) {
+                const latestEdit = props.editHistory[props.editHistory.length - 1];
+                if (
+                    latestEdit.type === EditType.LLM_GENERATION ||
+                    latestEdit.type === EditType.LLM_EDIT
+                ) {
+                    const isPreviewEdit = (latestEdit as any).preview === true;
+                    if (isPreviewEdit) {
+                        isLLMContentNeedingApprovalRef.current = true;
+                        debug("Editor initialized with LLM content needing approval", {
+                            latestEdit,
+                        });
+                    } else {
+                        isLLMContentNeedingApprovalRef.current = false;
+                        debug("Editor initialized with saved LLM content (no approval needed)", {
+                            latestEdit,
+                        });
                     }
                 }
-            };
+            }
 
             // Add text-change event listener with source parameter
             quill.on("text-change", (delta: any, oldDelta: any, source: string) => {
-                if (isFirstLoad) {
-                    quillInitialContentRef.current = quill.root.innerHTML;
-                    checkIfLLMContent(); // Check on first load
-                    isFirstLoad = false;
-                    return;
-                }
-
                 // Skip on change so the tab key doesn't trigger dirty state logic.
                 if (skipOnChange) {
                     setSkipOnChange(false);
@@ -628,26 +618,19 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                 // Normal cell content editing logic (user-initiated changes only)
                 const initialQuillContent = "<p><br></p>";
-                let isDirty = false;
+                const baseline = quillInitialContentRef.current;
 
-                // More robust dirty checking
-                if (quillInitialContentRef.current !== initialQuillContent) {
-                    isDirty = content !== quillInitialContentRef.current;
-                } else {
-                    // If we started with empty content, any non-empty content is dirty
+                // Primary: any difference from baseline means dirty (ensures first keystroke always registers)
+                let isDirty = content !== baseline;
+
+                if (!isDirty && baseline === initialQuillContent) {
+                    // Started empty: any non-empty content is dirty
                     isDirty = !isQuillEmpty(quill) && content !== initialQuillContent;
                 }
-
-                // Additional check: if content is significantly different from initial, it's dirty
-                if (
-                    !isDirty &&
-                    content &&
-                    content !== "<p><br></p>" &&
-                    content !== quillInitialContentRef.current
-                ) {
+                if (!isDirty && content && content !== "<p><br></p>" && content !== baseline) {
                     isDirty = true;
                 }
-                
+
                 // Critical: If content is LLM-generated and hasn't been explicitly saved by user,
                 // keep it marked as dirty even if it matches baseline
                 if (!isDirty && isLLMContentNeedingApprovalRef.current) {
@@ -784,25 +767,25 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     const editedContent = event.data.content;
                     // Use Quill's API to set content with "api" source (not "user")
                     quill.clipboard.dangerouslyPasteHTML(editedContent, "api");
-                    
+
                     // Update baseline for dirty checking - LLM content is the new "initial" state
                     quillInitialContentRef.current = quill.root.innerHTML;
-                    
+
                     // Mark as LLM content needing approval
                     isLLMContentNeedingApprovalRef.current = true;
-                    
+
                     // Manually update all state for programmatic changes
                     const textContent = quill.getText();
                     const charCount = textContent.trim().length;
                     setCharacterCount(charCount);
-                    
+
                     // Call onChange with processed content
                     const contentIsEmpty = isQuillEmpty(quill);
                     const finalContent = contentIsEmpty
                         ? ""
                         : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML));
                     props.onChange?.({ html: finalContent });
-                    
+
                     // Mark as dirty to ensure save button appears
                     props.onDirtyChange?.(true, quill.root.innerHTML);
                     setUnsavedChanges(true);
@@ -814,25 +797,25 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     if (completionCellId === props.currentLineId) {
                         // Use Quill's API to set content with "api" source (not "user")
                         quill.clipboard.dangerouslyPasteHTML(completionText, "api");
-                        
+
                         // Update baseline for dirty checking - LLM content is the new "initial" state
                         quillInitialContentRef.current = quill.root.innerHTML;
-                        
+
                         // Mark as LLM content needing approval
                         isLLMContentNeedingApprovalRef.current = true;
-                        
+
                         // Manually update all state for programmatic changes
                         const textContent = quill.getText();
                         const charCount = textContent.trim().length;
                         setCharacterCount(charCount);
-                        
+
                         // Call onChange with processed content
                         const contentIsEmpty = isQuillEmpty(quill);
                         const finalContent = contentIsEmpty
                             ? ""
                             : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML));
                         props.onChange?.({ html: finalContent });
-                        
+
                         // Mark as dirty to ensure save button appears
                         props.onDirtyChange?.(true, quill.root.innerHTML);
                         setUnsavedChanges(true);
