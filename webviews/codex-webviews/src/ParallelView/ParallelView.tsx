@@ -38,6 +38,13 @@ function ParallelView() {
     const [forceReplaceExpanded, setForceReplaceExpanded] = useState(false);
     const [showPinnedOnly, setShowPinnedOnly] = useState(false);
 
+    // Auto-reset pin filter when all pins are removed
+    useEffect(() => {
+        if (pinnedVerses.length === 0 && showPinnedOnly) {
+            setShowPinnedOnly(false);
+        }
+    }, [pinnedVerses.length]);
+
     const dedupeByCellId = (items: TranslationPair[]) => {
         const seen = new Set<string>();
         return items.filter((item) => {

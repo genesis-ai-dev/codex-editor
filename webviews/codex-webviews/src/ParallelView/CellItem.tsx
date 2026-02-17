@@ -218,7 +218,7 @@ const CellItem: React.FC<CellItemProps> = ({
                                 }
                                 title="Click to open"
                             >
-                                {item.sourceCell.content}
+                                {stripHtml(item.sourceCell.content || "")}
                             </p>
                         </div>
                     )}
