@@ -707,6 +707,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
 
+            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string } | undefined)?.fileDisplayName;
+            const fallbackName = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
+            const namePart = (fileDisplayName ?? fallbackName).replace(/\s+/g, "");
+            webviewPanel.title = namePart + (isSourceText ? ".source" : ".codex");
+
             // Get bundled metadata to avoid separate requests
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             const validationCount = config.get("validationCount", 1);
