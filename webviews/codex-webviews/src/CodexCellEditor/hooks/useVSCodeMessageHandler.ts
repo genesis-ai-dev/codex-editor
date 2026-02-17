@@ -11,6 +11,7 @@ interface UseVSCodeMessageHandlerProps {
     ) => void;
     setSpellCheckResponse: Dispatch<SetStateAction<SpellCheckResponse | null>>;
     jumpToCell: (cellId: string) => void;
+    jumpToCellWithPosition?: (cellId: string, milestoneIndex: number, subsectionIndex: number) => void;
     updateCell: (data: { cellId: string; newContent: string; progress: number; }) => void;
     autocompleteChapterComplete: () => void;
     updateTextDirection: (direction: "ltr" | "rtl") => void;
@@ -84,6 +85,7 @@ export const useVSCodeMessageHandler = ({
     setContent,
     setSpellCheckResponse,
     jumpToCell,
+    jumpToCellWithPosition,
     updateCell,
     autocompleteChapterComplete,
     updateTextDirection,
@@ -186,7 +188,17 @@ export const useVSCodeMessageHandler = ({
                     setSpellCheckResponse(message.content);
                     break;
                 case "jumpToSection":
-                    jumpToCell(message.content);
+                    // Use pre-computed position from extension if available
+                    if (
+                        jumpToCellWithPosition &&
+                        typeof message.milestoneIndex === "number" &&
+                        typeof message.subsectionIndex === "number"
+                    ) {
+                        jumpToCellWithPosition(message.content, message.milestoneIndex, message.subsectionIndex);
+                    } else {
+                        // Fallback to old behavior
+                        jumpToCell(message.content);
+                    }
                     break;
                 case "updateCell":
                     updateCell(message.data);
@@ -405,6 +417,7 @@ export const useVSCodeMessageHandler = ({
         setContent,
         setSpellCheckResponse,
         jumpToCell,
+        jumpToCellWithPosition,
         updateCell,
         autocompleteChapterComplete,
         updateTextDirection,

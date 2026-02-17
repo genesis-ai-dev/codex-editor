@@ -736,6 +736,36 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Parallel Passages with Replace mode command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.openParallelPassagesWithReplace", async () => {
+            // Set pending enable replace flag first, then focus the view
+            // The webview will receive the message when it's ready via onWebviewReady hook
+            const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
+            if (provider && "setPendingEnableReplace" in provider) {
+                (provider as { setPendingEnableReplace: () => void }).setPendingEnableReplace();
+            }
+            await vscode.commands.executeCommand("search-passages-sidebar.focus");
+        })
+    );
+
+    // In-Tab Search (Cmd+F) - Opens floating search bar in CodexCellEditor
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.toggleInTabSearch", async () => {
+            const cellEditorProvider = CodexCellEditorProvider.getInstance();
+            if (cellEditorProvider) {
+                cellEditorProvider.toggleInTabSearch();
+            }
+        })
+    );
+
+    // Parallel Passages (Cmd+Shift+F) - Opens the sidebar for cross-file semantic search
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.openParallelPassagesAllFiles", async () => {
+            await vscode.commands.executeCommand("search-passages-sidebar.focus");
+        })
+    );
+
     // Ensure sync commands exist in all environments (including tests)
     try {
         const cmds = await vscode.commands.getCommands(true);

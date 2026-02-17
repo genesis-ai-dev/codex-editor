@@ -113,6 +113,7 @@ interface GlobalMessage {
 }
 interface TranslationPair {
     cellId: string;
+    cellLabel?: string | null; // Semantic label like "5:12" (chapter:position) for display
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
     edits?: EditHistory[]; // Make this optional as it might not always be present
@@ -2431,4 +2432,14 @@ type EditorReceiveMessages =
             selectedAudioId: string;
             validatedBy: ValidationEntry[];
         };
+    }
+    | {
+        type: "toggleSearch";
+    }
+    | {
+        type: "searchMatchCounts";
+        query: string;
+        milestoneMatchCounts: { [milestoneIdx: number]: number };
+        totalMatches: number;
+        error?: string;
     };
