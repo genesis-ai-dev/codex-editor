@@ -633,10 +633,7 @@ const CodexCellEditor: React.FC = () => {
     // Handle navigation to cell from search
     const handleSearchNavigateToCell = useCallback(
         (cellId: string) => {
-            setContentToScrollTo({
-                type: "cellId",
-                cellId,
-            });
+            setContentToScrollTo(cellId);
         },
         [setContentToScrollTo]
     );
