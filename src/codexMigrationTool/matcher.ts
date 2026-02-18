@@ -6,7 +6,6 @@ import type {
 } from "./types";
 import { removeHtmlTags } from "../exportHandler/subtitleUtils";
 import { CodexCellTypes } from "../../types/enums";
-import { isContentCell } from "../utils/cellTypeUtils";
 
 type SourceLine = {
     cellId: string;
@@ -65,19 +64,6 @@ const buildSourceLinesFromFile = (file: FileData): SourceLine[] => {
         const normalized = normalizeText(value);
         if (!normalized) return;
         lines.push({ cellId, sourceValue: normalized });
-    });
-    return lines;
-};
-
-const buildLineNumberCells = (file: FileData): string[] => {
-    const lines: string[] = [];
-    file.cells.forEach((cell) => {
-        if (!isContentCell(cell)) {
-            return;
-        }
-        const cellId = getCellId(cell);
-        if (!cellId) return;
-        lines.push(cellId);
     });
     return lines;
 };
@@ -246,41 +232,6 @@ const matchSequentially = async (
     return matches;
 };
 
-const matchByLineNumber = (
-    fromTargetFile: FileData,
-    toTargetFile: FileData,
-    fromStartLine: number = 1,
-    toStartLine: number = 1,
-    maxCells?: number
-): MigrationMatchResult[] => {
-    const fromLines = buildLineNumberCells(fromTargetFile);
-    const toLines = buildLineNumberCells(toTargetFile);
-    const matches: MigrationMatchResult[] = [];
-
-    // Convert 1-based line numbers to 0-based indices (clamp to valid range)
-    const fromOffset = Math.max(0, fromStartLine - 1);
-    const toOffset = Math.max(0, toStartLine - 1);
-
-    const fromRemaining = fromLines.length - fromOffset;
-    const toRemaining = toLines.length - toOffset;
-    let limit = Math.min(fromRemaining, toRemaining);
-
-    // Optionally cap the number of cells to migrate
-    if (typeof maxCells === "number" && maxCells > 0) {
-        limit = Math.min(limit, maxCells);
-    }
-
-    for (let i = 0; i < limit; i += 1) {
-        matches.push({
-            fromCellId: fromLines[fromOffset + i],
-            toCellId: toLines[toOffset + i],
-            reason: `lineNumber (from line ${fromOffset + i + 1} → to line ${toOffset + i + 1})`,
-        });
-    }
-
-    return matches;
-};
-
 export async function matchMigrationCells(params: {
     fromTargetFile: FileData;
     toTargetFile: FileData;
@@ -288,9 +239,6 @@ export async function matchMigrationCells(params: {
     toSourceFile?: FileData;
     matchMode: CodexMigrationMatchMode;
     sqliteManager?: SQLiteIndexManager | null;
-    fromStartLine?: number;
-    toStartLine?: number;
-    maxCells?: number;
 }): Promise<MigrationMatchResult[]> {
     const {
         fromTargetFile,
@@ -299,9 +247,6 @@ export async function matchMigrationCells(params: {
         toSourceFile,
         matchMode,
         sqliteManager,
-        fromStartLine,
-        toStartLine,
-        maxCells,
     } = params;
 
     if (matchMode === "globalReferences") {
@@ -310,10 +255,6 @@ export async function matchMigrationCells(params: {
 
     if (matchMode === "timestamps") {
         return matchByTimestamps(fromTargetFile, toTargetFile);
-    }
-
-    if (matchMode === "lineNumber") {
-        return matchByLineNumber(fromTargetFile, toTargetFile, fromStartLine, toStartLine, maxCells);
     }
 
     return matchSequentially(

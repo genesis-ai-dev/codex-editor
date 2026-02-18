@@ -25,7 +25,6 @@ import {
     ArrowLeft,
     BookOpen
 } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
 import { IDMLParser } from './biblicaParser';
 import { HTMLMapper } from './htmlMapper';
 import { createProcessedCell, sanitizeFileName, createStandardCellId, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
@@ -725,14 +724,16 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     
                     addDebugLog(`Simplified note cells count: ${simplifiedNoteCells.length}`);
                     
-                    // Remove .idml extension and any "-notes" or "_notes" suffix from filename
-                    const rawBaseName = studyBibleFile.name.replace(/\.idml$/i, '');
-                    const cleanBaseName = rawBaseName.replace(/[-_]?notes$/i, '');
-                    const baseName = sanitizeFileName(cleanBaseName);
-                    // Use the original file name as-is - importer type is stored in metadata
-                    const originalFileName = studyBibleFile.name;
-                    addDebugLog(`Raw base name: "${rawBaseName}"`);
-                    addDebugLog(`Clean base name (notes removed): "${baseName}"`);
+                    const baseName = sanitizeFileName(studyBibleFile.name.replace(/\.idml$/i, ''));
+                    const notesNotebookName = sanitizeFileName(`${baseName}-notes`);
+                    // Add -biblica suffix to originalFileName to match naming convention (e.g., "mat-john.idml" -> "mat-john-biblica.idml")
+                    // This ensures the saved file in attachments matches what the exporter will look for
+                    const originalFileName = studyBibleFile.name.replace(
+                        /\.idml$/i,
+                        "-biblica.idml"
+                    );
+                    addDebugLog(`Base name: "${baseName}"`);
+                    addDebugLog(`Notes notebook name: "${notesNotebookName}"`);
                     addDebugLog(`Original file name: "${originalFileName}"`);
                     
                     // Create notebook pair for notes only
@@ -743,10 +744,10 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     if (simplifiedNoteCells.length > 0) {
                         notebookPairs.push({
                             source: { 
-                                name: baseName, 
+                                name: notesNotebookName, 
                                 cells: simplifiedNoteCells,
                                 metadata: {
-                                    id: uuidv4(),
+                                    id: `biblica-notes-source-${Date.now()}`,
                                     originalFileName: originalFileName,
                                     sourceFile: originalFileName,
                                     originalFileData: arrayBuffer,
@@ -770,7 +771,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                 }
                             },
                             codex: { 
-                                name: baseName,
+                                name: notesNotebookName,
                                 cells: simplifiedNoteCells.map(cell => ({
                                     id: cell.id,
                                     content: '', // Empty codex for notes
@@ -781,7 +782,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                     }
                                 })),
                                 metadata: {
-                                    id: uuidv4(),
+                                    id: `biblica-notes-codex-${Date.now()}`,
                                     originalFileName: originalFileName,
                                     sourceFile: originalFileName,
                                     importerType: 'biblica',

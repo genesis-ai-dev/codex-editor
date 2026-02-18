@@ -2,14 +2,15 @@ import * as vscode from "vscode";
 import { addProjectMetadataEdit } from "./editMapUtils";
 
 /**
- * Simple metadata manager for reading and writing metadata.json.
- * 
- * DESIGN PRINCIPLES:
- * 1. Use direct writes like every other file in the codebase (no locks, backups, temp files)
- * 2. codex-editor is the SINGLE WRITER for metadata.json
- * 3. frontier-authentication delegates writes to codex-editor via commands
- * 4. This prevents the complexity that was causing metadata.json to be deleted
+ * Thread-safe metadata manager that prevents conflicts between extensions
+ * when modifying metadata.json files.
  */
+
+interface MetadataLock {
+    extensionId: string;
+    timestamp: number;
+    pid: number;
+}
 
 interface ProjectMetadata {
     meta?: {
@@ -24,191 +25,105 @@ interface ProjectMetadata {
     [key: string]: unknown;
 }
 
-/**
- * Compare two semantic version strings
- * Returns: 1 if a > b, -1 if a < b, 0 if equal
- */
-function compareVersions(a: string, b: string): number {
-    const normalize = (v: string) => v.trim().replace(/^v/i, "");
-    const parse = (v: string) => normalize(v).split(".").map((x) => parseInt(x, 10) || 0);
-    const pa = parse(a);
-    const pb = parse(b);
-    const len = Math.max(pa.length, pb.length);
-    for (let i = 0; i < len; i++) {
-        const ai = pa[i] ?? 0;
-        const bi = pb[i] ?? 0;
-        if (ai > bi) return 1;
-        if (ai < bi) return -1;
-    }
-    return 0;
-}
-
 interface MetadataUpdateOptions {
+    retryCount?: number;
+    retryDelayMs?: number;
+    timeoutMs?: number;
     author?: string;
 }
 
 export class MetadataManager {
-    /**
-     * Track pending write operations to ensure they complete before critical operations
-     * Key: workspace path, Value: Set of promises for pending writes
-     */
-    private static pendingWrites = new Map<string, Set<Promise<any>>>();
+    private static readonly LOCK_TIMEOUT_MS = 30000; // 30 seconds
+    private static readonly MAX_RETRIES = 5;
+    private static readonly RETRY_DELAY_MS = 100;
+    private static readonly EXTENSION_ID = "project-accelerate.codex-editor-extension";
 
     /**
-     * Register a pending write operation
-     * This can be called by other modules to track their write operations
-     */
-    static registerPendingWrite(workspacePath: string, writePromise: Promise<any>): void {
-        if (!this.pendingWrites.has(workspacePath)) {
-            this.pendingWrites.set(workspacePath, new Set());
-        }
-        const writes = this.pendingWrites.get(workspacePath)!;
-        writes.add(writePromise);
-
-        // Auto-cleanup when the write completes
-        writePromise.finally(() => {
-            writes.delete(writePromise);
-            if (writes.size === 0) {
-                this.pendingWrites.delete(workspacePath);
-            }
-        });
-    }
-
-    /**
-     * Wait for all pending write operations to complete for a given workspace
-     * Call this before switching folders or closing a project
-     */
-    static async waitForPendingWrites(workspacePath?: string, timeoutMs: number = 10000): Promise<void> {
-        const startTime = Date.now();
-
-        const getRelevantWrites = () => {
-            if (workspacePath) {
-                const writes = this.pendingWrites.get(workspacePath);
-                return writes ? Array.from(writes) : [];
-            }
-            const allWrites: Promise<any>[] = [];
-            for (const writes of this.pendingWrites.values()) {
-                allWrites.push(...writes);
-            }
-            return allWrites;
-        };
-
-        let writes = getRelevantWrites();
-        while (writes.length > 0) {
-            if (Date.now() - startTime > timeoutMs) {
-                console.warn(`[MetadataManager] Timeout waiting for ${writes.length} pending write(s)`);
-                break;
-            }
-
-            try {
-                await Promise.race([
-                    Promise.allSettled(writes),
-                    new Promise(resolve => setTimeout(resolve, 100))
-                ]);
-            } catch {
-                // Continue waiting even if individual writes fail
-            }
-
-            writes = getRelevantWrites();
-        }
-    }
-
-    /**
-     * Check if there are any pending writes for a workspace
-     */
-    static hasPendingWrites(workspacePath?: string): boolean {
-        if (workspacePath) {
-            const writes = this.pendingWrites.get(workspacePath);
-            return writes ? writes.size > 0 : false;
-        }
-        return this.pendingWrites.size > 0;
-    }
-
-    /**
-     * Safely update metadata.json with DIRECT WRITES (like every other file)
-     * No locks, no backups, no temp files - simple and reliable
+     * Safely update metadata.json with atomic operations and conflict prevention
      */
     static async safeUpdateMetadata<T = ProjectMetadata>(
         workspaceUri: vscode.Uri,
         updateFunction: (metadata: T) => T | Promise<T>,
         options: MetadataUpdateOptions = {}
-    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
-        const updatePromise = this.safeUpdateMetadataInternal<T>(workspaceUri, updateFunction, options);
-        this.registerPendingWrite(workspaceUri.fsPath, updatePromise);
-        return updatePromise;
-    }
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
+        const {
+            retryCount = this.MAX_RETRIES,
+            retryDelayMs = this.RETRY_DELAY_MS,
+            timeoutMs = this.LOCK_TIMEOUT_MS
+        } = options;
 
-    /**
-     * Internal implementation of safeUpdateMetadata
-     */
-    private static async safeUpdateMetadataInternal<T = ProjectMetadata>(
-        workspaceUri: vscode.Uri,
-        updateFunction: (metadata: T) => T | Promise<T>,
-        options: MetadataUpdateOptions = {}
-    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
+        const lockPath = vscode.Uri.joinPath(workspaceUri, ".metadata.lock");
 
-        try {
-            // Step 1: Read current metadata
-            const readResult = await this.safeReadMetadata<T>(workspaceUri);
-            if (!readResult.success) {
-                return { success: false, error: readResult.error };
-            }
-
-            // Step 2: Apply updates
-            const originalMetadata = readResult.metadata!;
-            if (options.author && originalMetadata && typeof originalMetadata === 'object') {
-                const metadataObj = originalMetadata as any;
-                if (!metadataObj.edits) {
-                    metadataObj.edits = [];
-                }
-            }
-            const updatedMetadata = await updateFunction(originalMetadata);
-
-            // Step 3: Validate JSON before writing
-            const jsonContent = JSON.stringify(updatedMetadata, null, 4);
+        for (let attempt = 0; attempt < retryCount; attempt++) {
             try {
-                JSON.parse(jsonContent);
-            } catch (parseError) {
-                return {
-                    success: false,
-                    error: `Invalid JSON generated: ${(parseError as Error).message}`
-                };
+                // Step 1: Acquire lock
+                const lockAcquired = await this.acquireLock(lockPath, timeoutMs);
+                if (!lockAcquired) {
+                    if (attempt === retryCount - 1) {
+                        return { success: false, error: "Failed to acquire metadata lock after all retries" };
+                    }
+                    await this.sleep(retryDelayMs * (attempt + 1)); // Exponential backoff
+                    continue;
+                }
+
+                try {
+                    // Step 2: Read current metadata with conflict detection
+                    const readResult = await this.safeReadMetadataInternal<T>(metadataPath);
+                    if (!readResult.success) {
+                        return { success: false, error: readResult.error };
+                    }
+
+                    // Step 3: Apply updates
+                    const originalMetadata = readResult.metadata!;
+                    // Ensure edits array exists if author is provided
+                    if (options.author && originalMetadata && typeof originalMetadata === 'object') {
+                        const metadataObj = originalMetadata as any;
+                        if (!metadataObj.edits) {
+                            metadataObj.edits = [];
+                        }
+                    }
+                    const updatedMetadata = await updateFunction(originalMetadata);
+
+                    // Step 4: Write back with atomic operation
+                    const writeResult = await this.atomicWriteMetadata(metadataPath, updatedMetadata);
+                    if (!writeResult.success) {
+                        return { success: false, error: writeResult.error };
+                    }
+
+                    return { success: true, metadata: updatedMetadata };
+
+                } finally {
+                    // Step 5: Always release lock
+                    await this.releaseLock(lockPath);
+                }
+
+            } catch (error) {
+                console.warn(`[MetadataManager] Attempt ${attempt + 1} failed:`, error);
+                if (attempt === retryCount - 1) {
+                    return {
+                        success: false,
+                        error: `All ${retryCount} attempts failed. Last error: ${(error as Error).message}`
+                    };
+                }
+                await this.sleep(retryDelayMs * (attempt + 1));
             }
-
-            // Step 4: Direct write - simple, like every other file
-            const encoded = new TextEncoder().encode(jsonContent);
-            await vscode.workspace.fs.writeFile(metadataPath, encoded);
-
-            return { success: true, metadata: updatedMetadata };
-
-        } catch (error) {
-            return {
-                success: false,
-                error: `Failed to update metadata: ${(error as Error).message}`
-            };
         }
+
+        return { success: false, error: "Unexpected error in metadata update" };
     }
 
     /**
-     * Safely read metadata - simple read with validation
+     * Safely read metadata with validation (private method for internal use)
      */
-    static async safeReadMetadata<T = ProjectMetadata>(
-        workspaceUri: vscode.Uri
-    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
-        const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
-
+    private static async safeReadMetadataInternal<T>(
+        metadataPath: vscode.Uri
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         try {
             const content = await vscode.workspace.fs.readFile(metadataPath);
             const text = new TextDecoder().decode(content);
 
-            if (!text.trim()) {
-                return {
-                    success: false,
-                    error: "metadata.json is empty"
-                };
-            }
-
+            // Validate JSON structure
             let metadata: T;
             try {
                 metadata = JSON.parse(text);
@@ -223,6 +138,7 @@ export class MetadataManager {
 
         } catch (error) {
             if ((error as any).code === 'FileNotFound') {
+                // Create empty metadata if file doesn't exist
                 const emptyMetadata = {} as T;
                 return { success: true, metadata: emptyMetadata };
             }
@@ -234,34 +150,164 @@ export class MetadataManager {
     }
 
     /**
-     * Safely open a folder, ensuring pending writes complete first
+     * Atomic write operation with backup and rollback
      */
-    static async safeOpenFolder(
-        targetUri: vscode.Uri,
-        currentWorkspaceUri?: vscode.Uri,
-        newWindow: boolean = false
-    ): Promise<void> {
-        // Wait for pending writes before switching
-        if (currentWorkspaceUri) {
-            if (this.hasPendingWrites(currentWorkspaceUri.fsPath)) {
-                console.log("[MetadataManager] Waiting for pending writes before folder switch...");
-                await this.waitForPendingWrites(currentWorkspaceUri.fsPath, 10000);
-            }
-        } else if (this.hasPendingWrites()) {
-            console.log("[MetadataManager] Waiting for all pending writes before folder switch...");
-            await this.waitForPendingWrites(undefined, 10000);
-        }
+    private static async atomicWriteMetadata<T>(
+        metadataPath: vscode.Uri,
+        metadata: T
+    ): Promise<{ success: boolean; error?: string; }> {
+        const workspaceUri = vscode.Uri.joinPath(metadataPath, "..");
+        const backupPath = vscode.Uri.joinPath(workspaceUri, ".metadata.json.backup");
 
-        await vscode.commands.executeCommand("vscode.openFolder", targetUri, newWindow);
+        try {
+            // Step 1: Create backup of existing file
+            try {
+                const existingContent = await vscode.workspace.fs.readFile(metadataPath);
+                await vscode.workspace.fs.writeFile(backupPath, existingContent);
+            } catch (error) {
+                // File might not exist, which is fine
+                if ((error as any).code !== 'FileNotFound') {
+                    console.warn("[MetadataManager] Failed to create backup:", error);
+                }
+            }
+
+            // Step 2: Validate JSON before writing
+            const jsonContent = JSON.stringify(metadata, null, 4);
+            try {
+                JSON.parse(jsonContent); // Validate JSON is valid
+            } catch (parseError) {
+                return {
+                    success: false,
+                    error: `Invalid JSON generated: ${(parseError as Error).message}`
+                };
+            }
+
+            // Step 3: Write directly to metadata.json
+            const encoded = new TextEncoder().encode(jsonContent);
+            await vscode.workspace.fs.writeFile(metadataPath, encoded);
+
+            // Step 4: Cleanup backup after successful write
+            await this.cleanupFile(backupPath);
+
+            return { success: true };
+
+        } catch (error) {
+            // Rollback on failure
+            try {
+                // Restore from backup if it exists
+                const backupContent = await vscode.workspace.fs.readFile(backupPath);
+                await vscode.workspace.fs.writeFile(metadataPath, backupContent);
+                await this.cleanupFile(backupPath);
+                console.log("[MetadataManager] Successfully restored from backup");
+            } catch (restoreError) {
+                console.warn("[MetadataManager] Failed to restore from backup:", restoreError);
+            }
+
+            return {
+                success: false,
+                error: `Failed to write metadata: ${(error as Error).message}`
+            };
+        }
     }
 
     /**
-     * Update extension versions in metadata.json
-     * This is the main entry point for both codex-editor internal use
-     * and for frontier-authentication (via command)
-     * 
-     * IMPORTANT: Only updates if the new version is greater than or equal to the existing version.
-     * This prevents downgrading versions (e.g., if someone with an older extension opens the project).
+     * Acquire exclusive lock on metadata file
+     */
+    private static async acquireLock(
+        lockPath: vscode.Uri,
+        timeoutMs: number
+    ): Promise<boolean> {
+        const startTime = Date.now();
+        const uniqueId = `${Math.random().toString(36).substring(2, 9)}`;
+        const lockData: MetadataLock = {
+            extensionId: this.EXTENSION_ID,
+            timestamp: startTime,
+            pid: process.pid
+        };
+
+        // Use a unique temp file for atomic locking
+        const tempLockPath = lockPath.with({ path: lockPath.path + `.${uniqueId}.tmp` });
+
+        while (Date.now() - startTime < timeoutMs) {
+            try {
+                // Try to create lock file exclusively using atomic rename strategy
+                // 1. Write to unique temp file
+                const lockContent = JSON.stringify(lockData);
+                const encoded = new TextEncoder().encode(lockContent);
+                await vscode.workspace.fs.writeFile(tempLockPath, encoded);
+
+                // 2. Try to rename temp to lock (fails if lock exists)
+                try {
+                    await vscode.workspace.fs.rename(tempLockPath, lockPath, { overwrite: false });
+                    return true;
+                } catch (renameError: any) {
+                    // Rename failed (likely lock exists), clean up temp file
+                    await this.cleanupFile(tempLockPath);
+                    
+                    if (renameError.code !== 'EntryExists' && renameError.code !== 'FileExists') {
+                        console.warn(`[MetadataManager] Atomic rename failed: ${renameError.message}`);
+                    }
+                    throw new Error('Lock file already exists');
+                }
+
+            } catch (error) {
+                // Lock exists, check if it's stale
+                try {
+                    const existingContent = await vscode.workspace.fs.readFile(lockPath);
+                    const existingLock: MetadataLock = JSON.parse(new TextDecoder().decode(existingContent));
+
+                    // Check if lock is stale (older than timeout)
+                    if (Date.now() - existingLock.timestamp > this.LOCK_TIMEOUT_MS) {
+                        console.log(`[MetadataManager] Removing stale lock from ${existingLock.extensionId}`);
+                        await this.cleanupFile(lockPath);
+                        continue; // Try to acquire again
+                    }
+
+                } catch (lockReadError) {
+                    // Corrupted lock file, remove it
+                    console.warn("[MetadataManager] Removing corrupted lock file");
+                    await this.cleanupFile(lockPath);
+                    continue;
+                }
+
+                // Wait a bit before retrying
+                await this.sleep(50);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Release the metadata lock
+     */
+    private static async releaseLock(lockPath: vscode.Uri): Promise<void> {
+        await this.cleanupFile(lockPath);
+    }
+
+    /**
+     * Utility to safely delete a file
+     */
+    private static async cleanupFile(filePath: vscode.Uri): Promise<void> {
+        try {
+            await vscode.workspace.fs.delete(filePath);
+        } catch (error) {
+            // File might not exist, which is fine
+            if ((error as any).code !== 'FileNotFound') {
+                console.warn(`[MetadataManager] Failed to cleanup file ${filePath.fsPath}:`, error);
+            }
+        }
+    }
+
+    /**
+     * Utility sleep function
+     */
+    private static sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Convenience method specifically for extension version updates
      */
     static async updateExtensionVersions(
         workspaceUri: vscode.Uri,
@@ -269,31 +315,26 @@ export class MetadataManager {
             codexEditor?: string;
             frontierAuthentication?: string;
         }
-    ): Promise<{ success: boolean; error?: string }> {
+    ): Promise<{ success: boolean; error?: string; }> {
         const result = await this.safeUpdateMetadata<ProjectMetadata>(
             workspaceUri,
             (metadata) => {
+                // Ensure meta section exists
                 if (!metadata.meta) {
                     metadata.meta = {};
                 }
+
+                // Ensure requiredExtensions section exists
                 if (!metadata.meta.requiredExtensions) {
                     metadata.meta.requiredExtensions = {};
                 }
 
-                // Only update codexEditor if new version is greater or missing
+                // Update only the provided versions
                 if (versions.codexEditor !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.codexEditor;
-                    if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
-                    }
+                    metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
                 }
-                
-                // Only update frontierAuthentication if new version is greater or missing
                 if (versions.frontierAuthentication !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
-                    if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
-                    }
+                    metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
                 }
 
                 return metadata;
@@ -304,16 +345,17 @@ export class MetadataManager {
     }
 
     /**
-     * Read current extension versions from metadata.json
+     * Convenience method to read current extension versions
      */
     static async getExtensionVersions(
         workspaceUri: vscode.Uri
     ): Promise<{
         success: boolean;
-        versions?: { codexEditor?: string; frontierAuthentication?: string };
+        versions?: { codexEditor?: string; frontierAuthentication?: string; };
         error?: string;
     }> {
-        const result = await this.safeReadMetadata<ProjectMetadata>(workspaceUri);
+        const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
+        const result = await this.safeReadMetadataInternal<ProjectMetadata>(metadataPath);
 
         if (!result.success) {
             return { success: false, error: result.error };
@@ -332,60 +374,9 @@ export class MetadataManager {
     /**
      * Get the current extension version from VS Code
      */
-    static getCurrentExtensionVersion(extensionId: string): string | null {
+    static getCurrentExtensionVersion(extensionId: string): string {
         const extension = vscode.extensions.getExtension(extensionId);
-        return extension?.packageJSON.version || null;
-    }
-
-    /**
-     * Ensure all installed extension versions are recorded in metadata.json.
-     * This should be called when opening a project to ensure that:
-     * 1. frontierAuthentication version is added if the extension wasn't installed at project creation
-     * 2. Version numbers are updated if the installed version is newer
-     * 
-     * Only writes if there are actual updates needed.
-     */
-    static async ensureExtensionVersionsRecorded(workspaceUri: vscode.Uri): Promise<void> {
-        try {
-            const codexEditorVersion = this.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
-            const frontierAuthVersion = this.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
-
-            // Read current metadata versions
-            const currentVersions = await this.getExtensionVersions(workspaceUri);
-            if (!currentVersions.success) {
-                return; // No metadata file yet, or can't read it
-            }
-
-            const existingVersions = currentVersions.versions || {};
-            const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
-
-            // Check codexEditor - update if missing or if installed version is newer
-            if (codexEditorVersion) {
-                if (!existingVersions.codexEditor) {
-                    versionsToUpdate.codexEditor = codexEditorVersion;
-                } else if (compareVersions(codexEditorVersion, existingVersions.codexEditor) > 0) {
-                    versionsToUpdate.codexEditor = codexEditorVersion;
-                }
-            }
-
-            // Check frontierAuthentication - update if missing or if installed version is newer
-            if (frontierAuthVersion) {
-                if (!existingVersions.frontierAuthentication) {
-                    versionsToUpdate.frontierAuthentication = frontierAuthVersion;
-                } else if (compareVersions(frontierAuthVersion, existingVersions.frontierAuthentication) > 0) {
-                    versionsToUpdate.frontierAuthentication = frontierAuthVersion;
-                }
-            }
-
-            // Only write if there are updates
-            if (Object.keys(versionsToUpdate).length > 0) {
-                console.log("[MetadataManager] Updating extension versions:", versionsToUpdate);
-                await this.updateExtensionVersions(workspaceUri, versionsToUpdate);
-            }
-        } catch (error) {
-            console.warn("[MetadataManager] Failed to ensure extension versions:", error);
-            // Non-fatal - don't block project opening
-        }
+        return extension?.packageJSON.version || "unknown";
     }
 
     /**
@@ -394,11 +385,13 @@ export class MetadataManager {
     static async getChatSystemMessage(workspaceFolderUri?: vscode.Uri): Promise<string> {
         const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
+            // Can't generate without a workspace folder to save to
             return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
         }
 
         const result = await this.safeReadMetadata<ProjectMetadata>(workspaceFolder);
 
+        // If metadata.json exists and has chatSystemMessage, return it
         if (result.success && result.metadata) {
             const chatSystemMessage = (result.metadata as any).chatSystemMessage as string | undefined;
             if (chatSystemMessage) {
@@ -407,20 +400,26 @@ export class MetadataManager {
         }
 
         // Try to generate chatSystemMessage if it doesn't exist
-        let sourceLanguage: { refName: string } | undefined;
-        let targetLanguage: { refName: string } | undefined;
+        // First try to get languages from metadata.json if it exists
+        let sourceLanguage: { refName: string; } | undefined;
+        let targetLanguage: { refName: string; } | undefined;
 
         if (result.success && result.metadata) {
             const metadata = result.metadata as any;
-            sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            sourceLanguage = metadata.languages?.find(
+                (l: any) => l.projectStatus === "source"
+            );
+            targetLanguage = metadata.languages?.find(
+                (l: any) => l.projectStatus === "target"
+            );
         }
 
+        // If languages not found in metadata.json, try workspace configuration
         if (!sourceLanguage || !targetLanguage) {
             try {
                 const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-                const configSourceLanguage = projectConfig.get("sourceLanguage") as { refName: string } | undefined;
-                const configTargetLanguage = projectConfig.get("targetLanguage") as { refName: string } | undefined;
+                const configSourceLanguage = projectConfig.get("sourceLanguage") as { refName: string; } | undefined;
+                const configTargetLanguage = projectConfig.get("targetLanguage") as { refName: string; } | undefined;
 
                 if (configSourceLanguage?.refName) {
                     sourceLanguage = configSourceLanguage;
@@ -433,6 +432,7 @@ export class MetadataManager {
             }
         }
 
+        // Generate chatSystemMessage if we have both languages
         if (sourceLanguage?.refName && targetLanguage?.refName) {
             try {
                 const { generateChatSystemMessage } = await import("../copilotSettings/copilotSettings");
@@ -443,16 +443,19 @@ export class MetadataManager {
                 );
 
                 if (generatedValue) {
+                    // Save the generated value to metadata.json (will create it if it doesn't exist)
                     const saveResult = await this.setChatSystemMessage(generatedValue, workspaceFolder);
                     if (saveResult.success) {
                         return generatedValue;
                     }
                 }
             } catch (error) {
+                // Don't fail if generation fails - just log and continue to default
                 console.debug("[MetadataManager] Error attempting to generate chatSystemMessage:", error);
             }
         }
 
+        // Fallback to default message
         return "This is a chat between a helpful Bible translation assistant and a Bible translator...";
     }
 
@@ -463,12 +466,13 @@ export class MetadataManager {
         value: string,
         workspaceFolderUri?: vscode.Uri,
         author?: string
-    ): Promise<{ success: boolean; error?: string }> {
+    ): Promise<{ success: boolean; error?: string; }> {
         const workspaceFolder = workspaceFolderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
             return { success: false, error: "No workspace folder found" };
         }
 
+        // Get author if not provided
         let currentAuthor = author;
         if (!currentAuthor) {
             try {
@@ -488,8 +492,11 @@ export class MetadataManager {
             workspaceFolder,
             (metadata) => {
                 const originalChatSystemMessage = (metadata as any).chatSystemMessage;
+
+                // Update the value
                 (metadata as any).chatSystemMessage = value;
 
+                // Track edit if value changed
                 if (originalChatSystemMessage !== value) {
                     if (!metadata.edits) {
                         metadata.edits = [];
@@ -506,65 +513,106 @@ export class MetadataManager {
     }
 
     /**
-     * Ensure metadata.json exists and is valid (simplified version)
+     * Safely read metadata without locking (read-only operation)
+     * Checks for locks and retries if file is being written
      */
-    static async ensureMetadataIntegrity(workspaceUri: vscode.Uri): Promise<{ success: boolean; recovered?: boolean; error?: string }> {
+    static async safeReadMetadata<T = ProjectMetadata>(
+        workspaceUri: vscode.Uri
+    ): Promise<{ success: boolean; metadata?: T; error?: string; }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
+        const lockPath = vscode.Uri.joinPath(workspaceUri, ".metadata.lock");
+        const maxRetries = 5;
+        const retryDelayMs = 100;
 
-        try {
-            const content = await vscode.workspace.fs.readFile(metadataPath);
-            const text = new TextDecoder().decode(content);
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                // Check if lock exists - if so, wait and retry
+                try {
+                    await vscode.workspace.fs.stat(lockPath);
+                    // Lock exists, wait and retry
+                    if (attempt < maxRetries - 1) {
+                        await this.sleep(retryDelayMs * (attempt + 1));
+                        continue;
+                    }
+                } catch (lockError) {
+                    // Lock doesn't exist, proceed with read
+                    if ((lockError as any).code !== 'FileNotFound') {
+                        // Unexpected error checking lock, but continue anyway
+                    }
+                }
 
-            if (!text.trim()) {
-                return { success: false, error: "metadata.json is empty" };
+                const content = await vscode.workspace.fs.readFile(metadataPath);
+                const text = new TextDecoder().decode(content);
+
+                // Check for empty file (which would cause "Unexpected end of JSON input")
+                if (!text.trim()) {
+                    // File is empty, check if lock exists and retry
+                    try {
+                        await vscode.workspace.fs.stat(lockPath);
+                        // Lock exists, file is being written, retry
+                        if (attempt < maxRetries - 1) {
+                            await this.sleep(retryDelayMs * (attempt + 1));
+                            continue;
+                        }
+                    } catch {
+                        // Lock doesn't exist, file is genuinely empty
+                    }
+                    return {
+                        success: false,
+                        error: `Invalid JSON in metadata.json: File is empty`
+                    };
+                }
+
+                // Validate JSON structure
+                let metadata: T;
+                try {
+                    metadata = JSON.parse(text);
+                } catch (parseError) {
+                    // Invalid JSON - check if lock exists (file might be mid-write)
+                    try {
+                        await vscode.workspace.fs.stat(lockPath);
+                        // Lock exists, file is being written, retry
+                        if (attempt < maxRetries - 1) {
+                            await this.sleep(retryDelayMs * (attempt + 1));
+                            continue;
+                        }
+                    } catch {
+                        // Lock doesn't exist, JSON is genuinely invalid
+                    }
+                    return {
+                        success: false,
+                        error: `Invalid JSON in metadata.json: ${(parseError as Error).message}`
+                    };
+                }
+
+                return { success: true, metadata };
+
+            } catch (error) {
+                if ((error as any).code === 'FileNotFound') {
+                    // Create empty metadata if file doesn't exist
+                    const emptyMetadata = {} as T;
+                    return { success: true, metadata: emptyMetadata };
+                }
+                // For other errors, retry if lock exists
+                try {
+                    await vscode.workspace.fs.stat(lockPath);
+                    if (attempt < maxRetries - 1) {
+                        await this.sleep(retryDelayMs * (attempt + 1));
+                        continue;
+                    }
+                } catch {
+                    // Lock doesn't exist, return error
+                }
+                return {
+                    success: false,
+                    error: `Failed to read metadata.json: ${(error as Error).message}`
+                };
             }
-
-            JSON.parse(text);
-            return { success: true, recovered: false };
-        } catch (error) {
-            if ((error as any).code === 'FileNotFound') {
-                return { success: false, error: "metadata.json not found" };
-            }
-            return {
-                success: false,
-                error: `metadata.json is corrupted: ${(error as Error).message}`
-            };
         }
+
+        return {
+            success: false,
+            error: `Failed to read metadata.json after ${maxRetries} attempts (file may be locked)`
+        };
     }
-}
-
-/**
- * Register commands that frontier-authentication can call to write to metadata.json
- * This implements the "single writer" principle - only codex-editor writes to metadata.json
- */
-export function registerMetadataCommands(context: vscode.ExtensionContext): void {
-    // Command for frontier-authentication to update extension versions
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor.updateMetadataExtensionVersions",
-            async (versions: { codexEditor?: string; frontierAuthentication?: string }): Promise<{ success: boolean; error?: string }> => {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (!workspaceFolder) {
-                    return { success: false, error: "No workspace folder open" };
-                }
-
-                return MetadataManager.updateExtensionVersions(workspaceFolder.uri, versions);
-            }
-        )
-    );
-
-    // Command for frontier-authentication to read extension versions
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor.getMetadataExtensionVersions",
-            async (): Promise<{ success: boolean; versions?: { codexEditor?: string; frontierAuthentication?: string }; error?: string }> => {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (!workspaceFolder) {
-                    return { success: false, error: "No workspace folder open" };
-                }
-
-                return MetadataManager.getExtensionVersions(workspaceFolder.uri);
-            }
-        )
-    );
 }

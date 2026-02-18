@@ -162,11 +162,8 @@ export class PublishProjectView {
                                         throw new Error("Project ID not found in metadata.json. Cannot publish project without project ID.");
                                     }
 
-                                    // Append projectId to project name if not already present
-                                    let projectNameWithId = payload.name;
-                                    if (!projectNameWithId.endsWith(projectId)) {
-                                        projectNameWithId = `${payload.name}-${projectId}`;
-                                    }
+                                    // Append projectId to project name
+                                    const projectNameWithId = `${payload.name}-${projectId}`;
 
                                     const result = await vscode.commands.executeCommand(
                                         "frontier.publishWorkspace",

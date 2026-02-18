@@ -44,7 +44,6 @@ export type WizardStep =
     | 'source-import'        // Import source files
     | 'target-selection'     // Select source file for target
     | 'target-import'        // Import target files
-    | 'system-message'       // Edit system message for AI translation
     | 'success';             // Success screen
 
 /**

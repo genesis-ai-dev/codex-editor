@@ -171,7 +171,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
             // Include technical fields that users might want to see but not edit
             const otherFields = [
                 'textDirectionSource', 'lineNumbersEnabled', 'lineNumbersEnabledSource',
-                'validationMigrationComplete'
+                'cellDisplayMode', 'validationMigrationComplete'
             ];
             return otherFields.includes(key);
         })

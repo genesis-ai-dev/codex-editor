@@ -76,29 +76,3 @@ export function extractVerseRefFromLine(line: string): string | null {
     const match = line.match(verseRefRegex);
     return match ? match[0] : null;
 }
-
-/** Pattern for "BOOK 1:1" style at end of string (used for metadata.id or globalReferences) */
-const verseRefAtEndRegex = /\s\d+:\d+$/;
-
-/**
- * Get verse reference string (e.g. "MAT 1:1") from cell metadata.
- * Supports legacy format (metadata.id = "BOOK 1:1") and New Source Uploader USFM
- * (metadata.id = UUID, reference in data.globalReferences or bookCode/chapter/verse).
- */
-export function getVerseRefFromCellMetadata(metadata: {
-    id?: string;
-    bookCode?: string;
-    chapter?: number;
-    verse?: number;
-    data?: { globalReferences?: string[] };
-}): string | null {
-    if (!metadata) return null;
-    const id = metadata.id;
-    if (typeof id === "string" && verseRefAtEndRegex.test(id)) return id;
-    const ref = metadata.data?.globalReferences?.[0];
-    if (typeof ref === "string" && verseRefAtEndRegex.test(ref)) return ref;
-    const { bookCode, chapter, verse } = metadata;
-    if (bookCode != null && chapter != null && verse != null)
-        return `${String(bookCode).trim()} ${chapter}:${verse}`;
-    return null;
-}

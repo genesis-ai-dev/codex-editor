@@ -11,4 +11,5 @@ export const obsImporterPlugin: ImporterPlugin = {
     component: ObsImporterForm,
     supportedExtensions: ["md", "zip"],
     enabled: true,
+    tags: ["stories", "download", "repository"],
 };

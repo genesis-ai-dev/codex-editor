@@ -17,4 +17,5 @@ export const biblicaImporterPlugin: ImporterPlugin = {
     supportedExtensions: ['idml'],
     supportedMimeTypes: ['application/vnd.adobe.indesign-idml-package'],
     enabled: true,
+    tags: ['Bible', 'Biblica', 'Round-trip'],
 };

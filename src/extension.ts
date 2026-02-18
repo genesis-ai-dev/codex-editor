@@ -42,7 +42,7 @@ import {
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
-import { MetadataManager, registerMetadataCommands } from "./utils/metadataManager";
+import { MetadataManager } from "./utils/metadataManager";
 import {
     registerSplashScreenProvider,
     showSplashScreen,
@@ -57,6 +57,7 @@ import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/update
 import { fileExists } from "./utils/webviewUtils";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
+import { registerTestingCommands } from "./evaluation/testingCommands";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import {
     migration_addValidationsForUserEdits,
@@ -67,7 +68,6 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
-// markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -419,26 +419,15 @@ export async function activate(context: vscode.ExtensionContext) {
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
 
-        // Register remote updating commands (for admins to force project updating)
-        const { registerRemoteUpdatingCommands } = await import("./commands/remoteUpdatingCommands");
-        registerRemoteUpdatingCommands(context);
-
-        // Register project swap commands (for instance admins to swap repositories)
-        const { registerProjectSwapCommands } = await import("./commands/projectSwapCommands");
-        registerProjectSwapCommands(context);
+        // Register remote healing commands (for admins to force project healing)
+        const { registerRemoteHealingCommands } = await import("./commands/remoteHealingCommands");
+        registerRemoteHealingCommands(context);
 
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
         // Initialize SqlJs with real-time progress since it loads WASM files
         // Only initialize database if we have a workspace (database is for project content)
         const workspaceFolders = vscode.workspace.workspaceFolders;
-
-        // Check for pending swap downloads (after workspace is ready)
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            checkPendingSwapDownloads(workspaceFolders[0].uri).catch(err => {
-                console.error("[Extension] Error checking pending swap downloads:", err);
-            });
-        }
         if (workspaceFolders && workspaceFolders.length > 0) {
             startRealtimeStep("AI preparing search capabilities");
             try {
@@ -512,16 +501,17 @@ export async function activate(context: vscode.ExtensionContext) {
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
 
-                // Note: validateAndFixProjectId is now called AFTER migrations complete
-                // to ensure projectName updates aren't overwritten by migrations
-
-                // Ensure all installed extension versions are recorded in metadata
-                // This handles: 1) Adding missing versions (e.g., frontierAuthentication added after project creation)
-                //               2) Updating to newer versions (never downgrades)
+                // Update extension version requirements for conflict-free metadata management
                 try {
-                    await MetadataManager.ensureExtensionVersionsRecorded(workspaceFolders[0].uri);
+                    const currentVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+                    const updateResult = await MetadataManager.updateExtensionVersions(workspaceFolders[0].uri, {
+                        codexEditor: currentVersion
+                    });
+                    if (!updateResult.success) {
+                        console.warn("[Extension] Failed to update extension version in metadata:", updateResult.error);
+                    }
                 } catch (error) {
-                    console.warn("[Extension] Error ensuring extension version requirements:", error);
+                    console.warn("[Extension] Error updating extension version requirements:", error);
                 }
             } catch {
                 metadataExists = false;
@@ -568,11 +558,8 @@ export async function activate(context: vscode.ExtensionContext) {
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),
+            (async () => registerTestingCommands(context))(),
         ]);
-
-        // Register metadata commands for frontier-authentication to call
-        // This implements the "single writer" principle - only codex-editor writes to metadata.json
-        registerMetadataCommands(context);
 
         // Initialize A/B testing registry (always-on)
         initializeABTesting();
@@ -631,57 +618,31 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
             const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
             if (hasCodexProject) {
-                const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
-                const { ensureGitDisabledInSettings, validateAndFixProjectMetadata } = await import("./projectManager/utils/projectUtils");
-                await ensureGitDisabledInSettings();
-                debug("✅ [PRE-SYNC] Disabled VS Code Git before sync operations");
-
-                // Auto-fix metadata structure (scope, name) on startup
-                try {
-                    if (vscode.workspace.workspaceFolders?.[0]) {
-                        await validateAndFixProjectMetadata(vscode.workspace.workspaceFolders[0].uri);
-                        debug("✅ [PRE-SYNC] Validated and fixed project metadata structure");
-                    }
-                } catch (e) {
-                    console.error("Error validating metadata on startup:", e);
-                }
-
                 const authApi = getAuthApi();
                 if (authApi && typeof (authApi as any).getAuthStatus === "function") {
                     const authStatus = authApi.getAuthStatus();
                     if (authStatus.isAuthenticated) {
-                        // Validate and fix projectId/projectName AFTER migrations complete
-                        // This ensures projectName updates aren't overwritten by migrations
-                        const workspaceFolders = vscode.workspace.workspaceFolders;
-                        if (workspaceFolders && workspaceFolders.length > 0) {
-                            try {
-                                const { validateAndFixProjectId } = await import("./utils/projectIdValidator");
-                                await validateAndFixProjectId(workspaceFolders[0].uri);
-                            } catch (validationError) {
-                                console.error("[Extension] Error validating projectId after migrations:", validationError);
-                            }
-                        }
-
-                        // Check if this is an update workspace
-                        const pendingUpdateSync = context.globalState.get<any>("codex.pendingUpdateSync");
-                        const isUpdateWorkspace =
-                            !!pendingUpdateSync &&
-                            typeof pendingUpdateSync.projectPath === "string" &&
+                        // Check if this is a heal workspace
+                        const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
+                        const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                        const isHealWorkspace =
+                            !!pendingHealSync &&
+                            typeof pendingHealSync.projectPath === "string" &&
                             typeof workspaceFolderPath === "string" &&
-                            path.normalize(pendingUpdateSync.projectPath) === path.normalize(workspaceFolderPath);
+                            path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
 
                         const syncManager = SyncManager.getInstance();
-                        if (isUpdateWorkspace && pendingUpdateSync?.commitMessage) {
-                            await syncManager.executeSync(String(pendingUpdateSync.commitMessage), true, context, false);
-                            await context.globalState.update("codex.pendingUpdateSync", undefined);
-                            if (pendingUpdateSync?.showSuccessMessage) {
-                                const projectName = pendingUpdateSync?.projectName || "Project";
-                                const backupFileName = pendingUpdateSync?.backupFileName;
+                        if (isHealWorkspace && pendingHealSync?.commitMessage) {
+                            await syncManager.executeSync(String(pendingHealSync.commitMessage), true, context, false);
+                            // Clear the pending flag and show success message if needed
+                            await context.globalState.update("codex.pendingHealSync", undefined);
+                            if (pendingHealSync?.showSuccessMessage) {
+                                const projectName = pendingHealSync?.projectName || "Project";
+                                const backupFileName = pendingHealSync?.backupFileName;
                                 vscode.window.showInformationMessage(
                                     backupFileName
-                                        ? `Project "${projectName}" has been updated and synced successfully! Backup saved to: ${backupFileName}`
-                                        : `Project "${projectName}" has been updated and synced successfully!`
+                                        ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
+                                        : `Project "${projectName}" has been healed and synced successfully!`
                                 );
                             }
                         } else {
@@ -733,36 +694,6 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
             vscode.commands.executeCommand("comments-sidebar.focus");
-        })
-    );
-
-    // Parallel Passages with Replace mode command
-    context.subscriptions.push(
-        vscode.commands.registerCommand("codex-editor-extension.openParallelPassagesWithReplace", async () => {
-            // Set pending enable replace flag first, then focus the view
-            // The webview will receive the message when it's ready via onWebviewReady hook
-            const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
-            if (provider && "setPendingEnableReplace" in provider) {
-                (provider as { setPendingEnableReplace: () => void }).setPendingEnableReplace();
-            }
-            await vscode.commands.executeCommand("search-passages-sidebar.focus");
-        })
-    );
-
-    // In-Tab Search (Cmd+F) - Opens floating search bar in CodexCellEditor
-    context.subscriptions.push(
-        vscode.commands.registerCommand("codex-editor-extension.toggleInTabSearch", async () => {
-            const cellEditorProvider = CodexCellEditorProvider.getInstance();
-            if (cellEditorProvider) {
-                cellEditorProvider.toggleInTabSearch();
-            }
-        })
-    );
-
-    // Parallel Passages (Cmd+Shift+F) - Opens the sidebar for cross-file semantic search
-    context.subscriptions.push(
-        vscode.commands.registerCommand("codex-editor-extension.openParallelPassagesAllFiles", async () => {
-            await vscode.commands.executeCommand("search-passages-sidebar.focus");
         })
     );
 
@@ -1009,6 +940,32 @@ async function executeCommandsAfter(
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
 
+        // Sync has already run after migrations complete, so we don't need to run it again here
+        // Just handle heal workspace success message if needed (as a backup, in case the post-migration
+        // sync didn't show it for some reason)
+        const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+        if (hasCodexProject) {
+            const pendingHealSync = context.globalState.get<any>("codex.pendingHealSync");
+            if (pendingHealSync?.showSuccessMessage) {
+                const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const isHealWorkspace =
+                    !!pendingHealSync &&
+                    typeof pendingHealSync.projectPath === "string" &&
+                    typeof workspaceFolderPath === "string" &&
+                    path.normalize(pendingHealSync.projectPath) === path.normalize(workspaceFolderPath);
+
+                if (isHealWorkspace) {
+                    const projectName = pendingHealSync?.projectName || "Project";
+                    const backupFileName = pendingHealSync?.backupFileName;
+                    vscode.window.showInformationMessage(
+                        backupFileName
+                            ? `Project "${projectName}" has been healed and synced successfully! Backup saved to: ${backupFileName}`
+                            : `Project "${projectName}" has been healed and synced successfully!`
+                    );
+                }
+            }
+        }
+
         // Check if we need to show the welcome view after initialization
         await showWelcomeViewIfNeeded();
     });
@@ -1019,221 +976,6 @@ async function executeCommandsAfter(
     checkForUpdatesOnStartup(context).catch(error => {
         console.error('[Extension] Error during startup update check:', error);
     });
-}
-
-/**
- * Check if there are pending swap downloads and automatically download files
- * This runs when a project opens that was previously paused for downloads
- */
-async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> {
-    try {
-        const { getSwapPendingState, checkPendingDownloadsComplete, clearSwapPendingState, downloadPendingSwapFiles, saveSwapPendingState, performProjectSwap } =
-            await import("./providers/StartupFlow/performProjectSwap");
-
-        const pendingState = await getSwapPendingState(projectUri.fsPath);
-
-        if (!pendingState || pendingState.swapState !== "pending_downloads") {
-            return; // No pending swap downloads
-        }
-
-        console.log("[Extension] Found pending swap downloads, starting automatic download...");
-
-        // Check if downloads are already complete
-        const { complete: alreadyComplete, remaining } = await checkPendingDownloadsComplete(projectUri.fsPath);
-
-        if (alreadyComplete) {
-            // Already done - show continue modal
-            await promptContinueSwap(projectUri, pendingState);
-            return;
-        }
-
-        // Show progress and automatically download the files
-        const totalFiles = pendingState.filesNeedingDownload.length;
-
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Downloading media for swap...",
-            cancellable: true
-        }, async (progress, token) => {
-            // Show initial count in message
-            progress.report({ message: `0/${totalFiles} files` });
-            // Set up cancellation handler
-            let cancelled = false;
-            token.onCancellationRequested(() => {
-                cancelled = true;
-            });
-
-            const result = await downloadPendingSwapFiles(projectUri.fsPath, progress);
-
-            if (cancelled) {
-                vscode.window.showInformationMessage(
-                    `Download paused. ${result.downloaded}/${result.total} files downloaded. Reopen project to resume.`
-                );
-                return;
-            }
-
-            console.log(`[Extension] Download complete: ${result.downloaded}/${result.total}, failed: ${result.failed.length}`);
-
-            if (result.failed.length > 0) {
-                // Some downloads failed - show warning and let user decide
-                const action = await vscode.window.showWarningMessage(
-                    `Downloaded ${result.downloaded}/${result.total} files. ${result.failed.length} file(s) failed to download. Continue with swap anyway?`,
-                    { modal: true },
-                    "Continue Swap",
-                    "Retry",
-                    "Cancel Swap"
-                );
-
-                if (action === "Retry") {
-                    // Reopen to retry
-                    vscode.commands.executeCommand("workbench.action.reloadWindow");
-                } else if (action === "Continue Swap") {
-                    await promptContinueSwap(projectUri, pendingState);
-                } else {
-                    await cancelSwap(projectUri, pendingState);
-                }
-            } else {
-                // All downloads successful
-                await promptContinueSwap(projectUri, pendingState);
-            }
-        });
-
-    } catch (error) {
-        console.error("[Extension] Error checking pending swap downloads:", error);
-    }
-}
-
-/**
- * Show modal to continue or cancel swap after downloads complete
- */
-async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
-    const { saveSwapPendingState, performProjectSwap, clearSwapPendingState } =
-        await import("./providers/StartupFlow/performProjectSwap");
-
-    const newProjectName = pendingState.newProjectUrl.split('/').pop()?.replace('.git', '') || 'new project';
-
-    const action = await vscode.window.showInformationMessage(
-        `All required media files have been downloaded. Ready to continue the project swap to "${newProjectName}".`,
-        { modal: true },
-        "Continue Swap"
-    );
-
-    if (action === "Continue Swap") {
-        // Re-validate swap is still active before executing
-        try {
-            const { checkProjectSwapRequired } = await import("./utils/projectSwapManager");
-            const recheck = await checkProjectSwapRequired(projectUri.fsPath, undefined, true);
-            if (recheck.remoteUnreachable) {
-                await vscode.window.showWarningMessage(
-                    "Server Unreachable\n\n" +
-                    "The swap cannot be completed because the server is not reachable. " +
-                    "Please check your internet connection or try again later.\n\n" +
-                    "The pending swap state has been preserved and will resume when connectivity is restored.",
-                    { modal: true },
-                    "OK"
-                );
-                return; // Don't clear pending state - preserve for when connectivity returns
-            }
-            if (recheck.userAlreadySwapped && recheck.activeEntry) {
-                // User already completed this swap - clear pending state and inform
-                const { clearSwapPendingState: clearPending } = await import("./providers/StartupFlow/performProjectSwap");
-                await clearPending(projectUri.fsPath);
-
-                const swapTargetLabel =
-                    recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
-                await vscode.window.showWarningMessage(
-                    `Already Swapped\n\n` +
-                    `You have already swapped to ${swapTargetLabel}.\n\n` +
-                    `This project is deprecated but can still be opened.`,
-                    { modal: true },
-                    "OK"
-                );
-                return;
-            }
-            if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== pendingState.swapUUID) {
-                // Update local metadata with merged data
-                if (recheck.swapInfo) {
-                    try {
-                        const { sortSwapEntries, orderEntryFields } = await import("./utils/projectSwapManager");
-                        await MetadataManager.safeUpdateMetadata(
-                            projectUri,
-                            (meta: any) => {
-                                if (!meta.meta) { meta.meta = {}; }
-                                const sorted = sortSwapEntries(recheck.swapInfo!.swapEntries || []);
-                                meta.meta.projectSwap = { swapEntries: sorted.map(orderEntryFields) };
-                                return meta;
-                            }
-                        );
-                    } catch { /* non-fatal */ }
-                }
-
-                // Clean up localProjectSwap.json
-                try {
-                    const { deleteLocalProjectSwapFile } = await import("./utils/localProjectSettings");
-                    await deleteLocalProjectSwapFile(projectUri);
-                } catch { /* non-fatal */ }
-
-                const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
-                await clearSwapPendingState(projectUri.fsPath);
-
-                await vscode.window.showWarningMessage(
-                    "Swap Cancelled\n\n" +
-                    "The project swap has been cancelled or is no longer required.",
-                    { modal: true },
-                    "OK"
-                );
-                return;
-            }
-        } catch {
-            // Non-fatal - proceed with swap if re-check fails
-        }
-
-        // Mark as ready and trigger swap
-        await saveSwapPendingState(projectUri.fsPath, {
-            ...pendingState,
-            swapState: "ready_to_swap"
-        });
-
-        // Perform the swap
-        const projectName = projectUri.fsPath.split(/[\\/]/).pop() || "project";
-
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Completing project swap...",
-            cancellable: false
-        }, async (progress) => {
-            const newPath = await performProjectSwap(
-                progress,
-                projectName,
-                projectUri.fsPath,
-                pendingState.newProjectUrl,
-                pendingState.swapUUID,
-                pendingState.swapInitiatedAt,
-                pendingState.swapInitiatedBy,
-                pendingState.swapReason
-            );
-
-            progress.report({ message: "Opening swapped project..." });
-            const { MetadataManager } = await import("./utils/metadataManager");
-            await MetadataManager.safeOpenFolder(
-                vscode.Uri.file(newPath),
-                projectUri
-            );
-        });
-    } else {
-        // User clicked Cancel or closed the modal
-        await cancelSwap(projectUri, pendingState);
-    }
-}
-
-/**
- * Cancel a pending swap.
- * Since we no longer change media strategy during swap, just clear the pending state.
- */
-async function cancelSwap(projectUri: vscode.Uri, _pendingState: any): Promise<void> {
-    const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
-    await clearSwapPendingState(projectUri.fsPath);
-    vscode.window.showInformationMessage("Project swap cancelled.");
 }
 
 export function deactivate() {

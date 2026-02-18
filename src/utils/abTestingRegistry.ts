@@ -1,45 +1,44 @@
-type ABTestResultPayload<TVariant> = TVariant[] | {
-  variants: TVariant[];
-  isAttentionCheck?: boolean;
-  correctIndex?: number;
-  decoyCellId?: string;
-};
-type ABTestHandler<TContext, TVariant> = (context: TContext) => Promise<ABTestResultPayload<TVariant> | null>;
+type ABTestResultPayload<TVariant> = TVariant[] | { variants: TVariant[]; names?: string[] };
+type ABTestHandler<TContext, TVariant> = (context: TContext) => Promise<ABTestResultPayload<TVariant>>;
 
 interface ABTestEntry<TContext, TVariant> {
   name: string;
+  probability: number; // 0..1
   handler: ABTestHandler<TContext, TVariant>;
 }
 
 class ABTestingRegistry {
-  private tests = new Map<string, ABTestEntry<unknown, unknown>>();
+  private tests = new Map<string, ABTestEntry<any, any>>();
 
   register<TContext, TVariant>(
     name: string,
+    probability: number,
     handler: ABTestHandler<TContext, TVariant>
   ): void {
-    this.tests.set(name, { name, handler: handler as ABTestHandler<unknown, unknown> });
+    const clamped = Math.max(0, Math.min(1, probability));
+    this.tests.set(name, { name, probability: clamped, handler });
   }
 
-  has(name: string): boolean {
-    return this.tests.has(name);
+  get<TContext, TVariant>(name: string): ABTestEntry<TContext, TVariant> | undefined {
+    return this.tests.get(name);
   }
 
-  async run<TContext, TVariant>(
+  shouldRun(name: string): boolean {
+    const entry = this.tests.get(name);
+    if (!entry) return false;
+    const rnd = Math.random();
+    return rnd < entry.probability;
+  }
+
+  async maybeRun<TContext, TVariant>(
     name: string,
     context: TContext
-  ): Promise<{
-    variants: TVariant[];
-    testName?: string;
-    isAttentionCheck?: boolean;
-    correctIndex?: number;
-    decoyCellId?: string;
-  } | null> {
-    const entry = this.tests.get(name);
+  ): Promise<{ variants: TVariant[]; names?: string[]; testName?: string } | null> {
+    const entry = this.tests.get(name) as ABTestEntry<TContext, TVariant> | undefined;
     if (!entry) return null;
+    if (!this.shouldRun(name)) return null;
     try {
-      const result = await (entry.handler as ABTestHandler<TContext, TVariant>)(context);
-      if (!result) return null;
+      const result = await entry.handler(context);
       if (Array.isArray(result)) {
         return { variants: result, testName: entry.name };
       }

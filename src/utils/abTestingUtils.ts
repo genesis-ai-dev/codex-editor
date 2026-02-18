@@ -22,40 +22,10 @@ export async function recordVariantSelection(
                 options: names,
                 winner: selectedIndex,
             });
-
+            
             console.log(`A/B test result sent to cloud: ${testName} - winner: ${names[selectedIndex]}`);
         }
     } catch (error) {
         console.warn("[A/B] Failed to record variant selection:", error);
-    }
-}
-
-/**
- * Record attention check result to cloud analytics
- * Tracks whether translators are catching decoy translations (wrong verse content)
- */
-export async function recordAttentionCheckResult(args: {
-    testId: string;
-    cellId: string;
-    passed: boolean;
-    selectionTimeMs: number;
-    correctIndex?: number;
-    decoyCellId?: string;
-}): Promise<void> {
-    try {
-        console.log(`Recording attention check: cell ${args.cellId}, passed=${args.passed}, decoy=${args.decoyCellId}`);
-
-        const { recordAbResult } = await import("./abTestingAnalytics");
-
-        // Record as an A/B test result with "passed" or "failed" as the options
-        await recordAbResult({
-            category: "Attention Check",
-            options: ["passed", "failed"],
-            winner: args.passed ? 0 : 1,
-        });
-
-        console.log(`Attention check result sent to cloud: ${args.passed ? "passed" : "failed"}`);
-    } catch (error) {
-        console.warn("[Attention Check] Failed to record result:", error);
     }
 }

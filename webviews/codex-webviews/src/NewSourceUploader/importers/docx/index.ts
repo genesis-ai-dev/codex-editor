@@ -1,6 +1,5 @@
 import mammoth from 'mammoth';
 import { XMLParser } from 'fast-xml-parser';
-import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -277,10 +276,7 @@ export const parseFile = async (
                 segmentToIdMap.set(segment, cellId);
 
                 // Create cell with enhanced metadata including structure data
-                // Include paragraphIndex and paragraphId for DOCX exporter compatibility
                 const cell = createProcessedCell(cellId, segment, {
-                    paragraphIndex: index,
-                    paragraphId: `p-${index}`,
                     data: {
                         originalOffset: {
                             start: segmentStart,
@@ -349,7 +345,7 @@ export const parseFile = async (
             name: baseName, // Just the base name, no extension
             cells,
             metadata: {
-                id: uuidv4(),
+                id: `source-${Date.now()}`,
                 originalFileName: file.name,
                 sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file to be saved in attachments
@@ -385,7 +381,7 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: uuidv4(),
+                id: `codex-${Date.now()}`,
                 // Don't duplicate the original file data in codex
                 originalFileData: undefined,
             },

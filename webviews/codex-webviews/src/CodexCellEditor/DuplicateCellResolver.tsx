@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { EditorPostMessages, QuillCellContent } from "../../../../types";
 import CellContentDisplay from "./CellContentDisplay";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 
 const DuplicateCellResolver: React.FC<{
     translationUnits: QuillCellContent[];
@@ -125,6 +126,7 @@ const DuplicateCellResolver: React.FC<{
                                                         allTranslationsComplete={false}
                                                         handleCellTranslation={() => {}}
                                                         handleCellClick={() => {}}
+                                                        cellDisplayMode={CELL_DISPLAY_MODES.INLINE}
                                                         audioAttachments={{}}
                                                         vscode={vscode}
                                                         textDirection={textDirection}

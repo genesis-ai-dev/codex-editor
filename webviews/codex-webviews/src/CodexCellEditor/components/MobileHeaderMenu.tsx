@@ -10,6 +10,7 @@ import {
     DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
 import { Slider } from "../../components/ui/slider";
+import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 import {
     type CustomNotebookMetadata,
 } from "../../../../../types";
@@ -27,6 +28,8 @@ interface MobileHeaderMenuProps {
     // Settings
     textDirection: "ltr" | "rtl";
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
+    cellDisplayMode: CELL_DISPLAY_MODES;
+    onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
 
     // Font size
     fontSize: number;
@@ -67,6 +70,8 @@ export function MobileHeaderMenu({
     isSourceText,
     textDirection,
     onSetTextDirection,
+    cellDisplayMode,
+    onSetCellDisplayMode,
     fontSize,
     onFontSizeChange,
     metadata,
@@ -173,6 +178,37 @@ export function MobileHeaderMenu({
                     <i className="codicon codicon-arrow-swap mr-2 h-4 w-4" />
                     <span>Text Direction ({textDirection.toUpperCase()})</span>
                 </DropdownMenuItem>
+
+                {/* Display Mode */}
+                <DropdownMenuItem
+                    onClick={() => {
+                        const newMode =
+                            cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                                : CELL_DISPLAY_MODES.INLINE;
+                        onSetCellDisplayMode(newMode);
+                        (window as any).vscodeApi.postMessage({
+                            command: "updateCellDisplayMode",
+                            mode: newMode,
+                        });
+                    }}
+                    disabled={unsavedChanges}
+                    className="cursor-pointer"
+                >
+                    <i
+                        className={`codicon ${
+                            cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                ? "codicon-symbol-enum"
+                                : "codicon-symbol-constant"
+                        } mr-2 h-4 w-4`}
+                    />
+                    <span>
+                        Display Mode (
+                        {cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "Inline" : "One Line"})
+                    </span>
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
 
                 {/* Line Numbers */}
                 <DropdownMenuItem

@@ -1,4 +1,5 @@
 export enum CELL_DISPLAY_MODES {
+    INLINE = "inline",
     ONE_LINE_PER_CELL = "one_line_per_cell",
 }
 
@@ -33,16 +34,9 @@ export interface CustomNotebookMetadata {
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;
+    cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
     fontSize?: number;
-    importerType?: string;
-    originalFileName?: string;
-    sourceFile?: string;
-    /**
-     * Timestamp added to non-biblical imports to ensure unique filenames.
-     * Format: "YYYYMMDD_HHmmss" (e.g., "20260127_143025")
-     */
-    importTimestamp?: string;
 }
 
 export interface ProgressPercentages {

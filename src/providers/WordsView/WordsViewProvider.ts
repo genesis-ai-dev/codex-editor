@@ -7,7 +7,6 @@ import {
 } from "../../activationHelpers/contextAware/contentIndexes/indexes/wordsIndex";
 import { readSourceAndTargetFiles } from "../../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
-import { refreshSearchIndex } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 
 export class WordsViewProvider implements vscode.Disposable {
     public static readonly viewType = "frontier.wordsView";
@@ -200,14 +199,6 @@ export class WordsViewProvider implements vscode.Disposable {
                 `Successfully replaced ${this._selectedOccurrences.size} occurrences`
             );
             this._selectedOccurrences.clear();
-
-            // Refresh the SQLite FTS index so search results reflect the changes
-            try {
-                await refreshSearchIndex();
-            } catch (error) {
-                console.error("Failed to refresh search index after replacement:", error);
-                // Don't break the replace flow if index refresh fails
-            }
 
             // Re-index to update the view
             await this.updateContent();

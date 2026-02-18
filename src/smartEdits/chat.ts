@@ -66,7 +66,7 @@ class Chatbot {
 
         this.openai = new OpenAI({
             apiKey: apiKey,
-            baseURL: llmEndpoint || this.config.get("llmEndpoint") || "https://api.frontierrnd.com/api/v1",
+            baseURL: llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1",
             defaultHeaders: authBearerToken
                 ? {
                     Authorization: `Bearer ${authBearerToken}`,
@@ -75,7 +75,7 @@ class Chatbot {
         });
         console.log("Called OpenAI from smart edits with", {
             llmEndpoint:
-                llmEndpoint || this.config.get("llmEndpoint") || "https://api.frontierrnd.com/api/v1",
+                llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1",
             authBearerToken,
             usingCustomApiKey: hasCustomApiKey,
         });

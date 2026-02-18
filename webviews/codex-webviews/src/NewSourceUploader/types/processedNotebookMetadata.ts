@@ -70,13 +70,10 @@ export interface PlaintextNotebookMetadata extends ProcessedNotebookMetadataBase
 }
 
 export interface SpreadsheetNotebookMetadata extends ProcessedNotebookMetadataBase {
-    importerType: "spreadsheet" | "spreadsheet-csv" | "spreadsheet-tsv";
+    importerType: "spreadsheet";
     delimiter?: string;
     columnCount?: number;
     rowCount?: number;
-    columnHeaders?: string[];
-    sourceColumnIndex?: number;
-    originalFileContent?: string;
 }
 
 export interface SmartSegmenterNotebookMetadata extends ProcessedNotebookMetadataBase {
@@ -180,7 +177,7 @@ export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetad
     footnoteCount?: number;
     structureMetadata?: {
         originalUsfmContent: string;
-        lineMappings?: unknown;
+        lineMappings: unknown;
     };
 }
 
@@ -246,8 +243,6 @@ export type ProcessedNotebookMetadataByImporter = {
     subtitles: SubtitlesNotebookMetadata;
     plaintext: PlaintextNotebookMetadata;
     spreadsheet: SpreadsheetNotebookMetadata;
-    "spreadsheet-csv": SpreadsheetNotebookMetadata;
-    "spreadsheet-tsv": SpreadsheetNotebookMetadata;
     "smart-segmenter": SmartSegmenterNotebookMetadata;
     audio: AudioNotebookMetadata;
     tms: TmsNotebookMetadata;

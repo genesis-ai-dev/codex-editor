@@ -162,18 +162,19 @@ export const IntentSelection: React.FC<IntentSelectionProps> = ({
             </div>
 
             {/* Start Translating Button */}
-            <div className="mt-6 text-center">
-                <Button
-                    onClick={onStartTranslating}
-                    variant="outline"
-                    size="default"
-                    className="px-8 py-2"
-                    disabled={sourceFileCount === 0}
-                >
-                    <FileText className="h-4 w-4 mr-2" />
-                    Continue
-                </Button>
-            </div>
+            {sourceFileCount > 0 && (
+                <div className="mt-6 text-center">
+                    <Button
+                        onClick={onStartTranslating}
+                        variant="outline"
+                        size="default"
+                        className="px-8 py-2"
+                    >
+                        <FileText className="h-4 w-4 mr-2" />
+                        Open Translation File
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };

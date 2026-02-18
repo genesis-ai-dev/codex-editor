@@ -1,46 +1,14 @@
 import * as vscode from "vscode";
-import { getAuthApi } from "../extension";
 
-async function getAnalyticsBase(): Promise<string | null> {
-    try {
-        const frontierApi = getAuthApi();
-        if (frontierApi) {
-            // Use the same endpoint as LLM, just the base URL portion
-            const llmEndpoint = await frontierApi.getLlmEndpoint();
-            if (llmEndpoint) {
-                // Extract base URL (e.g., "https://api.frontierrnd.com/api/v1/llm" -> "https://api.frontierrnd.com")
-                const url = new URL(llmEndpoint);
-                return `${url.protocol}//${url.host}`;
-            }
-        }
-    } catch (error) {
-        console.debug("[ABTestingAnalytics] Could not get endpoint from auth API:", error);
-    }
-    return null;
-}
+const ANALYTICS_BASE = "https://zero.codexeditor.app";
 
-async function postJson(path: string, payload: Record<string, unknown>): Promise<void> {
+async function postJson(path: string, payload: any): Promise<void> {
     try {
-        const baseUrl = await getAnalyticsBase();
-        if (!baseUrl) {
-            console.debug("[ABTestingAnalytics] No analytics endpoint available, skipping");
-            return;
-        }
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
-        try {
-            const frontierApi = getAuthApi();
-            const token = await frontierApi?.authProvider?.getToken();
-            if (token) {
-                headers["Authorization"] = `Bearer ${token}`;
-            }
-        } catch {
-            // No token available — send without auth
-        }
-        await fetch(`${baseUrl}${path}`, {
+        await fetch(`${ANALYTICS_BASE}${path}` as any, {
             method: "POST",
-            headers,
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
-        });
+        } as any);
     } catch (err) {
         console.warn(`[ABTestingAnalytics] POST ${path} failed`, err);
     }
@@ -66,13 +34,13 @@ export async function recordAbResult(args: {
     projectId?: string | number;
 }): Promise<void> {
     const extras = getOptionalContext();
-    const body: Record<string, unknown> = {
+    const body: any = {
         category: args.category,
         options: args.options,
         winner: args.winner,
     };
     if (args.userId ?? extras.userId) body.user_id = args.userId ?? extras.userId;
     if (args.projectId ?? extras.projectId) body.project_id = args.projectId ?? extras.projectId;
-    await postJson("/api/v1/analytics/result", body);
+    await postJson("/analytics/result", body);
 }
 

@@ -55,9 +55,7 @@ export type NormalizedSubsectionProgress = {
     audioCompletedPercent: number;
 };
 
-// Normalize the optional progress fields to percentages for text and audio.
-// When explicit percentages are missing, default to 0 so we never show 100% validation
-// unless the backend actually sent that value (avoids false 100% when only paratext/child are validated).
+// Normalize the optional progress fields to percentages for text and audio
 export function deriveSubsectionPercentages(progress: {
     isFullyTranslated: boolean;
     isFullyValidated: boolean;
@@ -67,25 +65,27 @@ export function deriveSubsectionPercentages(progress: {
     percentAudioValidatedTranslations?: number;
 }): NormalizedSubsectionProgress {
     const textValidatedPercent =
-        (progress as { percentTextValidatedTranslations?: number; }).percentTextValidatedTranslations !== undefined
-            ? (progress as { percentTextValidatedTranslations: number; }).percentTextValidatedTranslations
-            : 0;
+        (progress as any).percentTextValidatedTranslations !== undefined
+            ? (progress as any).percentTextValidatedTranslations
+            : progress.isFullyValidated
+                ? 100
+                : 0;
 
     const textCompletedPercent =
-        (progress as { percentTranslationsCompleted?: number; }).percentTranslationsCompleted !== undefined
-            ? (progress as { percentTranslationsCompleted: number; }).percentTranslationsCompleted
+        (progress as any).percentTranslationsCompleted !== undefined
+            ? (progress as any).percentTranslationsCompleted
             : progress.isFullyTranslated
                 ? 100
                 : 0;
 
     const audioValidatedPercent =
-        (progress as { percentAudioValidatedTranslations?: number; }).percentAudioValidatedTranslations !== undefined
-            ? (progress as { percentAudioValidatedTranslations: number; }).percentAudioValidatedTranslations
+        (progress as any).percentAudioValidatedTranslations !== undefined
+            ? (progress as any).percentAudioValidatedTranslations
             : 0;
 
     const audioCompletedPercent =
-        (progress as { percentAudioTranslationsCompleted?: number; }).percentAudioTranslationsCompleted !== undefined
-            ? (progress as { percentAudioTranslationsCompleted: number; }).percentAudioTranslationsCompleted
+        (progress as any).percentAudioTranslationsCompleted !== undefined
+            ? (progress as any).percentAudioTranslationsCompleted
             : 0;
 
     return {

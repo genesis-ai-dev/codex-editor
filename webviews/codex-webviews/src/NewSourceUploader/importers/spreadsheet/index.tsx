@@ -11,6 +11,7 @@ export const spreadsheetImporterPlugin: ImporterPlugin = {
     component: SpreadsheetImporterForm,
     supportedExtensions: ["csv", "tsv"],
     supportedMimeTypes: ["text/csv", "text/tab-separated-values", "application/csv"],
+    tags: ["Structured", "Data", "Translation"],
     enabled: true,
 };
 

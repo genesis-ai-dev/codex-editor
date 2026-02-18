@@ -10,4 +10,5 @@ export const tmsImporterPlugin: ImporterPlugin = {
     component: TmxImporterForm,
     supportedExtensions: ["tmx", "xliff", "xlf"],
     enabled: true,
+    tags: ["Essential", "Translation", "Localization"],
 };

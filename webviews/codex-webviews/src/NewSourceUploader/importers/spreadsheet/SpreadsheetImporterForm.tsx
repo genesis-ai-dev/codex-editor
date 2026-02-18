@@ -401,18 +401,11 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             ? parseGlobalReferencesField(row[parseInt(globalReferencesColumnIndex)])
                             : [];
 
-                        // Build the full row values array
-                        const originalRowValues: string[] = [];
-                        for (let i = 0; i < parsedData.columns.length; i++) {
-                            originalRowValues.push(row[i] || '');
-                        }
-
                         // Create cell metadata (always generates UUID)
                         const { cellId, metadata: cellMetadata } = createSpreadsheetCellMetadata({
                             originalContent: row[parseInt(sourceColumnIndex!)],
                             rowIndex: index,
-                            originalRowValues,
-                            sourceColumnIndex: parseInt(sourceColumnIndex!),
+                            originalRow: Object.keys(row),
                             fileName: selectedFile!.name,
                             globalReferences,
                         });
@@ -425,32 +418,18 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         };
                     });
 
-                // Extract column headers for round-trip export
-                const columnHeaders = parsedData.columns.map(col => col.name);
-
-                // Read the original file as TEXT for round-trip export (more reliable than ArrayBuffer for text files)
-                // This will be stored directly in metadata for the exporter to use
-                const originalFileContent = await selectedFile!.text();
-
-                // Determine specific importer type based on file extension/delimiter
-                const fileExtension = selectedFile!.name.toLowerCase().split('.').pop();
-                const spreadsheetType = fileExtension === 'tsv' || parsedData.delimiter === '\t' 
-                    ? 'spreadsheet-tsv' 
-                    : 'spreadsheet-csv';
-
                 const notebookPair: NotebookPair = {
                     source: {
                         name: parsedData.filename,
                         cells: sourceCells,
                         metadata: {
-                            id: uuidv4(),
+                            id: parsedData.filename,
                             originalFileName: selectedFile!.name,
                             sourceFile: selectedFile!.name,
-                            importerType: spreadsheetType,
-                            corpusMarker: spreadsheetType, // For rebuild export detection
+                            importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
                             importContext: {
-                                importerType: spreadsheetType,
+                                importerType: "spreadsheet",
                                 fileName: selectedFile!.name,
                                 originalFileName: selectedFile!.name,
                                 fileSize: selectedFile!.size,
@@ -459,12 +438,6 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             delimiter: parsedData.delimiter,
                             columnCount: parsedData.columns.length,
                             rowCount: parsedData.rows.length,
-                            // Store for round-trip export
-                            columnHeaders,
-                            sourceColumnIndex: parseInt(sourceColumnIndex!),
-                            // Store original file content as text for round-trip export
-                            // This is passed directly to the exporter (no file system intermediary needed for text)
-                            originalFileContent,
                         },
                     },
                     codex: {
@@ -474,24 +447,18 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             content: "", // Empty target cells
                         })),
                         metadata: {
-                            id: uuidv4(),
+                            id: parsedData.filename,
                             originalFileName: selectedFile!.name,
                             sourceFile: selectedFile!.name,
-                            importerType: spreadsheetType,
-                            corpusMarker: spreadsheetType, // For rebuild export detection
+                            importerType: "spreadsheet",
                             createdAt: new Date().toISOString(),
                             importContext: {
-                                importerType: spreadsheetType,
+                                importerType: "spreadsheet",
                                 fileName: selectedFile!.name,
                                 originalFileName: selectedFile!.name,
                                 fileSize: selectedFile!.size,
                                 importTimestamp: new Date().toISOString(),
                             },
-                            delimiter: parsedData.delimiter,
-                            columnHeaders,
-                            sourceColumnIndex: parseInt(sourceColumnIndex!),
-                            // Store original file content for round-trip export
-                            originalFileContent,
                         },
                     },
                 };
@@ -841,15 +808,6 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
         onCancel();
     };
 
-    const handleBackToFileSelection = () => {
-        setParsedData(null);
-        setColumnMapping({});
-        setIsDirty(false);
-        setError(null);
-        setPendingImport(null);
-        setPendingNotebookPair(null);
-    };
-
     const renderColumnMappingCard = () => {
         if (!parsedData) return null;
 
@@ -862,26 +820,26 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                             Choose Your Columns
                         </CardTitle>
                         {!isTranslationImport && (
-                            <Button
-                                onClick={() => setDebugOpen((v) => !v)}
-                                title="Toggle debug console"
-                            >
-                                {debugOpen ? "Hide Debug" : "Debug"}
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    onClick={downloadTemplate}
+                                    aria-label="Download CSV template"
+                                >
+                                    <Download className="h-3 w-3 mr-1" /> Template
+                                </Button>
+                                <Button
+                                    onClick={() => setDebugOpen((v) => !v)}
+                                    title="Toggle debug console"
+                                >
+                                    {debugOpen ? "Hide Debug" : "Debug"}
+                                </Button>
+                            </div>
                         )}
                     </div>
-                    <CardDescription className="whitespace-pre-line">
+                    <CardDescription>
                         {isTranslationImport
                             ? `Tell us which column contains the translations for "${selectedSource?.name}"`
-                            : <>
-                                Tell us which columns contain your content. Explanation of column types:
-                                {"\n\n"}
-                                • <strong>Verse References</strong>: (ID column) used for cross-references and annotations
-                                {"\n\n"}
-                                • <strong>Source Content</strong>: your source text per row
-                                {"\n\n"}
-                                • <strong>Attachments</strong>: audio URLs separated by comma, semicolon, or space.
-                            </>}
+                            : "Tell us which columns contain your content. Optional: add an Attachments column with audio URLs to auto-attach audio to each cell."}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -919,7 +877,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                         <SelectItem value="globalReferences">
                                             <div className="flex items-center gap-2">
                                                 <LinkIcon className="h-4 w-4" />
-                                                Verse References
+                                                Global References
                                             </div>
                                         </SelectItem>
                                         {!isTranslationImport && (
@@ -975,7 +933,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         {getColumnTypeCount("globalReferences") > 0 && (
                             <Badge variant="secondary">
                                 <LinkIcon className="h-3 w-3 mr-1" />
-                                Verse References
+                                Global References
                             </Badge>
                         )}
                         {getColumnTypeCount("source") > 0 && (
@@ -1006,7 +964,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                     )}
 
                     <div className="flex gap-2 pt-4">
-                        <Button type="button" onClick={handleBackToFileSelection} variant="outline">
+                        <Button onClick={handleCancel} variant="outline">
                             <ArrowLeft className="h-4 w-4 mr-2" />
                             Back
                         </Button>

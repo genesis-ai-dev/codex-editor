@@ -10,4 +10,5 @@ export const maculaBibleImporterPlugin: ImporterPlugin = {
     component: MaculaBibleImporterForm,
     supportedExtensions: [], // No file extensions - this downloads remotely
     enabled: true,
+    tags: ["Specialized", "Biblical", "Original Languages", "Hebrew", "Greek"],
 };

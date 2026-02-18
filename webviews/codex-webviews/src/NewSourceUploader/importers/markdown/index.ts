@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -316,7 +315,7 @@ export const parseFile = async (
             name: baseName,
             cells,
             metadata: {
-                id: uuidv4(),
+                id: `source-${Date.now()}`,
                 originalFileName: file.name,
                 sourceFile: file.name,
                 importerType: 'markdown',
@@ -360,7 +359,7 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: uuidv4(),
+                id: `codex-${Date.now()}`,
             },
         };
 

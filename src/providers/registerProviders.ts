@@ -7,6 +7,7 @@ import { CustomWebviewProvider as CommentsProvider } from "./commentsWebview/cus
 import { CustomWebviewProvider as ParallelProvider } from "./parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { WordsViewProvider } from "./WordsView/WordsViewProvider";
 import { GlobalProvider } from "../globalProvider";
+import { AutomatedTestingProvider } from "./AutomatedTestingProvider";
 import { NewSourceUploaderProvider } from "./NewSourceUploader/NewSourceUploaderProvider";
 import { getWorkSpaceFolder } from "../utils";
 
@@ -55,22 +56,26 @@ export function registerProviders(context: vscode.ExtensionContext) {
 
     // Register webview providers directly - much simpler!
     const navigationProvider = new NavigationWebviewProvider(context);
+    const automatedTestingProvider = new AutomatedTestingProvider(context);
     const mainMenuProvider = new MainMenuProvider(context);
     const commentsProvider = new CommentsProvider(context);
     const parallelProvider = new ParallelProvider(context);
 
     disposables.push(
-        vscode.window.registerWebviewViewProvider("codex-editor.navigation", navigationProvider, { webviewOptions: { retainContextWhenHidden: true } }),
+        vscode.window.registerWebviewViewProvider("codex-editor.navigation", navigationProvider),
         GlobalProvider.getInstance().registerProvider("codex-editor.navigation", navigationProvider as any),
 
-        vscode.window.registerWebviewViewProvider("codex-editor.mainMenu", mainMenuProvider, { webviewOptions: { retainContextWhenHidden: true } }),
+        vscode.window.registerWebviewViewProvider("codex-editor.mainMenu", mainMenuProvider),
         GlobalProvider.getInstance().registerProvider("codex-editor.mainMenu", mainMenuProvider as any),
 
-        vscode.window.registerWebviewViewProvider("comments-sidebar", commentsProvider, { webviewOptions: { retainContextWhenHidden: true } }),
+        vscode.window.registerWebviewViewProvider("comments-sidebar", commentsProvider),
         GlobalProvider.getInstance().registerProvider("comments-sidebar", commentsProvider as any),
 
-        vscode.window.registerWebviewViewProvider("search-passages-sidebar", parallelProvider, { webviewOptions: { retainContextWhenHidden: true } }),
+        vscode.window.registerWebviewViewProvider("search-passages-sidebar", parallelProvider),
         GlobalProvider.getInstance().registerProvider("search-passages-sidebar", parallelProvider as any),
+
+        vscode.window.registerWebviewViewProvider("codex-editor.automatedTesting", automatedTestingProvider),
+        GlobalProvider.getInstance().registerProvider("codex-editor.automatedTesting", automatedTestingProvider as any),
 
         // Register search passages command
         vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {

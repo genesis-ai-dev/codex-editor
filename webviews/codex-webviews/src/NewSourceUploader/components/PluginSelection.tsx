@@ -37,7 +37,7 @@ const PluginCard: React.FC<{
 }> = ({ plugin, onSelect, className }) => {
     const Icon = plugin.icon;
     const isEnabled = plugin.enabled !== false;
-    const isBetaPlugin = plugin.id === "pdf-importer" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet";
+    const isBetaPlugin = plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet";
 
     return (
         <Card
@@ -90,16 +90,9 @@ const PluginCard: React.FC<{
                     <div className="flex flex-wrap gap-1">
                         {plugin.tags
                             .filter((tag) => !["Essential", "Specialized"].includes(tag))
+                            .slice(0, 2)
                             .map((tag) => (
-                                <Badge
-                                    key={tag}
-                                    variant="secondary"
-                                    className={`text-xs ${
-                                        tag === "Round-trip"
-                                            ? "bg-green-500/10 text-green-600 dark:bg-green-500/15 dark:text-green-400 border-green-500/20"
-                                            : "opacity-60"
-                                    }`}
-                                >
+                                <Badge key={tag} variant="secondary" className="text-xs opacity-60">
                                     {tag}
                                 </Badge>
                             ))}

@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterComponentProps,
     AlignedCell,
@@ -246,7 +245,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                             };
                         }),
                         metadata: {
-                            id: uuidv4(),
+                            id: notebookName,
                             originalFileName: `${fullBookName}.macula`, // Use full name instead of code
                             sourceFile: `${fullBookName}.macula`,
                             importerType: "macula",
@@ -269,10 +268,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                             ...cell,
                             content: "", // Empty for codex
                         })),
-                        metadata: {
-                            ...sourceNotebook.metadata,
-                            id: uuidv4(),
-                        },
                     };
 
                     const notebookPair = {

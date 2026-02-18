@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -222,7 +221,7 @@ export const parseFile = async (
             name: baseName,
             cells,
             metadata: {
-                id: uuidv4(),
+                id: baseNameAsId,
                 originalFileName: file.name,
                 sourceFile: file.name,
                 importerType: 'subtitles',
@@ -258,7 +257,6 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: uuidv4(),
             },
         };
 

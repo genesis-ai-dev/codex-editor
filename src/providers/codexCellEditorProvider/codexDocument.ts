@@ -23,7 +23,7 @@ import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
-import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
+import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
@@ -664,18 +664,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             content
         );
     }
-    /**
-     * Returns document data suitable for serialization to disk.
-     * Strips display-mode-related metadata so it is not persisted.
-     */
-    private getDocumentDataForSerialization(): CodexNotebookAsJSONData {
-        const metadata = { ...this._documentData.metadata };
-        delete (metadata as unknown as Record<string, unknown>).cellDisplayMode;
-        return { ...this._documentData, metadata };
-    }
-
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const ourContent = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        const ourContent = formatJsonForNotebookFile(this._documentData);
 
         // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
         const existing = await readExistingFileOrThrow(this.uri);
@@ -696,12 +686,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             candidate = normalizeNotebookFileText(candidate);
 
             try {
-                const parsed = JSON.parse(candidate) as CodexNotebookAsJSONData;
-                if (parsed.metadata && "cellDisplayMode" in parsed.metadata) {
-                    const meta = { ...parsed.metadata };
-                    delete (meta as unknown as Record<string, unknown>).cellDisplayMode;
-                    candidate = formatJsonForNotebookFile({ ...parsed, metadata: meta });
-                }
+                JSON.parse(candidate);
             } catch {
                 candidate = normalizeNotebookFileText(ourContent);
             }
@@ -725,7 +710,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken,
         backup: boolean = false
     ): Promise<void> {
-        const text = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        const text = formatJsonForNotebookFile(this._documentData);
         await atomicWriteUriText(targetResource, text);
 
         // IMMEDIATE AI LEARNING for non-backup saves
@@ -763,7 +748,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public getText(): string {
-        return formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        return formatJsonForNotebookFile(this._documentData);
     }
 
     public getCellContent(cellId: string): QuillCellContent | undefined {
@@ -1068,6 +1053,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             "fontSize",
             "showInlineBacktranslations",
             "fileDisplayName",
+            "cellDisplayMode",
             "audioOnly",
             "corpusMarker",
         ] as const;
@@ -1103,6 +1089,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 case "fileDisplayName":
                     editMap = EditMapUtils.metadataFileDisplayName();
                     break;
+                case "cellDisplayMode":
+                    editMap = EditMapUtils.metadataCellDisplayMode();
+                    break;
                 case "audioOnly":
                     editMap = EditMapUtils.metadataAudioOnly();
                     break;
@@ -1131,7 +1120,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Apply the metadata updates
         this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
-        delete (this._documentData.metadata as unknown as Record<string, unknown>).cellDisplayMode;
         // Restore the edits array (it was updated above with new edits)
         this._documentData.metadata.edits = savedEdits;
 
@@ -1551,19 +1539,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const cellsForMilestone: QuillCellContent[] = [];
             for (let j = startIndex; j < endIndex; j++) {
                 const cell = cells[j];
-                if (shouldExcludeCellFromProgress(cell)) {
+
+                // Skip milestone cells
+                if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
                     continue;
                 }
+
+                // Skip paratext and merged cells
+                const cellId = cell.metadata?.id;
+                if (!cellId || cellId.includes(":paratext-") || cell.metadata?.type === CodexCellTypes.PARATEXT || cell.metadata?.data?.merged) {
+                    continue;
+                }
+
                 // Convert to QuillCellContent format
                 const quillContent = convertCellToQuillContent(cell);
                 cellsForMilestone.push(quillContent);
             }
 
-            // Only root content cells count for progress (exclude paratext/child again for validation)
-            const progressCells = cellsForMilestone.filter(
-                (c) => !shouldExcludeQuillCellFromProgress(c)
-            );
-            const totalCells = progressCells.length;
+            const totalCells = cellsForMilestone.length;
             if (totalCells === 0) {
                 // Milestone number is 1-based (i + 1)
                 progress[i + 1] = {
@@ -1577,7 +1570,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
 
             // Count cells with content (translated)
-            const cellsWithValues = progressCells.filter(
+            const cellsWithValues = cellsForMilestone.filter(
                 (cell) =>
                     cell.cellContent &&
                     cell.cellContent.trim().length > 0 &&
@@ -1585,15 +1578,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ).length;
 
             // Count cells with audio
-            const cellsWithAudioValues = progressCells.filter((cell) =>
+            const cellsWithAudioValues = cellsForMilestone.filter((cell) =>
                 cellHasAudioUsingAttachments(
                     cell.attachments,
                     cell.metadata?.selectedAudioId
                 )
             ).length;
 
-            // Calculate validation data (only from root content cells)
-            const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
+            // Calculate validation data
+            const cellWithValidatedData = cellsForMilestone.map((cell) => getCellValueData(cell));
 
             const { validatedCells, audioValidatedCells, fullyValidatedCells } =
                 computeValidationStats(
@@ -1676,9 +1669,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const contentCells: QuillCellContent[] = [];
         for (let i = startCellIndex; i < endCellIndex; i++) {
             const cell = cells[i];
-            if (shouldExcludeCellFromProgress(cell)) {
+
+            // Skip milestone cells
+            if (cell.metadata?.type === CodexCellTypes.MILESTONE) {
                 continue;
             }
+
+            // Skip paratext and merged cells
+            const cellId = cell.metadata?.id;
+            if (!cellId || cellId.includes(":paratext-") || cell.metadata?.type === CodexCellTypes.PARATEXT || cell.metadata?.data?.merged) {
+                continue;
+            }
+
             // Convert to QuillCellContent format
             const quillContent = convertCellToQuillContent(cell);
             contentCells.push(quillContent);
@@ -1722,11 +1724,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 contentCellIdsForSubsection.has(c.cellMarkers[0])
             );
 
-            // Only root content cells count for progress (exclude paratext/child for validation)
-            const progressCells = subsectionCells.filter(
-                (c) => !shouldExcludeQuillCellFromProgress(c)
-            );
-            const totalCells = progressCells.length;
+            const totalCells = subsectionCells.length;
             if (totalCells === 0) {
                 progress[subsectionIdx] = {
                     percentTranslationsCompleted: 0,
@@ -1743,7 +1741,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
 
             // Count cells with content (translated)
-            const cellsWithValues = progressCells.filter(
+            const cellsWithValues = subsectionCells.filter(
                 (cell) =>
                     cell.cellContent &&
                     cell.cellContent.trim().length > 0 &&
@@ -1751,15 +1749,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
             ).length;
 
             // Count cells with audio
-            const cellsWithAudioValues = progressCells.filter((cell) =>
+            const cellsWithAudioValues = subsectionCells.filter((cell) =>
                 cellHasAudioUsingAttachments(
                     cell.attachments,
                     cell.metadata?.selectedAudioId
                 )
             ).length;
 
-            // Calculate validation data (only from root content cells)
-            const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
+            // Calculate validation data
+            const cellWithValidatedData = subsectionCells.map((cell) => getCellValueData(cell));
 
             const { validatedCells, audioValidatedCells, fullyValidatedCells } =
                 computeValidationStats(
@@ -1768,12 +1766,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     minimumAudioValidationsRequired
                 );
 
-            // Compute per-level validation percentages for text and audio.
-            // For text, only count validations on cells with actual content (same rule as computeValidationStats).
+            // Compute per-level validation percentages for text and audio
             const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
-            const textValidationCounts = cellWithValidatedData.map((c) =>
-                hasTextContent(c.cellContent) ? countActiveValidations(c.validatedBy) : 0
-            );
+            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
             const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
 
             const computeLevelPercents = (counts: number[], maxLevel: number) => {

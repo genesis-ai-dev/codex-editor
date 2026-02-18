@@ -124,17 +124,11 @@ function CopilotSettingsApp() {
                         <div className="font-medium">System Message</div>
                         {systemMessage && (
                             <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={() => vscode.postMessage({ command: "generate" })}
-                                className="min-w-[180px] h-8 relative flex items-center justify-center"
                             >
-                                <i 
-                                    className="codicon codicon-sparkle absolute left-2 top-1/2 -translate-y-1/2"
-                                    style={{
-                                        width: "16px",
-                                        height: "16px",
-                                    }}
-                                />
-                                <span className="pl-6">Regenerate</span>
+                                ✨ Regenerate
                             </Button>
                         )}
                     </div>

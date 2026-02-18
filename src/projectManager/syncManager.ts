@@ -9,9 +9,24 @@ import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
+import { BookCompletionData } from "../progressReporting/progressReportingService";
+import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
-import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
-import { markPendingUpdateRequired } from "../utils/localProjectSettings";
+
+// Define TranslationProgress interface locally since it's not exported from types
+interface BookProgress {
+    bookId: string;
+    totalVerses: number;
+    translatedVerses: number;
+    validatedVerses?: number;
+}
+
+interface TranslationProgress {
+    totalVerses: number;
+    translatedVerses: number;
+    validatedVerses?: number;
+    bookProgress?: BookProgress[];
+}
 
 const DEBUG_SYNC_MANAGER = false;
 
@@ -19,6 +34,46 @@ function debug(message: string, ...args: any[]): void {
     if (DEBUG_SYNC_MANAGER) {
         console.log(`[SyncManager] ${message}`, ...args);
     }
+}
+
+// Progress report interface - moved to progressReportingService.ts
+// Keeping this for backward compatibility
+export interface ProjectProgressReport {
+    projectId: string; // Unique project identifier
+    projectName: string; // Human-readable project name
+    timestamp: string; // ISO timestamp of report generation
+    reportId: string; // Unique report identifier
+
+    // Translation metrics
+    translationProgress: {
+        bookCompletionMap: Record<string, BookCompletionData>; // Book ID -> completion data
+        totalVerseCount: number; // Total verses in project
+        translatedVerseCount: number; // Verses with translations
+        validatedVerseCount: number; // Verses passing validation
+        wordsTranslated: number; // Total words translated
+    };
+
+    // Validation metrics
+    validationStatus: {
+        stage: "none" | "initial" | "community" | "expert" | "finished";
+        versesPerStage: Record<string, number>; // Stage -> verse count
+        lastValidationTimestamp: string; // ISO timestamp
+    };
+
+    // Activity metrics
+    activityMetrics: {
+        lastEditTimestamp: string; // ISO timestamp
+        editCountLast24Hours: number; // Edit count
+        editCountLastWeek: number; // Edit count
+        averageDailyEdits: number; // Avg edits per active day
+    };
+
+    // Quality indicators
+    qualityMetrics: {
+        spellcheckIssueCount: number; // Spelling issues
+        flaggedSegmentsCount: number; // Segments needing review
+        consistencyScore: number; // 0-100 score
+    };
 }
 
 /**
@@ -65,210 +120,12 @@ export class SyncManager {
     private pendingChanges: string[] = [];
     // Track active progress notification
     private activeProgressNotification: Promise<void> | undefined;
-    private updatingCheckInterval: NodeJS.Timeout | null = null;
-    // Track if user has been notified about swap (keyed by swapInitiatedAt to allow new swap notifications)
-    private swapNotificationShownFor: number | null = null;
 
     private constructor() {
         // Initialize with configuration values
         this.updateFromConfiguration();
         // Subscribe to Frontier sync events
         this.subscribeFrontierSyncEvents();
-
-        // Start monitoring for updating requirements
-        this.startUpdatingMonitor();
-    }
-
-    // Start monitoring for updating and swap requirements
-    private startUpdatingMonitor() {
-        if (this.updatingCheckInterval) {
-            clearInterval(this.updatingCheckInterval);
-        }
-
-        // Check periodically (every hour) if updating or swap is required
-        // This handles cases where the user is constantly working (resetting sync timer)
-        // or leaving the editor open without syncing
-        this.updatingCheckInterval = setInterval(async () => {
-            const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
-            if (hasWorkspace) {
-                const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
-                // Check for both updating and swap requirements
-                const isUpdatingRequired = await this.checkUpdating(projectPath);
-                if (!isUpdatingRequired) {
-                    // Only check swap if updating isn't required (updating takes priority)
-                    await this.checkProjectSwap(projectPath);
-                }
-            }
-        }, 60 * 60 * 1000); // 1 hour
-    }
-
-    // Check if updating is required and notify/block if so
-    private async checkUpdating(projectPath: string): Promise<boolean> {
-        try {
-            // Check if updating is required
-            // We force bypass cache to ensure we get the latest state from server
-            const result = await checkRemoteUpdatingRequired(projectPath, undefined, true);
-
-            if (result.required) {
-                debug("Updating required for user, blocking sync and notifying");
-
-                // Persist pending update flag so the projects list can surface it after close
-                try {
-                    await markPendingUpdateRequired(vscode.Uri.file(projectPath), result.reason ?? "Remote update required");
-                } catch (e) {
-                    console.warn("Failed to persist pending update flag:", e);
-                }
-
-                // Show modal dialog that cannot be missed (even if notifications are disabled)
-                const selection = await vscode.window.showWarningMessage(
-                    "Project Update Required\n\nA project administrator has initiated an update. Syncing has been disabled until you update.\n\nThe project must be closed to complete the update.",
-                    { modal: true },  // Modal dialog - appears in center, cannot be missed
-                    "Update Project"
-                );
-
-                // Close and update if user chooses to, otherwise abort and return to project
-                if (selection === "Update Project") {
-                    await vscode.commands.executeCommand("workbench.action.closeFolder");
-                }
-                // If user clicks Cancel (default button) or Escape, selection will be undefined - stay in project
-
-                return true;
-            }
-        } catch (error) {
-            console.error("Error checking updating requirement:", error);
-        }
-        return false;
-    }
-
-    // Check if project swap is required and notify/block if so
-    // isManualSync: when true, always show the dialog (user explicitly clicked sync)
-    // when false (hourly timer), only show once per swap entry to prevent infinite popups
-    private async checkProjectSwap(projectPath: string, isManualSync: boolean = false): Promise<boolean> {
-        try {
-            const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
-            // Force bypass cache to ensure we get the latest state from server
-            const result = await checkProjectSwapRequired(projectPath, undefined, true);
-
-            if (result.required && result.activeEntry && !result.remoteUnreachable) {
-                debug("Project swap required for user, blocking sync");
-
-                // Check if there are pending downloads for the swap
-                // If so, DON'T show the swap modal - let downloads complete first
-                const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
-                const pendingState = await getSwapPendingState(projectPath);
-
-                if (pendingState && pendingState.swapState === "pending_downloads") {
-                    debug("Swap has pending downloads - suppressing swap modal, allowing media downloads");
-                    // Return false to allow media operations to proceed
-                    // The swap modal will show after downloads complete via checkPendingSwapDownloads
-                    return false;
-                }
-
-                const activeEntry = result.activeEntry;
-                const swapTimestamp = activeEntry.swapInitiatedAt;
-
-                // For manual sync: always show the dialog so user knows why sync is blocked
-                // For automatic sync (hourly timer): only show once per swap entry to prevent infinite popups
-                const shouldShowDialog = isManualSync || this.swapNotificationShownFor !== swapTimestamp;
-
-                if (shouldShowDialog) {
-                    // Track that we've shown for this swap entry (for automatic checks)
-                    this.swapNotificationShownFor = swapTimestamp;
-
-                    const newProjectName = activeEntry.newProjectName;
-
-                    // Show modal dialog that cannot be missed
-                    const selection = await vscode.window.showWarningMessage(
-                        `📦 Project Swap Required\n\n` +
-                        `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
-                        `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
-                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
-                        `Syncing has been disabled until you swap.\n\n` +
-                        `Your local changes will be preserved and backed up.`,
-                        { modal: true },
-                        "Swap Now"
-                    );
-
-                    if (selection === "Swap Now") {
-                        // Close folder - StartupFlowProvider will handle the swap on next open
-                        await vscode.commands.executeCommand("workbench.action.closeFolder");
-                    }
-                } else {
-                    debug("Swap notification already shown for this swap entry (automatic check), silently blocking sync");
-                }
-
-                return true;
-            }
-        } catch (error) {
-            console.error("Error checking project swap requirement:", error);
-        }
-        return false;
-    }
-
-    /**
-     * Post-sync swap check: after sync completes, check if a swap is required and show notification.
-     * This handles:
-     * 1. Admin initiates swap → syncs with bypass → should see swap notification after sync
-     * 2. User syncs → pulls new swap info from remote → should see swap notification
-     * 
-     * This is async and non-blocking - we don't want to hold up the sync completion flow.
-     */
-    private async checkProjectSwapAfterSync(): Promise<void> {
-        try {
-            const projectPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!projectPath) {
-                return;
-            }
-
-            const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
-            // Force bypass cache to get the latest state (just synced, so remote might have new info)
-            const result = await checkProjectSwapRequired(projectPath, undefined, true);
-
-            if (result.required && result.activeEntry && !result.remoteUnreachable) {
-                // Check if there are pending downloads for the swap
-                // If so, DON'T show the swap modal - let downloads complete first
-                const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
-                const pendingState = await getSwapPendingState(projectPath);
-
-                if (pendingState && pendingState.swapState === "pending_downloads") {
-                    debug("[SyncManager] Post-sync: Swap has pending downloads - suppressing modal");
-                    return;
-                }
-
-                const activeEntry = result.activeEntry;
-                const swapTimestamp = activeEntry.swapInitiatedAt;
-
-                // Only show if we haven't shown for this swap entry yet (prevent double-notification)
-                if (this.swapNotificationShownFor !== swapTimestamp) {
-                    this.swapNotificationShownFor = swapTimestamp;
-
-                    debug("[SyncManager] Post-sync: Project swap required, showing notification");
-
-                    const newProjectName = activeEntry.newProjectName;
-
-                    // Show modal dialog
-                    const selection = await vscode.window.showWarningMessage(
-                        `📦 Project Swap Required\n\n` +
-                        `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
-                        `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
-                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
-                        `Your local changes will be preserved and backed up.`,
-                        { modal: true },
-                        "Swap Now"
-                    );
-
-                    if (selection === "Swap Now") {
-                        // Close folder - StartupFlowProvider will handle the swap on next open
-                        await vscode.commands.executeCommand("workbench.action.closeFolder");
-                    }
-                } else {
-                    debug("[SyncManager] Post-sync: Swap notification already shown for this entry");
-                }
-            }
-        } catch (error) {
-            // Non-fatal - don't disrupt the user if this check fails
-            debug("[SyncManager] Post-sync swap check error (non-fatal):", error);
-        }
     }
 
     public static getInstance(): SyncManager {
@@ -385,10 +242,6 @@ export class SyncManager {
                         if (this.codexInitiatedSyncCount > 0) {
                             this.codexInitiatedSyncCount--;
                         }
-                        // Post-sync swap check: after sync completes, check if a swap is required
-                        // This handles the case where the admin just initiated a swap and synced with bypass,
-                        // or when another user pushes swap info that gets pulled during sync
-                        this.checkProjectSwapAfterSync();
                         break;
                     case 'error':
                         console.error(`[Sync] ❌ Sync failed: ${status.message || 'Unknown error'}`);
@@ -547,34 +400,13 @@ export class SyncManager {
         commitMessage: string = "Manual sync",
         showInfoOnConnectionIssues: boolean = false,
         context?: vscode.ExtensionContext,
-        isManualSync: boolean = false,
-        bypassUpdatingCheck: boolean = false
+        isManualSync: boolean = false
     ): Promise<void> {
         // Check if there's a workspace folder open (unless it's a manual sync which user explicitly requested)
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace && !isManualSync) {
             debug("No workspace open, skipping sync operation");
             return;
-        }
-
-        const projectPath = hasWorkspace ? vscode.workspace.workspaceFolders![0].uri.fsPath : undefined;
-
-        // Check for updating requirement before proceeding (unless explicitly bypassed)
-        if (projectPath && !bypassUpdatingCheck) {
-            const isUpdatingRequired = await this.checkUpdating(projectPath);
-            if (isUpdatingRequired) {
-                debug("Sync blocked due to updating requirement");
-                return;
-            }
-        }
-
-        // Check for project swap requirement before proceeding (only when not bypassing)
-        if (projectPath && !bypassUpdatingCheck) {
-            const isSwapRequired = await this.checkProjectSwap(projectPath, isManualSync);
-            if (isSwapRequired) {
-                debug("Sync blocked due to project swap requirement");
-                return;
-            }
         }
 
         // RACE PREVENTION: Check and set in-memory flag atomically
@@ -924,13 +756,10 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             updateSplashScreenSync(100, "Synchronization complete");
 
-            // Clear local update completion flag now that sync has pushed changes to remote
-            try {
-                const { clearUpdateCompletedLocally } = await import("../utils/localProjectSettings");
-                await clearUpdateCompletedLocally(workspaceFolders?.[0]?.uri);
-            } catch (clearErr) {
-                // Non-fatal error
-            }
+            // TEMPORARILY DISABLED: progress report after successful sync
+            // const progressReportingService = ProgressReportingService.getInstance();
+            // progressReportingService.scheduleProgressReport();
+            // debug("📊 Progress report scheduled after successful sync");
 
             // Rebuild indexes in the background after successful sync (truly async)
             // Pass the sync result to optimize database synchronization
@@ -1245,6 +1074,12 @@ export class SyncManager {
         );
     }
 
+    // Force a progress report generation and submission
+    public async forceProgressReport(): Promise<boolean> {
+        const progressReportingService = ProgressReportingService.getInstance();
+        return await progressReportingService.forceProgressReport();
+    }
+
     // Show progress indicator for sync operation
     private async showSyncProgress(commitMessage: string): Promise<void> {
         // Wait for previous notification to close
@@ -1385,20 +1220,17 @@ export class SyncManager {
 
 // Register the command to trigger sync
 export function registerSyncCommands(context: vscode.ExtensionContext): void {
+    // Register progress reporting commands with background service
+    registerProgressReportingCommands(context);
+
     const syncManager = SyncManager.getInstance();
 
     // Command to trigger immediate sync
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.triggerSync",
-            async (message?: string, options?: { bypassUpdatingCheck?: boolean; }) => {
-                await syncManager.executeSync(
-                    message || "Manual sync triggered",
-                    true,
-                    context,
-                    true,
-                    options?.bypassUpdatingCheck
-                );
+            async (message?: string) => {
+                await syncManager.executeSync(message || "Manual sync triggered", true, context, true);
             }
         )
     );

@@ -71,6 +71,7 @@ export function createPdfCellMetadata(params: PdfCellMetadataParams): { metadata
 
                 // Import metadata
                 importTimestamp: new Date().toISOString(),
+                corpusMarker: 'pdf',
                 importerVersion: '1.0.0',
             },
         }

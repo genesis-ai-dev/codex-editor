@@ -14,6 +14,7 @@ export const docxRoundtripImporterPlugin: ImporterPlugin = {
     component: DocxImporterForm,
     supportedExtensions: ["docx"],
     supportedMimeTypes: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    tags: ["Round-trip", "Export"],
     enabled: true,
 };
 

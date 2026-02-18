@@ -34,59 +34,12 @@ function isCellInSelectedFiles(pair: TranslationPair, selectedFiles: string[]): 
 
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
-    // Pending search data to send when webview becomes ready
-    private pendingSearchData: { query: string; replaceText?: string } | null = null;
-    // Pending flag to enable replace mode when webview becomes ready
-    private pendingEnableReplace: boolean = false;
-    // Track whether webview has signaled ready
-    private _isWebviewReady: boolean = false;
-
     protected getWebviewId(): string {
         return "search-passages-sidebar";
     }
 
     protected getScriptPath(): string[] {
         return ["ParallelView", "index.js"];
-    }
-
-    // Set pending search data to be sent when webview is ready
-    // If webview is already ready, sends immediately
-    public setPendingSearch(query: string, replaceText?: string): void {
-        this.pendingSearchData = { query, replaceText };
-        if (this._isWebviewReady) {
-            this.sendPendingSearch();
-        }
-    }
-
-    // Set pending flag to enable replace mode when webview is ready
-    // If webview is already ready, sends immediately
-    public setPendingEnableReplace(): void {
-        this.pendingEnableReplace = true;
-        if (this._isWebviewReady) {
-            this.sendPendingEnableReplace();
-        }
-    }
-
-    // Send pending search data to webview and clear it
-    private sendPendingSearch(): void {
-        if (this.pendingSearchData && this._view?.webview) {
-            safePostMessageToView(this._view, {
-                command: "populateSearch",
-                query: this.pendingSearchData.query,
-                replaceText: this.pendingSearchData.replaceText,
-            });
-            this.pendingSearchData = null;
-        }
-    }
-
-    // Send enable replace message to webview and clear flag
-    private sendPendingEnableReplace(): void {
-        if (this.pendingEnableReplace && this._view?.webview) {
-            safePostMessageToView(this._view, {
-                command: "enableReplace",
-            });
-            this.pendingEnableReplace = false;
-        }
     }
 
     public async pinCellById(cellId: string, retryCount = 0) {
@@ -207,18 +160,6 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
-    // Reset ready state when webview is recreated
-    protected onWebviewResolved(): void {
-        this._isWebviewReady = false;
-    }
-
-    // Override the onWebviewReady hook to send pending data
-    protected onWebviewReady(): void {
-        this._isWebviewReady = true;
-        this.sendPendingSearch();
-        this.sendPendingEnableReplace();
-    }
-
     protected async handleMessage(message: any): Promise<void> {
         switch (message.command) {
             case "getProjectFiles":
@@ -240,26 +181,25 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 break;
             case "search":
                 try {
-                    const searchScope = message.searchScope || "both";
-                    const selectedFiles = message.selectedFiles || [];
-                    const completeOnly = message.completeOnly || false;
+                    const replaceMode = !!(message.replaceText && message.replaceText.trim());
+                    const searchScope = message.searchScope || "both"; // "both" | "source" | "target"
+                    // Always use searchAllCells with includeIncomplete: false to get optimized search results
+                    // This ensures we use the optimized SQLite searchCompleteTranslationPairsWithValidation method
+                    // while still supporting searchScope filtering. The completeOnly checkbox is kept for UI consistency.
+                    const command = "codex-editor-extension.searchAllCells";
 
-                    // Include incomplete (source-only) cells when:
-                    // 1. completeOnly is unchecked, OR
-                    // 2. searching source scope specifically
-                    const includeIncomplete = !completeOnly || searchScope === "source";
-
+                    const selectedFiles = message.selectedFiles || []; // Array of file URIs
                     const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                        "codex-editor-extension.searchAllCells",
+                        command,
                         message.query,
-                        500, // Max results
-                        includeIncomplete,
+                        500, // k value - show up to 500 results
+                        false, // includeIncomplete: false - ensures optimized SQLite path is used
                         false, // showInfo
                         {
                             isParallelPassagesWebview: true,
-                            searchScope: searchScope,
-                            selectedFiles: selectedFiles,
-                            completeOnly: completeOnly,
+                            replaceMode: replaceMode, // Pass replace mode flag
+                            searchScope: searchScope, // Pass search scope: "both" | "source" | "target"
+                            selectedFiles: selectedFiles // Pass selected file URIs for filtering
                         }
                     );
                     if (results) {

@@ -26,6 +26,8 @@ describe("ABTestVariantSelector", () => {
         variants: ["Translation variant A", "Translation variant B"],
         cellId: "test-cell-123",
         testId: "test-456",
+        names: ["fts5-bm25", "sbs"],
+        abProbability: 0.15,
         onVariantSelected: vi.fn(),
         onDismiss: vi.fn(),
     };
@@ -92,15 +94,84 @@ describe("ABTestVariantSelector", () => {
         });
     });
 
-    it("should show thank you message after selection", async () => {
+    it("should display 'See less' and 'See more' frequency controls after selection", async () => {
         render(<ABTestVariantSelector {...defaultProps} />);
 
         const variant = screen.getByText("Translation variant A");
         fireEvent.click(variant);
 
         await waitFor(() => {
-            expect(screen.getByText(/Thanks! Your choice helps improve suggestions/i)).toBeInTheDocument();
+            expect(screen.getByText(/See less/i)).toBeTruthy();
+            expect(screen.getByText(/See more/i)).toBeTruthy();
         });
+    });
+
+    it("should send adjustABTestingProbability message when 'See less' is clicked", async () => {
+        render(<ABTestVariantSelector {...defaultProps} />);
+
+        // First select a variant to reveal controls
+        const variant = screen.getByText("Translation variant A");
+        fireEvent.click(variant);
+
+        await waitFor(() => {
+            const seeLessButton = screen.queryByText(/See less/i);
+            expect(seeLessButton).toBeTruthy();
+        });
+
+        const seeLessButton = screen.getByText(/See less/i);
+        fireEvent.click(seeLessButton);
+
+        await waitFor(() => {
+            expect(mockVscode.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    command: "adjustABTestingProbability",
+                    content: expect.objectContaining({
+                        delta: -0.1,
+                        buttonChoice: "less"
+                    })
+                })
+            );
+        });
+    });
+
+    it("should send adjustABTestingProbability message when 'See more' is clicked", async () => {
+        render(<ABTestVariantSelector {...defaultProps} />);
+
+        // First select a variant to reveal controls
+        const variant = screen.getByText("Translation variant A");
+        fireEvent.click(variant);
+
+        await waitFor(() => {
+            const seeMoreButton = screen.queryByText(/See more/i);
+            expect(seeMoreButton).toBeTruthy();
+        });
+
+        const seeMoreButton = screen.getByText(/See more/i);
+        fireEvent.click(seeMoreButton);
+
+        await waitFor(() => {
+            expect(mockVscode.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    command: "adjustABTestingProbability",
+                    content: expect.objectContaining({
+                        delta: 0.1,
+                        buttonChoice: "more"
+                    })
+                })
+            );
+        });
+    });
+
+    it("should handle variants without names gracefully", () => {
+        const propsWithoutNames = {
+            ...defaultProps,
+            names: undefined,
+        };
+
+        render(<ABTestVariantSelector {...propsWithoutNames} />);
+
+        expect(screen.getByText("Translation variant A")).toBeInTheDocument();
+        expect(screen.getByText("Translation variant B")).toBeInTheDocument();
     });
 
     it("should record selection time when variant is clicked", async () => {
@@ -140,8 +211,9 @@ describe("ABTestVariantSelector", () => {
         const { unmount } = render(<ABTestVariantSelector {...defaultProps} />);
 
         defaultProps.onDismiss();
-
+        
         expect(defaultProps.onDismiss).toHaveBeenCalled();
         unmount();
     });
 });
+

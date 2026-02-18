@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import VerseItem from "./CellItem";
 import { TranslationPair } from "../../../../types";
 import { Button } from "../components/ui/button";
@@ -39,9 +39,6 @@ interface SearchTabProps {
     replaceErrors?: Array<{ cellId: string; error: string }>;
     onClearReplaceErrors?: () => void;
     vscode: any;
-    forceReplaceExpanded?: boolean;
-    showPinnedOnly?: boolean;
-    onTogglePinnedFilter?: () => void;
 }
 
 function SearchTab({
@@ -68,27 +65,15 @@ function SearchTab({
     replaceErrors = [],
     onClearReplaceErrors,
     vscode,
-    forceReplaceExpanded,
-    showPinnedOnly = false,
-    onTogglePinnedFilter,
 }: SearchTabProps) {
+    const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
     const [isReplaceExpanded, setIsReplaceExpanded] = useState(false);
-
-    // Expand replace section when forceReplaceExpanded becomes true
-    useEffect(() => {
-        if (forceReplaceExpanded) {
-            setIsReplaceExpanded(true);
-        }
-    }, [forceReplaceExpanded]);
     const [isLoading, setIsLoading] = useState(false);
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
     const [showRecentSearches, setShowRecentSearches] = useState(false);
     const [fileSearchQuery, setFileSearchQuery] = useState<string>("");
     const [showFileSelector, setShowFileSelector] = useState(false);
-    const [retainValidations, setRetainValidations] = useState<boolean>(() => {
-        const saved = localStorage.getItem("retainMyValidations");
-        return saved === "true";
-    });
+    const [retainValidations, setRetainValidations] = useState<boolean>(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const replaceTextareaRef = useRef<HTMLTextAreaElement>(null);
     const fileSelectorRef = useRef<HTMLDivElement>(null);
@@ -107,11 +92,6 @@ function SearchTab({
             setRecentSearches(JSON.parse(savedSearches).slice(0, 5));
         }
     }, []);
-
-    // Persist retainValidations to localStorage when it changes
-    useEffect(() => {
-        localStorage.setItem("retainMyValidations", String(retainValidations));
-    }, [retainValidations]);
 
     const handleSearch = (event?: React.FormEvent) => {
         if (event) event.preventDefault();
@@ -149,14 +129,6 @@ function SearchTab({
             onReplaceTextChange("");
         }
     }, [isReplaceExpanded, onReplaceTextChange]);
-
-    // Auto-switch to "target" scope when user enters replacement text
-    // This provides better UX than disabling the replace button
-    useEffect(() => {
-        if (replaceText.trim() && searchScope !== "target") {
-            onSearchScopeChange("target");
-        }
-    }, [replaceText, searchScope, onSearchScopeChange]);
 
     const handleReplaceAll = () => {
         if (!onReplaceAll || !replaceText.trim() || !lastQuery.trim() || verses.length === 0)
@@ -240,17 +212,6 @@ function SearchTab({
     const allSelected = projectFiles.length > 0 && selectedFiles.length === projectFiles.length;
     const noneSelected = selectedFiles.length === 0;
 
-    const sortedVerses = useMemo(() => {
-        const filtered = showPinnedOnly
-            ? verses.filter((v) => pinnedVerses.some((p) => p.cellId === v.cellId))
-            : verses;
-        return [...filtered].sort((a, b) => {
-            const aPin = pinnedVerses.some((v) => v.cellId === a.cellId) ? 1 : 0;
-            const bPin = pinnedVerses.some((v) => v.cellId === b.cellId) ? 1 : 0;
-            return bPin - aPin;
-        });
-    }, [verses, pinnedVerses, showPinnedOnly]);
-
     return (
         <div className="flex flex-col h-full p-4 gap-4" onClick={handleClickOutside}>
             <Card className="p-4">
@@ -327,194 +288,56 @@ function SearchTab({
                             )}
                         </div>
 
-                        {/* Options row - all search options in one organized row */}
-                        <div className="flex items-center gap-2 border-t pt-3 flex-wrap">
-                            {/* Search scope toggle */}
-                            <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
-                                <button
-                                    type="button"
-                                    onClick={() => onSearchScopeChange("both")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
-                                        searchScope === "both"
-                                            ? "bg-background shadow-sm font-medium"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                                >
-                                    Both
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => onSearchScopeChange("source")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
-                                        searchScope === "source"
-                                            ? "bg-background shadow-sm font-medium"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                                >
-                                    Source
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => onSearchScopeChange("target")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
-                                        searchScope === "target"
-                                            ? "bg-background shadow-sm font-medium"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                                >
-                                    Target
-                                </button>
-                            </div>
+                        <div className="flex items-center justify-between gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsReplaceExpanded(!isReplaceExpanded)}
+                                aria-label="Toggle replace"
+                                aria-expanded={isReplaceExpanded}
+                                className="parallel-action-button flex-1 min-w-0"
+                            >
+                                <span className="codicon codicon-replace flex-shrink-0"></span>
+                                <span className="parallel-button-text ml-2">Replace</span>
+                                <span
+                                    className={`codicon codicon-chevron-${
+                                        isReplaceExpanded ? "up" : "down"
+                                    } ml-2 flex-shrink-0`}
+                                ></span>
+                            </Button>
 
-                            {/* Divider */}
-                            <div className="h-4 w-px bg-border" />
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
+                                aria-label="Toggle search settings"
+                                aria-expanded={isSettingsExpanded}
+                                className="parallel-action-button flex-1 min-w-0"
+                            >
+                                <span className="codicon codicon-settings-gear flex-shrink-0"></span>
+                                <span className="parallel-button-text ml-2">Settings</span>
+                                <span
+                                    className={`codicon codicon-chevron-${
+                                        isSettingsExpanded ? "up" : "down"
+                                    } ml-2 flex-shrink-0`}
+                                ></span>
+                            </Button>
 
-                            {/* Complete only checkbox */}
-                            <label className="flex items-center gap-1.5 text-xs cursor-pointer hover:text-foreground text-muted-foreground">
-                                <input
-                                    type="checkbox"
-                                    checked={completeOnly}
-                                    onChange={(e) => onCompleteOnlyChange(e.target.checked)}
-                                    className="h-3.5 w-3.5 rounded border border-input"
-                                />
-                                Complete only
-                            </label>
-
-                            {/* File selector */}
-                            {projectFiles.length > 0 && (
-                                <>
-                                    <div className="h-4 w-px bg-border" />
-                                    <div className="file-selector-container relative">
-                                        <button
-                                            type="button"
-                                            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                                            onClick={() => setShowFileSelector(!showFileSelector)}
-                                        >
-                                            <span className="codicon codicon-files"></span>
-                                            {allSelected
-                                                ? "All files"
-                                                : noneSelected
-                                                ? "No files"
-                                                : `${selectedFiles.length}/${projectFiles.length}`}
-                                            <span
-                                                className={`codicon codicon-chevron-${
-                                                    showFileSelector ? "up" : "down"
-                                                } text-[10px]`}
-                                            ></span>
-                                        </button>
-                                    {showFileSelector && (
-                                        <Card className="absolute top-full left-0 mt-1 z-20 max-h-64 overflow-hidden flex flex-col min-w-[200px]">
-                                            <CardContent className="p-0 flex flex-col">
-                                                <div className="p-2 border-b flex gap-2">
-                                                    <Input
-                                                        type="text"
-                                                        placeholder="Search files..."
-                                                        value={fileSearchQuery}
-                                                        onChange={(e) =>
-                                                            setFileSearchQuery(e.target.value)
-                                                        }
-                                                        className="flex-1 h-7 text-xs"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={handleSelectAllFiles}
-                                                        className="text-xs h-7 px-2"
-                                                    >
-                                                        All
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={handleDeselectAllFiles}
-                                                        className="text-xs h-7 px-2"
-                                                    >
-                                                        None
-                                                    </Button>
-                                                </div>
-                                                <div className="overflow-y-auto max-h-48">
-                                                    {filteredFiles.length === 0 ? (
-                                                        <div className="p-4 text-sm text-muted-foreground text-center">
-                                                            No files found
-                                                        </div>
-                                                    ) : (
-                                                        filteredFiles.map((file) => {
-                                                            const isSelected =
-                                                                selectedFiles.includes(file.uri);
-                                                            return (
-                                                                <div
-                                                                    key={file.uri}
-                                                                    className="flex items-center space-x-2 p-2 hover:bg-muted cursor-pointer"
-                                                                    onClick={() =>
-                                                                        handleFileToggle(file.uri)
-                                                                    }
-                                                                >
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={isSelected}
-                                                                        onChange={() =>
-                                                                            handleFileToggle(file.uri)
-                                                                        }
-                                                                        className="h-4 w-4 rounded border border-input"
-                                                                    />
-                                                                    <span className="text-sm flex-1">
-                                                                        {file.name}
-                                                                    </span>
-                                                                    <Badge
-                                                                        variant="outline"
-                                                                        className="text-xs"
-                                                                    >
-                                                                        {file.type === "source"
-                                                                            ? "Source"
-                                                                            : "Target"}
-                                                                    </Badge>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    )}
-                                    </div>
-                                </>
-                            )}
-
-                            {/* Spacer */}
-                            <div className="flex-1" />
-
-                            {/* Action buttons */}
-                            <div className="flex items-center gap-1">
+                            {verses.length > 0 && (
                                 <Button
                                     type="button"
-                                    variant={isReplaceExpanded ? "secondary" : "ghost"}
+                                    variant="secondary"
                                     size="sm"
-                                    onClick={() => setIsReplaceExpanded(!isReplaceExpanded)}
-                                    className="h-7 px-2 text-xs"
-                                    aria-label="Toggle replace"
-                                    aria-expanded={isReplaceExpanded}
+                                    onClick={onPinAll}
+                                    aria-label="Pin all results"
+                                    className="parallel-action-button flex-1 min-w-0"
                                 >
-                                    <span className="codicon codicon-replace"></span>
-                                    <span className="ml-1">Replace</span>
+                                    <span className="codicon codicon-pin flex-shrink-0"></span>
+                                    <span className="parallel-button-text ml-2">Pin All</span>
                                 </Button>
-
-                                {verses.length > 0 && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={onPinAll}
-                                        className="h-7 px-2 text-xs"
-                                        aria-label="Pin all results"
-                                    >
-                                        <span className="codicon codicon-pin"></span>
-                                        <span className="ml-1">Pin All</span>
-                                    </Button>
-                                )}
-                            </div>
+                            )}
                         </div>
 
                         {isReplaceExpanded && (
@@ -659,6 +482,171 @@ function SearchTab({
                             </div>
                         )}
 
+                        {isSettingsExpanded && (
+                            <div className="border-t pt-4 space-y-4">
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        id="complete-only"
+                                        checked={completeOnly}
+                                        onChange={(e) => onCompleteOnlyChange(e.target.checked)}
+                                        className="h-4 w-4 rounded border border-input text-primary"
+                                    />
+                                    <label
+                                        htmlFor="complete-only"
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                        Show only completed translations
+                                    </label>
+                                </div>
+                                <div className="space-y-2">
+                                    <label
+                                        htmlFor="search-scope"
+                                        className="text-sm font-medium block"
+                                    >
+                                        Search scope
+                                    </label>
+                                    <select
+                                        id="search-scope"
+                                        value={searchScope}
+                                        onChange={(e) =>
+                                            onSearchScopeChange(
+                                                e.target.value as "both" | "source" | "target"
+                                            )
+                                        }
+                                        className="w-full px-3 py-2 text-sm border border-input rounded-md bg-background"
+                                    >
+                                        <option value="both">Both source and target</option>
+                                        <option value="source">Source text only</option>
+                                        <option value="target">Target text only</option>
+                                    </select>
+                                    {replaceText &&
+                                        replaceText.trim() &&
+                                        searchScope !== "target" && (
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Note: Replace only works on target text. Set scope
+                                                to "Target text only" to replace matches.
+                                            </p>
+                                        )}
+                                </div>
+                                {projectFiles.length > 0 && (
+                                    <div className="space-y-2 file-selector-container relative">
+                                        <label className="text-sm font-medium block">
+                                            Files to search
+                                        </label>
+                                        <div className="relative">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="w-full justify-between"
+                                                onClick={() =>
+                                                    setShowFileSelector(!showFileSelector)
+                                                }
+                                            >
+                                                <span>
+                                                    {allSelected
+                                                        ? "All files"
+                                                        : noneSelected
+                                                        ? "No files selected"
+                                                        : `${selectedFiles.length} of ${projectFiles.length} files`}
+                                                </span>
+                                                <span
+                                                    className={`codicon codicon-chevron-${
+                                                        showFileSelector ? "up" : "down"
+                                                    }`}
+                                                ></span>
+                                            </Button>
+                                            {showFileSelector && (
+                                                <Card className="absolute top-full left-0 right-0 mt-1 z-20 max-h-64 overflow-hidden flex flex-col">
+                                                    <CardContent className="p-0 flex flex-col">
+                                                        <div className="p-2 border-b flex gap-2">
+                                                            <Input
+                                                                type="text"
+                                                                placeholder="Search files..."
+                                                                value={fileSearchQuery}
+                                                                onChange={(e) =>
+                                                                    setFileSearchQuery(
+                                                                        e.target.value
+                                                                    )
+                                                                }
+                                                                className="flex-1"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            />
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={handleSelectAllFiles}
+                                                                className="text-xs"
+                                                            >
+                                                                All
+                                                            </Button>
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={handleDeselectAllFiles}
+                                                                className="text-xs"
+                                                            >
+                                                                None
+                                                            </Button>
+                                                        </div>
+                                                        <div className="overflow-y-auto max-h-48">
+                                                            {filteredFiles.length === 0 ? (
+                                                                <div className="p-4 text-sm text-muted-foreground text-center">
+                                                                    No files found
+                                                                </div>
+                                                            ) : (
+                                                                filteredFiles.map((file) => {
+                                                                    const isSelected =
+                                                                        selectedFiles.includes(
+                                                                            file.uri
+                                                                        );
+                                                                    return (
+                                                                        <div
+                                                                            key={file.uri}
+                                                                            className="flex items-center space-x-2 p-2 hover:bg-muted cursor-pointer"
+                                                                            onClick={() =>
+                                                                                handleFileToggle(
+                                                                                    file.uri
+                                                                                )
+                                                                            }
+                                                                        >
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isSelected}
+                                                                                onChange={() =>
+                                                                                    handleFileToggle(
+                                                                                        file.uri
+                                                                                    )
+                                                                                }
+                                                                                className="h-4 w-4 rounded border border-input"
+                                                                            />
+                                                                            <span className="text-sm flex-1">
+                                                                                {file.name}
+                                                                            </span>
+                                                                            <Badge
+                                                                                variant="outline"
+                                                                                className="text-xs"
+                                                                            >
+                                                                                {file.type ===
+                                                                                "source"
+                                                                                    ? "Source"
+                                                                                    : "Target"}
+                                                                            </Badge>
+                                                                        </div>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </form>
                 </CardContent>
             </Card>
@@ -666,24 +654,14 @@ function SearchTab({
             {verses.length > 0 && (
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                            {showPinnedOnly ? "Pinned Results" : "Search Results"}
-                        </span>
-                        <Badge variant="secondary">{sortedVerses.length}</Badge>
+                        <span className="text-sm font-medium">Search Results</span>
+                        <Badge variant="secondary">{verses.length}</Badge>
                     </div>
                     {pinnedVerses.length > 0 && (
-                        <button
-                            type="button"
-                            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                            onClick={onTogglePinnedFilter}
-                            aria-label={showPinnedOnly ? "Show all results" : "Show pinned only"}
-                            title={showPinnedOnly ? "Show all results" : "Show pinned only"}
-                        >
+                        <div className="flex items-center gap-2">
                             <span className="text-sm text-muted-foreground">Pinned:</span>
-                            <Badge variant={showPinnedOnly ? "default" : "outline"}>
-                                {pinnedVerses.length}
-                            </Badge>
-                        </button>
+                            <Badge variant="outline">{pinnedVerses.length}</Badge>
+                        </div>
                     )}
                 </div>
             )}
@@ -700,7 +678,7 @@ function SearchTab({
                         </p>
                     </div>
                 ) : (
-                    sortedVerses.map((item, index) => {
+                    verses.map((item, index) => {
                         const isPinned = pinnedVerses.some((verse) => verse.cellId === item.cellId);
                         return (
                             <VerseItem

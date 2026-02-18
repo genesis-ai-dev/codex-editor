@@ -17,4 +17,5 @@ export const indesignImporterPlugin: ImporterPlugin = {
     supportedExtensions: ['idml'],
     supportedMimeTypes: ['application/vnd.adobe.indesign-idml-package'],
     enabled: true,
+    tags: ['Essential', 'Documents', 'Adobe', 'Professional', 'RoundTrip'],
 };

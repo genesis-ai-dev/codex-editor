@@ -707,11 +707,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
 
-            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string } | undefined)?.fileDisplayName;
-            const fallbackName = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
-            const namePart = (fileDisplayName ?? fallbackName).replace(/\s+/g, "");
-            webviewPanel.title = namePart + (isSourceText ? ".source" : ".codex");
-
             // Get bundled metadata to avoid separate requests
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             const validationCount = config.get("validationCount", 1);
@@ -732,14 +727,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Check authentication status
             let isAuthenticated = false;
             try {
-                // For localhost development, skip auth check
-                const config = vscode.workspace.getConfiguration("codex-editor-extension");
-                const endpoint = (config.get("llmEndpoint") as string) || "";
-                const isLocalhost = endpoint.includes("localhost") || endpoint.includes("127.0.0.1");
-
-                if (isLocalhost) {
-                    isAuthenticated = true;
-                } else if (authApi) {
+                if (authApi) {
                     const authStatus = authApi.getAuthStatus();
                     isAuthenticated = authStatus?.isAuthenticated ?? false;
                 }
@@ -834,7 +822,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     if (isAuthenticated && userInfo?.username) {
                         const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                         if (ws) {
-                            const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteUpdatingManager");
+                            const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteHealingManager");
                             const git = await import("isomorphic-git");
                             const fs = await import("fs");
                             const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
@@ -846,7 +834,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     const memberList = await fetchProjectMembers(projectId);
                                     if (memberList) {
                                         const currentUserMember = memberList.find(
-                                            (m: { username: string; email: string; accessLevel: number; }) => m.username === userInfo.username || m.email === userInfo.email
+                                            m => m.username === userInfo.username || m.email === userInfo.email
                                         );
                                         if (currentUserMember) {
                                             userAccessLevel = currentUserMember.accessLevel;
@@ -875,14 +863,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     validationCountAudio: validationCountAudio,
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
-                });
-
-                // Record the initial position so subsequent updateWebview() calls
-                // (e.g. from "getContent") see a tracked position and send
-                // refreshCurrentPage instead of duplicating the initial content.
-                this.currentMilestoneSubsectionMap.set(docUri, {
-                    milestoneIndex: initialMilestoneIndex,
-                    subsectionIndex: initialSubsectionIndex,
                 });
             }
 
@@ -1067,29 +1047,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up navigation functions
         const navigateToSection = (cellId: string) => {
             debug("Navigating to section:", cellId);
-
-            // Compute the correct position using the document's milestone/subsection finder
-            // This is more accurate than the webview's algorithm which incorrectly assumes
-            // verse numbers correspond to cell positions
-            const cellsPerPage = this.CELLS_PER_PAGE;
-            const position = document.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
-
-            if (position) {
-                debug("Computed position for cell:", cellId, "milestoneIndex:", position.milestoneIndex, "subsectionIndex:", position.subsectionIndex);
-                safePostMessageToPanel(webviewPanel, {
-                    type: "jumpToSection",
-                    content: cellId,
-                    milestoneIndex: position.milestoneIndex,
-                    subsectionIndex: position.subsectionIndex,
-                });
-            } else {
-                // Fallback: send just the cellId if position couldn't be computed
-                debug("Could not compute position for cell:", cellId, "falling back to cellId only");
-                safePostMessageToPanel(webviewPanel, {
-                    type: "jumpToSection",
-                    content: cellId,
-                });
-            }
+            safePostMessageToPanel(webviewPanel, {
+                type: "jumpToSection",
+                content: cellId,
+            });
         };
         const openCellByIdImpl = (cellId: string, text: string) => {
             debug("Opening cell by ID:", cellId, text);
@@ -1352,27 +1313,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         } else {
             console.error("No active webview panels");
-        }
-    }
-
-    /**
-     * Toggle the in-tab floating search bar in the current document's webview
-     */
-    public toggleInTabSearch() {
-        debug("Toggling in-tab search");
-        if (!this.currentDocument) {
-            debug("No current document, cannot toggle search");
-            return;
-        }
-
-        const docUri = this.currentDocument.uri.toString();
-        const panel = this.webviewPanels.get(docUri);
-        if (panel) {
-            safePostMessageToPanel(panel, {
-                type: "toggleSearch",
-            } as any);
-        } else {
-            console.error("No webview panel found for current document");
         }
     }
 
@@ -3552,19 +3492,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         this.singleCellQueueCancellation?.token ||
                         new vscode.CancellationTokenSource().token;
 
-                    // Determine if this is a batch operation (chapter autocomplete or multiple cells queued)
-                    // A/B testing is disabled during batch operations to avoid interrupting the workflow
-                    const isBatchOperation = this.autocompletionState.isProcessing ||
-                        (this.singleCellQueueState.isProcessing && this.singleCellQueueState.totalCells > 1);
-
                     // Perform LLM completion (always returns AB-style result)
                     const completionResult = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
-                        cancellationToken,
-                        true, // returnHTML
-                        isBatchOperation
+                        cancellationToken
                     );
 
                     // Check for cancellation before updating document - this is crucial to prevent cell population
@@ -3575,7 +3508,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, testName, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
+                        const { variants, testId, testName, names } = completionResult as any;
 
                         // If variants are identical (ignoring whitespace), treat as single completion
                         try {
@@ -3599,31 +3532,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
                         }
 
+                        // Win rates are tracked in cloud analytics, not shown in UI
+
                         if (webviewPanel) {
-                            const actualTestId = testId || `${currentCellId}-${Date.now()}`;
-
-                            // If this is an attention check, register it so we can handle the response
-                            if (isAttentionCheck && typeof correctIndex === 'number') {
-                                const { registerAttentionCheck } = await import("./codexCellEditorMessagehandling");
-                                registerAttentionCheck(actualTestId, {
-                                    cellId: currentCellId,
-                                    correctIndex,
-                                    correctVariant: variants[correctIndex],
-                                    decoyCellId,
-                                });
-                                console.log(`[Attention Check] Registered for testId ${actualTestId}, correctIndex ${correctIndex}`);
-                            }
-
-                            // Send variants to webview - frontend doesn't need attention check details
+                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
                                     variants,
                                     cellId: currentCellId,
-                                    testId: actualTestId,
+                                    testId: testId || `${currentCellId}-${Date.now()}`,
                                     testName,
+                                    names,
+                                    abProbability: Math.max(0, Math.min(1, abProb)),
                                 },
-                            });
+                            } as any);
                         }
 
                         // Mark single cell translation as complete so UI progress/spinners stop

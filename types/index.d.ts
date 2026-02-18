@@ -113,7 +113,6 @@ interface GlobalMessage {
 }
 interface TranslationPair {
     cellId: string;
-    cellLabel?: string | null; // Semantic label like "5:12" (chapter:position) for display
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
     edits?: EditHistory[]; // Make this optional as it might not always be present
@@ -263,7 +262,6 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.requestPasswordReset"; }
     // | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
-    | { command: "project.cloneDeprecated"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
     | { command: "workspace.open"; }
@@ -282,21 +280,19 @@ export type MessagesToStartupFlowProvider =
     | { command: "metadata.check"; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
+    | { command: "project.submitProgressReport"; forceSubmit?: boolean; }
+    | { command: "getProjectProgress"; }
+    | { command: "getAggregatedProgress"; }
+    | { command: "showProgressDashboard"; }
     | { command: "startup.dismiss"; }
     | { command: "skipAuth"; }
-    | { command: "network.connectivityRestored"; }
     | { command: "webview.ready"; }
     | { command: "extension.installFrontier"; }
     | { command: "navigateToMainMenu"; }
     | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
-    | { command: "project.update"; projectName: string; projectPath: string; gitOriginUrl?: string; }
-    | { command: "project.renameFolder"; projectPath: string; newName: string; }
+    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; }
     | { command: "project.setMediaStrategy"; projectPath: string; mediaStrategy: MediaFilesStrategy; }
-    | { command: "project.cleanupMediaFiles"; projectPath: string; }
-    | { command: "project.fixAndOpen"; projectPath: string; }
-    | { command: "project.performSwap"; projectPath: string; }
-    | { command: "systemMessage.generate"; }
-    | { command: "systemMessage.save"; message: string; };
+    | { command: "project.cleanupMediaFiles"; projectPath: string; };
 
 export type GitLabProject = {
     id: number;
@@ -314,8 +310,6 @@ export type ProjectSyncStatus =
     | "downloadedAndSynced"
     | "cloudOnlyNotSynced"
     | "localOnlyNotSynced"
-    | "orphaned"
-    | "serverUnreachable"
     | "error";
 
 export type MediaFilesStrategy =
@@ -326,7 +320,7 @@ export type MediaFilesStrategy =
 export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     mediaStrategy?: MediaFilesStrategy; // Media files download strategy for this project
-    projectSwap?: ProjectSwapInfo;
+    completionPercentage?: number;
 };
 
 export type MessagesFromStartupFlowProvider =
@@ -334,7 +328,6 @@ export type MessagesFromStartupFlowProvider =
     | {
         command: "projectsListFromGitLab";
         projects: Array<ProjectWithSyncStatus>;
-        currentUsername?: string;
         error?: string;
     }
     | {
@@ -376,33 +369,20 @@ export type MessagesFromStartupFlowProvider =
         data: {
             exists: boolean;
             hasCriticalData: boolean;
-            sourceLanguage?: any;
-            targetLanguage?: any;
-            sourceTexts?: string[];
-            chatSystemMessage?: string | null;
         };
     }
     | { command: "setupIncompleteCriticalDataMissing"; }
     | { command: "setupComplete"; }
+    | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
+    | { command: "progressData"; data: any; }
+    | { command: "aggregatedProgressData"; data: any; }
     | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
     | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
-    | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
+    | { command: "project.healingInProgress"; projectPath: string; healing: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
-    | { command: "project.renamingInProgress"; projectPath: string; renaming: boolean; }
     | { command: "project.zippingInProgress"; projectPath: string; zipType: "full" | "mini"; zipping: boolean; }
-    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; }
-    | {
-        command: "project.swapCloneWarning";
-        repoUrl: string;
-        isOldProject: boolean;
-        newProjectName?: string;
-        message: string;
-    }
-    | { command: "systemMessage.generated"; message: string; }
-    | { command: "systemMessage.generateError"; error: string; }
-    | { command: "systemMessage.saved"; }
-    | { command: "systemMessage.saveError"; error: string; };
+    | { command: "project.cleaningInProgress"; projectPath: string; cleaning: boolean; };
 
 type DictionaryPostMessages =
     | {
@@ -572,6 +552,7 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
+    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent; }
@@ -783,10 +764,7 @@ export type EditorPostMessages =
             selectedIndex: number;
             testId: string;
             selectionTimeMs: number;
-            totalVariants?: number;
-            selectedContent?: string;
-            testName?: string;
-            variants?: string[];
+            totalVariants: number;
         };
     }
     | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
@@ -861,6 +839,7 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
     : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
     : T extends readonly ["metadata", "fileDisplayName"] ? string
+    : T extends readonly ["metadata", "cellDisplayMode"] ? "inline" | "one-line-per-cell"
     : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
     : string | number | boolean | object;
@@ -981,6 +960,7 @@ export interface CustomNotebookMetadata {
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;
+    cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
     fontSize?: number;
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
@@ -1004,24 +984,10 @@ export interface CustomNotebookMetadata {
      */
     sourceFile?: string;
     /**
-     * Timestamp added to non-biblical imports to ensure unique filenames.
-     * Format: "YYYYMMDD_HHmmss" (e.g., "20260127_143025")
-     * This allows importing changed source files multiple times without overwriting.
-     */
-    importTimestamp?: string;
-    /**
      * One-time import context derived from the import process.
      * This is the canonical home for attributes that do not vary per-cell.
      */
     importContext?: NotebookImportContext;
-    /**
-     * USFM round-trip export: original file content and line-to-cell mappings.
-     * Stored by the USFM Experimental importer so export can work without the file in attachments.
-     */
-    structureMetadata?: {
-        originalUsfmContent: string;
-        lineMappings?: Array<{ lineIndex: number; cellId?: string;[key: string]: unknown; }>;
-    };
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1044,8 +1010,6 @@ type FileImporterType =
     | "markdown"
     | "subtitles"
     | "spreadsheet"
-    | "spreadsheet-csv"
-    | "spreadsheet-tsv"
     | "tms"
     | "pdf"
     | "indesign"
@@ -1191,8 +1155,6 @@ interface ProjectOverview extends Project {
 
 /* This is the project metadata that is saved in the metadata.json file */
 type ProjectMetadata = {
-    projectName?: string;
-    projectId?: string;
     format: string;
     edits?: ProjectEditHistory[];
     meta: {
@@ -1214,11 +1176,9 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
-        /** List of users that should be forced to restore/update their project when opening */
-        initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
+        /** List of users that should be forced to restore/heal their project when opening */
+        initiateRemoteHealingFor?: RemoteHealingEntry[];
         abbreviation?: string;
-        /** Project swap information for swapping to a new Git repository */
-        projectSwap?: ProjectSwapInfo;
     };
     idAuthorities: {
         [key: string]: {
@@ -1357,163 +1317,14 @@ export interface FileTypeMap {
     codex: "codex";
 }
 
-export interface RemoteUpdatingEntry {
-    userToUpdate: string;
+export interface RemoteHealingEntry {
+    userToHeal: string;
     addedBy: string;
     createdAt: number;
     updatedAt: number;
-    cancelled: boolean;
-    cancelledBy: string;
+    deleted: boolean;
+    deletedBy: string;
     executed: boolean;
-    clearEntry?: boolean;
-    /** @deprecated Use cancelled instead */
-    deleted?: boolean;
-    /** @deprecated Use cancelledBy instead */
-    deletedBy?: string;
-}
-
-export interface ProjectSwapUserEntry {
-    userToSwap: string;
-    createdAt: number;
-    updatedAt: number;
-    executed: boolean;
-    /** When this user completed their swap */
-    swapCompletedAt?: number;
-}
-
-/**
- * Individual swap entry - one per swap initiation
- * All swap information is self-contained in each entry
- */
-export interface ProjectSwapEntry {
-    /**
-     * Unique identifier for this specific swap event.
-     * Generated once when a swap is first initiated.
-     * Each swap in a chain gets a NEW swapUUID (A→B gets uuid-ab, B→C gets uuid-bc).
-     * 
-     * This is the primary key used for entry matching during merges.
-     * Both OLD and NEW project perspectives of the same swap share the same UUID.
-     */
-    swapUUID: string;
-
-    /**
-     * Immutable timestamp when this swap was initiated.
-     * This value never changes after the swap is created.
-     */
-    swapInitiatedAt: number;
-
-    /**
-     * Last modification timestamp for ENTRY-LEVEL changes only.
-     * Updated when: swapStatus, cancelledBy, cancelledAt, URLs, names change.
-     * NOT updated when: swappedUsers array changes (use swappedUsersModifiedAt).
-     */
-    swapModifiedAt: number;
-
-    /**
-     * Last modification timestamp for swappedUsers array changes.
-     * Updated when: users are added/updated in swappedUsers array.
-     * Used during merge to determine which swappedUsers data to prioritize.
-     */
-    swappedUsersModifiedAt?: number;
-
-    /** Only active or cancelled - execution state lives in localProjectSettings.json */
-    swapStatus: "active" | "cancelled";
-
-    /** TRUE = this entry is in the OLD (source) project
-     *  FALSE = this entry is in the NEW (destination) project
-     *  Swap detection ONLY happens when isOldProject === true */
-    isOldProject: boolean;
-
-    /** Source repository info (the OLD project) */
-    oldProjectUrl: string;
-    oldProjectName: string;
-
-    /** Target repository info (the NEW project URL) */
-    newProjectUrl: string;
-    newProjectName: string;
-
-    /** Who initiated and optional reason */
-    swapInitiatedBy: string;
-    swapReason?: string;
-
-    /**
-     * Users who completed this swap (moved to new project).
-     * This array is merged across OLD and NEW projects during sync.
-     * Users are matched by BOTH userToSwap AND createdAt (together as unique key).
-     */
-    swappedUsers?: ProjectSwapUserEntry[];
-
-    /** If cancelled, who cancelled it and when */
-    cancelledBy?: string;
-    cancelledAt?: number;
-}
-
-/**
- * Project Swap - Swap entire team from old Git repository to new one with clean history
- * 
- * This allows instance administrators to move all users to a fresh repository while
- * preserving all working files (.codex, .source, uncommitted changes, etc.)
- * 
- * Structure supports history preservation: cancelling and re-initiating creates new entries
- * in swapEntries array, preserving the history of all swap operations.
- * 
- * All swap information is contained within the entries - no top-level fields needed.
- */
-export interface ProjectSwapInfo {
-    /** Array of swap entries - supports history preservation */
-    swapEntries?: ProjectSwapEntry[];
-
-    // ============ CONVENIENCE FIELDS (computed from active entry) ============
-    // These are populated from the active swapEntry for easy access in webviews
-    // They are derived values, not stored in metadata.json
-
-    /** Whether this project is the OLD (source) project - derived from active entry */
-    isOldProject?: boolean;
-
-    /** URL of the old project (from active swap entry) - for display/filtering */
-    oldProjectUrl?: string;
-
-    /** Name of the old project (from active swap entry) - for display */
-    oldProjectName?: string;
-
-    /** URL of the new project (from active swap entry) - for display/filtering */
-    newProjectUrl?: string;
-
-    /** Name of the new project (from active swap entry) - for display */
-    newProjectName?: string;
-
-    /** Current swap status (from active swap entry) - "active" | "cancelled" */
-    swapStatus?: "active" | "cancelled";
-
-    /** Whether the current user has already completed this swap - derived, not stored in metadata.json */
-    currentUserAlreadySwapped?: boolean;
-}
-
-/**
- * Local (non-synced) state tracking for project swap
- * Stored in localProjectSettings.json
- */
-export interface LocalProjectSwap {
-    /** Whether a swap is pending for this user */
-    pendingSwap: boolean;
-
-    /** Links to the swapUUID from the active ProjectSwapEntry - used to track the swap chain locally */
-    swapUUID: string;
-
-    /** Path to backup .zip file */
-    backupPath?: string;
-
-    /** Whether swap is currently in progress */
-    swapInProgress: boolean;
-
-    /** Number of swap attempts */
-    swapAttempts: number;
-
-    /** Timestamp of last swap attempt */
-    lastAttemptTimestamp?: number;
-
-    /** Error from last failed attempt */
-    lastAttemptError?: string;
 }
 
 export interface AggregatedMetadata {
@@ -1604,18 +1415,12 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
-    | {
-        command: "deleteCorpusMarker";
-        content: {
-            corpusLabel: string;
-            displayName: string;
-            children: Array<{ uri: string; label: string; type: string }>;
-        };
-    }
     | { command: "openCellLabelImporter"; }
     | { command: "openCodexMigrationTool"; }
     | { command: "navigateToMainMenu"; }
     | { command: "openLoginFlow"; }
+    | { command: "getProjectProgress"; }
+    | { command: "showProgressDashboard"; }
     | { command: "project.delete"; data: { path: string; }; }
     | { command: "checkForUpdates"; }
     | { command: "downloadUpdate"; }
@@ -1626,9 +1431,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "setGlobalLineNumbers"; }
     | { command: "getAsrSettings"; }
     | { command: "saveAsrSettings"; data: { endpoint: string; }; }
-    | { command: "fetchAsrModels"; data: { endpoint: string; }; }
-    | { command: "setValidationCountDirect"; data: { count: number; }; }
-    | { command: "setValidationCountAudioDirect"; data: { count: number; }; };
+    | { command: "fetchAsrModels"; data: { endpoint: string; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1684,6 +1487,10 @@ type ProjectManagerMessageToWebview =
         };
     }
     | {
+        command: "progressData";
+        data: any; // Type for progress data
+    }
+    | {
         command: "updateStateChanged";
         data: {
             updateState: 'ready' | 'downloaded' | 'available for download' | 'downloading' | 'updating' | 'checking for updates' | 'idle' | 'disabled' | null;
@@ -1707,14 +1514,6 @@ interface LocalProject {
     description: string;
     isOutdated?: boolean;
     mediaStrategy?: MediaFilesStrategy;
-    pendingUpdate?: {
-        required: boolean;
-        reason?: string;
-        detectedAt?: number;
-    };
-    hasFolderNameMismatch?: boolean;
-    correctFolderName?: string;
-    projectSwap?: ProjectSwapInfo;
 }
 
 export interface BiblePreview extends BasePreview {
@@ -1897,11 +1696,7 @@ export type CellLabelImporterReceiveMessages = {
     importSource?: string;
 };
 
-export type CodexMigrationMatchMode =
-    | "globalReferences"
-    | "timestamps"
-    | "sequential"
-    | "lineNumber";
+export type CodexMigrationMatchMode = "globalReferences" | "timestamps" | "sequential";
 
 export interface MigrationMatchResult {
     fromCellId: string;
@@ -1920,12 +1715,6 @@ export type CodexMigrationToolPostMessages =
             toFilePath: string;
             matchMode: CodexMigrationMatchMode;
             forceOverride: boolean;
-            /** 1-based starting line in the source file (lineNumber mode only). */
-            fromStartLine?: number;
-            /** 1-based starting line in the target file (lineNumber mode only). */
-            toStartLine?: number;
-            /** Maximum number of cells to migrate (lineNumber mode only). Omit or 0 for no limit. */
-            maxCells?: number;
         };
     }
     | { command: "cancel"; };
@@ -2453,14 +2242,4 @@ type EditorReceiveMessages =
             selectedAudioId: string;
             validatedBy: ValidationEntry[];
         };
-    }
-    | {
-        type: "toggleSearch";
-    }
-    | {
-        type: "searchMatchCounts";
-        query: string;
-        milestoneMatchCounts: { [milestoneIdx: number]: number };
-        totalMatches: number;
-        error?: string;
     };

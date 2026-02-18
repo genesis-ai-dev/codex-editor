@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -405,239 +404,195 @@ export const validateFile = async (file: File): Promise<FileValidationResult> =>
 };
 
 /**
- * Converts PDF to DOCX via extension host
- */
-async function convertPdfToDocxViaExtension(file: File): Promise<File> {
-    return new Promise<File>((resolve, reject) => {
-        try {
-            const requestId = `pdf-to-docx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-            const cleanup = () => window.removeEventListener('message', onMessage as any);
-
-            const onMessage = (event: MessageEvent) => {
-                const data = (event && event.data) || {};
-                if (data && data.command === 'convertPdfToDocxResult' && data.requestId === requestId) {
-                    cleanup();
-                    if (data.success) {
-                        try {
-                            // For large files, the extension host saves the file and sends the path
-                            // For smaller files, it sends base64 data
-                            if (data.isLargeFile && data.docxFilePath) {
-                                // Request the file from extension host using file path
-                                (window as any).vscodeApi?.postMessage({
-                                    command: 'readFileFromPath',
-                                    requestId: `read-docx-${requestId}`,
-                                    filePath: data.docxFilePath
-                                });
-                                
-                                // Set up listener for file data
-                                const fileReaderCleanup = () => window.removeEventListener('message', fileReaderHandler as any);
-                                const fileReaderHandler = (fileEvent: MessageEvent) => {
-                                    const fileData = (fileEvent && fileEvent.data) || {};
-                                    if (fileData.command === 'readFileFromPathResult' && fileData.requestId === `read-docx-${requestId}`) {
-                                        fileReaderCleanup();
-                                        if (fileData.success && fileData.fileData) {
-                                            // Convert base64 to File object
-                                            const base64 = fileData.fileData;
-                                            const binaryString = atob(base64);
-                                            const bytes = new Uint8Array(binaryString.length);
-                                            for (let i = 0; i < binaryString.length; i++) {
-                                                bytes[i] = binaryString.charCodeAt(i);
-                                            }
-                                            
-                                            const docxFileName = file.name.replace(/\.pdf$/i, '.docx');
-                                            const docxFile = new File([bytes], docxFileName, {
-                                                type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                                                lastModified: file.lastModified
-                                            });
-                                            
-                                            resolve(docxFile);
-                                        } else {
-                                            reject(new Error(fileData.error || 'Failed to read DOCX file from path'));
-                                        }
-                                    }
-                                };
-                                
-                                window.addEventListener('message', fileReaderHandler as any);
-                                
-                                // Timeout for file read
-                                setTimeout(() => {
-                                    fileReaderCleanup();
-                                    reject(new Error('Timeout reading DOCX file from workspace'));
-                                }, 60000);
-                            } else {
-                                // Standard base64 path for smaller files
-                                const base64 = data.docxBase64;
-                                
-                                if (!base64 || typeof base64 !== 'string') {
-                                    throw new Error('Invalid base64 data received from conversion');
-                                }
-                                
-                                // Validate base64 string (basic check)
-                                if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64.replace(/\s/g, ''))) {
-                                    throw new Error('Invalid base64 encoding format');
-                                }
-                                
-                                const binaryString = atob(base64);
-                                const bytes = new Uint8Array(binaryString.length);
-                                for (let i = 0; i < binaryString.length; i++) {
-                                    bytes[i] = binaryString.charCodeAt(i);
-                                }
-                                
-                                // Create File object with .docx extension
-                                const docxFileName = file.name.replace(/\.pdf$/i, '.docx');
-                                const docxFile = new File([bytes], docxFileName, {
-                                    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                                    lastModified: file.lastModified
-                                });
-                                
-                                resolve(docxFile);
-                            }
-                        } catch (decodeError) {
-                            reject(new Error(`Failed to decode DOCX file: ${decodeError instanceof Error ? decodeError.message : 'Unknown error'}`));
-                        }
-                    } else {
-                        reject(new Error(data.error || 'Failed to convert PDF to DOCX'));
-                    }
-                }
-            };
-
-            window.addEventListener('message', onMessage as any);
-
-            // Read PDF as base64
-            const reader = new FileReader();
-            reader.onerror = () => {
-                cleanup();
-                reject(new Error('Failed to read PDF file'));
-            };
-            reader.onload = () => {
-                const dataUrl = (reader.result as string) || '';
-                const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-                
-                (window as any).vscodeApi?.postMessage({
-                    command: 'convertPdfToDocx',
-                    requestId,
-                    pdfBase64: base64,
-                });
-            };
-            
-            setTimeout(() => reader.readAsDataURL(file), 0);
-
-            // Safety timeout - increased for large PDFs with CMYK conversion
-            setTimeout(() => {
-                cleanup();
-                reject(new Error('PDF to DOCX conversion timed out after 10 minutes. Large PDFs with CMYK images may take longer. Please try again or use a smaller file.'));
-            }, 600000); // 10 minutes timeout for large files with CMYK conversion
-        } catch (err) {
-            reject(err instanceof Error ? err : new Error('Failed to request PDF to DOCX conversion'));
-        }
-    });
-}
-
-/**
- * Parses a PDF file by converting it to DOCX first, then using DOCX importer
- * This approach provides better layout preservation and round-trip fidelity
+ * Parses a PDF file for non-Bible text content
  */
 export const parseFile = async (
     file: File,
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Converting PDF', 'Converting PDF to DOCX format...', 10));
+        onProgress?.(createProgress('Reading File', 'Reading PDF file...', 10));
 
-        // Step 1: Convert PDF to DOCX using pdf2docx
-        const docxFile = await convertPdfToDocxViaExtension(file);
+        // Read file as ArrayBuffer to store original for round-trip export
+        const arrayBuffer = await file.arrayBuffer();
 
-        onProgress?.(createProgress('Importing DOCX', 'Importing converted DOCX file...', 30));
+        onProgress?.(createProgress('Extracting Text', 'Extracting text from PDF...', 30));
 
-        // Step 2: Import the DOCX file using DOCX importer
-        const { parseFile: parseDocxFile } = await import('../docx/index');
-        const docxResult = await parseDocxFile(docxFile, (progress) => {
-            // Map DOCX import progress (30-90%) to overall progress (30-90%)
-            const mappedProgress = 30 + (progress.progress || 0) * 0.6;
-            onProgress?.(createProgress(progress.stage || 'Importing DOCX', progress.message || '', mappedProgress));
+        const textContent = await extractTextViaExtension(file);
+
+        onProgress?.(createProgress('Processing Content', 'Processing extracted text...', 50));
+
+        // Split content by paragraphs (double newlines) and HTML breaks
+        // PDFs preserve paragraph breaks which represent natural text units
+        // Falls back to sentence splitting only if no paragraph breaks are found
+        const segments = splitPdfContentIntoSegments(textContent);
+
+        // Validate that we have segments
+        if (!segments || segments.length === 0) {
+            throw new Error('No content segments found in PDF. The PDF may be empty or contain only images.');
+        }
+
+        // Log for debugging
+        console.log(`[PDF Importer] Split PDF into ${segments.length} segments`);
+
+        onProgress?.(createProgress('Creating Cells', 'Creating cells from text segments...', 70));
+
+        // Filter out empty segments and create cells
+        const validSegments = segments.filter(segment => segment && segment.trim().length > 0);
+
+        if (validSegments.length === 0) {
+            throw new Error('No valid content segments found in PDF after filtering.');
+        }
+
+        // Create cells for each segment
+        const cells = await Promise.all(
+            validSegments.map(async (segment, index) => {
+                // Ensure we have valid content
+                const cleanText = segment
+                    .replace(/[\r\n]+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                if (!cleanText || cleanText.length === 0) {
+                    console.warn(`[PDF Importer] Skipping empty segment at index ${index}`);
+                    return null;
+                }
+
+                // Create cell metadata (generates UUID internally)
+                const { cellId, metadata: cellMetadata } = createPdfCellMetadata({
+                    originalContent: segment,
+                    cellLabel: (index + 1).toString(),
+                    segmentIndex: index,
+                    fileName: file.name,
+                    fileSize: file.size,
+                });
+
+                // Get cleaned text from metadata
+                const cleanedText = cellMetadata.originalText || cleanText;
+
+                // Create HTML content with paragraph semantics
+                const htmlContent = `<div class="pdf-paragraph" data-paragraph-index="${index + 1}">
+                    <p>${escapeHtml(cleanedText)}</p>
+                </div>`;
+
+                const cell = createProcessedCell(cellId, htmlContent, {
+                    type: 'text',
+                    ...cellMetadata,
+                } as any);
+
+                // Extract and process images from this cell (if any)
+                const images = await extractImagesFromHtml(htmlContent);
+                cell.images = images;
+
+                return cell;
+            })
+        );
+
+        // Filter out any null cells (from empty segments)
+        const validCells = cells.filter((cell): cell is NonNullable<typeof cell> => cell !== null);
+
+        if (validCells.length === 0) {
+            throw new Error('No valid cells created from PDF content. All segments were empty.');
+        }
+
+        onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 90));
+
+        // Create source notebook
+        const sourceNotebook = {
+            name: sanitizeFileName(file.name),
+            cells: validCells,
+            metadata: {
+                id: `pdf-${Date.now()}`,
+                originalFileName: file.name,
+                originalFileData: arrayBuffer, // Store original PDF for round-trip export
+                corpusMarker: 'pdf',
+                importerType: 'pdf', // Alias for corpusMarker (type requirement)
+                createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'pdf',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
+                sourceFile: file.name,
+                totalCells: cells.length,
+                fileType: 'pdf',
+                importDate: new Date().toISOString(),
+
+                // Segmentation info
+                segmentationType: 'sentences',
+
+                // Round-trip metadata
+                pdfDocumentMetadata: {
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    totalSentences: cells.length,
+                    importerVersion: '1.0.0',
+
+                    // Placeholder for future PDF metadata enhancements
+                    totalPages: undefined, // Will be populated when available
+                    pdfVersion: undefined,
+                    author: undefined,
+                    title: undefined,
+                    creationDate: undefined,
+                },
+            }
+        };
+
+        // Create codex notebook (empty for translation)
+        const codexNotebook = {
+            name: `${sanitizeFileName(file.name)}`,
+            cells: validCells.map(sourceCell =>
+                createProcessedCell(sourceCell.id, '', {
+                    ...sourceCell.metadata,
+                    originalContent: sourceCell.content
+                })
+            ),
+            metadata: {
+                id: `pdf-codex-${Date.now()}`,
+                originalFileName: file.name,
+                // Don't duplicate the original file data in codex
+                originalFileData: undefined,
+                corpusMarker: 'pdf',
+                importerType: 'pdf', // Alias for corpusMarker (type requirement)
+                createdAt: new Date().toISOString(),
+                importContext: {
+                    importerType: 'pdf',
+                    fileName: file.name,
+                    originalFileName: file.name,
+                    fileSize: file.size,
+                    importTimestamp: new Date().toISOString(),
+                },
+                sourceFile: file.name,
+                totalCells: cells.length,
+                fileType: 'pdf',
+                importDate: new Date().toISOString(),
+                isCodex: true,
+
+                // Segmentation info
+                segmentationType: 'sentences',
+
+                // Link to source metadata for round-trip
+                sourceMetadata: sourceNotebook.metadata,
+            }
+        };
+
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair({
+            source: sourceNotebook,
+            codex: codexNotebook,
         });
-
-        if (!docxResult.success || !docxResult.notebookPair) {
-            throw new Error('DOCX import failed after PDF conversion');
-        }
-
-        // Step 3: Override corpusMarker to "pdf" while keeping all DOCX structure
-        const sourceNotebook = docxResult.notebookPair.source;
-        const codexNotebook = docxResult.notebookPair.codex;
-
-        // For large files, don't store ArrayBuffers in metadata to avoid memory issues
-        // Instead, we'll save them during the write process
-        // Only store ArrayBuffers for smaller files (< 50MB)
-        const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024; // 50MB
-        const shouldStoreBuffers = file.size < LARGE_FILE_THRESHOLD && docxFile.size < LARGE_FILE_THRESHOLD;
-        
-        let originalPdfArrayBuffer: ArrayBuffer | undefined;
-        let convertedDocxArrayBuffer: ArrayBuffer | undefined;
-        
-        if (shouldStoreBuffers) {
-            originalPdfArrayBuffer = await file.arrayBuffer();
-            convertedDocxArrayBuffer = await docxFile.arrayBuffer();
-        }
-
-        // Override metadata to indicate PDF origin
-        sourceNotebook.metadata = {
-            ...sourceNotebook.metadata,
-            id: uuidv4(),
-            corpusMarker: 'pdf',
-            importerType: 'pdf',
-            originalFileName: file.name, // Keep original PDF filename
-            originalFileData: originalPdfArrayBuffer, // Store original PDF only if small (will be saved to attachments/originals)
-            fileType: 'pdf',
-            importContext: {
-                ...sourceNotebook.metadata.importContext,
-                importerType: 'pdf',
-                fileName: file.name,
-                originalFileName: file.name,
-                fileSize: file.size,
-            },
-            // Preserve DOCX metadata but mark as PDF
-            pdfDocumentMetadata: {
-                originalFileName: file.name,
-                fileSize: file.size,
-                convertedFromPdf: true,
-                convertedDocxFileName: docxFile.name,
-                // Store converted DOCX data for export only if small (will be saved separately)
-                convertedDocxData: convertedDocxArrayBuffer,
-                isLargeFile: !shouldStoreBuffers, // Flag to indicate files need to be saved from temp location
-            },
-        };
-
-        codexNotebook.metadata = {
-            ...codexNotebook.metadata,
-            id: uuidv4(),
-            corpusMarker: 'pdf',
-            importerType: 'pdf',
-            originalFileName: file.name,
-            fileType: 'pdf',
-            importContext: {
-                ...codexNotebook.metadata.importContext,
-                importerType: 'pdf',
-                fileName: file.name,
-                originalFileName: file.name,
-                fileSize: file.size,
-            },
-        };
-
-        // Note: corpusMarker is only set at notebook-level metadata, not in individual cells
-        // This keeps the notebook structure clean and avoids duplication
 
         onProgress?.(createProgress('Complete', 'PDF import completed successfully!', 100));
 
         return {
             success: true,
-            notebookPair: {
-                source: sourceNotebook,
-                codex: codexNotebook,
-            },
+            notebookPair: notebookPairWithMilestones,
             metadata: {
-                ...docxResult.metadata,
+                totalCells: validCells.length,
                 fileType: 'pdf',
+                importDate: new Date().toISOString(),
             }
         };
 

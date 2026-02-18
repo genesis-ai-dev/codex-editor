@@ -1,7 +1,13 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import "../tailwind.css";
+import "./CodexMigrationToolView.css";
+
+declare const vscode: {
+    postMessage: (message: any) => void;
+    getState: () => any;
+    setState: (state: any) => void;
+};
 
 const container = document.getElementById("root");
 if (container) {

@@ -13,4 +13,5 @@ export const subtitlesImporterPlugin: ImporterPlugin = {
     cellAligner: subtitlesCellAligner,
     supportedExtensions: ["vtt", "srt"],
     enabled: true,
+    tags: ["Media", "Timed"],
 };

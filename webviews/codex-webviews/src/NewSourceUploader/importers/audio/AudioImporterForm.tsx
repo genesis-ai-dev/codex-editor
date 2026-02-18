@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { v4 as uuidv4 } from 'uuid';
 import { ImporterComponentProps, SelectAudioFileMessage, ReprocessAudioFileMessage, FinalizeAudioImportMessage, AudioFileSelectedMessage, AudioFilesSelectedMessage, AudioImportProgressMessage, AudioImportCompleteMessage, UpdateAudioSegmentsMessage, AudioSegmentsUpdatedMessage } from "../../types/plugin";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -659,7 +658,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     name: docId,
                     cells: sourceCells,
                     metadata: {
-                        id: uuidv4(),
+                        id: docId,
                         originalFileName: file.fileName,
                         sourceFile: file.fileName,
                         importerType: "audio",
@@ -679,7 +678,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     name: docId,
                     cells: codexCells,
                     metadata: {
-                        id: uuidv4(),
+                        id: docId,
                         originalFileName: file.fileName,
                         sourceFile: file.fileName,
                         importerType: "audio",

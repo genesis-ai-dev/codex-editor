@@ -10,4 +10,5 @@ export const ebibleDownloadImporterPlugin: ImporterPlugin = {
     component: EbibleDownloadImporterForm,
     supportedExtensions: [], // No file extensions - this downloads remotely
     enabled: true,
+    tags: ["Remote", "Biblical"],
 };
