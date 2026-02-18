@@ -35,6 +35,14 @@ export interface CustomNotebookMetadata {
     corpusMarker: string;
     validationMigrationComplete?: boolean;
     fontSize?: number;
+    importerType?: string;
+    originalFileName?: string;
+    sourceFile?: string;
+    /**
+     * Timestamp added to non-biblical imports to ensure unique filenames.
+     * Format: "YYYYMMDD_HHmmss" (e.g., "20260127_143025")
+     */
+    importTimestamp?: string;
 }
 
 export interface ProgressPercentages {

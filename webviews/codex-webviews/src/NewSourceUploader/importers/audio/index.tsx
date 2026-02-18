@@ -28,6 +28,5 @@ export const audioImporterPlugin: ImporterPlugin = {
         "audio/flac",
     ],
     enabled: true,
-    tags: ["Essential", "Media", "Audio"],
 };
 
