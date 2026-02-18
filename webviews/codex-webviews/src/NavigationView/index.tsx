@@ -456,6 +456,24 @@ function NavigationView() {
         }));
     };
 
+    const handleDeleteCorpusMarker = (item: CodexItem) => {
+        const displayName =
+            item.children?.[0]?.corpusMarker ||
+            formatLabel(item.label, state.bibleBookMap || new Map());
+        vscode.postMessage({
+            command: "deleteCorpusMarker",
+            content: {
+                corpusLabel: item.label,
+                displayName,
+                children: item.children?.map((c) => ({
+                    uri: c.uri,
+                    label: c.label,
+                    type: c.type,
+                })) ?? [],
+            },
+        });
+    };
+
     const handleRenameModalClose = () => {
         setState((prev) => ({
             ...prev,
@@ -762,18 +780,32 @@ function NavigationView() {
                                     </Button>
                                 )}
                                 {item.type === "corpus" && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="menu-button w-6 h-6"
-                                        title="Rename Group"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleEditCorpusMarker(item);
-                                        }}
-                                    >
-                                        <i className="codicon codicon-edit text-xs" />
-                                    </Button>
+                                    <>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="menu-button w-6 h-6"
+                                            title="Rename Group"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditCorpusMarker(item);
+                                            }}
+                                        >
+                                            <i className="codicon codicon-edit text-xs" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="menu-button w-6 h-6"
+                                            title="Delete Folder"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteCorpusMarker(item);
+                                            }}
+                                        >
+                                            <i className="codicon codicon-trash text-xs" />
+                                        </Button>
+                                    </>
                                 )}
                                 {!isGroup && (
                                     <Button
