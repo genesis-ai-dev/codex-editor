@@ -465,11 +465,12 @@ function NavigationView() {
             content: {
                 corpusLabel: item.label,
                 displayName,
-                children: item.children?.map((c) => ({
-                    uri: c.uri,
-                    label: c.label,
-                    type: c.type,
-                })) ?? [],
+                children:
+                    item.children?.map((c) => ({
+                        uri: c.uri,
+                        label: c.label,
+                        type: c.type,
+                    })) ?? [],
             },
         });
     };
@@ -986,7 +987,7 @@ function NavigationView() {
 
             <div className="mt-auto pt-4 flex flex-col gap-3 bg-vscode-sideBar-background relative">
                 {/* Action Buttons - Side by Side */}
-                <div className="flex gap-2">
+                <div className="flex min-[311px]:flex-row flex-col gap-2">
                     <Button
                         variant="default"
                         onClick={handleAddFiles}
