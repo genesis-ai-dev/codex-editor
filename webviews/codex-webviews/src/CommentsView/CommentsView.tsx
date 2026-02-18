@@ -281,6 +281,7 @@ function App() {
         //}
     }, []);//[isBibleProject]);
 
+    
     // Helper to get sort order from fileDisplayName (using canonical Bible book order)
     const getFileSortOrder = useCallback((fileDisplayName: string | undefined): string => {
         if (!fileDisplayName) return "999";
@@ -638,7 +639,7 @@ function App() {
         // Fallback: shortened cellId
         const cellId = cellIdState.cellId;
         if (cellId.length > 10) {
-            // Show last 8 characters for UUIDs
+            // Show last 8 characters for UUIDs. Change this to be first 8 since people seem to use that more
             return `...${cellId.slice(-8)}`;
         }
 
