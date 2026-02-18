@@ -113,6 +113,7 @@ interface GlobalMessage {
 }
 interface TranslationPair {
     cellId: string;
+    cellLabel?: string | null; // Semantic label like "5:12" (chapter:position) for display
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
     edits?: EditHistory[]; // Make this optional as it might not always be present
@@ -162,6 +163,11 @@ interface CellIdGlobalState {
     globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
+    // Display information for UI (calculated at runtime, not persisted)
+    fileDisplayName?: string; // e.g., "Genesis", "Hebrew Matthew"
+    milestoneValue?: string; // e.g., "Genesis 1", "Matthew 5"
+    cellLineNumber?: number; // Line number within the current milestone (1-based)
+    cellLabel?: string; // e.g., "Narrator", "Jesus" — from cell metadata
 }
 interface ScriptureContent extends vscode.NotebookData {
     metadata: {
@@ -566,7 +572,6 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent; }
@@ -856,7 +861,6 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
     : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
     : T extends readonly ["metadata", "fileDisplayName"] ? string
-    : T extends readonly ["metadata", "cellDisplayMode"] ? "inline" | "one-line-per-cell"
     : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
     : string | number | boolean | object;
@@ -977,7 +981,6 @@ export interface CustomNotebookMetadata {
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;
-    cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
     fontSize?: number;
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
@@ -1011,6 +1014,14 @@ export interface CustomNotebookMetadata {
      * This is the canonical home for attributes that do not vary per-cell.
      */
     importContext?: NotebookImportContext;
+    /**
+     * USFM round-trip export: original file content and line-to-cell mappings.
+     * Stored by the USFM Experimental importer so export can work without the file in attachments.
+     */
+    structureMetadata?: {
+        originalUsfmContent: string;
+        lineMappings?: Array<{ lineIndex: number; cellId?: string;[key: string]: unknown; }>;
+    };
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1615,7 +1626,9 @@ type ProjectManagerMessageFromWebview =
     | { command: "setGlobalLineNumbers"; }
     | { command: "getAsrSettings"; }
     | { command: "saveAsrSettings"; data: { endpoint: string; }; }
-    | { command: "fetchAsrModels"; data: { endpoint: string; }; };
+    | { command: "fetchAsrModels"; data: { endpoint: string; }; }
+    | { command: "setValidationCountDirect"; data: { count: number; }; }
+    | { command: "setValidationCountAudioDirect"; data: { count: number; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -2440,4 +2453,14 @@ type EditorReceiveMessages =
             selectedAudioId: string;
             validatedBy: ValidationEntry[];
         };
+    }
+    | {
+        type: "toggleSearch";
+    }
+    | {
+        type: "searchMatchCounts";
+        query: string;
+        milestoneMatchCounts: { [milestoneIdx: number]: number };
+        totalMatches: number;
+        error?: string;
     };

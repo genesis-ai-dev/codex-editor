@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { CELL_DISPLAY_MODES, extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
+import { extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
@@ -41,8 +41,6 @@ interface ChapterNavigationHeaderProps {
     isAutocompletingChapter: boolean;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
-    onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
-    cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     totalChapters: number;
     untranslatedCellIds: string[];
@@ -103,8 +101,6 @@ export function ChapterNavigationHeader({
     isAutocompletingChapter,
     onSetTextDirection,
     textDirection,
-    onSetCellDisplayMode,
-    cellDisplayMode,
     isSourceText,
     totalChapters,
     untranslatedCellIds,
@@ -193,9 +189,10 @@ ChapterNavigationHeaderProps) {
     // Total navigation units (milestones)
     const totalNavigationUnits = milestoneIndex?.milestones.length || 0;
 
-    // Check if navigation buttons should be disabled (only 1 milestone and 1 subsection)
+    // Check if navigation buttons should be disabled (0-1 milestones and 0-1 subsections)
     const shouldDisableNavigation = useMemo(() => {
-        return !!(milestoneIndex?.milestones.length === 1 && subsections.length <= 1);
+        const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+        return milestoneCount === 0 || (milestoneCount === 1 && subsections.length <= 1);
     }, [milestoneIndex?.milestones.length, subsections.length]);
 
     // Helper to determine if any translation is in progress
@@ -595,6 +592,12 @@ ChapterNavigationHeaderProps) {
     // Navigation function for milestone-based navigation
     const jumpToMilestone = useCallback(
         (newMilestoneIdx: number, newSubsectionIdx: number = 0) => {
+            // Validate milestone index to prevent -1 or out-of-bounds requests
+            const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+            if (newMilestoneIdx < 0 || newMilestoneIdx >= milestoneCount) {
+                console.warn(`[jumpToMilestone] Invalid milestone index: ${newMilestoneIdx}, total: ${milestoneCount}`);
+                return;
+            }
             if (
                 !unsavedChanges &&
                 (newMilestoneIdx !== currentMilestoneIndex ||
@@ -605,7 +608,7 @@ ChapterNavigationHeaderProps) {
                 requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
             }
         },
-        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone]
+        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone, milestoneIndex?.milestones.length]
     );
 
     // Use dynamic responsive state variables based on content overflow
@@ -670,8 +673,6 @@ ChapterNavigationHeaderProps) {
                         isSourceText={isSourceText}
                         textDirection={textDirection}
                         onSetTextDirection={onSetTextDirection}
-                        cellDisplayMode={cellDisplayMode}
-                        onSetCellDisplayMode={onSetCellDisplayMode}
                         fontSize={fontSize}
                         onFontSizeChange={handleFontSizeChange}
                         metadata={metadata}
@@ -1085,39 +1086,6 @@ ChapterNavigationHeaderProps) {
                                 {showInlineBacktranslations ? "On" : "Off"}
                             </span>
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                            onClick={() => {
-                                const newMode =
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                        : CELL_DISPLAY_MODES.INLINE;
-                                onSetCellDisplayMode(newMode);
-                                vscode.postMessage({
-                                    command: "updateCellDisplayMode",
-                                    mode: newMode,
-                                });
-                            }}
-                            disabled={unsavedChanges}
-                            className="cursor-pointer"
-                        >
-                            <i
-                                className={`codicon ${
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "codicon-symbol-enum"
-                                        : "codicon-symbol-constant"
-                                } mr-2 h-4 w-4`}
-                            />
-                            <span>
-                                Display Mode (
-                                {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                    ? "Inline"
-                                    : "One Line"}
-                                )
-                            </span>
-                        </DropdownMenuItem>
-
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             onClick={() => {
