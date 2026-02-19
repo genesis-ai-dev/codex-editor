@@ -31,6 +31,22 @@ type DeletedFileEditMap = ["deletedFile"];
 
 import { EditType } from "../../types/enums";
 
+/**
+ * Generates a deterministic edit ID by hashing value + timestamp + author using FNV-1a.
+ * Used to backfill IDs for existing edits so they are stable across projects/merges.
+ */
+export function generateEditId(value: string, timestamp: number, author: string): string {
+    const input = `${value}:${timestamp}:${author}`;
+    // FNV-1a 32-bit hash
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i++) {
+        hash ^= input.charCodeAt(i);
+        hash = (hash * 16777619) >>> 0;
+    }
+    // Convert to a hex string padded to 8 chars, prefixed to distinguish from UUIDs
+    return `edit-${hash.toString(16).padStart(8, "0")}`;
+}
+
 // Utility functions for working with editMaps
 export const EditMapUtils = {
     // Create editMaps for common use cases with proper typing
@@ -223,6 +239,13 @@ export function deduplicateFileMetadataEdits(
 
     edits.forEach((edit) => {
         if (edit.editMap && Array.isArray(edit.editMap)) {
+            // Prefer ID-based dedup when both entries share an id
+            if (edit.id) {
+                if (!editMap.has(edit.id)) {
+                    editMap.set(edit.id, edit);
+                }
+                return;
+            }
             const editMapKey = edit.editMap.join('.');
             // Properly serialize object values to avoid [object Object] issue
             const valueKey = typeof edit.value === 'object' && edit.value !== null

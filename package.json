@@ -565,6 +565,11 @@
                         "default": false,
                         "description": "Internal flag indicating the documentContext hoist migration has completed."
                     },
+                    "codex-project-manager.editIdsMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the edit IDs backfill migration has completed."
+                    },
                     "codex-project-manager.projectName": {
                         "type": "string",
                         "default": "",
