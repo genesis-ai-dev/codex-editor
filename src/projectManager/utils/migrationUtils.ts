@@ -5,7 +5,7 @@ import git from "isomorphic-git";
 import fs from "fs";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
-import { EditMapUtils } from "@/utils/editMapUtils";
+import { EditMapUtils, generateEditId } from "@/utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
@@ -3651,5 +3651,162 @@ export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vsc
 
     } catch (error) {
         console.error("Error running temp files recovery and duplicate merge migration:", error);
+    }
+};
+
+/**
+ * Migration: Backfill deterministic `id` fields on all existing edit history entries,
+ * and set `activeEditId` on each cell to point to the edit that matches its current value.
+ *
+ * - New edits going forward receive a random UUID.
+ * - Existing edits (no `id`) receive a stable hash of (value + timestamp + author)
+ *   so the same edit produces the same ID across every project clone, preventing
+ *   merge conflicts and duplicate edits.
+ * - Idempotent: skips edits that already have an `id`.
+ */
+export const migration_addEditIds = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const migrationKey = "editIdsMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            debug("Edit IDs migration already completed, skipping");
+            return;
+        }
+
+        debug("Running edit IDs migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) {
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch {
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Migrating edit IDs",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const fileUri = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(fileUri.fsPath)}`,
+                        increment: 100 / allFiles.length,
+                    });
+
+                    try {
+                        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                        const serializer = new CodexContentSerializer();
+                        const notebookData: any = await serializer.deserializeNotebook(
+                            fileContent,
+                            new vscode.CancellationTokenSource().token
+                        );
+
+                        if (!notebookData?.cells || !Array.isArray(notebookData.cells)) {
+                            processedFiles++;
+                            continue;
+                        }
+
+                        let fileModified = false;
+
+                        for (const cell of notebookData.cells) {
+                            if (!cell?.metadata?.edits || !Array.isArray(cell.metadata.edits)) {
+                                continue;
+                            }
+
+                            // Backfill IDs on edits that are missing them
+                            for (const edit of cell.metadata.edits) {
+                                if (!edit.id) {
+                                    const valueStr = typeof edit.value === "string"
+                                        ? edit.value
+                                        : JSON.stringify(edit.value ?? "");
+                                    edit.id = generateEditId(
+                                        valueStr,
+                                        edit.timestamp ?? 0,
+                                        edit.author ?? ""
+                                    );
+                                    fileModified = true;
+                                }
+                            }
+
+                            // Set activeEditId if not already present:
+                            // find the edit whose value matches the cell's current value
+                            if (!cell.metadata.activeEditId) {
+                                const currentValue = cell.value ?? "";
+                                const valueEdits = cell.metadata.edits.filter(
+                                    (e: any) => EditMapUtils.isValue(e.editMap) && !e.preview
+                                );
+                                // Walk in reverse to find the latest matching edit
+                                const matchingEdit = [...valueEdits].reverse().find(
+                                    (e: any) => e.value === currentValue
+                                ) ?? [...valueEdits].reverse()[0];
+
+                                if (matchingEdit?.id) {
+                                    cell.metadata.activeEditId = matchingEdit.id;
+                                    fileModified = true;
+                                }
+                            }
+                        }
+
+                        if (fileModified) {
+                            const updatedContent = await serializer.serializeNotebook(
+                                notebookData,
+                                new vscode.CancellationTokenSource().token
+                            );
+                            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+                            migratedFiles++;
+                        }
+
+                        processedFiles++;
+                    } catch (error) {
+                        console.error(`Error processing ${fileUri.fsPath} for edit IDs migration:`, error);
+                    }
+                }
+            }
+        );
+
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        debug(`Edit IDs migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`);
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Edit IDs migration complete: ${migratedFiles} files updated`
+            );
+        }
+    } catch (error) {
+        console.error("Error running edit IDs migration:", error);
     }
 };

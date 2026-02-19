@@ -867,6 +867,8 @@ type EditMapValueType<T extends readonly string[]> =
 
 // Conditional type for EditHistory that infers value type based on editMap
 type EditHistoryBase = {
+    /** Unique edit identifier. New edits get a random UUID; existing edits are backfilled with a deterministic hash of (value + timestamp + author). */
+    id?: string;
     author: string;
     timestamp: number;
     type: import("./enums").EditType;
@@ -930,6 +932,8 @@ type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
+    /** Points to the edit id that corresponds to the cell's current value. */
+    activeEditId?: string;
     parentId?: string; // UUID of parent cell (for child cells like cues, paratext, etc.)
     isLocked?: boolean;
 };
@@ -1134,6 +1138,8 @@ interface QuillCellContent {
     cellContent: string;
     cellType: CodexCellTypes;
     editHistory: Array<EditHistory>;
+    /** Points to the edit id that corresponds to the cell's current value. */
+    activeEditId?: string;
     timestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;

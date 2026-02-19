@@ -51,11 +51,18 @@ export const getCellValueData = (cell: QuillCellContent) => {
     // Ensure editHistory exists and is an array
     const editHistory = cell.editHistory || [];
 
+    // Fast path: if the cell has an activeEditId pointer, look it up directly.
+    // This avoids the O(n) matching game and supports correct rollback semantics.
+    const activeEdit = cell.activeEditId
+        ? editHistory.find((edit) => edit.id === cell.activeEditId)
+        : undefined;
+
     // Find the latest edit that matches the current cell content (strict match).
     // Falls back to the latest value edit if the strict match fails, which can happen
     // when the merge step during save subtly normalizes the stored value.
     const reversed = editHistory.slice().reverse();
     const latestEditThatMatchesCellValue =
+        activeEdit ??
         reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && edit.value === cell.cellContent) ??
         reversed.find((edit) => EditMapUtils.isValue(edit.editMap) && !edit.preview);
 

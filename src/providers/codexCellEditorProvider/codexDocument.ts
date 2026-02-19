@@ -16,7 +16,7 @@ import {
     MilestoneInfo,
     CustomCellMetaData,
 } from "../../../types";
-import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
+import { EditMapUtils, deduplicateFileMetadataEdits, generateEditId } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
@@ -328,6 +328,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const currentTimestamp = Date.now();
 
             const previewEdit = {
+                id: randomUUID(),
                 editMap: EditMapUtils.value(),
                 value: newContent,
                 timestamp: currentTimestamp,
@@ -363,11 +364,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // If editing a source file's value for the first time, ensure an INITIAL_IMPORT exists
         if (cellToUpdate.metadata.edits.length === 0 && !!previousValue) {
-
+            const initialTimestamp = currentTimestamp - 1000;
             cellToUpdate.metadata.edits.push({
+                id: generateEditId(previousValue, initialTimestamp, this._author),
                 editMap: EditMapUtils.value(),
                 value: previousValue,
-                timestamp: currentTimestamp - 1000,
+                timestamp: initialTimestamp,
                 type: EditType.INITIAL_IMPORT,
                 author: this._author,
                 validatedBy: [],
@@ -439,7 +441,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
         }
 
+        const newEditId = randomUUID();
         cellToUpdate.metadata.edits.push({
+            id: newEditId,
             editMap: EditMapUtils.value(),
             value: newContent, // TypeScript infers: string
             timestamp: currentTimestamp,
@@ -447,6 +451,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             author: this._author,
             validatedBy,
         });
+
+        if (shouldUpdateValue) {
+            cellToUpdate.metadata.activeEditId = newEditId;
+        }
 
         // Record the edit 
         // not being used ???
