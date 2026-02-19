@@ -13,11 +13,8 @@ package-lock.json
 .project/indexes.sqlite
 .project/dictionary.sqlite
 .wdio-vscode-service
-AGENTS.md
 # TypeScript build cache
 .tsbuildinfo
-
-CLAUDE.md
 
 # Vite build cache files
 webviews/codex-webviews/vite.config.ts.timestamp-*.mjs
