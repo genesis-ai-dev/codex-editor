@@ -15,9 +15,13 @@ import {
     MoreHorizontal,
     ArrowDownUp,
     MapPin,
+    Reply,
+    Search,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import { Card, CardHeader, CardContent } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from "../../../../types";
 import { v4 as uuidv4 } from "uuid";
 import { WebviewHeader } from "../components/WebviewHeader";
@@ -78,6 +82,37 @@ const AuthorName = ({ username, size = "sm" }: { username: string; size?: "sm" |
     </span>
 );
 
+// Simple avatar showing user initials
+const UserAvatar = ({
+    username,
+    email,
+    size = "small",
+}: {
+    username: string;
+    email?: string;
+    size?: "small" | "medium";
+}) => {
+    const initials = username
+        ? username
+              .split(/[\s@.]/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((s) => s[0])
+              .join("")
+              .toUpperCase()
+        : "?";
+    const sizeClass = size === "medium" ? "h-10 w-10 text-base" : "h-8 w-8 text-xs";
+    return (
+        <div
+            className={`flex-shrink-0 rounded-full flex items-center justify-center font-medium ${sizeClass}`}
+            style={{ backgroundColor: getUserColor(username), color: "white" }}
+            title={email || username}
+        >
+            {initials || "?"}
+        </div>
+    );
+};
+
 function App() {
     const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "", globalReferences: [] });
     const [uri, setUri] = useState<string>();
@@ -128,9 +163,19 @@ function App() {
     const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
     const [editingTitle, setEditingTitle] = useState<string | null>(null);
     const [threadTitleEdit, setThreadTitleEdit] = useState<string>("");
-    
+    const [viewMode, setViewMode] = useState<"all" | "cell">("all");
+    const [searchQuery, setSearchQuery] = useState("");
+    const [showResolvedThreads, setShowResolvedThreads] = useState(true);
+    const [collapsedThreads, setCollapsedThreads] = useState<Record<string, boolean>>({});
+    const [showNewCommentForm, setShowNewCommentForm] = useState(false);
+    const [newCommentText, setNewCommentText] = useState("");
+
     // Sort configuration
     const [sortMode, setSortMode] = useState<SortMode>("location");
+
+    const toggleCollapsed = useCallback((threadId: string) => {
+        setCollapsedThreads((prev) => ({ ...prev, [threadId]: !prev[threadId] }));
+    }, []);
 
     // Helper function to determine if thread is currently resolved based on latest event
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
@@ -455,6 +500,34 @@ function App() {
         setNewThreadText("");
         setSelectedThread(newThread.id);
     };
+
+    const handleNewComment = useCallback(() => {
+        if (!newCommentText.trim() || !cellId.cellId || !currentUser.isAuthenticated) return;
+
+        const timestamp = Date.now();
+        const newThread: NotebookCommentThread = {
+            id: uuidv4(),
+            canReply: true,
+            cellId: cellId,
+            collapsibleState: 0,
+            threadTitle: new Date().toLocaleString(),
+            deletionEvent: [],
+            resolvedEvent: [],
+            comments: [{
+                id: `${timestamp}-${Math.random().toString(36).substr(2, 9)}`,
+                timestamp,
+                body: newCommentText.trim(),
+                mode: 1,
+                author: { name: currentUser.username },
+                deleted: false,
+            }],
+        };
+
+        vscode.postMessage({ command: "updateCommentThread", commentThread: newThread });
+        setNewCommentText("");
+        setShowNewCommentForm(false);
+        setSelectedThread(newThread.id);
+    }, [newCommentText, cellId, currentUser.isAuthenticated, currentUser.username]);
 
     const toggleResolved = (thread: NotebookCommentThread) => {
         setPendingResolveThreads((prev) => new Set(prev).add(thread.id));
@@ -991,7 +1064,7 @@ function App() {
                                 }
                                 value={searchQuery}
                                 className="pl-10"
-                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                                 disabled={viewMode === "cell"}
                             />
                         </div>
@@ -1097,13 +1170,13 @@ function App() {
                                         placeholder="What do you want to say?"
                                         value={newCommentText}
                                         className="border-0 border-b border-border rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
-                                        onKeyDown={(e) => {
+                                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                                             if (e.key === "Enter" && !e.shiftKey) {
                                                 e.preventDefault();
                                                 handleNewComment();
                                             }
                                         }}
-                                        onChange={(e) => setNewCommentText(e.target.value)}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewCommentText(e.target.value)}
                                     />
                                     <div className="flex gap-2 justify-end">
                                         <Button
@@ -1183,79 +1256,89 @@ function App() {
 
                 {/* Message input */}
                 <div className="p-3 border-t border-border bg-muted/20">
-                    {resolved ? (
-                        <div className="text-center text-sm text-muted-foreground py-2">
-                            This thread is resolved.{" "}
-                            <button
-                                className="text-primary hover:underline"
-                                onClick={() => toggleResolved(currentThread)}
-                            >
-                                Reopen to reply
-                            </button>
-                        </div>
-                    ) : currentUser.isAuthenticated ? (
-                        <div className="w-full">
-                            {/* Reply preview */}
-                            {replyingTo && (
-                                <div className="flex items-center gap-2 mb-2 px-2 py-1.5 bg-muted/50 rounded-md border-l-2 border-primary">
-                                    <Reply className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                                    <span className="text-xs text-muted-foreground">Replying to</span>
-                                    <AuthorName username={replyingTo.author.name} size="sm" />
-                                    <span className="text-xs text-muted-foreground truncate flex-1">
-                                        {replyingTo.body.split("\n").filter((l) => !l.startsWith("> "))[0]?.slice(0, 40)}...
-                                    </span>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-                                        onClick={() => setReplyingTo(null)}
+                    {selectedThread && currentThread ? (
+                        (() => {
+                            const thread = currentThread as NotebookCommentThread;
+                            const resolved = isThreadResolved(thread);
+                            return resolved ? (
+                                <div className="text-center text-sm text-muted-foreground py-2">
+                                    This thread is resolved.{" "}
+                                    <button
+                                        className="text-primary hover:underline"
+                                        onClick={() => toggleResolved(thread)}
                                     >
-                                        <X className="h-3 w-3" />
-                                    </Button>
+                                        Reopen to reply
+                                    </button>
                                 </div>
-                            )}
-                            <div className="relative w-full">
-                                <textarea
-                                    ref={textareaRef}
-                                    placeholder={replyingTo ? `Reply to ${replyingTo.author.name}...` : "Send a message..."}
-                                    value={messageText}
-                                    onChange={(e) => {
-                                        if (e.target.value.length <= MAX_MESSAGE_LENGTH) {
-                                            setMessageText(e.target.value);
-                                        }
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                            e.preventDefault();
-                                            handleSendMessage();
-                                        } else if (e.key === "Escape" && replyingTo) {
-                                            setReplyingTo(null);
-                                        }
-                                    }}
-                                    className="w-full resize-none border border-border rounded-md pl-3 pr-10 py-2.5 text-base bg-background focus:outline-none focus:ring-1 focus:ring-ring min-h-[48px]"
-                                    style={{ maxHeight: "200px" }}
-                                    rows={1}
-                                />
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="absolute right-1 top-1 h-8 w-8 p-0 hover:bg-transparent"
-                                    onClick={handleSendMessage}
-                                    disabled={!messageText.trim()}
-                                >
-                                    <Send className="h-4 w-4 text-primary" />
-                                </Button>
-                            </div>
-                            {/* Character count - only show when getting close to limit */}
-                            {messageText.length > MAX_MESSAGE_LENGTH * 0.8 && (
-                                <div className={`text-xs text-right mt-1 ${messageText.length >= MAX_MESSAGE_LENGTH ? "text-destructive" : "text-muted-foreground"}`}>
-                                    {messageText.length}/{MAX_MESSAGE_LENGTH}
+                            ) : currentUser.isAuthenticated ? (
+                                <div className="w-full">
+                                    {/* Reply preview */}
+                                    {replyingTo && (
+                                        <div className="flex items-center gap-2 mb-2 px-2 py-1.5 bg-muted/50 rounded-md border-l-2 border-primary">
+                                            <Reply className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                            <span className="text-xs text-muted-foreground">Replying to</span>
+                                            <AuthorName username={replyingTo?.author.name ?? "Unknown"} size="sm" />
+                                            <span className="text-xs text-muted-foreground truncate flex-1">
+                                                {replyingTo?.body.split("\n").filter((l) => !l.startsWith("> "))[0]?.slice(0, 40)}...
+                                            </span>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                                                onClick={() => setReplyingTo(null)}
+                                            >
+                                                <X className="h-3 w-3" />
+                                            </Button>
+                                        </div>
+                                    )}
+                                    <div className="relative w-full">
+                                        <textarea
+                                            ref={textareaRef}
+                                            placeholder={replyingTo ? `Reply to ${replyingTo?.author.name}...` : "Send a message..."}
+                                            value={messageText}
+                                            onChange={(e) => {
+                                                if (e.target.value.length <= MAX_MESSAGE_LENGTH) {
+                                                    setMessageText(e.target.value);
+                                                }
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                                    e.preventDefault();
+                                                    handleSendMessage();
+                                                } else if (e.key === "Escape") {
+                                                    setReplyingTo(null);
+                                                }
+                                            }}
+                                            className="w-full resize-none border border-border rounded-md pl-3 pr-10 py-2.5 text-base bg-background focus:outline-none focus:ring-1 focus:ring-ring min-h-[48px]"
+                                            style={{ maxHeight: "200px" }}
+                                            rows={1}
+                                        />
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="absolute right-1 top-1 h-8 w-8 p-0 hover:bg-transparent"
+                                            onClick={handleSendMessage}
+                                            disabled={!messageText.trim()}
+                                        >
+                                            <Send className="h-4 w-4 text-primary" />
+                                        </Button>
+                                    </div>
+                                    {/* Character count - only show when getting close to limit */}
+                                    {messageText.length > MAX_MESSAGE_LENGTH * 0.8 && (
+                                        <div className={`text-xs text-right mt-1 ${messageText.length >= MAX_MESSAGE_LENGTH ? "text-destructive" : "text-muted-foreground"}`}>
+                                            {messageText.length}/{MAX_MESSAGE_LENGTH}
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
+                            ) : (
+                                <div className="text-center text-sm text-muted-foreground py-2">
+                                    Sign in to send messages
+                                </div>
+                            );
+                        })()
                     ) : (
                         <div className="text-center text-sm text-muted-foreground py-2">
-                            Sign in to send messages
+                            Select a thread to reply
                         </div>
                     )}
                 </div>
