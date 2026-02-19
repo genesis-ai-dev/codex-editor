@@ -126,9 +126,6 @@ function App() {
     }, [messageText, autoResizeTextarea]);
 
     const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
-    const [replyingTo, setReplyingTo] = useState<{ threadId: string; username?: string } | null>(
-        null
-    );
     const [editingTitle, setEditingTitle] = useState<string | null>(null);
     const [threadTitleEdit, setThreadTitleEdit] = useState<string>("");
     
@@ -383,13 +380,6 @@ function App() {
         const aTime = Math.max(...a.comments.map((c) => c.timestamp));
         const bTime = Math.max(...b.comments.map((c) => c.timestamp));
         return bTime - aTime;
-    };
-
-    // Sort threads: unresolved first, then resolved
-    const sortThreads = (threads: NotebookCommentThread[]) => {
-        const unresolved = threads.filter((t) => !isThreadResolved(t));
-        const resolved = threads.filter((t) => isThreadResolved(t));
-        return [...unresolved.sort(byLatestActivity), ...resolved.sort(byLatestActivity)];
     };
 
     // Threads for current cell
@@ -720,113 +710,57 @@ function App() {
                                                 ) : (
                                                     <ChevronDown className="h-4 w-4" />
                                                 )}
-/*    // Thread list view with collapsible sections
-    const ThreadList = () => (
-        <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
-                {/* Current Cell Section */}
-                <div className="border-b border-border">
-                    {/* Section header */}
-                    <button
-                        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/30 transition-colors text-left"
-                        onClick={() => setCurrentSectionExpanded(!currentSectionExpanded)}
-                    >
-                        {currentSectionExpanded ? (
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <span className="font-medium text-sm">
-                            {cellId.cellId ? getCellLabel(cellId) : "Current Cell"}
-                        </span>
-                        <span className="text-xs text-muted-foreground ml-auto">
-                            {currentCellThreads.length} {currentCellThreads.length === 1 ? "thread" : "threads"}
-                        </span>
-                    </button>
+                                            </div>
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <div className="flex gap-2 items-center min-w-0">
+                                                <span
+                                                    className="text-primary truncate"
+                                                    title={
+                                                        typeof thread.cellId === 'string'
+                                                            ? thread.cellId
+                                                            : `Cell ID: ${thread.cellId.cellId}${
+                                                                  thread.cellId.globalReferences?.length
+                                                                      ? `\nReferences: ${thread.cellId.globalReferences.join(", ")}`
+                                                                      : ""
+                                                              }`
+                                                    }
+                                                >
+                                                    {getCellDisplayName(thread.cellId)}
+                                                </span>
+                                                {thread.cellId.cellLineNumber != null && (
+                                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                                                        Cell {thread.cellId.cellLineNumber}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <span className="flex items-center gap-1">
+                                                <MessageSquare className="h-3 w-3" />
+                                                {thread.comments.length}{" "}
+                                                {thread.comments.length === 1
+                                                    ? "comment"
+                                                    : "comments"}
+                                            </span>
+                                        </div>
+                                        </div>
+                                    </CardHeader>
 
-                    {/* Section content */}
-                    {currentSectionExpanded && (
-                        <div className="pb-2">
-                            {/* Inline new thread input */}
-                            {currentUser.isAuthenticated && cellId.cellId && (
-                                <div className="px-3 py-2">
-                                    <div className="relative w-full">
-                                        <textarea
-                                            ref={newThreadRef}
-                                            placeholder="Start a new thread..."
-                                            value={newThreadText}
-                                            onChange={(e) => setNewThreadText(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                                    e.preventDefault();
-                                                    handleCreateThread();
-                                                } else if (e.key === "Escape") {
-                                                    setNewThreadText("");
-                                                    newThreadRef.current?.blur();
-                                                }
-                                            }}
-                                            className="w-full resize-none border border-border rounded-md pl-3 pr-10 py-2 text-sm bg-background focus:outline-none focus:ring-1 focus:ring-ring min-h-[40px]"
-                                            rows={1}
-                                        />
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="absolute right-1 top-1 h-7 w-7 p-0 hover:bg-transparent"
-                                            onClick={handleCreateThread}
-                                            disabled={!newThreadText.trim()}
-                                        >
-                                            <Plus className="h-4 w-4 text-primary" />
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Thread list for current cell */}
-                            {currentCellThreads.length === 0 ? (
-                                <div className="px-3 py-4 text-center text-muted-foreground text-sm">
-                                    No threads on this cell yet
-                                </div>
-                            ) : (
-                                currentCellThreads.map(renderThreadItem)
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                {/* All Threads Section */}
-                <div>
-                    {/* Section header */}
-                    <button
-                        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/30 transition-colors text-left"
-                        onClick={() => setAllSectionExpanded(!allSectionExpanded)}
-                    >
-                        {allSectionExpanded ? (
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <span className="font-medium text-sm">All Other Threads</span>
-                        <span className="text-xs text-muted-foreground ml-auto">
-                            {allOtherThreads.length} {allOtherThreads.length === 1 ? "thread" : "threads"}
-                        </span>
-                    </button>
-
-                    {/* Section content */}
-                    {allSectionExpanded && (
-                        <div className="pb-2">
-                            {allOtherThreads.length === 0 ? (
-                                <div className="px-3 py-4 text-center text-muted-foreground text-sm">
-                                    No other threads
-                                </div>
-                            ) : (
-                                allOtherThreads.map(renderThreadItem)
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    ); */
+                                    {/* Comments section */}
+                                    {!collapsedThreads[thread.id] && (
+                                        <CardContent className="p-3">
+                                            <div className="flex flex-col gap-3">
+                                                {thread.comments.map((comment) => (
+                                                    <div key={comment.id} className="text-sm">
+                                                        <AuthorName username={comment.author.name} size="sm" />
+                                                        <div className="mt-1 pl-4 border-l-2 border-muted">
+                                                            {renderCommentBody(comment.body.split("\n").filter((l) => !l.startsWith("> ")).join("\n"))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </CardContent>
+                                    )}
+                                </Card>
+    );
 
     // Thread detail view (Discord chat style)
     const ThreadDetail = () => {
@@ -945,169 +879,20 @@ function App() {
                                                         >
                                                             <Reply className="h-3.5 w-3.5" />
                                                         </Button>
-                                                    </div>
-                                                )}
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>Reply to comment</TooltipContent>
+                                                </Tooltip>
                                             </div>
-                                        </div>
-
-                                        <div className="flex justify-between text-xs text-muted-foreground">
-                                            <div className="flex gap-2 items-center min-w-0">
-                                                <span
-                                                    className="text-primary truncate"
-                                                    title={
-                                                        typeof thread.cellId === 'string'
-                                                            ? thread.cellId
-                                                            : `Cell ID: ${thread.cellId.cellId}${
-                                                                  thread.cellId.globalReferences?.length
-                                                                      ? `\nReferences: ${thread.cellId.globalReferences.join(", ")}`
-                                                                      : ""
-                                                              }`
-                                                    }
-                                                >
-                                                    {getCellDisplayName(thread.cellId)}
-                                                </span>
-                                                {thread.cellId.cellLineNumber != null && (
-                                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                                                        Cell {thread.cellId.cellLineNumber}
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <span className="flex items-center gap-1">
-                                                <MessageSquare className="h-3 w-3" />
-                                                {thread.comments.length}{" "}
-                                                {thread.comments.length === 1
-                                                    ? "comment"
-                                                    : "comments"}
-                                            </span>
-                                        </div>
-                                    </CardHeader>
-
-                                    {/* Comments section */}
-                                    {!collapsedThreads[thread.id] && (
-                                        <CardContent className="p-3">
-                                            <div className="flex flex-col gap-3">
-                                                {/* Reply form at top */}
-                                                {currentUser.isAuthenticated && (
-                                                    <div className="flex gap-3 items-start pb-3 border-b border-border">
-                                                        <UserAvatar
-                                                            username={currentUser.username}
-                                                            email={currentUser.email}
-                                                            size="small"
-                                                        />
-
-                                                        <div className="flex-1 flex flex-col gap-2">
-                                                            {replyingTo?.threadId === thread.id && (
-                                                                <div className="text-xs text-primary flex items-center gap-1 pb-2 border-b border-border">
-                                                                    <Reply className="h-3 w-3" />
-                                                                    Replying to @
-                                                                    {replyingTo.username}
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-4 w-4 p-0 ml-auto"
-                                                                        onClick={() => {
-                                                                            setReplyingTo(null);
-                                                                            setReplyText(
-                                                                                (prev) => ({
-                                                                                    ...prev,
-                                                                                    [thread.id]: "",
-                                                                                })
-                                                                            );
-                                                                        }}
-                                                                    >
-                                                                        <X className="h-3 w-3" />
-                                                                    </Button>
-                                                                </div>
-                                                            )}
-
-                                                            <div className="flex gap-2">
-                                                                <textarea
-                                                                    placeholder="Add a reply..."
-                                                                    value={
-                                                                        replyText[thread.id] || ""
-                                                                    }
-                                                                    className="flex-1 resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] max-h-32"
-                                                                    rows={
-                                                                        replyText[
-                                                                            thread.id
-                                                                        ]?.includes("\n")
-                                                                            ? Math.min(
-                                                                                  replyText[
-                                                                                      thread.id
-                                                                                  ].split("\n")
-                                                                                      .length,
-                                                                                  5
-                                                                              )
-                                                                            : 1
-                                                                    }
-                                                                    onKeyDown={(e) => {
-                                                                        if (
-                                                                            e.key === "Enter" &&
-                                                                            !e.shiftKey
-                                                                        ) {
-                                                                            e.preventDefault();
-                                                                            handleReply(thread.id);
-                                                                        } else if (
-                                                                            e.key === "Escape"
-                                                                        ) {
-                                                                            setReplyingTo(null);
-                                                                            setReplyText(
-                                                                                (prev) => ({
-                                                                                    ...prev,
-                                                                                    [thread.id]: "",
-                                                                                })
-                                                                            );
-                                                                        }
-                                                                    }}
-                                                                    onChange={(e) => {
-                                                                        const value =
-                                                                            e.target.value;
-                                                                        setReplyText((prev) => ({
-                                                                            ...prev,
-                                                                            [thread.id]: value,
-                                                                        }));
-                                                                    }}
-                                                                />
-
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 w-8 p-0 self-end"
-                                                                    onClick={() =>
-                                                                        handleReply(thread.id)
-                                                                    }
-                                                                    title="Send reply"
-                                                                    disabled={
-                                                                        !replyText[
-                                                                            thread.id
-                                                                        ]?.trim()
-                                                                    }
-                                                                >
-                                                                    <Send className="h-4 w-4" />
-                                                                </Button>
-                                                            </div>
-
-                                                            {/* Preview of the reply with rendered blockquotes */}
-                                                            {replyText[thread.id]?.trim() && (
-                                                                <div className="border border-border rounded-md p-2 bg-muted/30 text-sm">
-                                                                    <div className="text-xs text-muted-foreground mb-1">
-                                                                        Preview:
-                                                                    </div>
-                                                                    <div className="text-sm leading-relaxed break-words">
-                                                                        {renderCommentBody(
-                                                                            replyText[thread.id]
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </CardContent>
-                                    )}
-                                </Card>
-    );
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     // Component for rendering location-grouped comments
     const LocationGroupedComments = ({ threads }: { threads: NotebookCommentThread[] }) => {
@@ -1475,17 +1260,9 @@ function App() {
                     )}
                 </div>
             </div>
-        );
-    };
-
-    return (
-        <TooltipProvider>
-            <div className="h-full w-full flex flex-col bg-background text-foreground">
-                <WebviewHeader title="Comments" vscode={vscode} />
-                {selectedThread ? ThreadDetail() : ThreadList()}
-            </div>
         </TooltipProvider>
-    );
+        );
+    }
 }
 
 export default App;
