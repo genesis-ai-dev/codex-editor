@@ -17,7 +17,7 @@ import {
     EyeOff,
     ChevronUp,
     Clock,
-    MoreHorizontal,
+    Reply,
     ArrowDownUp,
     MapPin,
 } from "lucide-react";
@@ -163,7 +163,6 @@ const UserAvatar = ({ username, email, size = "small" }: UserAvatar) => {
 
 function App() {
     const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "", globalReferences: [] });
-    const [uri, setUri] = useState<string>();
     const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>([]);
     const [replyText, setReplyText] = useState<Record<string, string>>({});
     const [collapsedThreads, setCollapsedThreads] = useState<Record<string, boolean>>({});
@@ -200,17 +199,6 @@ function App() {
         // User state updated
     }, [currentUser]);
 
-    const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
-    const [replyingTo, setReplyingTo] = useState<{ threadId: string; username?: string } | null>(
-        null
-    );
-    const [editingTitle, setEditingTitle] = useState<string | null>(null);
-    const [threadTitleEdit, setThreadTitleEdit] = useState<string>("");
-    
-    // Sort configuration
-    const [sortMode, setSortMode] = useState<SortMode>("location");
-
-    // Helper function to determine if thread is currently resolved based on latest event
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
         const resolvedEvents = thread.resolvedEvent || [];
         const latestResolvedEvent =
@@ -234,23 +222,12 @@ function App() {
         return latestDeletionEvent?.deleted || false;
     }, []);
 
-    // Create a map of Bible books for ordering
+    // Bible book map for canonical ordering (from Luke's branch)
     const bibleBookMap = useMemo(() => {
         const map = new Map<string, { name: string; abbr: string; ord: string; testament: string }>();
-        (bibleBooksData as any[]).forEach((book) => {
-            map.set(book.abbr, {
-                name: book.name,
-                abbr: book.abbr,
-                ord: book.ord,
-                testament: book.testament,
-            });
-            // Also map by full name for flexibility
-            map.set(book.name, {
-                name: book.name,
-                abbr: book.abbr,
-                ord: book.ord,
-                testament: book.testament,
-            });
+        (bibleBooksData as { name: string; abbr: string; ord: string; testament: string }[]).forEach((book) => {
+            map.set(book.abbr, book);
+            map.set(book.name, book);
         });
         return map;
     }, []);
@@ -284,60 +261,57 @@ function App() {
     // Helper to get sort order from fileDisplayName (using canonical Bible book order)
     const getFileSortOrder = useCallback((fileDisplayName: string | undefined): string => {
         if (!fileDisplayName) return "999";
-        
-        // Try to look up in bible book map
         const bookInfo = bibleBookMap.get(fileDisplayName);
-        if (bookInfo) {
-            return bookInfo.ord; // "01", "02", etc.
-        }
-        
-        // For non-Bible books, return a high number so they sort after Bible books
-        return "999";
+        return bookInfo ? bookInfo.ord : "999";
     }, [bibleBookMap]);
 
-    // Sort threads based on current sort mode
-    const sortThreads = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
-        const getLatestTimestamp = (thread: NotebookCommentThread) => {
-            const timestamps = thread.comments.map((c) => c.timestamp);
-            return Math.max(...timestamps);
+    // Sort threads by latest activity, unresolved first (used for current cell section)
+    const sortByActivity = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
+        const byLatestActivity = (a: NotebookCommentThread, b: NotebookCommentThread) => {
+            const aTime = Math.max(...a.comments.map((c) => c.timestamp));
+            const bTime = Math.max(...b.comments.map((c) => c.timestamp));
+            return bTime - aTime;
         };
+        const unresolved = threads.filter((t) => !isThreadResolved(t));
+        const resolved = threads.filter((t) => isThreadResolved(t));
+        return [...unresolved.sort(byLatestActivity), ...resolved.sort(byLatestActivity)];
+    }, [isThreadResolved]);
+
+    // Sort threads by sort mode (used for "all other threads" section)
+    const sortThreads = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
+        const getLatestTimestamp = (thread: NotebookCommentThread) =>
+            Math.max(...thread.comments.map((c) => c.timestamp));
 
         switch (sortMode) {
             case "time-increasing":
                 return [...threads].sort((a, b) => getLatestTimestamp(a) - getLatestTimestamp(b));
-            
+
             case "time-decreasing":
                 return [...threads].sort((a, b) => getLatestTimestamp(b) - getLatestTimestamp(a));
-            
+
             case "location":
                 return [...threads].sort((a, b) => {
                     const aFile = a.cellId.fileDisplayName || getMissingLabel("file");
                     const bFile = b.cellId.fileDisplayName || getMissingLabel("file");
-                    
-                    // Get sort orders for canonical Bible book ordering
                     const aOrder = getFileSortOrder(a.cellId.fileDisplayName);
                     const bOrder = getFileSortOrder(b.cellId.fileDisplayName);
-                    
-                    // Sort by canonical order (Bible books first by ord, then non-Bible alphabetically)
+
                     const orderCompare = aOrder.localeCompare(bOrder);
                     if (orderCompare !== 0) return orderCompare;
-                    
-                    // If same sort order, sort by file display name
+
                     const fileCompare = aFile.localeCompare(bFile);
                     if (fileCompare !== 0) return fileCompare;
-                    
-                    // Then by milestone
+
                     const aMilestone = a.cellId.milestoneValue || getMissingLabel("milestone");
                     const bMilestone = b.cellId.milestoneValue || getMissingLabel("milestone");
                     const milestoneCompare = aMilestone.localeCompare(bMilestone);
                     if (milestoneCompare !== 0) return milestoneCompare;
-                    
-                    // Then by line number
+
                     const aLine = a.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
                     const bLine = b.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
                     return aLine - bLine;
                 });
-            
+
             default:
                 return threads;
         }
@@ -362,17 +336,11 @@ function App() {
                 }
                 case "reload": {
                     if (message.data?.cellId) {
-                        setCellId({ 
-                            cellId: message.data.cellId, 
+                        setCellId({
+                            cellId: message.data.cellId,
                             uri: message.data.uri || "",
-                            globalReferences: message.data.globalReferences || []
+                            globalReferences: message.data.globalReferences || [],
                         });
-                        if (viewMode === "cell") {
-                            setSearchQuery(message.data.cellId);
-                        }
-                    }
-                    if (message.data?.uri) {
-                        setUri(message.data.uri);
                     }
                     break;
                 }
@@ -975,7 +943,28 @@ function App() {
                                                         >
                                                             <Check className="h-4 w-4" />
                                                         </Button>
-                                                    </div>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>Reply</TooltipContent>
+                                                </Tooltip>
+                                                {isOwn && (
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                                                                onClick={() =>
+                                                                    handleDeleteComment(
+                                                                        comment.id,
+                                                                        currentThread.id
+                                                                    )
+                                                                }
+                                                            >
+                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Delete</TooltipContent>
+                                                    </Tooltip>
                                                 )}
                                             </div>
                                         </div>
@@ -1415,25 +1404,11 @@ function App() {
                                         Start the conversation by adding a comment
                                     </div>
                                 </div>
-                            </>
-                        )}
+                            );
+                        })}
+                        <div ref={messagesEndRef} />
                     </div>
-                )}
-
-                {/* Comment list */}
-                {filteredCommentThreads.length > 0 && (
-                    <div className="flex-1 overflow-y-auto p-2">
-                        {sortMode === "location" && viewMode === "all" ? (
-                            <LocationGroupedComments threads={filteredCommentThreads} />
-                        ) : (
-                            <div className="flex flex-col gap-3">
-                                {filteredCommentThreads.map((thread) => (
-                                    <ThreadCard key={thread.id} thread={thread} />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
+                </div>
 
                 {/* Resolved threads banner */}
                 {hiddenResolvedThreadsCount > 0 && (
