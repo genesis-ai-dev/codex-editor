@@ -76,6 +76,9 @@ interface CellContentDisplayProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
+    onDragStart?: (cellId: string) => void;
+    hideSparkleButton?: boolean;
+    forceShowSparkleButton?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -469,6 +472,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        onDragStart,
+        hideSparkleButton = false,
+        forceShowSparkleButton = false,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -1010,21 +1016,22 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     height: "16px",
                                                     width: "16px",
                                                     padding: 0,
-                                                    display: "flex",
+                                                    display: hideSparkleButton ? "none" : "flex",
                                                     alignItems: "center",
                                                     justifyContent: "center",
                                                     position: "relative",
-                                                    opacity: showSparkleButton
+                                                    opacity: (showSparkleButton || forceShowSparkleButton)
                                                         ? isCellLocked
                                                             ? 0.5
                                                             : 1
                                                         : 0,
                                                     transform: `translateX(${
-                                                        showSparkleButton ? "0" : "20px"
-                                                    }) scale(${showSparkleButton ? 1 : 0})`,
-                                                    transition:
-                                                        "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
-                                                    visibility: showSparkleButton
+                                                        (showSparkleButton || forceShowSparkleButton) ? "0" : "20px"
+                                                    }) scale(${(showSparkleButton || forceShowSparkleButton) ? 1 : 0})`,
+                                                    transition: forceShowSparkleButton
+                                                        ? "none"
+                                                        : "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
+                                                    visibility: (showSparkleButton || forceShowSparkleButton)
                                                         ? "visible"
                                                         : "hidden",
                                                     cursor: isCellLocked
@@ -1032,6 +1039,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         : "pointer",
                                                 }}
                                                 disabled={false}
+                                                onMouseDown={(e) => {
+                                                    if (onDragStart && !isCellLocked) {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        onDragStart(cellIds[0]);
+                                                    }
+                                                }}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (isCellLocked) {
