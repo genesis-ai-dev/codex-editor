@@ -394,10 +394,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 console.error(`[getAsrConfig] This will cause transcription to fail. Please check authentication status.`);
             }
 
-            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}`);
+            const language = vscode.workspace.getConfiguration("codex-editor-extension").get<string>("asrLanguage", "eng");
+            debug(`[getAsrConfig] Sending config: endpoint=${endpoint}, hasToken=${!!authToken}, language=${language}`);
             safePostMessageToPanel(webviewPanel, {
                 type: "asrConfig",
-                content: { endpoint, authToken }
+                content: { endpoint, authToken, language }
             });
         } catch (error) {
             console.error("Error sending ASR config:", error);
@@ -415,6 +416,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             });
         }
+    },
+
+    requestBatchTranscription: async ({ event, webviewPanel, provider }) => {
+        const count = (event as any).content?.count ?? 0;
+        // Forward to the webview as a startBatchTranscription message
+        safePostMessageToPanel(webviewPanel, {
+            type: "startBatchTranscription",
+            content: { count },
+        } as any);
+        const label = count > 0 ? `up to ${count}` : "all untranscribed";
+        vscode.window.showInformationMessage(
+            `Starting transcription for ${label} cells... First request may take ~45s to warm up.`
+        );
     },
 
     updateCellAfterTranscription: async ({ event, document, webviewPanel, provider }) => {
