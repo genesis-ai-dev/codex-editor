@@ -233,6 +233,56 @@ function mergeProjectSwap(
 }
 
 /**
+ * Merges originalFilesHashes registries from base, ours, and theirs.
+ * Union by hash: combine all entries. For same hash, merge referencedBy and originalNames.
+ */
+function mergeOriginalFilesHashes(
+    base: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
+    ours: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
+    theirs: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined
+): { version: number; files: Record<string, any>; fileNameToHash: Record<string, string> } | undefined {
+    const ourFiles = ours?.files || {};
+    const theirFiles = theirs?.files || {};
+    const baseFiles = base?.files || {};
+    if (Object.keys(ourFiles).length === 0 && Object.keys(theirFiles).length === 0) {
+        if (base?.files && Object.keys(baseFiles).length > 0) {
+            return { version: base.version ?? 1, files: base.files, fileNameToHash: base.fileNameToHash || {} };
+        }
+        return undefined;
+    }
+
+    const mergedFiles: Record<string, any> = {};
+    const mergedFileNameToHash: Record<string, string> = {};
+    const allHashes = new Set([...Object.keys(ourFiles), ...Object.keys(theirFiles)]);
+
+    for (const hash of allHashes) {
+        const ourEntry = ourFiles[hash];
+        const theirEntry = theirFiles[hash];
+
+        if (!ourEntry && theirEntry) {
+            mergedFiles[hash] = { ...theirEntry };
+        } else if (ourEntry && !theirEntry) {
+            mergedFiles[hash] = { ...ourEntry };
+        } else {
+            // Both have this hash - merge referencedBy and originalNames (union)
+            const mergedEntry = {
+                ...ourEntry,
+                referencedBy: [...new Set([...(ourEntry.referencedBy || []), ...(theirEntry.referencedBy || [])])],
+                originalNames: [...new Set([...(ourEntry.originalNames || []), ...(theirEntry.originalNames || [])])],
+            };
+            mergedFiles[hash] = mergedEntry;
+        }
+        mergedFileNameToHash[mergedFiles[hash].fileName] = hash;
+    }
+
+    return {
+        version: Math.max(ours?.version || 1, theirs?.version || 1),
+        files: mergedFiles,
+        fileNameToHash: mergedFileNameToHash,
+    };
+}
+
+/**
  * Merges swappedUsers arrays from base, ours, and theirs
  * Users are uniquely identified by userToSwap + createdAt (both together)
  * Similar to how initiateRemoteUpdatingFor entries are merged
@@ -2098,6 +2148,14 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             theirs?.meta?.projectSwap
         );
 
+        // 1.6. Resolve originalFilesHashes (Union merge by hash)
+        // Merge registries: union of all entries by hash. For same hash, merge referencedBy and originalNames.
+        const mergedOriginalFilesHashes = mergeOriginalFilesHashes(
+            base?.originalFilesHashes,
+            ours?.originalFilesHashes,
+            theirs?.originalFilesHashes
+        );
+
         // 2. Generic 3-Way Merge for the rest of the file
         // This ensures we don't lose other metadata changes from remote
         const mergeObjects = (baseObj: any, ourObj: any, theirObj: any, path: string[] = []): any => {
@@ -2137,6 +2195,11 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                     continue; // Skip, already merged above
                 }
 
+                // Skip originalFilesHashes - handled by specialized merge below
+                if (key === 'originalFilesHashes' && path.length === 0) {
+                    continue;
+                }
+
                 const bVal = baseObj?.[key];
                 const oVal = ourObj?.[key];
                 const tVal = theirObj?.[key];
@@ -2172,19 +2235,24 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         const otherFieldsMerged = mergeObjects(base, ours, theirs);
 
         // Combine: use edit history result as base, then overlay other merged fields
-        // But preserve edits, initiateRemoteUpdatingFor, and projectSwap from our specialized merges
-        const finalResult = {
+        // But preserve edits, initiateRemoteUpdatingFor, projectSwap, and originalFilesHashes from our specialized merges
+        const otherMeta = (otherFieldsMerged as Record<string, unknown>).meta as Record<string, unknown> | undefined;
+        const finalResult: Record<string, unknown> = {
             ...otherFieldsMerged,
             edits: resolvedMetadata.edits, // From edit history merge
             meta: {
-                ...otherFieldsMerged.meta,
+                ...otherMeta,
                 initiateRemoteUpdatingFor: mergedUpdatingList, // From specialized merge (new field name)
                 projectSwap: mergedProjectSwap, // From specialized merge
             }
         };
+        if (mergedOriginalFilesHashes) {
+            finalResult.originalFilesHashes = mergedOriginalFilesHashes;
+        }
         // Remove projectSwap if it's undefined or null (mergeProjectSwap returns undefined when nothing to merge)
-        if (finalResult.meta && (finalResult.meta.projectSwap === undefined || finalResult.meta.projectSwap === null)) {
-            delete finalResult.meta.projectSwap;
+        const meta = finalResult.meta as Record<string, unknown> | undefined;
+        if (meta && (meta.projectSwap === undefined || meta.projectSwap === null)) {
+            delete meta.projectSwap;
         }
 
         return JSON.stringify(finalResult, null, 4);
