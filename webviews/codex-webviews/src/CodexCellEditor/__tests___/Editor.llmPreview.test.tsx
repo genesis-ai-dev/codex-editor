@@ -82,15 +82,14 @@ vi.mock("quill", () => {
                         // This happens during first load and sets the ref, but returns early
                         setTimeout(() => {
                             handler({ ops: [] }, { ops: [] }, "api");
-                            // Then simulate a user text-change event with NO content change
-                            // This tests the isLLMContentNeedingApprovalRef behavior specifically
-                            // If isLLMContentNeedingApprovalRef is true, content will be marked dirty
-                            // even if it matches baseline (line 637-640 in Editor.tsx)
+                            // Simulate user text-change AFTER Editor's init delay (Editor sets
+                            // editorInitializedRef.current = true in setTimeout(..., 100) when
+                            // initialValue is set, so we must fire after 100ms or the handler returns early)
                             setTimeout(() => {
                                 // Simulate user event with no actual content change
                                 // This way dirty state is only triggered by isLLMContentNeedingApprovalRef
                                 handler({ ops: [] }, { ops: [] }, "user");
-                            }, 20);
+                            }, 150);
                         }, 10);
                     }
                 }
