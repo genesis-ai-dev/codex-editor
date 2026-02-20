@@ -955,13 +955,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     };
                 })()
                 : {}),
-<<<<<<< HEAD
-=======
             // Preserve USFM round-trip structure metadata (original content + line mappings)
             ...('structureMetadata' in processedNotebook.metadata && processedNotebook.metadata.structureMetadata
                 ? { structureMetadata: processedNotebook.metadata.structureMetadata as CustomNotebookMetadata['structureMetadata'] }
                 : {}),
->>>>>>> 066c068c9c33dc3f6760981d966e51e11cd5ec70
         };
 
         return {
@@ -1043,7 +1040,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
                     // IMPORTANT: Preserve user's original filename as fileDisplayName before updating originalFileName
                     // This ensures the display name reflects what the user imported, while originalFileName
-                    // points to the actual deduplicated file in attachments/originals
+                    // points to the actual deduplicated file in attachments/files/originals
                     if (result.fileName !== requestedFileName) {
                         // Set fileDisplayName to user's original name (without extension) if not already set
                         if (!pair.source.metadata.fileDisplayName) {
@@ -1065,7 +1062,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     }
 
                     // CRITICAL: Do not persist original binary content into JSON notebooks.
-                    // The original template is stored in `.project/attachments/originals/<actualFileName>`.
+                    // The original template is stored in `.project/attachments/files/originals/<actualFileName>`.
                     delete pair.source.metadata.originalFileData;
                 }
 

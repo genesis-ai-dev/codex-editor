@@ -316,7 +316,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             }
                         }
 
-                        // Clean up original file in attachments/originals (if applicable)
+                        // Clean up original file in attachments/files/originals (if applicable)
                         // Remove this notebook's reference; delete the original file only if no other notebooks use it
                         if (notebookBaseName) {
                             try {

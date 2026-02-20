@@ -301,7 +301,7 @@ describe('Document Structure Preservation', () => {
 
             // Create document structure metadata
             const metadata: DocumentStructureMetadata = {
-                originalFileRef: 'attachments/originals/BIBL670.docx',
+                originalFileRef: 'attachments/files/originals/BIBL670.docx',
                 originalMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 originalFileHash: await generateChecksum(originalHTML),
                 importedAt: new Date().toISOString(),
