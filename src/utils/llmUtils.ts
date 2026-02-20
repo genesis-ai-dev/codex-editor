@@ -340,7 +340,6 @@ export interface CompletionConfig {
     numberOfFewShotExamples: number;
     debugMode: boolean;
     useOnlyValidatedExamples: boolean;
-    abTestingEnabled: boolean; // legacy flag; kept for type compatibility
     allowHtmlPredictions?: boolean; // whether to preserve HTML in examples and predictions
     fewShotExampleFormat: string; // format for few-shot examples: 'source-and-target' or 'target-only'
 }
@@ -369,8 +368,6 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             numberOfFewShotExamples: (config.get("numberOfFewShotExamples") as number) || 30,
             debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
             useOnlyValidatedExamples: useOnlyValidatedExamples as boolean,
-            // A/B testing flag kept for compatibility; registry handles gating
-            abTestingEnabled: (config.get("abTestingEnabled") as boolean) ?? true,
             allowHtmlPredictions: (config.get("allowHtmlPredictions") as boolean) || false,
             fewShotExampleFormat: (config.get("fewShotExampleFormat") as string) || "source-and-target",
         };

@@ -964,20 +964,6 @@
                         "default": false,
                         "description": "When enabled, AI will only use translation pairs that have been validated by users as examples for few-shot prompting. This ensures higher quality examples but may reduce the number of available examples."
                     },
-                    "codex-editor-extension.abTestingEnabled": {
-                        "title": "Enable A/B Testing",
-                        "type": "boolean",
-                        "default": true,
-                        "description": "Enables lightweight A/B tests during completions. Tests are globally gated by probability and each comparison shows exactly two options."
-                    },
-                    "codex-editor-extension.abTestingProbability": {
-                        "title": "A/B Testing Probability",
-                        "type": "number",
-                        "default": 0.15,
-                        "minimum": 0,
-                        "maximum": 1,
-                        "description": "Probability (0-1) that any eligible event will run a true A/B test. When not triggered, the system returns identical variants to keep UX consistent without doubling compute."
-                    },
                     "codex-editor-extension.searchAlgorithm": {
                         "title": "Search Algorithm",
                         "type": "string",

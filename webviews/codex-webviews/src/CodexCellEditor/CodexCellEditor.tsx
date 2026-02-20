@@ -362,7 +362,6 @@ const CodexCellEditor: React.FC = () => {
         testId: string;
         testName?: string;
         names?: string[];
-        abProbability?: number;
     }>({
         isActive: false,
         variants: [],
@@ -1554,7 +1553,7 @@ const CodexCellEditor: React.FC = () => {
         },
         setAudioAttachments: setAudioAttachments,
         showABTestVariants: (data) => {
-            const { variants, cellId, testId, testName, names, abProbability } = data as any;
+            const { variants, cellId, testId, testName, names } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;
             debug("ab-test", "Received A/B test variants:", { cellId, count });
 
@@ -1604,7 +1603,6 @@ const CodexCellEditor: React.FC = () => {
                     testId,
                     testName,
                     names,
-                    abProbability,
                 });
                 return;
             }
