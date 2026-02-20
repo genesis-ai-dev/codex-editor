@@ -802,12 +802,16 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.generateTranscriptions", async () => {
             const countInput = await vscode.window.showInputBox({
-                prompt: "How many cells to transcribe?",
-                placeHolder: "e.g., 5",
-                validateInput: (val) => (val && !isNaN(Number(val)) && Number(val) >= 1 ? undefined : "Enter a positive number"),
+                prompt: "How many cells to transcribe? (0 or blank = all untranscribed cells)",
+                placeHolder: "0 for all, or a specific number",
+                value: "0",
+                validateInput: (val) => {
+                    if (!val || val.trim() === "") return undefined;
+                    return !isNaN(Number(val)) && Number(val) >= 0 ? undefined : "Enter 0 for all, or a positive number";
+                },
             });
-            if (!countInput) return;
-            const count = Math.max(1, Math.floor(Number(countInput)));
+            if (countInput === undefined) return; // user cancelled
+            const count = Math.max(0, Math.floor(Number(countInput || 0)));
 
             const provider = GlobalProvider.getInstance().getProvider("codex-cell-editor") as CodexCellEditorProvider | undefined;
             if (!provider) {
@@ -816,7 +820,10 @@ export async function activate(context: vscode.ExtensionContext) {
             }
 
             provider.postMessageToWebviews({ type: "startBatchTranscription", content: { count } } as any);
-            vscode.window.showInformationMessage(`Starting transcription for up to ${count} cells...`);
+            const label = count > 0 ? `up to ${count}` : "all untranscribed";
+            vscode.window.showInformationMessage(
+                `Starting transcription for ${label} cells... First request may take ~45s to warm up.`
+            );
         })
     );
 
