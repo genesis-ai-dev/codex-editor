@@ -8,6 +8,7 @@ import {
 import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
+import BatchSelectionOverlay from "./BatchSelectionOverlay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
 import { CELL_DISPLAY_MODES } from "../lib/types";
 
@@ -133,6 +134,16 @@ const CellList: React.FC<CellListProps> = ({
 
     // State to track unresolved comments count for each cell
     const [cellCommentsCount, setCellCommentsCount] = useState<Map<string, number>>(new Map());
+
+    // Batch selection state for drag-to-select translation (supports multiple selections)
+    const [dragAnchorCellId, setDragAnchorCellId] = useState<string | null>(null);
+    const [dragCurrentCellId, setDragCurrentCellId] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [batchSelections, setBatchSelections] = useState<string[][]>([]);
+    const cellListContainerRef = useRef<HTMLDivElement>(null);
+    const dragStartPos = useRef<{ x: number; y: number } | null>(null);
+    const dragConfirmed = useRef(false);
+    const wasDraggingRef = useRef(false);
 
     // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
@@ -348,9 +359,40 @@ const CellList: React.FC<CellListProps> = ({
         ]
     );
 
+    // Batch translation handler — does not clear the selection so it persists
+    const handleBatchTranslationFromSelection = useCallback(
+        (cellIds: string[]) => {
+            const cellIdSet = new Set(cellIds);
+            const selectedCells = workingTranslationUnits.filter((unit) =>
+                cellIdSet.has(unit.cellMarkers[0])
+            );
+            if (selectedCells.length === 0) return;
+
+            vscode.postMessage({
+                command: "requestAutocompleteChapter",
+                content: selectedCells,
+            });
+        },
+        [workingTranslationUnits, vscode]
+    );
+
     // Handle sparkle button click with throttling
     const handleCellTranslation = useCallback(
         (cellId: string) => {
+            // Skip if we just finished a drag (click fires after mouseup)
+            if (wasDraggingRef.current) {
+                wasDraggingRef.current = false;
+                return;
+            }
+
+            // If this cell is an endpoint of any batch selection, trigger batch translation
+            for (const sel of batchSelections) {
+                if (sel.length > 1 && (cellId === sel[0] || cellId === sel[sel.length - 1])) {
+                    handleBatchTranslationFromSelection(sel);
+                    return;
+                }
+            }
+
             // Skip if this cell is already being translated
             if (isCellInTranslationProcess(cellId)) {
                 return;
@@ -381,7 +423,7 @@ const CellList: React.FC<CellListProps> = ({
                 });
             }
         },
-        [isCellInTranslationProcess, vscode, lastRequestTime]
+        [isCellInTranslationProcess, vscode, lastRequestTime, batchSelections, handleBatchTranslationFromSelection]
     );
 
     // When cells are added/removed from translation queue or completed
@@ -796,6 +838,121 @@ const CellList: React.FC<CellListProps> = ({
 
     (window as any).openCellByIdForce = openCellByIdForce;
 
+    // Compute the set of cell IDs in the drag range
+    const dragRangeCellIds = useMemo(() => {
+        if (!dragConfirmed.current || !dragAnchorCellId || !dragCurrentCellId) return [];
+
+        const ids = workingTranslationUnits.map((u) => u.cellMarkers[0]);
+        const anchorIdx = ids.indexOf(dragAnchorCellId);
+        const currentIdx = ids.indexOf(dragCurrentCellId);
+        if (anchorIdx === -1 || currentIdx === -1) return [];
+
+        const start = Math.min(anchorIdx, currentIdx);
+        const end = Math.max(anchorIdx, currentIdx);
+        return ids.slice(start, end + 1);
+    }, [dragAnchorCellId, dragCurrentCellId, workingTranslationUnits]);
+
+    // All active selections: persisted ones + current drag (if any)
+    const allActiveSelections = useMemo(() => {
+        const selections = [...batchSelections];
+        if (isDragging && dragRangeCellIds.length > 1) {
+            selections.push(dragRangeCellIds);
+        }
+        return selections;
+    }, [batchSelections, isDragging, dragRangeCellIds]);
+
+    // Union of all cell IDs across all selections (for hiding middle sparkles)
+    const activeBatchSet = useMemo(() => {
+        const set = new Set<string>();
+        for (const sel of allActiveSelections) {
+            for (const id of sel) set.add(id);
+        }
+        return set;
+    }, [allActiveSelections]);
+
+    // Union of all endpoints across all selections (for keeping endpoint sparkles visible)
+    const batchEndpoints = useMemo(() => {
+        const set = new Set<string>();
+        for (const sel of allActiveSelections) {
+            if (sel.length >= 2) {
+                set.add(sel[0]);
+                set.add(sel[sel.length - 1]);
+            }
+        }
+        return set;
+    }, [allActiveSelections]);
+
+    // Drag start handler — called from sparkle button onMouseDown
+    const handleDragStart = useCallback((cellId: string) => {
+        setDragAnchorCellId(cellId);
+        setDragCurrentCellId(cellId);
+        setIsDragging(true);
+        dragConfirmed.current = false;
+        dragStartPos.current = null;
+    }, []);
+
+    // Global mousemove / mouseup during drag
+    useEffect(() => {
+        if (!isDragging) return;
+
+        const DRAG_THRESHOLD = 5; // px before we confirm it's a drag
+
+        const handleMouseMove = (e: MouseEvent) => {
+            // Record initial position on first move
+            if (!dragStartPos.current) {
+                dragStartPos.current = { x: e.clientX, y: e.clientY };
+                return;
+            }
+
+            // Check threshold before confirming drag
+            if (!dragConfirmed.current) {
+                const dx = e.clientX - dragStartPos.current.x;
+                const dy = e.clientY - dragStartPos.current.y;
+                if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+                dragConfirmed.current = true;
+            }
+
+            // Find the closest cell element under the cursor
+            const els = document.elementsFromPoint(e.clientX, e.clientY);
+            for (const el of els) {
+                const cellEl = (el as HTMLElement).closest?.("[data-cell-id]");
+                if (cellEl) {
+                    const id = cellEl.getAttribute("data-cell-id");
+                    if (id) {
+                        setDragCurrentCellId(id);
+                        return;
+                    }
+                }
+            }
+        };
+
+        const handleMouseUp = () => {
+            const wasDrag = dragConfirmed.current;
+            setIsDragging(false);
+
+            if (wasDrag && dragRangeCellIds.length > 1) {
+                // Append new selection
+                setBatchSelections((prev) => [...prev, dragRangeCellIds]);
+                wasDraggingRef.current = true; // prevent sparkle click
+            } else {
+                wasDraggingRef.current = false;
+            }
+
+            setDragAnchorCellId(null);
+            setDragCurrentCellId(null);
+            dragConfirmed.current = false;
+            dragStartPos.current = null;
+        };
+
+        document.addEventListener("mousemove", handleMouseMove);
+        document.addEventListener("mouseup", handleMouseUp);
+        return () => {
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, [isDragging, dragRangeCellIds]);
+
+
     const renderCellGroup = useCallback(
         (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
@@ -857,6 +1014,9 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                onDragStart={!isSourceText ? handleDragStart : undefined}
+                                hideSparkleButton={activeBatchSet.has(cellMarkers[0]) && !batchEndpoints.has(cellMarkers[0])}
+                                forceShowSparkleButton={batchEndpoints.has(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -891,6 +1051,9 @@ const CellList: React.FC<CellListProps> = ({
             userAccessLevel,
             isAudioOnly,
             lineNumbersEnabled,
+            handleDragStart,
+            activeBatchSet,
+            batchEndpoints,
         ]
     );
 
@@ -1026,6 +1189,9 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                onDragStart={!isSourceText ? handleDragStart : undefined}
+                                hideSparkleButton={activeBatchSet.has(cellMarkers[0]) && !batchEndpoints.has(cellMarkers[0])}
+                                forceShowSparkleButton={batchEndpoints.has(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -1074,6 +1240,9 @@ const CellList: React.FC<CellListProps> = ({
         requiredAudioValidations,
         isAudioOnly,
         isAuthenticated,
+        handleDragStart,
+        activeBatchSet,
+        batchEndpoints,
     ]);
 
     // Fetch comments count for all visible cells (batched)
@@ -1158,6 +1327,7 @@ const CellList: React.FC<CellListProps> = ({
 
     return (
         <div
+            ref={cellListContainerRef}
             className="verse-list ql-editor"
             style={{
                 direction: textDirection,
@@ -1171,8 +1341,26 @@ const CellList: React.FC<CellListProps> = ({
                 // Keep minimal breathing room above the first cell to match prior layout
                 paddingTop: "0.25rem",
                 paddingBottom: "4rem",
+                position: "relative",
             }}
         >
+            {batchSelections.map((sel, i) =>
+                sel.length > 1 ? (
+                    <BatchSelectionOverlay
+                        key={`batch-${i}-${sel[0]}`}
+                        cellIds={sel}
+                        containerRef={cellListContainerRef}
+                        isDragging={false}
+                    />
+                ) : null
+            )}
+            {isDragging && dragRangeCellIds.length > 1 && (
+                <BatchSelectionOverlay
+                    cellIds={dragRangeCellIds}
+                    containerRef={cellListContainerRef}
+                    isDragging={true}
+                />
+            )}
             {renderCells()}
         </div>
     );
