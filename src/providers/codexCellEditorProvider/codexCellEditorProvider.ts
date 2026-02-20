@@ -946,9 +946,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 }
                             }
                         }
-                        // Determine provisional state before version gate
+                        // Determine provisional state before version gate.
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -1029,9 +1035,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                     }
 
+                    // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                    const selectedId = cell?.metadata?.selectedAudioId;
+                    const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                    const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                     // Determine provisional state, then apply version gate
                     let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                    if (hasAvailable) state = "available-local";
+                    if (selectedIsMissing) state = "missing";
+                    else if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
                     else if (hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
