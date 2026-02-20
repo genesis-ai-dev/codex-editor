@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 15; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
+export const CURRENT_SCHEMA_VERSION = 16; // Fix FTS5 triggers: DELETE+INSERT instead of INSERT OR REPLACE (prevents unbounded growth)
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -408,22 +408,26 @@ export class SQLiteIndexManager {
                 END
             `);
 
+            // FTS5 does not support INSERT OR REPLACE (no implicit rowid matching on columns).
+            // Use DELETE+INSERT to prevent unbounded FTS table growth (fixes #530).
             this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_source_update 
+                CREATE TRIGGER IF NOT EXISTS cells_fts_source_update
                 AFTER UPDATE OF s_content, s_raw_content ON cells
                 WHEN NEW.s_content IS NOT NULL
                 BEGIN
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'source';
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
                 END
             `);
 
             this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS cells_fts_target_update 
+                CREATE TRIGGER IF NOT EXISTS cells_fts_target_update
                 AFTER UPDATE OF t_content, t_raw_content ON cells
                 WHEN NEW.t_content IS NOT NULL
                 BEGIN
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'target';
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
                 END
             `);
@@ -2400,6 +2404,108 @@ export class SQLiteIndexManager {
         }
     }
 
+    /**
+     * Disable FTS triggers for bulk operations.
+     * Call rebuildFTSFromCells() after the bulk insert, then enableFTSTriggers().
+     */
+    disableFTSTriggers(): void {
+        if (!this.db) throw new Error("Database not initialized");
+        this.db.run("DROP TRIGGER IF EXISTS cells_fts_source_insert");
+        this.db.run("DROP TRIGGER IF EXISTS cells_fts_target_insert");
+        this.db.run("DROP TRIGGER IF EXISTS cells_fts_source_update");
+        this.db.run("DROP TRIGGER IF EXISTS cells_fts_target_update");
+        this.db.run("DROP TRIGGER IF EXISTS cells_fts_delete");
+    }
+
+    /**
+     * Re-enable FTS triggers after a bulk operation.
+     */
+    enableFTSTriggers(): void {
+        if (!this.db) throw new Error("Database not initialized");
+
+        this.db.run(`
+            CREATE TRIGGER IF NOT EXISTS cells_fts_source_insert
+            AFTER INSERT ON cells
+            WHEN NEW.s_content IS NOT NULL
+            BEGIN
+                INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+                VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
+            END
+        `);
+
+        this.db.run(`
+            CREATE TRIGGER IF NOT EXISTS cells_fts_target_insert
+            AFTER INSERT ON cells
+            WHEN NEW.t_content IS NOT NULL
+            BEGIN
+                INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+                VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
+            END
+        `);
+
+        this.db.run(`
+            CREATE TRIGGER IF NOT EXISTS cells_fts_source_update
+            AFTER UPDATE OF s_content, s_raw_content ON cells
+            WHEN NEW.s_content IS NOT NULL
+            BEGIN
+                DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'source';
+                INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+                VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
+            END
+        `);
+
+        this.db.run(`
+            CREATE TRIGGER IF NOT EXISTS cells_fts_target_update
+            AFTER UPDATE OF t_content, t_raw_content ON cells
+            WHEN NEW.t_content IS NOT NULL
+            BEGIN
+                DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'target';
+                INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+                VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
+            END
+        `);
+
+        this.db.run(`
+            CREATE TRIGGER IF NOT EXISTS cells_fts_delete
+            AFTER DELETE ON cells
+            BEGIN
+                DELETE FROM cells_fts WHERE cell_id = OLD.cell_id;
+            END
+        `);
+    }
+
+    /**
+     * Rebuild the FTS index from the cells table in a single pass.
+     * Much faster than per-row DELETE+INSERT triggers during bulk operations.
+     */
+    rebuildFTSFromCells(): void {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const start = globalThis.performance.now();
+
+        // Clear the FTS table entirely
+        this.db.run("DELETE FROM cells_fts");
+
+        // Repopulate from source content in one batch INSERT
+        this.db.run(`
+            INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+            SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
+            FROM cells
+            WHERE s_content IS NOT NULL
+        `);
+
+        // Repopulate from target content in one batch INSERT
+        this.db.run(`
+            INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+            SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
+            FROM cells
+            WHERE t_content IS NOT NULL
+        `);
+
+        const elapsed = globalThis.performance.now() - start;
+        debug(`FTS index rebuilt from cells table in ${elapsed.toFixed(2)}ms`);
+    }
+
     // Ensure all pending writes are committed and visible for search
     async flushPendingWrites(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
@@ -2431,10 +2537,11 @@ export class SQLiteIndexManager {
                 const sanitizedContent = this.sanitizeContent(content);
                 const actualRawContent = rawContent || content;
 
-                // Manually sync this specific cell to FTS if triggers didn't work
-                // Use sanitized content for the content field (for searching) and raw content for raw_content field
+                // Manually sync this specific cell to FTS if triggers didn't work.
+                // FTS5 INSERT OR REPLACE doesn't work without explicit rowid, so DELETE first then INSERT.
+                this.db!.run(`DELETE FROM cells_fts WHERE cell_id = ? AND content_type = ?`, [cellId, cellType]);
                 this.db!.run(`
-                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     VALUES (?, ?, ?, ?)
                 `, [cellId, sanitizedContent, actualRawContent, cellType]);
             } catch (error) {
