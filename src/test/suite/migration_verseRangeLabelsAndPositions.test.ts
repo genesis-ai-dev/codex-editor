@@ -98,21 +98,30 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
         assert.strictEqual(wasMigrated, true, "Migration should have occurred");
 
         const data = await readNotebookFile(uri);
-        assert.strictEqual(data.cells.length, 3, "Should have same number of cells");
+        // Original (deleted) at index 0 + milestone + duplicate + verse 4:4 = 4 cells
+        assert.strictEqual(data.cells.length, 4, "Should have 4 cells (deleted original + milestone + duplicate + 4:4)");
 
         const first = data.cells[0];
         const second = data.cells[1];
         const third = data.cells[2];
+        const fourth = data.cells[3];
 
-        assert.strictEqual(first.metadata?.type, CodexCellTypes.MILESTONE, "First cell should be milestone");
-        assert.strictEqual(first.value, "John 4");
+        // Original stays at index 0, marked as deleted
+        assert.strictEqual(first.metadata?.type, CodexCellTypes.TEXT, "First cell should be original (deleted)");
+        assert.deepStrictEqual(first.metadata?.data?.globalReferences, ["JHN 4:1-3"]);
+        assert.strictEqual(first.metadata?.data?.deleted, true, "Original should be marked deleted");
 
-        assert.strictEqual(second.metadata?.type, CodexCellTypes.TEXT, "Second cell should be content 4:1-3");
-        assert.deepStrictEqual(second.metadata?.data?.globalReferences, ["JHN 4:1-3"]);
-        assert.strictEqual(second.metadata?.cellLabel, "1-3", "Verse range cell should have cellLabel 1-3");
+        assert.strictEqual(second.metadata?.type, CodexCellTypes.MILESTONE, "Second cell should be milestone");
+        assert.strictEqual(second.value, "John 4");
 
-        assert.strictEqual(third.metadata?.type, CodexCellTypes.TEXT, "Third cell should be content 4:4");
-        assert.strictEqual(third.metadata?.cellLabel, "4");
+        // Duplicate at correct position after milestone
+        assert.strictEqual(third.metadata?.type, CodexCellTypes.TEXT, "Third cell should be duplicate 4:1-3");
+        assert.strictEqual(third.metadata?.id, `${id1}-duplicated`, "Duplicate should have -duplicated id");
+        assert.deepStrictEqual(third.metadata?.data?.globalReferences, ["JHN 4:1-3"]);
+        assert.strictEqual(third.metadata?.cellLabel, "1-3", "Verse range duplicate should have cellLabel 1-3");
+
+        assert.strictEqual(fourth.metadata?.type, CodexCellTypes.TEXT, "Fourth cell should be content 4:4");
+        assert.strictEqual(fourth.metadata?.cellLabel, "4");
     });
 
     test("should set cellLabel for mid-chapter verse range (4:7-8)", async () => {
@@ -275,9 +284,14 @@ suite("migrateVerseRangeLabelsAndPositionsForFile", () => {
         assert.strictEqual(wasMigrated, true);
 
         const data = await readNotebookFile(uri);
-        assert.strictEqual(data.cells[0].metadata?.type, CodexCellTypes.MILESTONE);
-        assert.strictEqual(data.cells[1].metadata?.data?.globalReferences?.[0], "JHN 4:1-3");
-        assert.strictEqual(data.cells[1].metadata?.cellLabel, "1-3");
-        assert.strictEqual(data.cells[2].metadata?.data?.globalReferences?.[0], "JHN 4:4");
+        // Same as first test: original (deleted) at 0, milestone at 1, duplicate at 2, 4:4 at 3
+        assert.strictEqual(data.cells.length, 4);
+        assert.strictEqual(data.cells[0].metadata?.type, CodexCellTypes.TEXT);
+        assert.strictEqual(data.cells[0].metadata?.data?.deleted, true);
+        assert.strictEqual(data.cells[1].metadata?.type, CodexCellTypes.MILESTONE);
+        assert.strictEqual(data.cells[2].metadata?.data?.globalReferences?.[0], "JHN 4:1-3");
+        assert.strictEqual(data.cells[2].metadata?.cellLabel, "1-3");
+        assert.strictEqual(data.cells[2].metadata?.id, `${id1}-duplicated`);
+        assert.strictEqual(data.cells[3].metadata?.data?.globalReferences?.[0], "JHN 4:4");
     });
 });
