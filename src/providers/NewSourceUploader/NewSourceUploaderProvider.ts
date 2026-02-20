@@ -1583,7 +1583,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     processedCells.set(paratextId, paratextCell);
                     paratextCount++;
                 } else if (alignedCell.notebookCell) {
-                    const targetId = alignedCell.importedContent.id;
+                    // Use the matched target cell's ID (from the aligner) to preserve
+                    // source-to-target linkage. The imported content may have a different
+                    // UUID generated during re-parsing, but the existing target cell's ID
+                    // is what matches the source notebook.
+                    const targetId = alignedCell.notebookCell.metadata?.id
+                        || alignedCell.notebookCell.id
+                        || alignedCell.importedContent.id;
                     const existingCell = existingCellsMap.get(targetId);
                     const existingValue = existingCell?.value ?? alignedCell.notebookCell.value ?? "";
 
@@ -1633,7 +1639,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         newCells.push(paratextCell);
                     }
                 } else if (alignedCell.notebookCell) {
-                    const targetId = alignedCell.importedContent.id;
+                    const targetId = alignedCell.notebookCell.metadata?.id
+                        || alignedCell.notebookCell.id
+                        || alignedCell.importedContent.id;
                     const processedCell = processedCells.get(targetId);
 
                     if (processedCell) {
