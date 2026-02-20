@@ -41,6 +41,8 @@ interface AudioWaveformWithTranscriptionProps {
     onShowRecorder?: () => void;
     audioValidationPopoverProps: AudioValidationPopoverProps;
     validationStatusProps: ValidationStatusIconProps;
+    targetDurationSeconds?: number | null;
+    audioDurationSeconds?: number | null;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -58,6 +60,8 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     onShowRecorder,
     validationStatusProps,
     audioValidationPopoverProps,
+    targetDurationSeconds,
+    audioDurationSeconds,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     // State for hover popover of audio validators
@@ -337,6 +341,39 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         )}
                 </div>
             )}
+
+            {/* Target duration bar (e.g. subtitle cells): audio length vs allotted timestamp length */}
+            {targetDurationSeconds != null &&
+                targetDurationSeconds > 0 &&
+                audioDurationSeconds != null &&
+                audioDurationSeconds >= 0 && (
+                    <div className="w-full space-y-2">
+                        <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
+                            <div
+                                className="h-full rounded-full transition-all duration-100"
+                                style={{
+                                    width: `${Math.min(
+                                        100,
+                                        (audioDurationSeconds / targetDurationSeconds) * 100
+                                    )}%`,
+                                    backgroundColor:
+                                        audioDurationSeconds > targetDurationSeconds
+                                            ? "rgb(239, 68, 68)" // red: over allotted
+                                            : (audioDurationSeconds / targetDurationSeconds) *
+                                                  100 >=
+                                              90
+                                            ? "rgb(34, 197, 94)" // green: within 90%+
+                                            : "rgb(234, 179, 8)", // yellow: under 90%
+                                }}
+                            />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>{audioDurationSeconds.toFixed(3)}s</span>
+                            <span>Timestamp Length</span>
+                            <span>{targetDurationSeconds.toFixed(3)}s</span>
+                        </div>
+                    </div>
+                )}
 
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">

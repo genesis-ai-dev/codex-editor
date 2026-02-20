@@ -75,6 +75,58 @@ async function pathExists(filePath: string): Promise<boolean> {
     }
 }
 
+/**
+ * Sanitizes a name to be safe for use as a folder name.
+ * Removes invalid characters and normalizes the name.
+ */
+function sanitizeFolderName(name: string): string {
+    return (
+        name
+            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$/g, "-") // Invalid/reserved chars
+            .replace(/\s+/g, "-") // Replace spaces with hyphens
+            .replace(/\.+/g, "-") // Replace periods with hyphens
+            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
+            .replace(/^-|-$/g, "") // Remove leading/trailing hyphens
+        || "UNKNOWN" // Fallback if name becomes empty
+    );
+}
+
+/**
+ * Determines the document segment for attachment storage.
+ * Uses originalName from metadata (sanitized), falls back to first cell's cellId, 
+ * then corpusMarker, then "UNKNOWN".
+ */
+function getDocumentSegment(document: CodexCellDocument): string {
+    const metadata = document.getNotebookMetadata();
+
+    // First priority: use originalName from metadata (sanitized for folder name)
+    if (metadata?.originalName) {
+        const sanitized = sanitizeFolderName(metadata.originalName);
+        if (sanitized && sanitized !== "UNKNOWN") {
+            return sanitized;
+        }
+    }
+
+    // Fallback to first cell's cellId
+    const firstCell = document.getCellByIndex(0);
+    if (firstCell?.metadata?.id) {
+        const cellId = firstCell.metadata.id;
+        const segment = cellId.split(' ')[0];
+        if (segment) {
+            return segment;
+        }
+    }
+
+    // Fallback to corpusMarker
+    const corpusMarker = metadata?.corpusMarker;
+    if (corpusMarker) {
+        return corpusMarker;
+    }
+
+    // Final fallback
+    return "UNKNOWN";
+}
+
 // Get a reference to the provider
 function getProvider(): CodexCellEditorProvider | undefined {
     // Find the provider through the window object
@@ -1129,6 +1181,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.updateCellTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
     },
 
+    updateCellAudioTimestamps: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellAudioTimestamps"; }>;
+        console.log("updateCellAudioTimestamps message received", { event });
+        document.updateCellAudioTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
+    },
+
     updateCellLabel: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel"; }>;
         debug("updateCellLabel message received", { event });
@@ -1258,15 +1316,100 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             canSelectMany: false,
             openLabel: "Select Video File",
             filters: {
-                Videos: ["mp4", "mkv", "avi", "mov"],
+                Videos: ["mp4", "mkv", "avi", "mov", "webm"],
             },
         });
         const fileUri = result?.[0];
         if (fileUri) {
-            const videoUrl = fileUri.toString();
-            await document.updateNotebookMetadata({ videoUrl });
-            await document.save(new vscode.CancellationTokenSource().token);
-            provider.refreshWebview(webviewPanel, document);
+            try {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
+                }
+
+                // Read the video file content
+                const fileData = await vscode.workspace.fs.readFile(fileUri);
+
+                // Enforce a reasonable max size (e.g., 600 MB) for video files
+                const MAX_BYTES = 600 * 1024 * 1024;
+                if (fileData.length > MAX_BYTES) {
+                    throw new Error("Video file exceeds maximum allowed size (500 MB)");
+                }
+
+                // Determine document segment
+                const documentSegment = getDocumentSegment(document);
+
+                // Generate safe filename from original file
+                const originalFileName = path.basename(fileUri.fsPath);
+                const ext = path.extname(originalFileName).toLowerCase().slice(1); // Remove leading dot
+                const allowedExtensions = new Set(["mp4", "mkv", "avi", "mov", "webm", "m4v"]);
+                const safeExt = allowedExtensions.has(ext) ? ext : "mp4";
+
+                // Sanitize filename (keep base name, replace unsafe chars)
+                const baseName = path.basename(originalFileName, path.extname(originalFileName));
+                const sanitizedBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, "-");
+                const fileName = `${sanitizedBaseName}.${safeExt}`;
+
+                // Create directory paths
+                const pointersDir = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "attachments",
+                    "pointers",
+                    documentSegment
+                );
+                const filesDir = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "attachments",
+                    "files",
+                    documentSegment
+                );
+
+                // Create directories if they don't exist
+                await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
+                await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
+
+                const pointersPath = path.join(pointersDir, fileName);
+                const filesPath = path.join(filesDir, fileName);
+
+                // Atomic write helper (write to temp then rename)
+                const writeFileAtomically = async (finalFsPath: string, data: Uint8Array): Promise<void> => {
+                    const tmpPath = `${finalFsPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    const tmpUri = vscode.Uri.file(tmpPath);
+                    const finalUri = vscode.Uri.file(finalFsPath);
+                    await vscode.workspace.fs.writeFile(tmpUri, data);
+                    await vscode.workspace.fs.rename(tmpUri, finalUri, { overwrite: true });
+                    // Optional sanity check to ensure size matches
+                    try {
+                        const stat = await vscode.workspace.fs.stat(finalUri);
+                        if (typeof stat.size === 'number' && stat.size !== data.length) {
+                            console.warn("Size mismatch after write for", finalFsPath, { expected: data.length, actual: stat.size });
+                        }
+                    } catch {
+                        // ignore stat issues
+                    }
+                };
+
+                // Write actual file (primary). Pointer write is best-effort.
+                await writeFileAtomically(filesPath, fileData);
+                try {
+                    await writeFileAtomically(pointersPath, fileData);
+                } catch (pointerErr) {
+                    console.warn("Pointer write failed; proceeding with saved file only", pointerErr);
+                }
+
+                // Store the files path in metadata (relative path from workspace root)
+                const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+                await document.updateNotebookMetadata({ videoUrl: relativePath });
+                await document.save(new vscode.CancellationTokenSource().token);
+                provider.refreshWebview(webviewPanel, document);
+            } catch (error) {
+                console.error("Error saving video file:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to save video file: ${error instanceof Error ? error.message : "Unknown error"}`
+                );
+            }
         }
     },
 
@@ -2180,6 +2323,51 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 audioData: null
             }
         });
+    },
+
+    requestCellAudioTimestamps: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestCellAudioTimestamps"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        try {
+            const cell = document.getCellContent(cellId);
+            if (!cell) {
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsCellAudioTimestamps",
+                    content: {
+                        cellId,
+                        audioTimestamps: undefined,
+                    },
+                });
+                return;
+            }
+
+            // Get audio timestamps from the cell
+            const audioTimestamps = cell.audioTimestamps ??
+                (cell.data?.audioStartTime !== undefined || cell.data?.audioEndTime !== undefined
+                    ? {
+                        startTime: cell.data.audioStartTime,
+                        endTime: cell.data.audioEndTime,
+                    }
+                    : undefined);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsCellAudioTimestamps",
+                content: {
+                    cellId,
+                    audioTimestamps,
+                },
+            });
+        } catch (error) {
+            console.error("Error fetching cell audio timestamps:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsCellAudioTimestamps",
+                content: {
+                    cellId,
+                    audioTimestamps: undefined,
+                },
+            });
+        }
     },
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {

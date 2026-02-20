@@ -46,6 +46,7 @@ import {
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { convertCellToQuillContent } from "./utils/cellUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -545,13 +546,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Enable scripts and set local resources in the webview
+        // Get workspace folder early so we can add it to localResourceRoots
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        const localResourceRoots = [
+            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
+            vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
+            vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
+        ];
+
+        // Add workspace folder to localResourceRoots to allow access to workspace files (e.g., video files)
+        if (workspaceFolder) {
+            localResourceRoots.push(workspaceFolder.uri);
+        }
+
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
-                vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
-            ]
+            localResourceRoots
         };
 
         // Get text direction and check if it's a source file
@@ -582,7 +592,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Set up file system watcher (only if document is in a workspace)
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         let watcher: vscode.FileSystemWatcher | undefined;
         let audioWatcher: vscode.FileSystemWatcher | undefined;
 
@@ -1351,8 +1360,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Posting message:", message);
         if (this.webviewPanels.size > 0) {
             this.webviewPanels.forEach((panel) => safePostMessageToPanel(panel, message));
-        } else {
-            console.error("No active webview panels");
         }
     }
 
@@ -1533,7 +1540,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ https://*.workers.dev data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
+                                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://static.cloudflareinsights.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://*.vscode-cdn.net https://*.frontierrnd.com wss://*.frontierrnd.com https://languagetool.org/api/ https://*.workers.dev https://*.fastly.net https://*.thechosen.media data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource} data:; media-src ${webview.cspSource} https: blob: data:;">
                 <link href="${styleResetUriWithBuster}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUriWithBuster}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
@@ -2324,24 +2331,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private processNotebookData(notebook: CodexNotebookAsJSONData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
-        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
-            cellMarkers: [cell.metadata?.id],
-            cellContent: cell.value,
-            cellType: cell.metadata?.type,
-            editHistory: cell.metadata?.edits,
-            // Prefer nested data for timestamps, but fall back to legacy top-level fields if needed
-            timestamps: cell.metadata?.data,
-            cellLabel: cell.metadata?.cellLabel,
-            merged: cell.metadata?.data?.merged,
-            deleted: cell.metadata?.data?.deleted,
-            data: cell.metadata?.data,
-            attachments: cell.metadata?.attachments,
-            metadata: {
-                selectedAudioId: cell.metadata?.selectedAudioId,
-                selectionTimestamp: cell.metadata?.selectionTimestamp,
-                isLocked: cell.metadata?.isLocked,
-            },
-        }));
+        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) =>
+            convertCellToQuillContent(cell)
+        );
         debug("Translation units:", translationUnits);
 
         // Use the passed document if available, otherwise fall back to currentDocument
