@@ -141,7 +141,11 @@ export const useVSCodeMessageHandler = ({
                                     else hasAvailable = true;
                                 }
                             }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                            const selectedId = unit?.metadata?.selectedAudioId;
+                            const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                            const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+                            availability[cellId] = selectedIsMissing ? "missing" : hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                         }
                         setAudioAttachments(availability);
                     } catch { /* ignore */ }
@@ -360,7 +364,11 @@ export const useVSCodeMessageHandler = ({
                                     else hasAvailable = true;
                                 }
                             }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                            const selectedId = unit?.metadata?.selectedAudioId;
+                            const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                            const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+                            availability[cellId] = selectedIsMissing ? "missing" : hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                         }
                         setAudioAttachments(availability);
                     } catch { /* ignore */ }
@@ -400,7 +408,11 @@ export const useVSCodeMessageHandler = ({
                                     else hasAvailable = true;
                                 }
                             }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                            const selectedId = unit?.metadata?.selectedAudioId;
+                            const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                            const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+                            availability[cellId] = selectedIsMissing ? "missing" : hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                         }
                         setAudioAttachments((prev) => ({ ...prev, ...availability }));
                     } catch { /* ignore */ }
