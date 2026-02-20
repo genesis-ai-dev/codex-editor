@@ -2623,17 +2623,19 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                 const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
-                availability[cellId] = selectedIsMissing
-                    ? "missing"
-                    : hasAvailable
-                        ? "available-local"
-                        : hasAvailablePointer
-                            ? "available-pointer"
-                            : hasMissing
-                                ? "missing"
-                                : hasDeleted
-                                    ? "deletedOnly"
-                                    : "none";
+                if (selectedIsMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasAvailable) {
+                    availability[cellId] = "available-local";
+                } else if (hasAvailablePointer) {
+                    availability[cellId] = "available-pointer";
+                } else if (hasMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasDeleted) {
+                    availability[cellId] = "deletedOnly";
+                } else {
+                    availability[cellId] = "none";
+                }
             }
 
             provider.postMessageToWebview(webviewPanel, {
