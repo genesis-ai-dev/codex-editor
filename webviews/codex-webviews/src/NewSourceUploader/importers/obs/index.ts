@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -278,7 +279,7 @@ const downloadObsRepository = async (
                 name: storyName,
                 cells: storyCells,
                 metadata: {
-                    id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
+                    id: uuidv4(),
                     originalFileName: storyFile.name,
                     sourceFile: storyFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
@@ -308,7 +309,7 @@ const downloadObsRepository = async (
                 name: storyName,
                 cells: codexCells,
                 metadata: {
-                    id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
+                    id: uuidv4(),
                     originalFileName: storyFile.name,
                     sourceFile: storyFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
@@ -535,7 +536,7 @@ const parseObsMarkdown = async (
         name: baseName,
         cells,
         metadata: {
-            id: `obs-source-${Date.now()}`,
+            id: uuidv4(),
             originalFileName: file.name,
             sourceFile: file.name,
             originalFileData: arrayBuffer, // Store original file for export - system will save to .project/attachments/originals/
@@ -567,7 +568,7 @@ const parseObsMarkdown = async (
         cells: codexCells,
         metadata: {
             ...sourceNotebook.metadata,
-            id: `obs-codex-${Date.now()}`,
+            id: uuidv4(),
             // Don't duplicate the original file data in codex
             originalFileData: undefined,
         },
@@ -818,7 +819,7 @@ const parseObsZip = async (
                 name: storyName,
                 cells,
                 metadata: {
-                    id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-source`,
+                    id: uuidv4(),
                     originalFileName: markdownFile.name,
                     sourceFile: markdownFile.name,
                     corpusMarker: 'obs', // Enable round-trip export
@@ -842,7 +843,7 @@ const parseObsZip = async (
                 name: storyName,
                 cells: codexCells,
                 metadata: {
-                    id: `obs-${obsStory.storyNumber.toString().padStart(2, '0')}-codex`,
+                    id: uuidv4(),
                     originalFileName: markdownFile.name,
                     sourceFile: markdownFile.name,
                     corpusMarker: 'obs', // Enable round-trip export

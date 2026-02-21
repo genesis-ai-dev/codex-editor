@@ -113,6 +113,7 @@ interface GlobalMessage {
 }
 interface TranslationPair {
     cellId: string;
+    cellLabel?: string | null; // Semantic label like "5:12" (chapter:position) for display
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
     edits?: EditHistory[]; // Make this optional as it might not always be present
@@ -162,6 +163,11 @@ interface CellIdGlobalState {
     globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
+    // Display information for UI (calculated at runtime, not persisted)
+    fileDisplayName?: string; // e.g., "Genesis", "Hebrew Matthew"
+    milestoneValue?: string; // e.g., "Genesis 1", "Matthew 5"
+    cellLineNumber?: number; // Line number within the current milestone (1-based)
+    cellLabel?: string; // e.g., "Narrator", "Jesus" — from cell metadata
 }
 interface ScriptureContent extends vscode.NotebookData {
     metadata: {
@@ -999,6 +1005,12 @@ export interface CustomNotebookMetadata {
      */
     sourceFile?: string;
     /**
+     * Timestamp added to non-biblical imports to ensure unique filenames.
+     * Format: "YYYYMMDD_HHmmss" (e.g., "20260127_143025")
+     * This allows importing changed source files multiple times without overwriting.
+     */
+    importTimestamp?: string;
+    /**
      * One-time import context derived from the import process.
      * This is the canonical home for attributes that do not vary per-cell.
      */
@@ -1033,6 +1045,8 @@ type FileImporterType =
     | "markdown"
     | "subtitles"
     | "spreadsheet"
+    | "spreadsheet-csv"
+    | "spreadsheet-tsv"
     | "tms"
     | "pdf"
     | "indesign"
@@ -1591,6 +1605,14 @@ type ProjectManagerMessageFromWebview =
     | { command: "triggerSync"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
+    | {
+        command: "deleteCorpusMarker";
+        content: {
+            corpusLabel: string;
+            displayName: string;
+            children: Array<{ uri: string; label: string; type: string }>;
+        };
+    }
     | { command: "openCellLabelImporter"; }
     | { command: "openCodexMigrationTool"; }
     | { command: "navigateToMainMenu"; }
@@ -2435,4 +2457,14 @@ type EditorReceiveMessages =
             selectedAudioId: string;
             validatedBy: ValidationEntry[];
         };
+    }
+    | {
+        type: "toggleSearch";
+    }
+    | {
+        type: "searchMatchCounts";
+        query: string;
+        milestoneMatchCounts: { [milestoneIdx: number]: number };
+        totalMatches: number;
+        error?: string;
     };

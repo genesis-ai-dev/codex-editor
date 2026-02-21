@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 12; // Added milestone_index and t_health columns
+export const CURRENT_SCHEMA_VERSION = 15; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -308,6 +308,8 @@ export class SQLiteIndexManager {
 
                     -- Health score for translation quality (0.0-1.0, default 0.3 for unverified)
                     t_health REAL DEFAULT 0.3,
+                    -- Semantic display label (e.g., "5:12" for chapter 5, cell 12)
+                    cell_label TEXT,
 
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
@@ -784,7 +786,8 @@ export class SQLiteIndexManager {
         lineNumber?: number,
         metadata?: any,
         rawContent?: string,
-        milestoneIndex?: number | null
+        milestoneIndex?: number | null,
+        cellLabel?: string | null
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -844,7 +847,8 @@ export class SQLiteIndexManager {
             `${prefix}line_number`,
             `${prefix}word_count`,
             `${prefix}raw_content`,
-            'milestone_index'
+            'milestone_index',
+            'cell_label'
         ];
 
         const values = [
@@ -855,7 +859,8 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            milestoneIndex !== undefined ? milestoneIndex : null
+            milestoneIndex !== undefined ? milestoneIndex : null,
+            cellLabel || null
         ];
 
         // Add timestamps based on cell type
@@ -953,7 +958,8 @@ export class SQLiteIndexManager {
         lineNumber?: number,
         metadata?: any,
         rawContent?: string,
-        milestoneIndex?: number | null
+        milestoneIndex?: number | null,
+        cellLabel?: string | null
     ): { id: string; isNew: boolean; contentChanged: boolean; } {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -1013,7 +1019,8 @@ export class SQLiteIndexManager {
             `${prefix}line_number`,
             `${prefix}word_count`,
             `${prefix}raw_content`,
-            'milestone_index'
+            'milestone_index',
+            'cell_label'
         ];
 
         const values = [
@@ -1024,7 +1031,8 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            milestoneIndex !== undefined ? milestoneIndex : null
+            milestoneIndex !== undefined ? milestoneIndex : null,
+            cellLabel || null
         ];
 
         // Add timestamps based on cell type
@@ -1255,10 +1263,11 @@ export class SQLiteIndexManager {
         }
 
         const stmt = this.db.prepare(`
-            SELECT 
+            SELECT
                 cells_fts.cell_id,
                 cells_fts.content,
                 cells_fts.content_type,
+                c.cell_label,
                 c.s_content,
                 c.s_raw_content,
                 c.s_line_number,
@@ -1322,6 +1331,7 @@ export class SQLiteIndexManager {
                 const result: any = {
                     id: row.cell_id,
                     cellId: row.cell_id,
+                    cellLabel: row.cell_label, // Semantic label like "GEN → 42"
                     score: row.score,
                     match: {}, // MiniSearch compatibility (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
                     uri: uri,
@@ -1504,8 +1514,9 @@ export class SQLiteIndexManager {
         if (!this.db) return null;
 
         const stmt = this.db.prepare(`
-            SELECT 
+            SELECT
                 c.cell_id,
+                c.cell_label,
                 -- Source columns
                 c.s_content,
                 c.s_raw_content,
@@ -1552,6 +1563,7 @@ export class SQLiteIndexManager {
                 if (cellType === "source" && row.s_content) {
                     return {
                         cellId: row.cell_id,
+                        cellLabel: row.cell_label, // NO FALLBACK
                         content: row.s_content,
                         rawContent: row.s_raw_content,
                         cell_type: "source",
@@ -1562,6 +1574,7 @@ export class SQLiteIndexManager {
                 } else if (cellType === "target" && row.t_content) {
                     return {
                         cellId: row.cell_id,
+                        cellLabel: row.cell_label, // NO FALLBACK
                         content: row.t_content,
                         rawContent: row.t_raw_content,
                         cell_type: "target",
@@ -1574,6 +1587,7 @@ export class SQLiteIndexManager {
                     if (row.s_content) {
                         return {
                             cellId: row.cell_id,
+                            cellLabel: row.cell_label, // NO FALLBACK
                             content: row.s_content,
                             rawContent: row.s_raw_content,
                             cell_type: "source",
@@ -1584,6 +1598,7 @@ export class SQLiteIndexManager {
                     } else if (row.t_content) {
                         return {
                             cellId: row.cell_id,
+                            cellLabel: row.cell_label, // NO FALLBACK
                             content: row.t_content,
                             rawContent: row.t_raw_content,
                             cell_type: "target",
@@ -1639,6 +1654,7 @@ export class SQLiteIndexManager {
 
         return {
             cellId,
+            cellLabel: sourceCell?.cellLabel ?? targetCell?.cellLabel ?? null, // NO || FALLBACK
             sourceContent: sourceCell?.content || "",
             targetContent: targetCell?.content || "",
             rawSourceContent: sourceCell?.rawContent || "",
@@ -1758,9 +1774,10 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
+                AND (c.cell_type = 'text' OR c.cell_type IS NULL)
         `;
 
-        const params: any[] = [`content: ${ftsQuery}`];
+        const params: (string | number)[] = [`content: ${ftsQuery}`];
 
         if (cellType) {
             sql += ` AND cells_fts.content_type = ?`;
@@ -1837,6 +1854,7 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE (c.s_content IS NOT NULL OR c.t_content IS NOT NULL)
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             `;
             params = [];
 
@@ -1935,6 +1953,7 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             `;
 
             params = [`content: ${ftsQuery}`];
@@ -3014,8 +3033,9 @@ export class SQLiteIndexManager {
         // Handle empty query by returning recent complete pairs
         if (!query || query.trim() === '') {
             const sql = `
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3026,10 +3046,11 @@ export class SQLiteIndexManager {
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
-                WHERE c.s_content IS NOT NULL 
+                WHERE c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
                 ORDER BY c.cell_id DESC
                 LIMIT ?
             `;
@@ -3045,6 +3066,7 @@ export class SQLiteIndexManager {
                     results.push({
                         cellId: row.cell_id,
                         cell_id: row.cell_id,
+                        cellLabel: row.cell_label, // NO FALLBACK
                         sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                         targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
                         content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -3108,8 +3130,9 @@ export class SQLiteIndexManager {
             : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
 
         const sql = `
-            SELECT DISTINCT 
+            SELECT DISTINCT
                 cell_id,
+                cell_label,
                 source_content,
                 raw_source_content,
                 target_content,
@@ -3119,8 +3142,9 @@ export class SQLiteIndexManager {
                 score
             FROM (
                 -- FTS5 search results
-                SELECT DISTINCT 
+                SELECT DISTINCT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3134,16 +3158,18 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
                     AND ${ftsContentTypeFilter}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
-                
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+
                 UNION
-                
+
                 -- LIKE substring search results (for cases FTS5 might miss)
-                SELECT DISTINCT 
+                SELECT DISTINCT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3155,10 +3181,11 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE ${likeConditions}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             )
             ORDER BY score ASC
             LIMIT ?
@@ -3187,6 +3214,7 @@ export class SQLiteIndexManager {
                 results.push({
                     cellId: row.cell_id,
                     cell_id: row.cell_id,
+                    cellLabel: row.cell_label, // NO FALLBACK
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -3202,8 +3230,6 @@ export class SQLiteIndexManager {
         } finally {
             stmt.free();
         }
-
-
 
         return results;
     }
@@ -3233,8 +3259,9 @@ export class SQLiteIndexManager {
         // Handle empty query by returning recent complete validated pairs
         if (!query || query.trim() === '') {
             const sql = `
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3245,10 +3272,11 @@ export class SQLiteIndexManager {
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
-                WHERE c.s_content IS NOT NULL 
+                WHERE c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
                     ${onlyValidated ? "AND c.t_is_fully_validated = 1" : ""}
                 ORDER BY c.cell_id DESC
                 LIMIT ?
@@ -3272,6 +3300,7 @@ export class SQLiteIndexManager {
                         results.push({
                             cellId: row.cell_id,
                             cell_id: row.cell_id,
+                            cellLabel: row.cell_label || null,
                             sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
                             content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -3341,6 +3370,7 @@ export class SQLiteIndexManager {
         const sql = `
             SELECT DISTINCT
                 cell_id,
+                cell_label,
                 source_content,
                 raw_source_content,
                 line,
@@ -3348,8 +3378,9 @@ export class SQLiteIndexManager {
                 score
             FROM (
                 -- FTS5 search results
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.s_line_number as line,
@@ -3361,16 +3392,18 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
                     AND ${ftsContentTypeFilter}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
-                
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+
                 UNION
-                
+
                 -- LIKE substring search results (for cases FTS5 might miss)
-                SELECT 
+                SELECT
                     c.cell_id,
+                    c.cell_label,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.s_line_number as line,
@@ -3380,10 +3413,11 @@ export class SQLiteIndexManager {
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE ${likeConditions}
-                    AND c.s_content IS NOT NULL 
+                    AND c.s_content IS NOT NULL
                     AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
+                    AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
             )
             ORDER BY score ASC
             LIMIT ?
@@ -3436,6 +3470,7 @@ export class SQLiteIndexManager {
                         results.push({
                             cellId: row.cell_id,
                             cell_id: row.cell_id,
+                            cellLabel: row.cell_label, // NO FALLBACK - show raw value
                             sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
                             content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,

@@ -458,6 +458,25 @@ function NavigationView() {
         }));
     };
 
+    const handleDeleteCorpusMarker = (item: CodexItem) => {
+        const displayName =
+            item.children?.[0]?.corpusMarker ||
+            formatLabel(item.label, state.bibleBookMap || new Map());
+        vscode.postMessage({
+            command: "deleteCorpusMarker",
+            content: {
+                corpusLabel: item.label,
+                displayName,
+                children:
+                    item.children?.map((c) => ({
+                        uri: c.uri,
+                        label: c.label,
+                        type: c.type,
+                    })) ?? [],
+            },
+        });
+    };
+
     const handleRenameModalClose = () => {
         setState((prev) => ({
             ...prev,
@@ -767,18 +786,32 @@ function NavigationView() {
                                     </Button>
                                 )}
                                 {item.type === "corpus" && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="menu-button w-6 h-6"
-                                        title="Rename Group"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleEditCorpusMarker(item);
-                                        }}
-                                    >
-                                        <i className="codicon codicon-edit text-xs" />
-                                    </Button>
+                                    <>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="menu-button w-6 h-6"
+                                            title="Rename Group"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditCorpusMarker(item);
+                                            }}
+                                        >
+                                            <i className="codicon codicon-edit text-xs" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="menu-button w-6 h-6"
+                                            title="Delete Folder"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteCorpusMarker(item);
+                                            }}
+                                        >
+                                            <i className="codicon codicon-trash text-xs" />
+                                        </Button>
+                                    </>
                                 )}
                                 {!isGroup && (
                                     <Button
@@ -988,7 +1021,7 @@ function NavigationView() {
 
             <div className="mt-auto pt-4 flex flex-col gap-3 bg-vscode-sideBar-background relative">
                 {/* Action Buttons - Side by Side */}
-                <div className="flex gap-2">
+                <div className="flex min-[311px]:flex-row flex-col gap-2">
                     <Button
                         variant="default"
                         onClick={handleAddFiles}

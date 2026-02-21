@@ -479,8 +479,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             }
                         }
 
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -2375,9 +2381,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         }
                     }
                 }
+                // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                const selectedId = cell?.metadata?.selectedAudioId;
+                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                 // Provisional state
                 let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                if (hasAvailable) state = "available-local";
+                if (selectedIsMissing) state = "missing";
+                else if (hasAvailable) state = "available-local";
                 else if (hasAvailablePointer) state = "available-pointer";
                 else if (hasMissing) state = "missing";
                 else if (hasDeleted) state = "deletedOnly";
@@ -2606,15 +2618,24 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         validatedByArray = [...validatedBy];
                     }
                 }
-                availability[cellId] = hasAvailable
-                    ? "available-local"
-                    : hasAvailablePointer
-                        ? "available-pointer"
-                        : hasMissing
-                            ? "missing"
-                            : hasDeleted
-                                ? "deletedOnly"
-                                : "none";
+                // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                const selectedId = cell?.metadata?.selectedAudioId;
+                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
+                if (selectedIsMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasAvailable) {
+                    availability[cellId] = "available-local";
+                } else if (hasAvailablePointer) {
+                    availability[cellId] = "available-pointer";
+                } else if (hasMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasDeleted) {
+                    availability[cellId] = "deletedOnly";
+                } else {
+                    availability[cellId] = "none";
+                }
             }
 
             provider.postMessageToWebview(webviewPanel, {
@@ -3275,9 +3296,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 }
                             }
                         }
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         // Provisional state
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -3398,6 +3425,111 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             debug(`Sent subsection progress for milestone ${milestoneIndex}:`, subsectionProgress);
         } catch (error) {
             console.error("Error fetching subsection progress:", error);
+        }
+    },
+
+    // Handler for counting search matches across all milestones (for in-tab search bar)
+    countMatchesInDocument: async ({ event, document, webviewPanel, provider }) => {
+        const typed = event as any;
+        const query = typed?.content?.query ?? "";
+        const matchCase = typed?.content?.matchCase ?? false;
+
+        if (!query.trim()) {
+            // Empty query - send back empty results
+            safePostMessageToPanel(webviewPanel, {
+                type: "searchMatchCounts",
+                query: "",
+                milestoneMatchCounts: {},
+                totalMatches: 0,
+            });
+            return;
+        }
+
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const cellsPerPage = config.get("cellsPerPage", 50);
+
+            // Build milestone index to know how many milestones exist
+            const milestoneIndex = document.buildMilestoneIndex(cellsPerPage);
+            const milestoneMatchCounts: { [milestoneIdx: number]: number; } = {};
+            let totalMatches = 0;
+
+            // Helper to strip HTML tags for plain text search
+            const stripHtml = (html: string): string => {
+                return html.replace(/<[^>]*>/g, "");
+            };
+
+            // Search through all milestones
+            for (let mIdx = 0; mIdx < milestoneIndex.milestones.length; mIdx++) {
+                const milestone = milestoneIndex.milestones[mIdx];
+                let milestoneMatches = 0;
+
+                // Get all cells for this milestone
+                const allCells = document.getAllCellsForMilestone(mIdx);
+
+                // Count matches in each cell
+                for (const cell of allCells) {
+                    if (!cell.cellContent) continue;
+
+                    const plainText = stripHtml(cell.cellContent);
+                    const searchText = matchCase ? plainText : plainText.toLowerCase();
+                    const searchQuery = matchCase ? query : query.toLowerCase();
+
+                    let startIndex = 0;
+                    while ((startIndex = searchText.indexOf(searchQuery, startIndex)) !== -1) {
+                        milestoneMatches++;
+                        startIndex += searchQuery.length;
+                    }
+                }
+
+                if (milestoneMatches > 0) {
+                    milestoneMatchCounts[mIdx] = milestoneMatches;
+                    totalMatches += milestoneMatches;
+                }
+            }
+
+            // Send the match counts back to the webview
+            safePostMessageToPanel(webviewPanel, {
+                type: "searchMatchCounts",
+                query,
+                milestoneMatchCounts,
+                totalMatches,
+            });
+
+            debug(`Search match counts for "${query}": ${totalMatches} total matches across ${Object.keys(milestoneMatchCounts).length} milestones`);
+        } catch (error) {
+            console.error("Error counting search matches:", error);
+            safePostMessageToPanel(webviewPanel, {
+                type: "searchMatchCounts",
+                query,
+                milestoneMatchCounts: {},
+                totalMatches: 0,
+                error: String(error),
+            });
+        }
+    },
+
+    // Handler for expanding in-tab search to Parallel Passages (all files)
+    expandSearchToAllFiles: async ({ event }) => {
+        const typed = event as any;
+        const query = typed?.content?.query ?? "";
+        const replaceText = typed?.content?.replaceText;
+
+        try {
+            // Use dynamic import to avoid circular dependency
+            const { GlobalProvider } = await import("../../globalProvider");
+
+            // Focus the Parallel Passages sidebar FIRST (this will trigger webview load if not already open)
+            await vscode.commands.executeCommand("search-passages-sidebar.focus");
+
+            // Then set pending search data - the webview will receive it via webviewReady message
+            // or immediately if already loaded
+            const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
+            if (provider && "setPendingSearch" in provider) {
+                (provider as any).setPendingSearch(query, replaceText);
+            }
+        } catch (error) {
+            console.error("Error expanding search to all files:", error);
         }
     },
 };

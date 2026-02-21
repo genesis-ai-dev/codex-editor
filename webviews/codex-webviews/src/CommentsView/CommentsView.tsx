@@ -13,6 +13,8 @@ import {
     Hash,
     Clock,
     Reply,
+    ArrowDownUp,
+    MapPin,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -20,9 +22,17 @@ import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from ".
 import { v4 as uuidv4 } from "uuid";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
+import bibleBooksData from "../assets/bible-books-lookup.json";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
+type SortMode = "location" | "time-increasing" | "time-decreasing";
 
 // Helper function to generate deterministic colors for usernames
 const getUserColor = (username: string): string => {
@@ -84,6 +94,7 @@ function App() {
     const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const MAX_MESSAGE_LENGTH = 8000;
     const REPLY_PREVIEW_MAX_WORDS = 12;
+    const [sortMode, setSortMode] = useState<SortMode>("location");
     const [currentUser, setCurrentUser] = useState<{
         username: string;
         email: string;
@@ -127,6 +138,82 @@ function App() {
         const latest = deletionEvents.reduce((a, b) => (a.timestamp > b.timestamp ? a : b));
         return latest.deleted || false;
     }, []);
+
+    // Bible book map for canonical ordering (from Luke's branch)
+    const bibleBookMap = useMemo(() => {
+        const map = new Map<string, { name: string; abbr: string; ord: string; testament: string }>();
+        (bibleBooksData as { name: string; abbr: string; ord: string; testament: string }[]).forEach((book) => {
+            map.set(book.abbr, book);
+            map.set(book.name, book);
+        });
+        return map;
+    }, []);
+
+    const getMissingLabel = useCallback((type: "file" | "milestone" | "cell"): string => {
+        switch (type) {
+            case "file": return "No Book Name";
+            case "milestone": return "No Chapter Number";
+            case "cell": return "No Verse Number";
+        }
+    }, []);
+
+    const getFileSortOrder = useCallback((fileDisplayName: string | undefined): string => {
+        if (!fileDisplayName) return "999";
+        const bookInfo = bibleBookMap.get(fileDisplayName);
+        return bookInfo ? bookInfo.ord : "999";
+    }, [bibleBookMap]);
+
+    // Sort threads by latest activity, unresolved first (used for current cell section)
+    const sortByActivity = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
+        const byLatestActivity = (a: NotebookCommentThread, b: NotebookCommentThread) => {
+            const aTime = Math.max(...a.comments.map((c) => c.timestamp));
+            const bTime = Math.max(...b.comments.map((c) => c.timestamp));
+            return bTime - aTime;
+        };
+        const unresolved = threads.filter((t) => !isThreadResolved(t));
+        const resolved = threads.filter((t) => isThreadResolved(t));
+        return [...unresolved.sort(byLatestActivity), ...resolved.sort(byLatestActivity)];
+    }, [isThreadResolved]);
+
+    // Sort threads by sort mode (used for "all other threads" section)
+    const sortThreads = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
+        const getLatestTimestamp = (thread: NotebookCommentThread) =>
+            Math.max(...thread.comments.map((c) => c.timestamp));
+
+        switch (sortMode) {
+            case "time-increasing":
+                return [...threads].sort((a, b) => getLatestTimestamp(a) - getLatestTimestamp(b));
+
+            case "time-decreasing":
+                return [...threads].sort((a, b) => getLatestTimestamp(b) - getLatestTimestamp(a));
+
+            case "location":
+                return [...threads].sort((a, b) => {
+                    const aFile = a.cellId.fileDisplayName || getMissingLabel("file");
+                    const bFile = b.cellId.fileDisplayName || getMissingLabel("file");
+                    const aOrder = getFileSortOrder(a.cellId.fileDisplayName);
+                    const bOrder = getFileSortOrder(b.cellId.fileDisplayName);
+
+                    const orderCompare = aOrder.localeCompare(bOrder);
+                    if (orderCompare !== 0) return orderCompare;
+
+                    const fileCompare = aFile.localeCompare(bFile);
+                    if (fileCompare !== 0) return fileCompare;
+
+                    const aMilestone = a.cellId.milestoneValue || getMissingLabel("milestone");
+                    const bMilestone = b.cellId.milestoneValue || getMissingLabel("milestone");
+                    const milestoneCompare = aMilestone.localeCompare(bMilestone);
+                    if (milestoneCompare !== 0) return milestoneCompare;
+
+                    const aLine = a.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
+                    const bLine = b.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
+                    return aLine - bLine;
+                });
+
+            default:
+                return threads;
+        }
+    }, [sortMode, getMissingLabel, getFileSortOrder]);
 
     const handleMessage = useCallback(
         (event: MessageEvent) => {
@@ -219,15 +306,43 @@ function App() {
         return words.slice(0, maxWords).join(" ") + "...";
     };
 
-    const getCellLabel = (cellIdState: CellIdGlobalState | string): string => {
+    /**
+     * Get display name for a cell using new display fields with fallback.
+     * Priority:
+     * 1. fileDisplayName · milestoneValue · cellLabel (if available)
+     * 2. globalReferences (for stored comments)
+     * 3. Shortened cellId
+     */
+    const getCellDisplayName = (cellIdState: CellIdGlobalState | string): string => {
         if (typeof cellIdState === "string") {
-            return cellIdState.length > 20 ? cellIdState.slice(-12) : cellIdState;
+            const parts = cellIdState.split(":");
+            const finalPart = parts[parts.length - 1] || cellIdState;
+            return cellIdState.length < 10 ? cellIdState : finalPart;
         }
-        if (cellIdState.globalReferences?.length > 0) {
-            return cellIdState.globalReferences[0];
+
+        const displayParts: string[] = [];
+        if (cellIdState.fileDisplayName) displayParts.push(cellIdState.fileDisplayName);
+        if (cellIdState.milestoneValue) displayParts.push(cellIdState.milestoneValue);
+        if (cellIdState.cellLabel) displayParts.push(cellIdState.cellLabel);
+
+        if (displayParts.length > 0) {
+            return displayParts.join(" · ");
         }
+
+        if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
+            const formatted = cellIdState.globalReferences.map((ref) => {
+                const parts = ref.split(" ");
+                if (parts.length >= 2) {
+                    const book = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+                    return `${book} ${parts.slice(1).join(" ")}`;
+                }
+                return ref;
+            });
+            return formatted.join(", ");
+        }
+
         const id = cellIdState.cellId;
-        return id.length > 20 ? id.slice(-12) : id;
+        return id.length > 10 ? `...${id.slice(-8)}` : id || "Unknown cell";
     };
 
     const getThreadPreview = (thread: NotebookCommentThread): string => {
@@ -241,33 +356,19 @@ function App() {
         return plainText.length > 50 ? plainText.slice(0, 47) + "..." : plainText || "Empty thread";
     };
 
-    // Sort function for threads
-    const byLatestActivity = (a: NotebookCommentThread, b: NotebookCommentThread) => {
-        const aTime = Math.max(...a.comments.map((c) => c.timestamp));
-        const bTime = Math.max(...b.comments.map((c) => c.timestamp));
-        return bTime - aTime;
-    };
-
-    // Sort threads: unresolved first, then resolved
-    const sortThreads = (threads: NotebookCommentThread[]) => {
-        const unresolved = threads.filter((t) => !isThreadResolved(t));
-        const resolved = threads.filter((t) => isThreadResolved(t));
-        return [...unresolved.sort(byLatestActivity), ...resolved.sort(byLatestActivity)];
-    };
-
-    // Threads for current cell
+    // Threads for current cell (sorted by activity, unresolved first)
     const currentCellThreads = useMemo(() => {
         const nonDeleted = commentThreadArray.filter((t) => !isThreadDeleted(t));
         const filtered = nonDeleted.filter((t) => cellId.cellId && t.cellId.cellId === cellId.cellId);
-        return sortThreads(filtered);
-    }, [commentThreadArray, cellId.cellId, isThreadDeleted, isThreadResolved]);
+        return sortByActivity(filtered);
+    }, [commentThreadArray, cellId.cellId, isThreadDeleted, sortByActivity]);
 
-    // All threads (excluding current cell to avoid duplicates)
+    // All threads excluding current cell (sorted by sort mode)
     const allOtherThreads = useMemo(() => {
         const nonDeleted = commentThreadArray.filter((t) => !isThreadDeleted(t));
         const filtered = nonDeleted.filter((t) => !cellId.cellId || t.cellId.cellId !== cellId.cellId);
         return sortThreads(filtered);
-    }, [commentThreadArray, cellId.cellId, isThreadDeleted, isThreadResolved]);
+    }, [commentThreadArray, cellId.cellId, isThreadDeleted, sortThreads]);
 
     const currentThread = selectedThread
         ? commentThreadArray.find((t) => t.id === selectedThread)
@@ -278,8 +379,6 @@ function App() {
         if (isThreadResolved(currentThread)) return;
 
         const timestamp = Date.now();
-
-        // Build message body with optional reply reference
         let body = messageText.trim();
         if (replyingTo) {
             body = `@reply:${replyingTo.id}\n${body}`;
@@ -363,7 +462,7 @@ function App() {
         ));
     };
 
-    // Render a thread item
+    // Render a thread list item (discord channel style)
     const renderThreadItem = (thread: NotebookCommentThread) => {
         const resolved = isThreadResolved(thread);
         const latestComment = thread.comments[thread.comments.length - 1];
@@ -399,13 +498,82 @@ function App() {
         );
     };
 
+    // Location-grouped thread list (from Luke's branch) for "All Other Threads" when sort=location
+    const LocationGroupedList = ({ threads }: { threads: NotebookCommentThread[] }) => {
+        const grouped = threads.reduce((acc, thread) => {
+            const file = thread.cellId.fileDisplayName || getMissingLabel("file");
+            const milestone = thread.cellId.milestoneValue || getMissingLabel("milestone");
+            if (!acc[file]) acc[file] = {};
+            if (!acc[file][milestone]) acc[file][milestone] = [];
+            acc[file][milestone].push(thread);
+            return acc;
+        }, {} as Record<string, Record<string, NotebookCommentThread[]>>);
+
+        return (
+            <div className="flex flex-col">
+                {Object.entries(grouped).map(([fileName, milestones]) => (
+                    <div key={fileName}>
+                        <div className="px-3 py-1.5 bg-muted/30 text-xs font-semibold text-muted-foreground uppercase tracking-wide sticky top-0 z-10">
+                            {fileName}
+                        </div>
+                        {Object.entries(milestones).map(([milestoneName, threadsInMilestone]) => (
+                            <div key={`${fileName}-${milestoneName}`}>
+                                <div className="px-4 py-1 text-xs text-muted-foreground font-medium">
+                                    {milestoneName}
+                                </div>
+                                {threadsInMilestone.map(renderThreadItem)}
+                            </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
     // Thread list view with collapsible sections
     const ThreadList = () => (
         <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Sort controls */}
+            <div className="px-3 py-1.5 flex items-center justify-end border-b border-border bg-muted/20">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground">
+                            <ArrowDownUp className="h-3.5 w-3.5" />
+                            {sortMode === "location" ? "Location" : sortMode === "time-increasing" ? "Time ↑" : "Time ↓"}
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                            onClick={() => setSortMode("location")}
+                            className={sortMode === "location" ? "bg-accent" : ""}
+                        >
+                            <MapPin className="h-4 w-4 mr-2" />
+                            Location in Project
+                            {sortMode === "location" && <Check className="h-4 w-4 ml-auto" />}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => setSortMode("time-increasing")}
+                            className={sortMode === "time-increasing" ? "bg-accent" : ""}
+                        >
+                            <Clock className="h-4 w-4 mr-2" />
+                            Time Increasing
+                            {sortMode === "time-increasing" && <Check className="h-4 w-4 ml-auto" />}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => setSortMode("time-decreasing")}
+                            className={sortMode === "time-decreasing" ? "bg-accent" : ""}
+                        >
+                            <Clock className="h-4 w-4 mr-2" />
+                            Time Decreasing
+                            {sortMode === "time-decreasing" && <Check className="h-4 w-4 ml-auto" />}
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+
             <div className="flex-1 overflow-y-auto">
                 {/* Current Cell Section */}
                 <div className="border-b border-border">
-                    {/* Section header */}
                     <button
                         className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/30 transition-colors text-left"
                         onClick={() => setCurrentSectionExpanded(!currentSectionExpanded)}
@@ -415,15 +583,14 @@ function App() {
                         ) : (
                             <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         )}
-                        <span className="font-medium text-sm">
-                            {cellId.cellId ? getCellLabel(cellId) : "Current Cell"}
+                        <span className="font-medium text-sm truncate flex-1">
+                            {cellId.cellId ? getCellDisplayName(cellId) : "Current Cell"}
                         </span>
-                        <span className="text-xs text-muted-foreground ml-auto">
+                        <span className="text-xs text-muted-foreground ml-auto shrink-0">
                             {currentCellThreads.length} {currentCellThreads.length === 1 ? "thread" : "threads"}
                         </span>
                     </button>
 
-                    {/* Section content */}
                     {currentSectionExpanded && (
                         <div className="pb-2">
                             {/* Inline new thread input */}
@@ -460,7 +627,6 @@ function App() {
                                 </div>
                             )}
 
-                            {/* Thread list for current cell */}
                             {currentCellThreads.length === 0 ? (
                                 <div className="px-3 py-4 text-center text-muted-foreground text-sm">
                                     No threads on this cell yet
@@ -472,9 +638,8 @@ function App() {
                     )}
                 </div>
 
-                {/* All Threads Section */}
+                {/* All Other Threads Section */}
                 <div>
-                    {/* Section header */}
                     <button
                         className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/30 transition-colors text-left"
                         onClick={() => setAllSectionExpanded(!allSectionExpanded)}
@@ -490,13 +655,14 @@ function App() {
                         </span>
                     </button>
 
-                    {/* Section content */}
                     {allSectionExpanded && (
                         <div className="pb-2">
                             {allOtherThreads.length === 0 ? (
                                 <div className="px-3 py-4 text-center text-muted-foreground text-sm">
                                     No other threads
                                 </div>
+                            ) : sortMode === "location" ? (
+                                <LocationGroupedList threads={allOtherThreads} />
                             ) : (
                                 allOtherThreads.map(renderThreadItem)
                             )}
@@ -520,11 +686,16 @@ function App() {
                         <ChevronLeft className="h-4 w-4" />
                     </Button>
                     <Hash className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium truncate flex-1">
-                        {getThreadPreview(currentThread)}
-                    </span>
+                    <div className="flex flex-col flex-1 min-w-0">
+                        <span className="text-sm font-medium truncate">
+                            {getThreadPreview(currentThread)}
+                        </span>
+                        <span className="text-xs text-muted-foreground truncate">
+                            {getCellDisplayName(currentThread.cellId)}
+                        </span>
+                    </div>
                     {resolved && (
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs shrink-0">
                             <Check className="h-3 w-3 mr-1" />
                             Resolved
                         </Badge>
@@ -556,7 +727,9 @@ function App() {
                     <div className="flex flex-col gap-3">
                         {currentThread.comments.map((comment, idx) => {
                             const time = formatTimestamp(comment.timestamp);
-                            const showAuthor = idx === 0 || currentThread.comments[idx - 1].author.name !== comment.author.name;
+                            const showAuthor =
+                                idx === 0 ||
+                                currentThread.comments[idx - 1].author.name !== comment.author.name;
                             const isOwn = comment.author.name === currentUser.username;
                             const { replyToId, content } = parseReplyInfo(comment.body);
                             const repliedComment = replyToId ? findCommentById(replyToId) : null;
@@ -583,7 +756,10 @@ function App() {
                                                 {repliedComment.author.name}
                                             </span>
                                             <span className="text-xs text-muted-foreground truncate">
-                                                {truncateToWords(parseReplyInfo(repliedComment.body).content, REPLY_PREVIEW_MAX_WORDS)}
+                                                {truncateToWords(
+                                                    parseReplyInfo(repliedComment.body).content,
+                                                    REPLY_PREVIEW_MAX_WORDS
+                                                )}
                                             </span>
                                         </div>
                                     )}
@@ -593,22 +769,27 @@ function App() {
                                             <AuthorName username={comment.author.name} size="base" />
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
-                                                    <span className="text-xs text-muted-foreground">{time.display}</span>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {time.display}
+                                                    </span>
                                                 </TooltipTrigger>
                                                 <TooltipContent>{time.full}</TooltipContent>
                                             </Tooltip>
                                         </div>
                                     )}
+
                                     <div className="relative">
                                         <div className="text-base leading-relaxed">
                                             {comment.deleted ? (
-                                                <span className="italic text-muted-foreground">Message deleted</span>
+                                                <span className="italic text-muted-foreground">
+                                                    Message deleted
+                                                </span>
                                             ) : (
                                                 renderMessageContent(content)
                                             )}
                                         </div>
 
-                                        {/* Actions */}
+                                        {/* Hover actions */}
                                         {!comment.deleted && !resolved && (
                                             <div className="absolute -right-1 -top-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 bg-background rounded shadow-sm border border-border">
                                                 <Tooltip>
@@ -634,7 +815,12 @@ function App() {
                                                                 variant="ghost"
                                                                 size="sm"
                                                                 className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                                                                onClick={() => handleDeleteComment(comment.id, currentThread.id)}
+                                                                onClick={() =>
+                                                                    handleDeleteComment(
+                                                                        comment.id,
+                                                                        currentThread.id
+                                                                    )
+                                                                }
                                                             >
                                                                 <Trash2 className="h-3.5 w-3.5" />
                                                             </Button>
@@ -649,7 +835,9 @@ function App() {
                                                 variant="ghost"
                                                 size="sm"
                                                 className="h-6 px-2 mt-1 text-xs"
-                                                onClick={() => handleUndoDelete(comment.id, currentThread.id)}
+                                                onClick={() =>
+                                                    handleUndoDelete(comment.id, currentThread.id)
+                                                }
                                             >
                                                 <Undo2 className="h-3 w-3 mr-1" />
                                                 Undo
@@ -684,7 +872,11 @@ function App() {
                                     <span className="text-xs text-muted-foreground">Replying to</span>
                                     <AuthorName username={replyingTo.author.name} size="sm" />
                                     <span className="text-xs text-muted-foreground truncate flex-1">
-                                        {replyingTo.body.split("\n").filter((l) => !l.startsWith("> "))[0]?.slice(0, 40)}...
+                                        {replyingTo.body
+                                            .split("\n")
+                                            .filter((l) => !l.startsWith("> "))[0]
+                                            ?.slice(0, 40)}
+                                        ...
                                     </span>
                                     <Button
                                         variant="ghost"
@@ -699,7 +891,11 @@ function App() {
                             <div className="relative w-full">
                                 <textarea
                                     ref={textareaRef}
-                                    placeholder={replyingTo ? `Reply to ${replyingTo.author.name}...` : "Send a message..."}
+                                    placeholder={
+                                        replyingTo
+                                            ? `Reply to ${replyingTo.author.name}...`
+                                            : "Send a message..."
+                                    }
                                     value={messageText}
                                     onChange={(e) => {
                                         if (e.target.value.length <= MAX_MESSAGE_LENGTH) {
@@ -728,9 +924,14 @@ function App() {
                                     <Send className="h-4 w-4 text-primary" />
                                 </Button>
                             </div>
-                            {/* Character count - only show when getting close to limit */}
                             {messageText.length > MAX_MESSAGE_LENGTH * 0.8 && (
-                                <div className={`text-xs text-right mt-1 ${messageText.length >= MAX_MESSAGE_LENGTH ? "text-destructive" : "text-muted-foreground"}`}>
+                                <div
+                                    className={`text-xs text-right mt-1 ${
+                                        messageText.length >= MAX_MESSAGE_LENGTH
+                                            ? "text-destructive"
+                                            : "text-muted-foreground"
+                                    }`}
+                                >
                                     {messageText.length}/{MAX_MESSAGE_LENGTH}
                                 </div>
                             )}

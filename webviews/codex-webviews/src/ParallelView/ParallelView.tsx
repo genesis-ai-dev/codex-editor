@@ -35,6 +35,15 @@ function ParallelView() {
     const [replaceErrors, setReplaceErrors] = useState<Array<{ cellId: string; error: string }>>(
         []
     );
+    const [forceReplaceExpanded, setForceReplaceExpanded] = useState(false);
+    const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+
+    // Auto-reset pin filter when all pins are removed
+    useEffect(() => {
+        if (pinnedVerses.length === 0 && showPinnedOnly) {
+            setShowPinnedOnly(false);
+        }
+    }, [pinnedVerses.length]);
 
     const dedupeByCellId = (items: TranslationPair[]) => {
         const seen = new Set<string>();
@@ -47,80 +56,93 @@ function ParallelView() {
         });
     };
 
-    // Track previous values to detect changes
-    const prevSearchParamsRef = useRef({
-        query: "",
-        replaceText: "",
-        completeOnly: false,
-        searchScope: "both" as "both" | "source" | "target",
-        selectedFiles: [] as string[],
-    });
-    const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const hasSearchedRef = useRef(false);
 
-    // Single consolidated effect for all search triggers
+    // Re-search when replace text is first added (only if we already have search results)
+    const prevReplaceTextRef = useRef<string>("");
     useEffect(() => {
-        const prev = prevSearchParamsRef.current;
+        const hadReplaceText = prevReplaceTextRef.current.trim();
+        const hasReplaceText = replaceText.trim();
+
+        // Only re-search when transitioning from no replace text to having replace text
+        if (!hadReplaceText && hasReplaceText && lastQuery.trim() && verses.length > 0) {
+            searchBoth(lastQuery, replaceText);
+        }
+
+        prevReplaceTextRef.current = replaceText;
+    }, [replaceText]);
+
+    // Re-search when query changes (if we already have results)
+    const prevQueryRef = useRef<string>("");
+
+    useEffect(() => {
+        const queryChanged = prevQueryRef.current !== lastQuery;
         const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
 
-        // Determine what changed
-        const queryChanged = prev.query !== lastQuery;
-        const replaceTextAdded = !prev.replaceText.trim() && replaceText.trim();
-        const completeOnlyChanged = prev.completeOnly !== completeOnly;
-        const searchScopeChanged = prev.searchScope !== searchScope;
-        const selectedFilesChanged =
-            JSON.stringify(prev.selectedFiles) !== JSON.stringify(selectedFiles);
+        // Auto-search if query changed and we either have results or had a previous query
+        if (queryChanged && hasQuery && (hasResults || prevQueryRef.current.trim().length > 0)) {
+            const timeoutId = setTimeout(() => {
+                searchBoth(lastQuery, replaceText);
+            }, 300); // Debounce by 300ms
 
-        // Update previous values
-        prevSearchParamsRef.current = {
-            query: lastQuery,
-            replaceText,
-            completeOnly,
-            searchScope,
-            selectedFiles,
-        };
-
-        // Only trigger search if we have a query and something relevant changed
-        const shouldSearch =
-            hasQuery &&
-            (queryChanged ||
-                replaceTextAdded ||
-                completeOnlyChanged ||
-                searchScopeChanged ||
-                selectedFilesChanged) &&
-            (hasSearchedRef.current || queryChanged);
-
-        if (!shouldSearch) {
-            return;
+            return () => clearTimeout(timeoutId);
         }
 
-        // Clear any pending search
-        if (searchTimeoutRef.current) {
-            clearTimeout(searchTimeoutRef.current);
+        prevQueryRef.current = lastQuery;
+    }, [lastQuery, verses.length, replaceText, searchScope]);
+
+    // Clear results when query is emptied, but keep pinned verses visible
+    useEffect(() => {
+        if (lastQuery.trim().length === 0 && verses.length > 0) {
+            setVerses(verses.filter((v) => pinnedVerses.some((p) => p.cellId === v.cellId)));
+        }
+    }, [lastQuery]);
+
+    // Re-search when completeOnly setting changes (if we already have search results)
+    const prevCompleteOnlyRef = useRef<boolean>(false);
+    useEffect(() => {
+        const settingChanged = prevCompleteOnlyRef.current !== completeOnly;
+        const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
+
+        // Auto-search if setting changed and we have an active search
+        if (settingChanged && hasQuery && hasResults) {
+            searchBoth(lastQuery, replaceText);
         }
 
-        // Debounce: 300ms for query changes, immediate for settings changes
-        const debounceMs = queryChanged ? 300 : 0;
+        prevCompleteOnlyRef.current = completeOnly;
+    }, [completeOnly, lastQuery, verses.length, replaceText, searchScope]);
 
-        searchTimeoutRef.current = setTimeout(() => {
-            hasSearchedRef.current = true;
-            vscode.postMessage({
-                command: "search",
-                query: lastQuery,
-                replaceText: replaceText || "",
-                completeOnly: completeOnly,
-                searchScope: searchScope,
-                selectedFiles:
-                    selectedFiles.length === projectFiles.length ? [] : selectedFiles,
-            });
-        }, debounceMs);
+    // Re-search when searchScope setting changes (if we already have search results)
+    const prevSearchScopeRef = useRef<"both" | "source" | "target">("both");
+    useEffect(() => {
+        const settingChanged = prevSearchScopeRef.current !== searchScope;
+        const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
 
-        return () => {
-            if (searchTimeoutRef.current) {
-                clearTimeout(searchTimeoutRef.current);
-            }
-        };
-    }, [lastQuery, replaceText, completeOnly, searchScope, selectedFiles, projectFiles.length]);
+        // Auto-search if setting changed and we have an active search
+        if (settingChanged && hasQuery && hasResults) {
+            searchBoth(lastQuery, replaceText);
+        }
+
+        prevSearchScopeRef.current = searchScope;
+    }, [searchScope, lastQuery, verses.length, replaceText]);
+
+    // Re-search when selectedFiles changes (if we already have search results)
+    const prevSelectedFilesRef = useRef<string[]>([]);
+    useEffect(() => {
+        const filesChanged =
+            JSON.stringify(prevSelectedFilesRef.current) !== JSON.stringify(selectedFiles);
+        const hasQuery = lastQuery.trim().length > 0;
+        const hasResults = verses.length > 0;
+
+        // Auto-search if files changed and we have an active search
+        if (filesChanged && hasQuery && hasResults) {
+            searchBoth(lastQuery, replaceText);
+        }
+
+        prevSelectedFilesRef.current = selectedFiles;
+    }, [selectedFiles, lastQuery, verses.length, replaceText]);
 
     // Request project files on mount and clear replace text
     useEffect(() => {
@@ -149,7 +171,13 @@ function ParallelView() {
                 case "searchResults": {
                     let results = message.data as TranslationPair[];
                     results = dedupeByCellId(results);
-                    // Backend already filters for replace mode, so no need to filter again here
+                    // When in replace mode (replaceText is set), filter out results that cannot be replaced
+                    // This happens when the search query spans across HTML tag boundaries
+                    if (replaceText.trim()) {
+                        results = results.filter((result) =>
+                            canReplaceInHtml(result.targetCell.content || "", lastQuery)
+                        );
+                    }
                     // Remove duplicates - don't include pinned verses that are already in results
                     const pinnedNotInResults = pinnedVerses.filter(
                         (pinned) => !results.some((r) => r.cellId === pinned.cellId)
@@ -243,12 +271,54 @@ function ParallelView() {
                     }
                     break;
                 }
+                case "enableReplace": {
+                    // Triggered by keyboard shortcut to open with replace mode
+                    setForceReplaceExpanded(true);
+                    // Reset after a short delay so it can be triggered again
+                    setTimeout(() => setForceReplaceExpanded(false), 100);
+                    break;
+                }
+                case "populateSearch": {
+                    // Triggered from in-tab search to expand search to all files
+                    const { query: newQuery, replaceText: newReplaceText } = message;
+                    if (newQuery) {
+                        setLastQuery(newQuery);
+                        // Trigger search automatically
+                        vscode.postMessage({
+                            command: "search",
+                            query: newQuery,
+                            completeOnly,
+                            searchScope,
+                            selectedFiles,
+                        });
+                    }
+                    if (newReplaceText) {
+                        setReplaceText(newReplaceText);
+                        setForceReplaceExpanded(true);
+                        setTimeout(() => setForceReplaceExpanded(false), 100);
+                    }
+                    break;
+                }
             }
         };
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
     }, [pinnedVerses, lastQuery, replaceText]);
+
+    // Notify extension that webview is ready (for pending operations like populateSearch)
+    // Use a ref to ensure we only send this once, after the message listener is set up
+    const hasNotifiedReady = useRef(false);
+    useEffect(() => {
+        // Small delay to ensure message listener is attached first
+        const timeoutId = setTimeout(() => {
+            if (!hasNotifiedReady.current) {
+                hasNotifiedReady.current = true;
+                vscode.postMessage({ command: "webviewReady" });
+            }
+        }, 50);
+        return () => clearTimeout(timeoutId);
+    }, []);
 
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
@@ -259,22 +329,18 @@ function ParallelView() {
         } as OpenFileMessage);
     };
 
-    // Trigger an explicit search (e.g., from form submit or re-search after replace)
-    const searchBoth = (query: string, replaceTextOverride?: string, event?: React.FormEvent) => {
+    const searchBoth = (query: string, replaceText?: string, event?: React.FormEvent) => {
         if (event) {
             event.preventDefault();
         }
-        // Mark that we've searched, so settings changes will trigger re-search
-        hasSearchedRef.current = true;
         setLastQuery(query);
-        // Send search immediately (bypasses debounce for explicit searches)
         vscode.postMessage({
             command: "search",
             query: query,
-            replaceText: replaceTextOverride ?? replaceText ?? "",
+            replaceText: replaceText || "",
             completeOnly: completeOnly,
             searchScope: searchScope,
-            selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles,
+            selectedFiles: selectedFiles.length === projectFiles.length ? [] : selectedFiles, // Empty = all files
         });
     };
 
@@ -374,6 +440,9 @@ function ParallelView() {
                 replaceErrors={replaceErrors}
                 onClearReplaceErrors={() => setReplaceErrors([])}
                 vscode={vscode}
+                forceReplaceExpanded={forceReplaceExpanded}
+                showPinnedOnly={showPinnedOnly}
+                onTogglePinnedFilter={() => setShowPinnedOnly((prev) => !prev)}
             />
         </div>
     );
