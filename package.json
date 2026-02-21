@@ -729,6 +729,12 @@
             {
                 "title": "Codex Extension",
                 "properties": {
+                    "codex-editor-extension.disableUiMinification": {
+                        "title": "Disable UI Minification",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, prevents the extension from hiding VSCode interface elements to provide a cleaner translation studio experience. Useful for developers who want to access VSCode features."
+                    },
                     "codex-editor-extension.api_key": {
                         "title": "API Key",
                         "type": "string",
