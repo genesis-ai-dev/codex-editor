@@ -130,12 +130,34 @@ suite("FTS Index Integrity Test Suite", () => {
 
     suiteSetup(async function () {
         this.timeout(30000);
-        // Find the WASM file - use extension context or fallback
-        const extensionRoot = path.join(__dirname, "../../../../..");
-        const wasmPath = path.join(extensionRoot, "out/node_modules/fts5-sql-bundle/dist/sql-wasm.wasm");
-        sql = await initSqlJs({
-            locateFile: () => wasmPath,
-        });
+        // Use the real fs module (not webpack's memfs polyfill) to read the WASM binary
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const nodeFs = eval("require")("fs") as typeof import("fs");
+
+        // Try multiple candidate paths to find the WASM file.
+        // __dirname in webpack bundle = out/test/suite; go up to out/ then into node_modules.
+        // Also try process.cwd() for CI where __dirname may differ.
+        const candidates = [
+            path.join(__dirname, "../../node_modules/fts5-sql-bundle/dist/sql-wasm.wasm"),
+            path.join(process.cwd(), "out/node_modules/fts5-sql-bundle/dist/sql-wasm.wasm"),
+            path.join(process.cwd(), "node_modules/fts5-sql-bundle/dist/sql-wasm.wasm"),
+        ];
+
+        let wasmBinary: Buffer | undefined;
+        for (const candidate of candidates) {
+            if (nodeFs.existsSync(candidate)) {
+                wasmBinary = nodeFs.readFileSync(candidate);
+                break;
+            }
+        }
+
+        if (!wasmBinary) {
+            throw new Error(
+                `Could not find sql-wasm.wasm. Tried:\n${candidates.join("\n")}`
+            );
+        }
+
+        sql = await initSqlJs({ wasmBinary } as Record<string, unknown>);
     });
 
     setup(function () {
