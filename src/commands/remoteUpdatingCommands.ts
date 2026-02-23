@@ -5,10 +5,17 @@ import {
     fetchProjectMembers,
     fetchProjectContributors,
     clearRemoteMetadataCache,
-} from "../utils/remoteHealingManager";
+    fetchRemoteMetadata,
+    normalizeUpdateEntry,
+    isCancelled,
+    getCancelledBy,
+    RemoteUpdatingEntry,
+} from "../utils/remoteUpdatingManager";
+import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
+import { isFeatureEnabled } from "../utils/remoteUpdatingManager";
 
 const DEBUG = false;
-const debug = DEBUG ? (...args: any[]) => console.log("[RemoteHealingCommands]", ...args) : () => { };
+const debug = DEBUG ? (...args: any[]) => console.log("[RemoteUpdatingCommands]", ...args) : () => { };
 
 interface MemberQuickPickItem extends vscode.QuickPickItem {
     username: string;
@@ -17,15 +24,16 @@ interface MemberQuickPickItem extends vscode.QuickPickItem {
     roleName?: string;
     commits?: number;
     isContributor: boolean;
+    isAdmin?: boolean;  // Instance administrator
 }
 
 /**
- * Command to initiate remote healing for selected users
- * This allows project administrators to mark users for forced project healing
+ * Command to initiate remote updating for selected users
+ * This allows project administrators to mark users for forced project updating
  */
-export async function initiateRemoteHealing(): Promise<void> {
+export async function initiateRemoteUpdating(): Promise<void> {
     try {
-        debug("Starting remote healing setup");
+        debug("Starting remote updating setup");
 
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -83,7 +91,7 @@ export async function initiateRemoteHealing(): Promise<void> {
 
         debug("Project ID:", projectId);
 
-        // Check user permissions - only Owners and Maintainers can manage healing
+        // Check user permissions - only Owners and Maintainers can manage updates
         const authApi = (await import("../extension")).getAuthApi();
         if (!authApi) {
             vscode.window.showErrorMessage(
@@ -116,7 +124,7 @@ export async function initiateRemoteHealing(): Promise<void> {
 
         if (!currentUserMember) {
             await vscode.window.showWarningMessage(
-                "Your role does not allow updating healing requirements.",
+                "Your role does not allow updating update requirements.",
                 { modal: true }
             );
             return;
@@ -125,7 +133,7 @@ export async function initiateRemoteHealing(): Promise<void> {
         // Check if user has sufficient permissions (Maintainer = 40, Owner = 50)
         if (currentUserMember.accessLevel < 40) {
             await vscode.window.showWarningMessage(
-                "Your role does not allow updating healing requirements.",
+                "Your role does not allow updating update requirements.",
                 { modal: true }
             );
             return;
@@ -158,7 +166,7 @@ export async function initiateRemoteHealing(): Promise<void> {
         debug("Fetched contributors:", contributors);
         debug("Fetched members:", members);
 
-        // Read current metadata to see who's already in the healing list
+        // Read current metadata to see who's already in the update list
         const metadataResult = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
         if (!metadataResult.success) {
             vscode.window.showErrorMessage(
@@ -167,20 +175,37 @@ export async function initiateRemoteHealing(): Promise<void> {
             return;
         }
 
-        const healingList = (metadataResult.metadata?.meta?.initiateRemoteHealingFor as (string | any)[] | undefined) || [];
+        let rawList = (metadataResult.metadata?.meta?.initiateRemoteUpdatingFor as (string | any)[] | undefined) || [];
 
-        // Get list of currently active (pending) healing requests
-        const activeHealingUsernames: string[] = [];
+        // Prefer remote list (fresh from remote head) when available
+        try {
+            const remoteMeta = await fetchRemoteMetadata(projectId, false); // bypass cache
+            const remoteList = remoteMeta?.meta?.initiateRemoteUpdatingFor;
+            if (remoteList && Array.isArray(remoteList)) {
+                rawList = remoteList;
+                debug("Using remote update list from remote head");
+            } else {
+                debug("Remote update list not available or invalid; using local");
+            }
+        } catch (e) {
+            debug("Could not fetch remote update list; using local", e);
+        }
 
-        for (const entry of healingList) {
+        // Normalize entries to ensure defaults/validation
+        const updatingList: RemoteUpdatingEntry[] = rawList.map(entry => normalizeUpdateEntry(entry));
+
+        // Get list of currently active (pending) update requests
+        const activeUpdateingUsernames: string[] = [];
+
+        for (const entry of updatingList) {
             if (typeof entry === 'object' && entry !== null) {
-                if (!entry.executed && !entry.deleted) {
-                    activeHealingUsernames.push(entry.userToHeal);
+                if (!entry.executed && !isCancelled(entry)) {
+                    activeUpdateingUsernames.push(entry.userToUpdate);
                 }
             }
         }
 
-        debug("Active healing usernames:", activeHealingUsernames);
+        debug("Active update usernames:", activeUpdateingUsernames);
 
         // Create a map of contributors by username for quick lookup
         const contributorMap = new Map(
@@ -198,22 +223,29 @@ export async function initiateRemoteHealing(): Promise<void> {
             // Only show name if it's different from username
             const showName = member.name && member.name !== member.username;
 
+            // Add instance admin badge if applicable
+            // Hide badge for 'root' user unless the current user IS root
+            const shouldShowAdminBadge = member.isAdmin &&
+                (member.username !== "root" || currentUserInfo.username === "root");
+            const adminBadge = shouldShowAdminBadge ? " 🔑 Instance Admin" : "";
+
             const item: MemberQuickPickItem = {
                 label: member.username,
                 description: isContributor
                     ? showName
-                        ? `${member.name} — ${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}`
-                        : `${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}`
+                        ? `${member.name} — ${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}${adminBadge}`
+                        : `${contributor!.commits} commit${contributor!.commits !== 1 ? "s" : ""} — ${member.roleName}${adminBadge}`
                     : showName
-                        ? `${member.name} — ${member.roleName}`
-                        : member.roleName,
-                picked: activeHealingUsernames.includes(member.username),
+                        ? `${member.name} — ${member.roleName}${adminBadge}`
+                        : `${member.roleName}${adminBadge}`,
+                picked: activeUpdateingUsernames.includes(member.username),
                 username: member.username,
                 email: member.email,
                 accessLevel: member.accessLevel,
                 roleName: member.roleName,
                 commits: contributor?.commits,
                 isContributor,
+                isAdmin: member.isAdmin,
             };
 
             if (isContributor) {
@@ -256,8 +288,8 @@ export async function initiateRemoteHealing(): Promise<void> {
         // Show multi-select Quick Pick
         const selectedItems = await vscode.window.showQuickPick(quickPickItems, {
             canPickMany: true,
-            placeHolder: "Select users who should be forced to heal their project",
-            title: "Remote Project Healing",
+            placeHolder: "Select users who should be forced to update their project",
+            title: "Remote Project Updating",
             ignoreFocusOut: true,
         });
 
@@ -273,13 +305,13 @@ export async function initiateRemoteHealing(): Promise<void> {
         debug("Selected usernames:", selectedUsernames);
 
         // Calculate what's changing (based on active list)
-        const addedUsers = selectedUsernames.filter(u => !activeHealingUsernames.includes(u));
-        const removedUsers = activeHealingUsernames.filter(u => !selectedUsernames.includes(u));
-        const unchangedUsers = selectedUsernames.filter(u => activeHealingUsernames.includes(u));
+        const addedUsers = selectedUsernames.filter(u => !activeUpdateingUsernames.includes(u));
+        const removedUsers = activeUpdateingUsernames.filter(u => !selectedUsernames.includes(u));
+        const unchangedUsers = selectedUsernames.filter(u => activeUpdateingUsernames.includes(u));
 
         // Check if there are any changes
         if (addedUsers.length === 0 && removedUsers.length === 0) {
-            vscode.window.showInformationMessage("No changes made to healing list.");
+            vscode.window.showInformationMessage("No changes made to update list.");
             return;
         }
 
@@ -304,9 +336,9 @@ export async function initiateRemoteHealing(): Promise<void> {
         // Build detailed confirmation message
         let confirmMessage: string;
         if (selectedUsernames.length === 0) {
-            confirmMessage = "Clear the healing list? No users will be forced to heal.";
+            confirmMessage = "Clear the update list? No users will be forced to update.";
         } else {
-            const parts: string[] = ["PROJECT HEALING"];
+            const parts: string[] = ["PROJECT UPDATING"];
 
             if (addedUsers.length > 0) {
                 parts.push(`— Required from —\n${addedUsers.join('\n')}`);
@@ -339,7 +371,7 @@ export async function initiateRemoteHealing(): Promise<void> {
             return;
         }
 
-        // Update metadata.json with the new healing list
+        // Update metadata.json with the new updating list
         try {
             // Update metadata using MetadataManager
             const updateResult = await MetadataManager.safeUpdateMetadata(
@@ -349,7 +381,7 @@ export async function initiateRemoteHealing(): Promise<void> {
                         metadata.meta = {};
                     }
 
-                    const currentList = (metadata.meta.initiateRemoteHealingFor || []) as (string | any)[];
+                    const currentList = (metadata.meta.initiateRemoteUpdatingFor || []) as (string | any)[];
                     const now = Date.now();
                     const currentUser = currentUserInfo.username;
 
@@ -361,10 +393,10 @@ export async function initiateRemoteHealing(): Promise<void> {
                     for (const entry of currentList) {
                         if (typeof entry !== 'object' || entry === null) continue;
 
-                        const username = entry.userToHeal;
+                        const username = entry.userToUpdate;
 
-                        if (entry.executed || entry.deleted) {
-                            // Always keep executed or deleted entries (History)
+                        if (entry.executed || isCancelled(entry)) {
+                            // Always keep executed or cancelled entries (History)
                             newList.push(entry);
                         } else {
                             // This is a PENDING (Active) entry
@@ -376,8 +408,8 @@ export async function initiateRemoteHealing(): Promise<void> {
                                 // User is NOT selected -> Cancel this pending entry
                                 newList.push({
                                     ...entry,
-                                    deleted: true,
-                                    deletedBy: currentUser,
+                                    cancelled: true,
+                                    cancelledBy: currentUser,
                                     updatedAt: now
                                 });
                             }
@@ -388,18 +420,18 @@ export async function initiateRemoteHealing(): Promise<void> {
                     for (const username of selectedUsernames) {
                         if (!usersWithActiveEntry.has(username)) {
                             newList.push({
-                                userToHeal: username,
+                                userToUpdate: username,
                                 addedBy: currentUser,
                                 createdAt: now,
                                 updatedAt: now,
-                                deleted: false,
-                                deletedBy: "",
+                                cancelled: false,
+                                cancelledBy: "",
                                 executed: false
                             });
                         }
                     }
 
-                    metadata.meta.initiateRemoteHealingFor = newList;
+                    metadata.meta.initiateRemoteUpdatingFor = newList;
                     return metadata;
                 }
             );
@@ -411,20 +443,20 @@ export async function initiateRemoteHealing(): Promise<void> {
             debug("Metadata updated successfully");
 
             // Determine what changed for a precise commit message
-            const addedUsers = selectedUsernames.filter(u => !activeHealingUsernames.includes(u));
-            const removedUsers = activeHealingUsernames.filter(u => !selectedUsernames.includes(u));
+            const addedUsers = selectedUsernames.filter(u => !activeUpdateingUsernames.includes(u));
+            const removedUsers = activeUpdateingUsernames.filter(u => !selectedUsernames.includes(u));
 
             let commitMessage: string;
-            if (selectedUsernames.length === 0 && activeHealingUsernames.length > 0) {
-                commitMessage = "Cleared remote healing list";
+            if (selectedUsernames.length === 0 && activeUpdateingUsernames.length > 0) {
+                commitMessage = "Cleared remote update list";
             } else if (addedUsers.length > 0 && removedUsers.length > 0) {
-                commitMessage = `Updated remote healing list (added: ${addedUsers.join(", ")}; removed: ${removedUsers.join(", ")})`;
+                commitMessage = `Updated remote update list (added: ${addedUsers.join(", ")}; removed: ${removedUsers.join(", ")})`;
             } else if (addedUsers.length > 0) {
-                commitMessage = `Added remote healing for: ${addedUsers.join(", ")}`;
+                commitMessage = `Added remote update for: ${addedUsers.join(", ")}`;
             } else if (removedUsers.length > 0) {
-                commitMessage = `Removed remote healing for: ${removedUsers.join(", ")}`;
+                commitMessage = `Removed remote update for: ${removedUsers.join(", ")}`;
             } else {
-                commitMessage = "Updated remote healing list";
+                commitMessage = "Updated remote update list";
             }
 
             // Trigger sync and wait for completion
@@ -476,28 +508,28 @@ export async function initiateRemoteHealing(): Promise<void> {
             // Show success message after sync completes
             const successMessage =
                 selectedUsernames.length === 0
-                    ? "Healing list cleared successfully."
-                    : `Remote healing active for ${selectedUsernames.length} user${selectedUsernames.length !== 1 ? "s" : ""}. They will be forced to heal when they open this project.`;
+                    ? "Update list cleared successfully."
+                    : `Remote update active for ${selectedUsernames.length} user${selectedUsernames.length !== 1 ? "s" : ""}. They will be forced to update when they open this project.`;
 
             vscode.window.showInformationMessage(successMessage);
         } catch (error) {
-            console.error("Error updating remote healing list:", error);
+            console.error("Error updating remote update list:", error);
             vscode.window.showErrorMessage(
-                `Failed to update remote healing list: ${error instanceof Error ? error.message : String(error)}`
+                `Failed to update remote update list: ${error instanceof Error ? error.message : String(error)}`
             );
         }
     } catch (error) {
-        console.error("Error in initiateRemoteHealing:", error);
+        console.error("Error in initiateRemoteUpdating:", error);
         vscode.window.showErrorMessage(
-            `Failed to set up remote healing: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to set up remote update: ${error instanceof Error ? error.message : String(error)}`
         );
     }
 }
 
 /**
- * Command to view the current remote healing list
+ * Command to view the current remote update list
  */
-export async function viewRemoteHealingList(): Promise<void> {
+export async function viewRemoteUpdatingList(): Promise<void> {
     try {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -513,27 +545,51 @@ export async function viewRemoteHealingList(): Promise<void> {
             return;
         }
 
-        const healingList = (metadataResult.metadata?.meta?.initiateRemoteHealingFor as (string | any)[] | undefined) || [];
+        let rawList = (metadataResult.metadata?.meta?.initiateRemoteUpdatingFor as (string | any)[] | undefined) || [];
 
-        if (healingList.length === 0) {
-            vscode.window.showInformationMessage("No users are currently marked for remote healing.");
+        // Try to fetch the remote list from remote head; fallback to local on failure/offline
+        try {
+            const git = await import("isomorphic-git");
+            const fs = await import("fs");
+            const remotes = await git.listRemotes({ fs, dir: workspaceFolder.uri.fsPath });
+            const origin = remotes.find((r) => r.remote === "origin");
+            if (origin?.url) {
+                const projectId = extractProjectIdFromUrl(origin.url);
+                if (projectId) {
+                    const remoteMeta = await fetchRemoteMetadata(projectId, false); // bypass cache
+                    const remoteList = remoteMeta?.meta?.initiateRemoteUpdatingFor;
+                    if (remoteList && Array.isArray(remoteList)) {
+                        rawList = remoteList;
+                        debug("Using remote update list for viewRemoteUpdatingList");
+                    }
+                }
+            }
+        } catch (e) {
+            debug("Could not fetch remote update list for viewRemoteUpdatingList; using local", e);
+        }
+
+        // Normalize entries to ensure defaults/validation
+        const updatingList: RemoteUpdatingEntry[] = rawList.map(entry => normalizeUpdateEntry(entry));
+
+        if (updatingList.length === 0) {
+            vscode.window.showInformationMessage("No users are currently marked for remote update.");
             return;
         }
 
         // Helper to generate items based on filter
-        const generateItems = (filterType: 'all' | 'pending' | 'executed' | 'deleted'): vscode.QuickPickItem[] => {
+        const generateItems = (filterType: 'all' | 'pending' | 'executed' | 'cancelled'): vscode.QuickPickItem[] => {
             const now = Date.now();
             const ONE_DAY = 24 * 60 * 60 * 1000;
             const SEVEN_DAYS = 7 * ONE_DAY;
             const FOURTEEN_DAYS = 14 * ONE_DAY;
 
             // Filter raw list first
-            const filteredRawList = healingList.filter(entry => {
+            const filteredRawList = updatingList.filter(entry => {
                 if (typeof entry === 'string') return false;
                 if (filterType === 'all') return true;
-                if (filterType === 'pending') return !entry.executed && !entry.deleted;
+                if (filterType === 'pending') return !entry.executed && !isCancelled(entry);
                 if (filterType === 'executed') return entry.executed;
-                if (filterType === 'deleted') return entry.deleted;
+                if (filterType === 'cancelled') return isCancelled(entry);
                 return true;
             });
 
@@ -542,9 +598,9 @@ export async function viewRemoteHealingList(): Promise<void> {
                 if (typeof a === 'string' || typeof b === 'string') return 0;
 
                 const getPriority = (entry: any) => {
-                    if (!entry.deleted && !entry.executed) return 0; // Pending
-                    if (entry.executed) return 1; // Executed
-                    return 2; // Deleted
+                    if (!isCancelled(entry) && !entry.executed) return 0; // Pending (highest priority)
+                    if (entry.executed) return 1; // Executed (includes cancelled+executed cases)
+                    return 2; // Cancelled only
                 };
 
                 const priorityA = getPriority(a);
@@ -585,21 +641,42 @@ export async function viewRemoteHealingList(): Promise<void> {
                     let icon = "$(clock)";
                     let statusText = "Pending";
 
-                    if (entry.deleted) {
-                        icon = "$(trash)";
-                        statusText = "Deleted";
-                    } else if (entry.executed) {
+                    // Handle status priority: Executed trumps Cancelled
+                    // (If both are true, the user completed the update before admin could cancel it)
+                    if (entry.executed) {
                         icon = "$(check)";
                         statusText = "Executed";
+                    } else if (isCancelled(entry)) {
+                        icon = "$(close)";
+                        statusText = "Cancelled";
                     }
 
                     const dateStr = new Date(entry.createdAt).toLocaleString();
+                    const cancelledBy = getCancelledBy(entry);
+
+                    // Build detail line with appropriate context
+                    let detailLine = `Added by ${entry.addedBy} on ${dateStr}`;
+
+                    // If both cancelled and executed, explain what happened
+                    if (isCancelled(entry) && entry.executed && cancelledBy) {
+                        detailLine += ` • Update completed before cancellation by ${cancelledBy}`;
+                    } else if (isCancelled(entry) && cancelledBy) {
+                        detailLine += ` • Cancelled by ${cancelledBy}`;
+                    }
+
+                    // Show clear button only if feature is enabled and entry is clearable
+                    const canClear = isFeatureEnabled('ENABLE_ENTRY_CLEARING') && (entry.executed || isCancelled(entry));
 
                     items.push({
-                        label: `${icon} ${entry.userToHeal}`,
+                        label: `${icon} ${entry.userToUpdate}`,
                         description: statusText,
-                        detail: `Added by ${entry.addedBy} on ${dateStr}`
-                    });
+                        detail: detailLine,
+                        entry: entry,  // Store entry for later actions
+                        buttons: canClear ? [{
+                            iconPath: new vscode.ThemeIcon("trash"),
+                            tooltip: "Clear Entry?"
+                        }] : []
+                    } as any);
                 });
             };
 
@@ -612,8 +689,11 @@ export async function viewRemoteHealingList(): Promise<void> {
 
         // Create QuickPick
         const quickPick = vscode.window.createQuickPick();
-        quickPick.title = "Remote Healing History";
-        quickPick.placeholder = "Select an item to view details (currently read-only)";
+        quickPick.title = "Remote Update History";
+        // Show clear instructions only if feature is enabled
+        quickPick.placeholder = isFeatureEnabled('ENABLE_ENTRY_CLEARING')
+            ? "Click trash icon (🗑️) to clear completed/cancelled entries from history"
+            : "Filter by status using the buttons above";
         quickPick.ignoreFocusOut = true;
         quickPick.matchOnDescription = true;
         quickPick.matchOnDetail = true;
@@ -622,61 +702,141 @@ export async function viewRemoteHealingList(): Promise<void> {
         const btnAll = { iconPath: new vscode.ThemeIcon("list-unordered"), tooltip: "Show All" };
         const btnPending = { iconPath: new vscode.ThemeIcon("clock"), tooltip: "Show Pending" };
         const btnExecuted = { iconPath: new vscode.ThemeIcon("check"), tooltip: "Show Executed" };
-        const btnDeleted = { iconPath: new vscode.ThemeIcon("trash"), tooltip: "Show Deleted" };
+        const btnCancelled = { iconPath: new vscode.ThemeIcon("close"), tooltip: "Show Cancelled" };
 
-        quickPick.buttons = [btnAll, btnPending, btnExecuted, btnDeleted];
+        quickPick.buttons = [btnAll, btnPending, btnExecuted, btnCancelled];
 
         // Update items based on filter
-        const updateItems = (filterType: 'all' | 'pending' | 'executed' | 'deleted') => {
+        const updateItems = (filterType: 'all' | 'pending' | 'executed' | 'cancelled') => {
             quickPick.items = generateItems(filterType);
+            // Don't auto-select the first entry
+            quickPick.activeItems = [];
         };
 
         // Initial state
         updateItems('all');
 
-        // Handle button clicks
+        // Handle filter button clicks
         quickPick.onDidTriggerButton(button => {
             if (button === btnAll) updateItems('all');
             else if (button === btnPending) updateItems('pending');
             else if (button === btnExecuted) updateItems('executed');
-            else if (button === btnDeleted) updateItems('deleted');
+            else if (button === btnCancelled) updateItems('cancelled');
         });
 
-        // Handle selection (optional: could show more details or actions)
-        quickPick.onDidAccept(() => {
-            // Currently just close, but could be expanded
-            quickPick.hide();
+        // Handle trash icon button clicks on individual items
+        quickPick.onDidTriggerItemButton(async (e) => {
+            const selectedItem = e.item as any;
+            if (!selectedItem || !selectedItem.entry) {
+                return;
+            }
+
+            const entry = selectedItem.entry;
+
+            // Check permissions first
+            const permCheck = await checkProjectAdminPermissions();
+            if (!permCheck.hasPermission) {
+                vscode.window.showErrorMessage(
+                    `⛔ Permission Denied\n\nYou do not have permission to clear entries from history.\n\nRequires: Maintainer or Owner role\nReason: ${permCheck.error || "Insufficient permissions"}`
+                );
+                return;
+            }
+
+            const confirmed = await vscode.window.showWarningMessage(
+                `⚠️ Clear "${entry.userToUpdate}" from history?\n\n` +
+                `This will permanently delete this entry from all records and cannot be undone.`,
+                { modal: true },
+                "Yes, Clear Entry",
+                "No, Keep It"
+            );
+
+            if (confirmed === "Yes, Clear Entry") {
+                try {
+                    // Update metadata to mark entry for clearing
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                    if (!workspaceFolder) {
+                        vscode.window.showErrorMessage("No workspace open");
+                        return;
+                    }
+
+                    const updateResult = await MetadataManager.safeUpdateMetadata(
+                        workspaceFolder.uri,
+                        (metadata: any) => {
+                            if (!metadata.meta?.initiateRemoteUpdatingFor) {
+                                return metadata;
+                            }
+
+                            // Find and mark entry for clearing
+                            const list = metadata.meta.initiateRemoteUpdatingFor;
+                            for (let i = 0; i < list.length; i++) {
+                                if (typeof list[i] === 'object' &&
+                                    list[i].userToUpdate === entry.userToUpdate &&
+                                    list[i].createdAt === entry.createdAt &&
+                                    list[i].addedBy === entry.addedBy) {
+                                    list[i].clearEntry = true;
+                                    list[i].updatedAt = Date.now();
+                                    break;
+                                }
+                            }
+
+                            return metadata;
+                        }
+                    );
+
+                    if (!updateResult.success) {
+                        throw new Error(updateResult.error || "Failed to update metadata");
+                    }
+
+                    // Sync to push the clearing
+                    const commitMessage = `Cleared update entry from history: ${entry.userToUpdate}`;
+                    await vscode.commands.executeCommand(
+                        "codex-editor-extension.triggerSync",
+                        commitMessage
+                    );
+
+                    vscode.window.showInformationMessage(
+                        `✅ Entry for "${entry.userToUpdate}" has been cleared from history`
+                    );
+
+                    quickPick.hide();
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        `Failed to clear entry: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            }
         });
+
 
         quickPick.onDidHide(() => quickPick.dispose());
         quickPick.show();
 
     } catch (error) {
-        console.error("Error viewing remote healing list:", error);
+        console.error("Error viewing remote updating list:", error);
         vscode.window.showErrorMessage(
-            `Failed to view healing list: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to view updating list: ${error instanceof Error ? error.message : String(error)}`
         );
     }
 }
 
 /**
- * Register all remote healing commands
+ * Register all remote updating commands
  */
-export function registerRemoteHealingCommands(context: vscode.ExtensionContext): void {
+export function registerRemoteUpdatingCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-editor.initiateRemoteHealing",
-            initiateRemoteHealing
+            "codex-editor.initiateRemoteUpdating",
+            initiateRemoteUpdating
         )
     );
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-editor.viewRemoteHealingList",
-            viewRemoteHealingList
+            "codex-editor.viewRemoteUpdatingList",
+            viewRemoteUpdatingList
         )
     );
 
-    debug("Remote healing commands registered");
+    debug("Remote updating commands registered");
 }
 

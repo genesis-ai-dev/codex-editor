@@ -9,7 +9,10 @@ import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } 
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
-import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import { CELL_DISPLAY_MODES } from "../lib/types";
+
+/** Display is always one line per cell; display mode is no longer configurable. */
+const CELL_DISPLAY_MODE = CELL_DISPLAY_MODES.ONE_LINE_PER_CELL;
 import { WebviewApi } from "vscode-webview";
 import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
@@ -29,7 +32,6 @@ export interface CellListProps {
     handleSaveHtml: () => void;
     vscode: any;
     textDirection: "ltr" | "rtl";
-    cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
@@ -91,7 +93,6 @@ const CellList: React.FC<CellListProps> = ({
     handleSaveHtml,
     vscode,
     textDirection,
-    cellDisplayMode,
     isSourceText,
     windowHeight,
     headerHeight,
@@ -479,40 +480,64 @@ const CellList: React.FC<CellListProps> = ({
         return cell.metadata?.parentId !== undefined || cell.data?.parentId !== undefined;
     }, []);
 
-    // Calculate offset for line numbers based on milestone indices only.
-    // Do NOT add subsection offset: when fullDocumentTranslationUnits is the full milestone, it will include all cells from the previous milestones.
+    // Offset from previous milestones only. Subsection offset is applied separately when using fallback (current page).
     const calculateLineNumberOffset = useCallback((): number => {
         if (!milestoneIndex || milestoneIndex.milestones.length === 0) {
             return 0;
         }
 
         let offset = 0;
-
-        // Add cells from all previous milestones only (not previous subsections in current milestone)
         for (let i = 0; i < currentMilestoneIndex && i < milestoneIndex.milestones.length; i++) {
             offset += milestoneIndex.milestones[i].cellCount;
         }
-
         return offset;
     }, [milestoneIndex, currentMilestoneIndex]);
 
+    // Offset from previous subsections (pages) in the current milestone. Used when line numbers are computed from current page only (fallback).
+    const subsectionLineNumberOffset = useCallback((): number => {
+        if (!milestoneIndex) return 0;
+        const effectiveCellsPerPage = milestoneIndex.cellsPerPage ?? cellsPerPage ?? 50;
+        return currentSubsectionIndex * effectiveCellsPerPage;
+    }, [milestoneIndex, currentSubsectionIndex, cellsPerPage]);
+
     // Helper function to get the chapter-based verse number (skipping paratext cells)
-    // Now uses globalReferences and includes offset for pagination
+    // Now uses globalReferences and includes offset for pagination.
+    // When the cell is not found in allCells (e.g. fullDocumentTranslationUnits out of sync after cell click),
+    // falls back to visible list so line numbers stay correct.
     const getChapterBasedVerseNumber = useCallback(
-        (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
+        (
+            cell: QuillCellContent,
+            allCells: QuillCellContent[],
+            fallbackCells?: QuillCellContent[]
+        ): number => {
+            // Use cellMarkers[0] (UUID) for finding the cell's position, not getCellIdentifier
+            // getCellIdentifier may return non-unique values (e.g., Biblica imports where multiple
+            // cells share the same first globalReference due to verse array accumulation)
+            const cellUuid = cell.cellMarkers?.[0];
             const cellIdentifier = getCellIdentifier(cell);
-            if (!cellIdentifier) return 1; // Fallback if no identifier
+            if (!cellUuid) return 1; // Fallback if no UUID
 
             const cellIndex = allCells.findIndex(
-                (unit) => getCellIdentifier(unit) === cellIdentifier
+                (unit) => unit.cellMarkers?.[0] === cellUuid
             );
 
-            if (cellIndex === -1) return 1; // Fallback if not found
+            // If not found in full document (e.g. state out of sync after opening a cell), use visible list
+            const usingFallback =
+                cellIndex === -1 && fallbackCells && fallbackCells.length > 0;
+            const cellsToUse = cellIndex >= 0 ? allCells : usingFallback ? fallbackCells! : allCells;
+            const indexInUse =
+                cellIndex >= 0
+                    ? cellIndex
+                    : cellsToUse.findIndex(
+                          (unit) => getCellIdentifier(unit) === cellIdentifier
+                      );
+
+            if (indexInUse === -1) return 1; // Fallback if not found in either list
 
             // Count non-paratext, non-milestone, non-child cells up to and including this one
             let visibleCellCount = 0;
-            for (let i = 0; i <= cellIndex; i++) {
-                const unit = allCells[i];
+            for (let i = 0; i <= indexInUse; i++) {
+                const unit = cellsToUse[i];
                 if (
                     unit.cellType !== CodexCellTypes.PARATEXT &&
                     unit.cellType !== CodexCellTypes.MILESTONE &&
@@ -523,11 +548,24 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Add offset for pagination (cells from previous milestones/subsections)
+            // Add offset: previous milestones always; add subsection (page) offset when counting from current page only
+            const effectiveCellsPerPage = milestoneIndex?.cellsPerPage ?? cellsPerPage ?? 50;
+            const isSinglePage =
+                allCells.length <= effectiveCellsPerPage && currentSubsectionIndex > 0;
             const offset = calculateLineNumberOffset();
-            return visibleCellCount + offset;
+            const subsectionOffset =
+                usingFallback || isSinglePage ? subsectionLineNumberOffset() : 0;
+            return visibleCellCount + offset + subsectionOffset;
         },
-        [getCellIdentifier, isChildCell, calculateLineNumberOffset]
+        [
+            getCellIdentifier,
+            isChildCell,
+            calculateLineNumberOffset,
+            subsectionLineNumberOffset,
+            milestoneIndex,
+            cellsPerPage,
+            currentSubsectionIndex,
+        ]
     );
 
     const generateCellLabel = useCallback(
@@ -589,13 +627,14 @@ const CellList: React.FC<CellListProps> = ({
                     );
 
                     if (parentCell) {
-                        // Get parent's label using chapter-based verse numbers
+                        // Get parent's label using chapter-based verse numbers (with fallback for sync issues)
                         const parentLabel =
                             parentCell.cellLabel ||
                             (parentCell.cellType !== CodexCellTypes.PARATEXT
                                 ? getChapterBasedVerseNumber(
                                       parentCell,
-                                      fullDocumentTranslationUnits
+                                      fullDocumentTranslationUnits,
+                                      currentCellsArray
                                   )
                                 : "");
 
@@ -630,8 +669,29 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Get chapter-based verse number (skipping paratext cells)
-            return getChapterBasedVerseNumber(cell, fullDocumentTranslationUnits).toString();
+            // For cells with cellLabel but no verse-level global references (e.g., Biblica importer cells before verses),
+            // use the cellLabel instead of chapter-based verse number
+            // Biblica cells before verses have globalReferences like ["GEN"] (book only), while cells with verses have ["GEN 1:34"] (book chapter:verse)
+            const globalRefs = cell.data?.globalReferences;
+            const hasGlobalRefs = globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0;
+            const hasVerseLevelRefs = hasGlobalRefs && globalRefs.some((ref: string) => {
+                // Check if reference contains chapter:verse format (e.g., "GEN 1:34" or "GEN 1:1")
+                return typeof ref === 'string' && /\d+:\d+/.test(ref);
+            });
+
+            // If cell has a label but no verse-level references, use the label (for Biblica cells before verses)
+            if (cell.cellLabel && !hasVerseLevelRefs) {
+                return cell.cellLabel;
+            }
+
+            // Get chapter-based verse number (skipping paratext cells).
+            // Pass currentCellsArray as fallback so line numbers stay correct when fullDocumentTranslationUnits
+            // is temporarily out of sync (e.g. after clicking a cell before prev/next refreshes state).
+            return getChapterBasedVerseNumber(
+                cell,
+                fullDocumentTranslationUnits,
+                currentCellsArray
+            ).toString();
         },
         [fullDocumentTranslationUnits, getChapterBasedVerseNumber, getCellIdentifier, isChildCell]
     );
@@ -742,10 +802,10 @@ const CellList: React.FC<CellListProps> = ({
         (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
                 key={`group-${group[0]?.cellMarkers?.[0] ?? startIndex}`}
-                className={`verse-group cell-display-${cellDisplayMode}`}
+                className={`verse-group cell-display-${CELL_DISPLAY_MODE}`}
                 style={{
                     direction: textDirection,
-                    display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline" : "block",
+                    display: "block",
                     backgroundColor: "transparent",
                 }}
             >
@@ -762,10 +822,7 @@ const CellList: React.FC<CellListProps> = ({
                         <span
                             key={`${cellMarkers[0]}:${startIndex + index}`}
                             style={{
-                                display:
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "inline"
-                                        : "block",
+                                display: "block",
                                 verticalAlign: "middle",
                                 backgroundColor: "transparent",
                                 opacity: cell.merged ? 0.5 : 1,
@@ -789,7 +846,6 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={successfulCompletions.size > 0} // Assuming all complete if there are successful completions
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
-                                cellDisplayMode={cellDisplayMode}
                                 audioAttachments={audioAttachments}
                                 footnoteOffset={calculateFootnoteOffset(startIndex + index)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
@@ -811,7 +867,6 @@ const CellList: React.FC<CellListProps> = ({
             </span>
         ),
         [
-            cellDisplayMode,
             textDirection,
             showInlineBacktranslations,
             backtranslationsMap,
@@ -922,7 +977,7 @@ const CellList: React.FC<CellListProps> = ({
 
                 // Only render empty cells in one-line-per-cell mode or if it's the next empty cell to render
                 if (
-                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
+                    CELL_DISPLAY_MODE === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
                     !isCellContentEmpty(workingTranslationUnits[i - 1]?.cellContent) ||
                     i === 0
                 ) {
@@ -937,10 +992,7 @@ const CellList: React.FC<CellListProps> = ({
                         <span
                             key={`${cellMarkers[0]}:${i}`}
                             style={{
-                                display:
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "inline"
-                                        : "block",
+                                display: "block",
                                 verticalAlign: "middle",
                                 backgroundColor: "transparent",
                                 opacity: workingTranslationUnits[i].merged ? 0.5 : 1,
@@ -964,7 +1016,6 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={successfulCompletions.size > 0}
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
-                                cellDisplayMode={cellDisplayMode}
                                 audioAttachments={audioAttachments as any}
                                 footnoteOffset={calculateFootnoteOffset(i)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
@@ -1012,7 +1063,6 @@ const CellList: React.FC<CellListProps> = ({
         saveRetryCount,
         calculateFootnoteOffset,
         renderCellGroup,
-        cellDisplayMode,
         lineNumbersEnabled,
         vscode,
         alertColorCodes,
@@ -1116,7 +1166,7 @@ const CellList: React.FC<CellListProps> = ({
             style={{
                 direction: textDirection,
                 overflowY: "auto",
-                display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline-block" : "block",
+                display: "block",
                 width: "100%",
                 backgroundColor: "transparent",
                 maxWidth: "100%",

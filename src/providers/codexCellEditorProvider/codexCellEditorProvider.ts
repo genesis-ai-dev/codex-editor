@@ -720,6 +720,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
 
+            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string } | undefined)?.fileDisplayName;
+            const fallbackName = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
+            const namePart = (fileDisplayName ?? fallbackName).replace(/\s+/g, "");
+            webviewPanel.title = namePart + (isSourceText ? ".source" : ".codex");
+
             // Get bundled metadata to avoid separate requests
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             const validationCount = config.get("validationCount", 1);
@@ -740,7 +745,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Check authentication status
             let isAuthenticated = false;
             try {
-                if (authApi) {
+                // For localhost development, skip auth check
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const endpoint = (config.get("llmEndpoint") as string) || "";
+                const isLocalhost = endpoint.includes("localhost") || endpoint.includes("127.0.0.1");
+
+                if (isLocalhost) {
+                    isAuthenticated = true;
+                } else if (authApi) {
                     const authStatus = authApi.getAuthStatus();
                     isAuthenticated = authStatus?.isAuthenticated ?? false;
                 }
@@ -835,7 +847,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     if (isAuthenticated && userInfo?.username) {
                         const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                         if (ws) {
-                            const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteHealingManager");
+                            const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteUpdatingManager");
                             const git = await import("isomorphic-git");
                             const fs = await import("fs");
                             const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
@@ -847,7 +859,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     const memberList = await fetchProjectMembers(projectId);
                                     if (memberList) {
                                         const currentUserMember = memberList.find(
-                                            m => m.username === userInfo.username || m.email === userInfo.email
+                                            (m: { username: string; email: string; accessLevel: number; }) => m.username === userInfo.username || m.email === userInfo.email
                                         );
                                         if (currentUserMember) {
                                             userAccessLevel = currentUserMember.accessLevel;
@@ -882,6 +894,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     isAuthenticated: isAuthenticated,
                     userAccessLevel: userAccessLevel,
                     showHealthIndicators: showHealthIndicators,
+                });
+
+                // Record the initial position so subsequent updateWebview() calls
+                // (e.g. from "getContent") see a tracked position and send
+                // refreshCurrentPage instead of duplicating the initial content.
+                this.currentMilestoneSubsectionMap.set(docUri, {
+                    milestoneIndex: initialMilestoneIndex,
+                    subsectionIndex: initialSubsectionIndex,
                 });
             }
 
@@ -945,9 +965,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 }
                             }
                         }
-                        // Determine provisional state before version gate
+                        // Determine provisional state before version gate.
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -1028,9 +1054,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                     }
 
+                    // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                    const selectedId = cell?.metadata?.selectedAudioId;
+                    const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                    const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                     // Determine provisional state, then apply version gate
                     let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                    if (hasAvailable) state = "available-local";
+                    if (selectedIsMissing) state = "missing";
+                    else if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
                     else if (hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
@@ -1066,10 +1098,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up navigation functions
         const navigateToSection = (cellId: string) => {
             debug("Navigating to section:", cellId);
-            safePostMessageToPanel(webviewPanel, {
-                type: "jumpToSection",
-                content: cellId,
-            });
+
+            // Compute the correct position using the document's milestone/subsection finder
+            // This is more accurate than the webview's algorithm which incorrectly assumes
+            // verse numbers correspond to cell positions
+            const cellsPerPage = this.CELLS_PER_PAGE;
+            const position = document.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
+
+            if (position) {
+                debug("Computed position for cell:", cellId, "milestoneIndex:", position.milestoneIndex, "subsectionIndex:", position.subsectionIndex);
+                safePostMessageToPanel(webviewPanel, {
+                    type: "jumpToSection",
+                    content: cellId,
+                    milestoneIndex: position.milestoneIndex,
+                    subsectionIndex: position.subsectionIndex,
+                });
+            } else {
+                // Fallback: send just the cellId if position couldn't be computed
+                debug("Could not compute position for cell:", cellId, "falling back to cellId only");
+                safePostMessageToPanel(webviewPanel, {
+                    type: "jumpToSection",
+                    content: cellId,
+                });
+            }
         };
         const openCellByIdImpl = (cellId: string, text: string) => {
             debug("Opening cell by ID:", cellId, text);
@@ -1354,6 +1405,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         } else {
             console.error("No active webview panels");
+        }
+    }
+
+    /**
+     * Toggle the in-tab floating search bar in the current document's webview
+     */
+    public toggleInTabSearch() {
+        debug("Toggling in-tab search");
+        if (!this.currentDocument) {
+            debug("No current document, cannot toggle search");
+            return;
+        }
+
+        const docUri = this.currentDocument.uri.toString();
+        const panel = this.webviewPanels.get(docUri);
+        if (panel) {
+            safePostMessageToPanel(panel, {
+                type: "toggleSearch",
+            } as any);
+        } else {
+            console.error("No webview panel found for current document");
         }
     }
 
@@ -2550,6 +2622,99 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return processVideoUrl(videoPath, webviewPanel.webview);
     }
 
+    /**
+     * Calculate display information for a cell (fileDisplayName, milestoneValue, cellLineNumber, cellLabel)
+     * This is a reusable helper that can be called from multiple places
+     */
+    public static calculateCellDisplayInfo(
+        cellId: string,
+        doc: CodexCellDocument
+    ): {
+        fileDisplayName?: string;
+        milestoneValue?: string;
+        cellLineNumber?: number;
+        cellLabel?: string;
+    } {
+        try {
+            // Get file display name from metadata
+            const metadata = (doc as any)._documentData?.metadata;
+            const fileDisplayName = metadata?.fileDisplayName;
+
+            // Build milestone index first - this populates milestoneIndex on cells
+            const milestoneIndexInfo = doc.buildMilestoneIndex();
+
+            // Get the cell content (now with milestoneIndex populated)
+            const cell = doc.getCellContent(cellId);
+            if (!cell) {
+                return { fileDisplayName };
+            }
+
+            // Get cell label from metadata
+            const cellLabel = cell.cellLabel;
+
+            // Get milestone index from cell data
+            const milestoneIndex = cell.data?.milestoneIndex;
+
+            if (typeof milestoneIndex !== 'number' || milestoneIndex < 0) {
+                return { fileDisplayName, cellLabel };
+            }
+
+            // Get milestone information
+            const milestone = milestoneIndexInfo.milestones[milestoneIndex];
+            if (!milestone) {
+                return { fileDisplayName, cellLabel };
+            }
+
+            const milestoneValue = milestone.value;
+
+            // Calculate line number within milestone
+            const cells = (doc as any)._documentData?.cells || [];
+            const nextMilestone = milestoneIndexInfo.milestones[milestoneIndex + 1];
+            const startCellIndex = milestone.cellIndex + 1; // +1 to skip the milestone cell itself
+            const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+            let cellLineNumber: number | undefined;
+            let lineNumber = 0;
+            for (let i = startCellIndex; i < endCellIndex; i++) {
+                const currentCell = cells[i];
+                const currentCellId = currentCell.metadata?.id;
+
+                // Skip milestone and paratext cells
+                if (
+                    currentCell.metadata?.type === CodexCellTypes.MILESTONE ||
+                    currentCell.metadata?.type === CodexCellTypes.PARATEXT
+                ) {
+                    continue;
+                }
+
+                // Skip child cells (have parentId)
+                const isChildCell = currentCell.metadata?.data?.parentId !== undefined;
+                if (isChildCell) {
+                    continue;
+                }
+
+                // Increment line number for valid content cells
+                lineNumber++;
+
+                // If this is our target cell, we're done
+                if (currentCellId === cellId) {
+                    cellLineNumber = lineNumber;
+                    break;
+                }
+            }
+
+            return {
+                fileDisplayName,
+                milestoneValue,
+                cellLineNumber,
+                cellLabel,
+            };
+        } catch (error) {
+            debug("Error calculating display info for cell:", error);
+            return {};
+        }
+    }
+
     public updateCellIdState(cellId: string, uri: string, document?: CodexCellDocument) {
         debug("Updating cell ID state:", { cellId, uri, stateStore: this.stateStore });
 
@@ -2652,14 +2817,35 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.warn("State store not initialized when trying to update cell ID");
             return;
         }
+
+        // Calculate display information for the cell using the reusable helper
+        let fileDisplayName: string | undefined;
+        let milestoneValue: string | undefined;
+        let cellLineNumber: number | undefined;
+        let cellLabel: string | undefined;
+
+        if (doc) {
+            const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(cellId, doc);
+            fileDisplayName = displayInfo.fileDisplayName;
+            milestoneValue = displayInfo.milestoneValue;
+            cellLineNumber = displayInfo.cellLineNumber;
+            cellLabel = displayInfo.cellLabel;
+        }
+
+        const cellIdState = {
+            cellId,
+            globalReferences,
+            uri,
+            timestamp: new Date().toISOString(),
+            fileDisplayName,
+            milestoneValue,
+            cellLineNumber,
+            cellLabel,
+        };
+
         this.stateStore.updateStoreState({
             key: "cellId",
-            value: {
-                cellId,
-                globalReferences,
-                uri,
-                timestamp: new Date().toISOString(),
-            },
+            value: cellIdState,
         });
     }
 
@@ -3420,12 +3606,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         this.singleCellQueueCancellation?.token ||
                         new vscode.CancellationTokenSource().token;
 
+                    // Determine if this is a batch operation (chapter autocomplete or multiple cells queued)
+                    // A/B testing is disabled during batch operations to avoid interrupting the workflow
+                    const isBatchOperation = this.autocompletionState.isProcessing ||
+                        (this.singleCellQueueState.isProcessing && this.singleCellQueueState.totalCells > 1);
+
                     // Perform LLM completion (always returns AB-style result)
                     const completionResult = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
-                        cancellationToken
+                        cancellationToken,
+                        true, // returnHTML
+                        isBatchOperation
                     );
 
                     // Check for cancellation before updating document - this is crucial to prevent cell population
@@ -3461,7 +3654,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId, testName, names } = completionResult as any;
+                        const { variants, testId, testName, isAttentionCheck, correctIndex, decoyCellId } = completionResult as any;
 
                         // If variants are identical (ignoring whitespace), treat as single completion
                         try {
@@ -3488,21 +3681,31 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             debug("Error comparing variants for identity; proceeding with A/B UI", { error: e });
                         }
 
-                        // Win rates are tracked in cloud analytics, not shown in UI
-
                         if (webviewPanel) {
-                            const abProb = (vscode.workspace.getConfiguration("codex-editor-extension").get("abTestingProbability") as number) ?? 0;
+                            const actualTestId = testId || `${currentCellId}-${Date.now()}`;
+
+                            // If this is an attention check, register it so we can handle the response
+                            if (isAttentionCheck && typeof correctIndex === 'number') {
+                                const { registerAttentionCheck } = await import("./codexCellEditorMessagehandling");
+                                registerAttentionCheck(actualTestId, {
+                                    cellId: currentCellId,
+                                    correctIndex,
+                                    correctVariant: variants[correctIndex],
+                                    decoyCellId,
+                                });
+                                console.log(`[Attention Check] Registered for testId ${actualTestId}, correctIndex ${correctIndex}`);
+                            }
+
+                            // Send variants to webview - frontend doesn't need attention check details
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsABTestVariants",
                                 content: {
                                     variants,
                                     cellId: currentCellId,
-                                    testId: testId || `${currentCellId}-${Date.now()}`,
+                                    testId: actualTestId,
                                     testName,
-                                    names,
-                                    abProbability: Math.max(0, Math.min(1, abProb)),
                                 },
-                            } as any);
+                            });
                         }
 
                         // Mark single cell translation as complete so UI progress/spinners stop

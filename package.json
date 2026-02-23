@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.17.0",
+    "version": "0.20.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -29,6 +29,24 @@
     "contributes": {
         "keybindings": [
             {
+                "command": "codex-editor-extension.toggleInTabSearch",
+                "key": "ctrl+f",
+                "mac": "cmd+f",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesAllFiles",
+                "key": "ctrl+shift+f",
+                "mac": "cmd+shift+f",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesWithReplace",
+                "key": "ctrl+shift+r",
+                "mac": "cmd+shift+r",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
                 "key": "cmd+shift+s",
                 "command": "codex-editor.preventSaveAs",
                 "when": "activeCustomEditorId == 'codex.cellEditor'"
@@ -47,15 +65,6 @@
                     "name": "Project Settings",
                     "icon": "$(list-tree)",
                     "contextualTitle": "Codex Project Settings"
-                }
-            ],
-            "automated-testing-view": [
-                {
-                    "type": "webview",
-                    "id": "codex-editor.automatedTesting",
-                    "name": "Automated Testing",
-                    "icon": "$(beaker)",
-                    "contextualTitle": "Automated Testing"
                 }
             ],
             "search-passages-view": [
@@ -104,11 +113,6 @@
                     "id": "codex-main-menu",
                     "title": "Codex Main Menu",
                     "icon": "$(list-tree)"
-                },
-                {
-                    "id": "automated-testing-view",
-                    "title": "Automated Testing",
-                    "icon": "$(beaker)"
                 },
                 {
                     "id": "codex-files-view",
@@ -172,13 +176,33 @@
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.initiateRemoteHealing",
-                "title": "Initiate Remote Healing",
+                "command": "codex-editor.initiateRemoteUpdating",
+                "title": "Initiate Remote Update",
                 "category": "Codex Editor"
             },
             {
-                "command": "codex-editor.viewRemoteHealingList",
-                "title": "View Remote Healing List",
+                "command": "codex-editor.viewRemoteUpdatingList",
+                "title": "View Remote Update List",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.initiateProjectSwap",
+                "title": "Project Swap - Initiate Swap (Step 2)",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.initiateSwapCopy",
+                "title": "Project Swap - Copy to New Project (Step 1)",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.viewProjectSwapStatus",
+                "title": "Project Swap - View Status",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.cancelProjectSwap",
+                "title": "Project Swap - Cancel Swap",
                 "category": "Codex Editor"
             },
             {
@@ -475,6 +499,21 @@
                 "command": "codex-editor-extension.navigateToCellInComments",
                 "title": "Navigate to Cell in Comments",
                 "category": "Codex Comments"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesWithReplace",
+                "title": "Open Parallel Passages with Replace",
+                "category": "Codex Search"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesCurrentFile",
+                "title": "Search in Current File",
+                "category": "Codex Search"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesAllFiles",
+                "title": "Search in All Files",
+                "category": "Codex Search"
             }
         ],
         "configuration": [
@@ -831,13 +870,13 @@
                     },
                     "codex-editor-extension.llmEndpoint": {
                         "type": "string",
-                        "default": "https://api.openai.com/v1",
-                        "description": "The endpoint for the completion API. Currently only supports OpenAI API, or openai-compatible local endpoints such as LM Studio, etc."
+                        "default": "https://api.frontierrnd.com/api/v1",
+                        "description": "The endpoint for the completion API. Defaults to Frontier API. Supports OpenAI-compatible endpoints."
                     },
                     "codex-editor-extension.wsEndpoint": {
                         "type": "string",
-                        "default": "wss://api.openai.com/v1/chat/completions",
-                        "description": "The endpoint for the realtime chat API. Currently only supports OpenAI API."
+                        "default": "wss://api.frontierrnd.com/api/v1/realtime",
+                        "description": "The endpoint for the realtime chat API."
                     },
                     "codex-editor-extension.model": {
                         "title": "LLM Model",
@@ -1049,6 +1088,7 @@
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
         "@testing-library/webdriverio": "^3.0.0",
+        "@types/archiver": "^7.0.0",
         "@types/copy-webpack-plugin": "^8.0.1",
         "@types/diff": "^5.2.3",
         "@types/glob": "^7.1.1",
@@ -1122,6 +1162,7 @@
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "animejs": "^3.2.1",
+        "archiver": "^7.0.1",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
         "copy-webpack-plugin": "^12.0.2",

@@ -16,7 +16,6 @@ type MetadataFontSizeEditMap = ["metadata", "fontSize"];
 type MetadataAutoDownloadAudioOnOpenEditMap = ["metadata", "autoDownloadAudioOnOpen"];
 type MetadataShowInlineBacktranslationsEditMap = ["metadata", "showInlineBacktranslations"];
 type MetadataFileDisplayNameEditMap = ["metadata", "fileDisplayName"];
-type MetadataCellDisplayModeEditMap = ["metadata", "cellDisplayMode"];
 type MetadataAudioOnlyEditMap = ["metadata", "audioOnly"];
 type MetadataCorpusMarkerEditMap = ["metadata", "corpusMarker"];
 
@@ -27,6 +26,8 @@ type MetaEditMap = ["meta"];
 type MetaFieldEditMap = ["meta", string];
 type LanguagesEditMap = ["languages"];
 type SpellcheckIsEnabledEditMap = ["spellcheckIsEnabled"];
+type DeletedCorpusMarkerEditMap = ["deletedCorpusMarker"];
+type DeletedFileEditMap = ["deletedFile"];
 
 import { EditType } from "../../types/enums";
 
@@ -107,10 +108,6 @@ export const EditMapUtils = {
         return ["metadata", "fileDisplayName"];
     },
 
-    metadataCellDisplayMode(): MetadataCellDisplayModeEditMap {
-        return ["metadata", "cellDisplayMode"];
-    },
-
     metadataAudioOnly(): MetadataAudioOnlyEditMap {
         return ["metadata", "audioOnly"];
     },
@@ -147,6 +144,14 @@ export const EditMapUtils = {
 
     spellcheckIsEnabled(): SpellcheckIsEnabledEditMap {
         return ["spellcheckIsEnabled"];
+    },
+
+    deletedCorpusMarker(): DeletedCorpusMarkerEditMap {
+        return ["deletedCorpusMarker"];
+    },
+
+    deletedFile(): DeletedFileEditMap {
+        return ["deletedFile"];
     },
 
     // Compare editMaps
@@ -276,9 +281,6 @@ export function addMetadataEdit(
             break;
         case "fileDisplayName":
             editMap = EditMapUtils.metadataFileDisplayName();
-            break;
-        case "cellDisplayMode":
-            editMap = EditMapUtils.metadataCellDisplayMode();
             break;
         case "audioOnly":
             editMap = EditMapUtils.metadataAudioOnly();
