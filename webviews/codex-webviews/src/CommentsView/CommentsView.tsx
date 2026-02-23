@@ -17,7 +17,6 @@ import {
     EyeOff,
     ChevronUp,
     Clock,
-    Reply,
     ArrowDownUp,
     MapPin,
 } from "lucide-react";
@@ -198,6 +197,16 @@ function App() {
     useEffect(() => {
         // User state updated
     }, [currentUser]);
+
+    const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+    const [replyingTo, setReplyingTo] = useState<{ threadId: string; username?: string } | null>(
+        null
+    );
+    const [editingTitle, setEditingTitle] = useState<string | null>(null);
+    const [threadTitleEdit, setThreadTitleEdit] = useState<string>("");
+    
+    // Sort configuration
+    const [sortMode, setSortMode] = useState<SortMode>("location");
 
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
         const resolvedEvents = thread.resolvedEvent || [];
@@ -943,28 +952,7 @@ function App() {
                                                         >
                                                             <Check className="h-4 w-4" />
                                                         </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>Reply</TooltipContent>
-                                                </Tooltip>
-                                                {isOwn && (
-                                                    <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                                                                onClick={() =>
-                                                                    handleDeleteComment(
-                                                                        comment.id,
-                                                                        currentThread.id
-                                                                    )
-                                                                }
-                                                            >
-                                                                <Trash2 className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent>Delete</TooltipContent>
-                                                    </Tooltip>
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
@@ -1404,11 +1392,25 @@ function App() {
                                         Start the conversation by adding a comment
                                     </div>
                                 </div>
-                            );
-                        })}
-                        <div ref={messagesEndRef} />
+                            </>
+                        )}
                     </div>
-                </div>
+                )}
+
+                {/* Comment list */}
+                {filteredCommentThreads.length > 0 && (
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {sortMode === "location" && viewMode === "all" ? (
+                            <LocationGroupedComments threads={filteredCommentThreads} />
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                {filteredCommentThreads.map((thread) => (
+                                    <ThreadCard key={thread.id} thread={thread} />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Resolved threads banner */}
                 {hiddenResolvedThreadsCount > 0 && (
