@@ -559,7 +559,7 @@ function MainMenu() {
                                 <CardContent className="pt-4">
                                     <div className="space-y-3">
                                         {/* Languages row */}
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 min-[311px]:grid-cols-2 gap-4">
                                             <div
                                                 className="p-3 rounded-lg cursor-pointer hover:bg-accent transition-colors"
                                                 onClick={() =>
@@ -601,7 +601,7 @@ function MainMenu() {
                                         </div>
 
                                         {/* Validations and Documents row */}
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 min-[311px]:grid-cols-2 gap-4">
                                             <div className="p-3 rounded-lg bg-muted/30">
                                                 <div className="text-xs text-muted-foreground mb-2">
                                                     Required Validations
@@ -747,7 +747,7 @@ function MainMenu() {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-2">
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className="grid grid-cols-1 min-[311px]:grid-cols-2 gap-2">
                                         {[
                                             {
                                                 icon: "codicon-graph",

@@ -2283,6 +2283,62 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(typeof diskCell.metadata.selectionTimestamp === "number" && diskCell.metadata.selectionTimestamp > 0, "selectionTimestamp should be set");
     });
 
+    test("selectAudioAttachment sends missing icon (providerSendsAudioAttachments) when selected audio is missing", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        const parsed = JSON.parse(document.getText());
+        const cellId = parsed.cells[0].metadata.id as string;
+        const audioId = `audio-missing-${Date.now()}`;
+
+        (document as any).updateCellAttachment(cellId, audioId, {
+            url: ".project/attachments/files/test/missing.webm",
+            type: "audio",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            isDeleted: false,
+            isMissing: true,
+            createdBy: "test-user",
+        });
+
+        const posted: any[] = [];
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: { enableScripts: true },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (_cb: any) => ({ dispose: () => { } }),
+                postMessage: (m: any) => { posted.push(m); return Promise.resolve(); },
+            },
+            onDidDispose: () => ({ dispose: () => { } }),
+            onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        await (handleMessages as any)({
+            command: "selectAudioAttachment",
+            content: { cellId, audioId },
+        }, webviewPanel, document, () => { }, provider);
+
+        const availabilityMsg = posted.find((m) => m?.type === "providerSendsAudioAttachments");
+        assert.ok(availabilityMsg, "Should post providerSendsAudioAttachments after selectAudioAttachment");
+        assert.strictEqual(
+            availabilityMsg.attachments[cellId],
+            "missing",
+            "Cell with selected missing audio should show missing icon in availability map"
+        );
+    });
+
     test("revalidateMissingForCell restores pointer, clears isMissing, bumps updatedAt, and posts updates", async function () {
         this.timeout(12000);
         const provider = new CodexCellEditorProvider(context);
