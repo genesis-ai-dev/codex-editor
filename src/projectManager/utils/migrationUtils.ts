@@ -2090,7 +2090,7 @@ function getLocalizedBookName(bookAbbr: string): string {
  * Used for verse-range migration to associate milestones with content chapters.
  */
 function extractChapterNumberFromMilestoneValue(value: string | undefined): number | null {
-    if (!value) return null;
+    if (value == null || typeof value !== "string") return null;
     const matches = value.match(/(\d+)(?!.*\d)/);
     if (matches?.[1]) {
         const n = parseInt(matches[1], 10);
@@ -3003,7 +3003,8 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             const cellId = md.id;
 
             if (cellType === CodexCellTypes.MILESTONE) {
-                const chapter = extractChapterNumberFromMilestoneValue(cell.value);
+                const milestoneValue = typeof cell?.value === "string" ? cell.value : "";
+                const chapter = extractChapterNumberFromMilestoneValue(milestoneValue);
                 milestones.push({ cell, chapter });
                 if (chapter != null) chaptersWithMilestones.add(chapter);
                 lastMilestoneChapter = chapter;
@@ -3011,7 +3012,10 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             }
 
             if (cellType === CodexCellTypes.PARATEXT && cellId) {
-                const parentId = extractParentCellIdFromParatext(cellId, md);
+                const parentId = extractParentCellIdFromParatext(
+                    typeof cellId === "string" ? cellId : String(cellId),
+                    md
+                );
                 if (parentId) {
                     if (!paratextByParentId.has(parentId)) paratextByParentId.set(parentId, []);
                     paratextByParentId.get(parentId)!.push(cell);
@@ -3257,6 +3261,7 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
         }
     } catch (error) {
         console.error("Error running verse range labels/positions migration:", error);
+        throw error;
     }
 };
 

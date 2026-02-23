@@ -735,7 +735,15 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-editor-extension.runVerseRangeLabelsAndPositionsMigration",
             async () => {
-                await migration_verseRangeLabelsAndPositions();
+                try {
+                    await migration_verseRangeLabelsAndPositions();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Verse range migration failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Verse range migration failed: ${msg}`
+                    );
+                }
             }
         )
     );
