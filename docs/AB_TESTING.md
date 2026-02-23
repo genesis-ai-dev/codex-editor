@@ -3,7 +3,7 @@
 A/B testing in Codex shows two translation suggestions side‑by‑side once in a while so you can pick the better one. This helps us learn which retrieval and prompting strategies work best without slowing you down.
 
 ## How it works
-- Triggering: Tests run at random with a small probability (default 15%).
+- Triggering: Tests run at random with a small probability (default 1%).
 - Variants: When triggered, two candidates are generated in parallel.
 - Auto‑apply: If the two results are effectively identical, we apply one automatically and no modal is shown.
 - Choosing: If they differ, a simple chooser appears; click the option that reads best. Dismissing the modal after choosing just closes it.
@@ -16,7 +16,7 @@ A/B testing in Codex shows two translation suggestions side‑by‑side once in 
 
 ## Settings
 - `codex-editor-extension.abTestingEnabled`: turn A/B testing on/off.
-- `codex-editor-extension.abTestingProbability`: probability (0–1) for running a true A/B test. Default: `0.15` (15%).
+- `codex-editor-extension.abTestingProbability`: probability (0–1) for running a true A/B test. Default: `0.01` (1%).
 
 Change these in VS Code Settings → Extensions → Codex Editor.
 
