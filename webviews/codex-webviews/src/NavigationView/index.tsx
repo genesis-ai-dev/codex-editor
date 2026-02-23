@@ -4,6 +4,12 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import bibleData from "../assets/bible-books-lookup.json";
 import { Progress } from "../components/ui/progress";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 import "../tailwind.css";
 import { CodexItem } from "types";
 import { Languages, Mic } from "lucide-react";
@@ -763,64 +769,61 @@ function NavigationView() {
                                 {displayLabel}
                             </span>
 
-                            {/* Direct action buttons - visible on hover */}
-                            <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {item.type === "codexDocument" && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="menu-button w-6 h-6"
-                                        title="Edit Book Name"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleEditBookName(item);
-                                        }}
-                                    >
-                                        <i className="codicon codicon-edit text-xs" />
-                                    </Button>
-                                )}
-                                {item.type === "corpus" && (
-                                    <>
+                            {/* More options menu - visible on hover */}
+                            <div className="flex items-center flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
                                         <Button
                                             variant="ghost"
                                             size="icon"
                                             className="menu-button w-6 h-6"
-                                            title="Rename Group"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEditCorpusMarker(item);
-                                            }}
+                                            title="More options"
+                                            onClick={(e) => e.stopPropagation()}
                                         >
-                                            <i className="codicon codicon-edit text-xs" />
+                                            <i className="codicon codicon-kebab-vertical text-xs" />
                                         </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="menu-button w-6 h-6"
-                                            title="Delete Folder"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteCorpusMarker(item);
-                                            }}
-                                        >
-                                            <i className="codicon codicon-trash text-xs" />
-                                        </Button>
-                                    </>
-                                )}
-                                {!isGroup && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="menu-button w-6 h-6"
-                                        title="Delete"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDelete(item);
-                                        }}
-                                    >
-                                        <i className="codicon codicon-trash text-xs" />
-                                    </Button>
-                                )}
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" side="right">
+                                        {item.type === "codexDocument" && (
+                                            <DropdownMenuItem
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEditBookName(item);
+                                                }}
+                                            >
+                                                <i className="codicon codicon-edit mr-2" />
+                                                Edit Book Name
+                                            </DropdownMenuItem>
+                                        )}
+                                        {item.type === "corpus" && (
+                                            <DropdownMenuItem
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEditCorpusMarker(item);
+                                                }}
+                                            >
+                                                <i className="codicon codicon-edit mr-2" />
+                                                Rename Group
+                                            </DropdownMenuItem>
+                                        )}
+                                        {(item.type === "corpus" || !isGroup) && (
+                                            <DropdownMenuItem
+                                                className="text-destructive focus:text-destructive"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (item.type === "corpus") {
+                                                        handleDeleteCorpusMarker(item);
+                                                    } else {
+                                                        handleDelete(item);
+                                                    }
+                                                }}
+                                            >
+                                                <i className="codicon codicon-trash mr-2" />
+                                                Delete
+                                            </DropdownMenuItem>
+                                        )}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
                             </div>
                         </div>
 

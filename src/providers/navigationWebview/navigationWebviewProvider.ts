@@ -202,13 +202,19 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 break;
             case "deleteFile":
                 try {
-                    const confirmed = await vscode.window.showWarningMessage(
-                        `Are you sure you want to delete "${message.label}"? This will delete both the codex file and its corresponding source file.`,
-                        { modal: true },
-                        "Delete"
-                    );
+                    const typedName = await vscode.window.showInputBox({
+                        title: `Delete "${message.label}"`,
+                        prompt: `This will delete both the codex file and its corresponding source file. Type "${message.label}" to confirm.`,
+                        placeHolder: message.label,
+                        validateInput: (value) => {
+                            if (value !== message.label) {
+                                return `Type "${message.label}" to confirm deletion`;
+                            }
+                            return undefined;
+                        },
+                    });
 
-                    if (confirmed === "Delete") {
+                    if (typedName === message.label) {
                         const deletedFiles: string[] = [];
                         const errors: string[] = [];
 
@@ -448,13 +454,19 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     const { corpusLabel, displayName, children } = content;
 
                     const fileCount = children?.length ?? 0;
-                    const confirmed = await vscode.window.showWarningMessage(
-                        `Are you sure you want to delete the folder "${displayName}"? This will permanently delete ${fileCount} file(s) and cannot be undone.`,
-                        { modal: true },
-                        "Delete"
-                    );
+                    const typedName = await vscode.window.showInputBox({
+                        title: `Delete folder "${displayName}"`,
+                        prompt: `This will permanently delete ${fileCount} file(s) and cannot be undone. Type "${displayName}" to confirm.`,
+                        placeHolder: displayName,
+                        validateInput: (value: string) => {
+                            if (value !== displayName) {
+                                return `Type "${displayName}" to confirm deletion`;
+                            }
+                            return undefined;
+                        },
+                    });
 
-                    if (confirmed === "Delete" && children?.length > 0) {
+                    if (typedName === displayName && children?.length > 0) {
                         await this.deleteCorpusMarker(corpusLabel, displayName, children);
                     }
                 } catch (error) {
