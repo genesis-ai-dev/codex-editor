@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { useNetworkState } from "@uidotdev/usehooks";
+import { vscode } from "../EditableReactTable/utilities/vscode";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -11,6 +12,7 @@ interface SyncSettingsProps {
     syncDelayMinutes: number;
     isSyncInProgress: boolean;
     syncStage: string;
+    isImportInProgress?: boolean;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
     onToggleAutoSync: (enabled: boolean) => void;
@@ -24,6 +26,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     syncDelayMinutes,
     isSyncInProgress,
     syncStage,
+    isImportInProgress = false,
     isFrontierExtensionEnabled,
     isAuthenticated,
     onToggleAutoSync,
@@ -102,6 +105,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         }}
                         disabled={
                             isSyncInProgress ||
+                            isImportInProgress ||
                             !isOnline ||
                             !isFrontierExtensionEnabled
                         }
@@ -119,7 +123,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         >
                             <i
                                 className={`codicon ${
-                                    isSyncInProgress
+                                    isSyncInProgress || isImportInProgress
                                         ? "codicon-loading codicon-modifier-spin"
                                         : "codicon-sync"
                                 }`}
@@ -140,6 +144,8 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         <span className="hidden sm:inline">
                             {!isOnline
                                 ? "Offline"
+                                : isImportInProgress
+                                ? "Importing..."
                                 : isSyncInProgress
                                 ? syncStage || "Syncing..."
                                 : !isAuthenticated
@@ -149,6 +155,8 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         <span className="sm:hidden">
                             {!isOnline
                                 ? "Offline"
+                                : isImportInProgress
+                                ? "Importing"
                                 : isSyncInProgress
                                 ? "Syncing"
                                 : !isAuthenticated

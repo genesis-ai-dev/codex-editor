@@ -68,6 +68,8 @@ export class SyncManager {
     private updatingCheckInterval: NodeJS.Timeout | null = null;
     // Track if user has been notified about swap (keyed by swapInitiatedAt to allow new swap notifications)
     private swapNotificationShownFor: number | null = null;
+    // Track when NewSourceUploader is importing files - sync must be disabled during import
+    private importInProgressCount: number = 0;
 
     private constructor() {
         // Initialize with configuration values
@@ -276,6 +278,62 @@ export class SyncManager {
             SyncManager.instance = new SyncManager();
         }
         return SyncManager.instance;
+    }
+
+    /**
+     * Call when NewSourceUploader starts importing files. Sync is disabled until
+     * the matching endImportInProgress() is called. Supports nested calls.
+     */
+    public beginImportInProgress(): void {
+        this.importInProgressCount++;
+        debug("Import in progress started (count=%d), sync disabled", this.importInProgressCount);
+        this.notifyImportInProgressListeners();
+    }
+
+    /**
+     * Call when NewSourceUploader finishes importing files. Must match beginImportInProgress().
+     */
+    public endImportInProgress(): void {
+        if (this.importInProgressCount > 0) {
+            this.importInProgressCount--;
+            debug("Import in progress ended (count=%d)", this.importInProgressCount);
+            this.notifyImportInProgressListeners();
+        }
+    }
+
+    private isImportInProgress(): boolean {
+        return this.importInProgressCount > 0;
+    }
+
+    private importInProgressListeners: Array<(isImportInProgress: boolean) => void> = [];
+
+    public addImportInProgressListener(listener: (isImportInProgress: boolean) => void): vscode.Disposable {
+        this.importInProgressListeners.push(listener);
+        return new vscode.Disposable(() => {
+            const index = this.importInProgressListeners.indexOf(listener);
+            if (index !== -1) {
+                this.importInProgressListeners.splice(index, 1);
+            }
+        });
+    }
+
+    private notifyImportInProgressListeners(): void {
+        const inProgress = this.isImportInProgress();
+        this.importInProgressListeners.forEach((listener) => {
+            try {
+                listener(inProgress);
+            } catch (error) {
+                console.error("Error notifying import in progress listener:", error);
+            }
+        });
+    }
+
+    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean } {
+        return {
+            isSyncInProgress: this.isSyncInProgress,
+            syncStage: this.currentSyncStage,
+            isImportInProgress: this.isImportInProgress(),
+        };
     }
 
     // (removed) extension context was only used for version checking
@@ -496,6 +554,12 @@ export class SyncManager {
     public scheduleSyncOperation(commitMessage: string = "Auto-sync changes"): void {
         debug(`scheduleSyncOperation called with message: "${commitMessage}"`);
 
+        // Don't schedule sync while NewSourceUploader is importing files
+        if (this.isImportInProgress()) {
+            debug("Import in progress, not scheduling sync operation");
+            return;
+        }
+
         // If sync is in progress, just track the change, don't touch timer
         if (this.isSyncInProgress) {
             debug("Sync in progress, tracking pending change (timer will be set after completion)");
@@ -550,6 +614,12 @@ export class SyncManager {
         isManualSync: boolean = false,
         bypassUpdatingCheck: boolean = false
     ): Promise<void> {
+        // Don't sync while NewSourceUploader is importing files
+        if (this.isImportInProgress()) {
+            debug("Import in progress, skipping sync operation");
+            return;
+        }
+
         // Check if there's a workspace folder open (unless it's a manual sync which user explicitly requested)
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace && !isManualSync) {
