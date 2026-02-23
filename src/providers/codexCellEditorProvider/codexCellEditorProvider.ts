@@ -20,6 +20,7 @@ import {
     handleGlobalMessage,
     handleMessages,
     performLLMCompletion,
+    sendMilestoneRefreshToWebview,
 } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { initializeStateStore } from "../../stateStore";
@@ -707,7 +708,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
 
-            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string } | undefined)?.fileDisplayName;
+            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string; } | undefined)?.fileDisplayName;
             const fallbackName = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
             const namePart = (fileDisplayName ?? fallbackName).replace(/\s+/g, "");
             webviewPanel.title = namePart + (isSourceText ? ".source" : ".codex");
@@ -4433,14 +4434,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             debug("No workspace folder found; will only refresh absolute file paths");
         }
 
-        // Filter to only .codex files
-        const codexFiles = filePaths.filter(path => path.endsWith('.codex'));
-        if (codexFiles.length === 0) {
-            debug("No .codex files to refresh");
+        // Filter to .codex and .source notebook files
+        const notebookFiles = filePaths.filter(
+            (p) => p.endsWith(".codex") || p.endsWith(".source")
+        );
+        if (notebookFiles.length === 0) {
+            debug("No notebook files (.codex or .source) to refresh");
             return;
         }
 
-        debug(`Refreshing webviews for ${codexFiles.length} codex file(s)`);
+        debug(`Refreshing webviews for ${notebookFiles.length} notebook file(s)`);
 
         // Build sets for both URI strings and normalized file paths for flexible matching
         const fileUriStrings = new Set<string>();
@@ -4448,7 +4451,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const normalizeFsPath = (fsPath: string) =>
             path.normalize(fsPath).replace(/\\/g, "/").toLowerCase();
 
-        for (const filePath of codexFiles) {
+        for (const filePath of notebookFiles) {
             try {
                 let uri: vscode.Uri;
                 if (path.isAbsolute(filePath)) {
@@ -4507,14 +4510,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
+                        // Send full milestone index and cells so webview has correct structure after migration/sync
+                        await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
                         debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                        safePostMessageToPanel(panel, { type: "refreshCurrentPage" });
                     }
 
-                    debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
-                    safePostMessageToPanel(panel, {
-                        type: "refreshCurrentPage",
-                    });
+                    debug(`Refreshed webview for ${docUri} (URI match)`);
                     refreshedCount++;
                     continue;
                 }
@@ -4544,14 +4547,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
+                        // Send full milestone index and cells so webview has correct structure after migration/sync
+                        await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
                         debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                        safePostMessageToPanel(panel, { type: "refreshCurrentPage" });
                     }
 
-                    debug(`Sending refreshCurrentPage to webview for ${docUri} (path match)`);
-                    safePostMessageToPanel(panel, {
-                        type: "refreshCurrentPage",
-                    });
+                    debug(`Refreshed webview for ${docUri} (path match)`);
                     refreshedCount++;
                 }
             } catch (error) {

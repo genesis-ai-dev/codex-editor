@@ -853,12 +853,14 @@ const CodexCellEditor: React.FC = () => {
                 vscode.postMessage({ command: "getContent" } as EditorPostMessages);
             }
 
-            // Handle current page refresh (e.g., when a paratext cell is added or after sync)
+            // Handle current page refresh (e.g., when a paratext cell is added, after sync, or after migration)
             if (message.type === "refreshCurrentPage") {
-                // After sync, changes can occur in any cell range, not just the current page
-                // Clear ALL cached pages to ensure fresh data is loaded when navigating to any page
+                // After sync/migration, changes can occur in any cell range, not just the current page
+                // Clear ALL caches to ensure fresh data is loaded when navigating to any page
                 cellsCacheRef.current.clear();
                 loadedPagesRef.current.clear();
+                milestoneCellsCacheRef.current.clear();
+                progressCacheRef.current.clear();
 
                 // Prefer: 1) in-flight navigation (latestRequestRef), 2) refs (webview's current position).
                 // Always use refs over the provider message so our position wins when the provider sends a stale
@@ -1845,6 +1847,18 @@ const CodexCellEditor: React.FC = () => {
             const milestone = milestoneIndex.milestones[milestoneIdx];
             const { cellCount, value } = milestone;
             const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
+
+            // When milestone has 0 cells, return a single empty subsection (avoid invalid "1-0" label)
+            if (cellCount === 0) {
+                return [
+                    {
+                        id: `milestone-${milestoneIdx}-page-0`,
+                        label: "0",
+                        startIndex: 0,
+                        endIndex: 0,
+                    },
+                ];
+            }
 
             // Calculate number of pages based on content cells
             const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;

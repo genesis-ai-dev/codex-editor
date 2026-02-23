@@ -1240,13 +1240,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             }
 
-            // Process content cells (excluding milestones and paratext)
+            // Process content cells (excluding milestones, paratext, and deleted)
             if (cellType !== CodexCellTypes.MILESTONE && cellType !== "paratext") {
-                totalContentCells++;
+                const isDeleted = cell.metadata?.data?.deleted === true;
+                if (!isDeleted) {
+                    totalContentCells++;
+                }
 
                 // Only assign milestoneIndex if we've encountered at least one milestone
                 if (currentMilestoneIndex >= 0) {
-                    // Assign milestoneIndex to this cell
                     // Ensure data object exists
                     if (!cell.metadata) {
                         cell.metadata = {} as CustomCellMetaData;
@@ -1255,7 +1257,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         cell.metadata.data = {} as any;
                     }
                     (cell.metadata.data as any).milestoneIndex = currentMilestoneIndex;
-                    currentMilestoneCellCount++;
+                    // Only count non-deleted cells for milestone cell count
+                    if (!isDeleted) {
+                        currentMilestoneCellCount++;
+                    }
                 }
             }
 
@@ -1861,6 +1866,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 continue;
             }
 
+            // Skip deleted content cells (e.g. from verse-range migration soft-deletes)
+            if (
+                cell.metadata?.type !== CodexCellTypes.PARATEXT &&
+                cell.metadata?.data?.deleted === true
+            ) {
+                continue;
+            }
+
             const quillContent = convertCellToQuillContent(cell);
             allCellsInMilestone.push(quillContent);
 
@@ -1999,6 +2012,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 continue;
             }
 
+            // Skip deleted content cells (e.g. from verse-range migration soft-deletes)
+            if (
+                cell.metadata?.type !== CodexCellTypes.PARATEXT &&
+                cell.metadata?.data?.deleted === true
+            ) {
+                continue;
+            }
+
             const quillContent = convertCellToQuillContent(cell);
             allCellsInMilestone.push(quillContent);
         }
@@ -2033,7 +2054,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const cell = cells[i];
             if (
                 cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                cell.metadata?.type !== CodexCellTypes.PARATEXT
+                cell.metadata?.type !== CodexCellTypes.PARATEXT &&
+                cell.metadata?.data?.deleted !== true
             ) {
                 const parentId = cell.metadata?.parentId ?? (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
                 if (!parentId) {

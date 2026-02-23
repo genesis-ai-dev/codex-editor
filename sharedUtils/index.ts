@@ -217,10 +217,10 @@ export type CellForProgressCheck = {
  */
 export function shouldExcludeCellFromProgress(cell: CellForProgressCheck): boolean {
     const md = cell.metadata;
-    const cellData = md?.data as { merged?: boolean; parentId?: string; type?: string; } | undefined;
+    const cellData = md?.data as { merged?: boolean; parentId?: string; type?: string; deleted?: boolean; } | undefined;
     const cellId = (md?.id ?? "").toString();
 
-    if (md?.type === "milestone" || cellData?.merged) {
+    if (md?.type === "milestone" || cellData?.merged || cellData?.deleted) {
         return true;
     }
     const isParatext =
@@ -249,7 +249,7 @@ export function shouldExcludeQuillCellFromProgress(cell: QuillCellContent): bool
     if (!cellId || cellId.trim() === "") {
         return true;
     }
-    if (cell.merged) {
+    if (cell.merged || cell.deleted) {
         return true;
     }
     const typeLower = (cell.cellType ?? "").toString().toLowerCase();

@@ -3203,6 +3203,7 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
 
         let processedFiles = 0;
         let migratedFiles = 0;
+        const migratedFilePaths: string[] = [];
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -3218,8 +3219,13 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
                     });
                     try {
                         const wasMigrated = await migrateVerseRangeLabelsAndPositionsForFile(file);
+                        const hadRedundantMilestones =
+                            await removeRedundantDuplicateMilestonesInFile(file);
                         processedFiles++;
-                        if (wasMigrated) migratedFiles++;
+                        if (wasMigrated || hadRedundantMilestones) {
+                            migratedFiles++;
+                            migratedFilePaths.push(file.fsPath);
+                        }
                     } catch (error) {
                         console.error(`Error processing ${file.fsPath}:`, error);
                     }
@@ -3234,6 +3240,20 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
             vscode.window.showInformationMessage(
                 `Verse range migration complete: ${migratedFiles} files updated`
             );
+            // Refresh any open webviews for migrated files so they show updated content
+            if (migratedFilePaths.length > 0) {
+                try {
+                    const { GlobalProvider } = await import("../../globalProvider");
+                    const provider = GlobalProvider.getInstance().getProvider(
+                        "codex-cell-editor"
+                    ) as { refreshWebviewsForFiles?: (paths: string[]) => Promise<void> };
+                    if (provider?.refreshWebviewsForFiles) {
+                        await provider.refreshWebviewsForFiles(migratedFilePaths);
+                    }
+                } catch (error) {
+                    console.warn("Failed to refresh webviews after migration:", error);
+                }
+            }
         }
     } catch (error) {
         console.error("Error running verse range labels/positions migration:", error);
@@ -3597,6 +3617,74 @@ async function migrateCellIdsWithSpacesToUuidForFile(fileUri: vscode.Uri): Promi
         return false;
     } catch (error) {
         console.error(`Error migrating spaced cell IDs to UUID for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Removes redundant duplicate milestones from a notebook file.
+ * A milestone is redundant when: (1) we've already seen a milestone with the same value earlier,
+ * and (2) the next cell is also a milestone (so there's no content between this duplicate and the next chapter).
+ * E.g. [Luke 1] [content] [Luke 1 dup] [Luke 2] -> [Luke 1] [content] [Luke 2]
+ * Returns true if any cells were removed.
+ */
+async function removeRedundantDuplicateMilestonesInFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        const seenMilestoneValues = new Set<string>();
+        const filteredCells: any[] = [];
+        let removedCount = 0;
+
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            const isMilestone = cell?.metadata?.type === CodexCellTypes.MILESTONE;
+            const nextCell = i + 1 < cells.length ? cells[i + 1] : null;
+            const nextIsMilestone = nextCell?.metadata?.type === CodexCellTypes.MILESTONE;
+            const milestoneValue = typeof cell?.value === "string" ? cell.value : "";
+
+            if (isMilestone) {
+                const isRedundant =
+                    seenMilestoneValues.has(milestoneValue) && nextIsMilestone;
+                if (isRedundant) {
+                    removedCount++;
+                    debug(
+                        `[Cleanup] Removing redundant duplicate milestone "${milestoneValue}" (id: ${cell?.metadata?.id}) in ${fileUri.fsPath}`
+                    );
+                    continue;
+                }
+                seenMilestoneValues.add(milestoneValue);
+            }
+
+            filteredCells.push(cell);
+        }
+
+        if (removedCount === 0) return false;
+
+        const updatedNotebook = {
+            ...notebookData,
+            cells: filteredCells,
+        };
+        const finalContent = formatJsonForNotebookFile(updatedNotebook);
+        await atomicWriteUriText(fileUri, normalizeNotebookFileText(finalContent));
+
+        debug(
+            `[Cleanup] Removed ${removedCount} redundant duplicate milestone(s) in ${fileUri.fsPath}`
+        );
+        return true;
+    } catch (error) {
+        console.error(
+            `[Cleanup] Error removing redundant milestones in ${fileUri.fsPath}:`,
+            error
+        );
         return false;
     }
 }
