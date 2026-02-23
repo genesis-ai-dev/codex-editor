@@ -4421,8 +4421,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      * This is used after sync to ensure webviews show newly added cells.
      * Forces open, non-dirty documents to reload from disk before refreshing to ensure latest data.
      * @param filePaths Array of file paths (workspace-relative or absolute) to refresh
+     * @param options.sourceFilesOnly When true (e.g. after verse range migration), only refresh .source files, not .codex
      */
-    public async refreshWebviewsForFiles(filePaths: string[]): Promise<void> {
+    public async refreshWebviewsForFiles(
+        filePaths: string[],
+        options?: { isSourceAndCodexFiles?: boolean }
+    ): Promise<void> {
         if (!filePaths || filePaths.length === 0) {
             return;
         }
@@ -4434,12 +4438,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             debug("No workspace folder found; will only refresh absolute file paths");
         }
 
-        // Filter to .codex and .source notebook files
-        const notebookFiles = filePaths.filter(
-            (p) => p.endsWith(".codex") || p.endsWith(".source")
+        // Filter to notebook files: .source only when isSourceAndCodexFiles, otherwise both .codex and .source
+        const notebookFiles = filePaths.filter((p) =>
+            options?.isSourceAndCodexFiles ? p.endsWith(".source") : p.endsWith(".codex") || p.endsWith(".source")
         );
         if (notebookFiles.length === 0) {
-            debug("No notebook files (.codex or .source) to refresh");
+            debug(
+                options?.isSourceAndCodexFiles
+                    ? "No .source files to refresh"
+                    : "No notebook files (.codex or .source) to refresh"
+            );
             return;
         }
 
@@ -4454,7 +4462,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         for (const filePath of notebookFiles) {
             try {
                 let uri: vscode.Uri;
-                if (path.isAbsolute(filePath)) {
+                if (filePath.startsWith("file:")) {
+                    // Accept URI strings directly for reliable matching (e.g. document.uri.toString())
+                    uri = vscode.Uri.parse(filePath);
+                } else if (path.isAbsolute(filePath)) {
                     uri = vscode.Uri.file(filePath);
                 } else {
                     if (!workspaceFolder) {

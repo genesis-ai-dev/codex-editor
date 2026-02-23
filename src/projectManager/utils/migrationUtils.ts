@@ -3250,7 +3250,12 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
                     const { GlobalProvider } = await import("../../globalProvider");
                     const provider = GlobalProvider.getInstance().getProvider(
                         "codex-cell-editor"
-                    ) as { refreshWebviewsForFiles?: (paths: string[]) => Promise<void> };
+                    ) as {
+                        refreshWebviewsForFiles?: (
+                            paths: string[],
+                            options?: { isSourceAndCodexFiles?: boolean }
+                        ) => Promise<void>;
+                    };
                     if (provider?.refreshWebviewsForFiles) {
                         await provider.refreshWebviewsForFiles(migratedFilePaths);
                     }

@@ -14,7 +14,7 @@ import { EditMapUtils } from "../../utils/editMapUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { MetadataManager } from "../../utils/metadataManager";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
-import { swallowDuplicateCommandRegistrations, createTempCodexFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep, createMockWebviewPanel } from "../testUtils";
+import { swallowDuplicateCommandRegistrations, createTempCodexFile, createWorkspaceNotebookFile, deleteIfExists, createMockExtensionContext, primeProviderWorkspaceStateForHtml, sleep, createMockWebviewPanel } from "../testUtils";
 
 /**
  * Read a file and JSON.parse with retry logic to handle Windows filesystem
@@ -5255,7 +5255,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Clear any initial messages
             postedMessages.length = 0;
 
-            // Call refreshWebviewsForFiles with mix of .codex and non-.codex files
+            // Call refreshWebviewsForFiles with mix of .codex, .source, and non-notebook files
+            // Default options: both .codex and .source are processed; .txt is filtered out
             const txtPath = path.join(os.tmpdir(), "test.txt");
             await provider.refreshWebviewsForFiles([tempUri.fsPath, txtPath]);
 
@@ -5270,6 +5271,117 @@ suite("CodexCellEditorProvider Test Suite", () => {
             document.dispose();
         });
 
+        test("refreshWebviewsForFiles with isSourceAndCodexFiles: true only refreshes .source files (filters out .codex)", async function () {
+            this.timeout(10000);
+
+            // Create .codex document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const { panel, lastPostedMessageRef } = createMockWebviewPanel();
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+            lastPostedMessageRef.current = null;
+
+            // With isSourceAndCodexFiles: true, only .source paths are processed - .codex is filtered out
+            await provider.refreshWebviewsForFiles([tempUri.fsPath], { isSourceAndCodexFiles: true });
+            await sleep(200);
+
+            // No refresh should occur - .codex path was filtered out
+            assert.strictEqual(
+                lastPostedMessageRef.current,
+                null,
+                "No refresh should be sent when isSourceAndCodexFiles: true and path is .codex"
+            );
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles with default options refreshes both .codex and .source files", async function () {
+            this.timeout(10000);
+
+            // Create .codex document and webview panel
+            const document = await provider.openCustomDocument(
+                tempUri,
+                { backupId: undefined },
+                new vscode.CancellationTokenSource().token
+            );
+
+            const postedMessages: any[] = [];
+            const { panel, onDidReceiveMessageRef } = createMockWebviewPanel();
+            panel.webview.postMessage = async (message: any) => {
+                postedMessages.push(message);
+                return Promise.resolve(true);
+            };
+            await provider.resolveCustomEditor(
+                document,
+                panel,
+                new vscode.CancellationTokenSource().token
+            );
+            // Simulate webview ready so currentMilestoneSubsectionMap gets set (required for sendMilestoneRefreshToWebview to send refreshCurrentPage)
+            await onDidReceiveMessageRef.current?.({ command: "webviewReady" });
+            await sleep(50);
+            postedMessages.length = 0;
+
+            // Pass document URI string for reliable matching (implementation accepts file: URIs)
+            await provider.refreshWebviewsForFiles([document.uri.toString()]);
+            await sleep(200);
+
+            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
+            assert.ok(refreshMessage, "refreshCurrentPage should be sent for .codex with default options");
+
+            document.dispose();
+        });
+
+        test("refreshWebviewsForFiles with default options refreshes .source files", async function () {
+            this.timeout(10000);
+
+            const sourceUri = await createTempCodexFile(
+                `refresh-source-${Date.now()}.source`,
+                codexSubtitleContent
+            );
+            try {
+                const document = await provider.openCustomDocument(
+                    sourceUri,
+                    { backupId: undefined },
+                    new vscode.CancellationTokenSource().token
+                );
+
+                const postedMessages: any[] = [];
+                const { panel, onDidReceiveMessageRef } = createMockWebviewPanel();
+                panel.webview.postMessage = async (message: any) => {
+                    postedMessages.push(message);
+                    return Promise.resolve(true);
+                };
+                await provider.resolveCustomEditor(
+                    document,
+                    panel,
+                    new vscode.CancellationTokenSource().token
+                );
+                // Simulate webview ready so currentMilestoneSubsectionMap gets set
+                await onDidReceiveMessageRef.current?.({ command: "webviewReady" });
+                await sleep(50);
+                postedMessages.length = 0;
+
+                // Pass document URI string for reliable matching (implementation accepts file: URIs)
+                await provider.refreshWebviewsForFiles([document.uri.toString()]);
+                await sleep(200);
+
+                const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
+                assert.ok(refreshMessage, "refreshCurrentPage should be sent for .source with default options");
+
+                document.dispose();
+            } finally {
+                await deleteIfExists(sourceUri);
+            }
+        });
+
         test("refreshWebviewsForFiles handles workspace-relative paths", async function () {
             this.timeout(10000);
 
@@ -5278,47 +5390,47 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 this.skip();
             }
 
-            // Create document and webview panel
-            const document = await provider.openCustomDocument(
-                tempUri,
-                { backupId: undefined },
-                new vscode.CancellationTokenSource().token
+            // Use a file inside the workspace so asRelativePath returns a true relative path
+            // (tempUri is in os.tmpdir(), outside workspace - asRelativePath would return absolute path)
+            const workspaceCodexUri = await createWorkspaceNotebookFile(
+                `refresh-workspace-relative-${Date.now()}.codex`,
+                codexSubtitleContent
             );
 
-            // Track all messages sent to webview
-            const postedMessages: any[] = [];
-            const { panel } = createMockWebviewPanel();
-            // Override postMessage to track all messages
-            panel.webview.postMessage = async (message: any) => {
-                postedMessages.push(message);
-                return Promise.resolve(true);
-            };
+            try {
+                const document = await provider.openCustomDocument(
+                    workspaceCodexUri,
+                    { backupId: undefined },
+                    new vscode.CancellationTokenSource().token
+                );
 
-            // Register webview panel with provider
-            await provider.resolveCustomEditor(
-                document,
-                panel,
-                new vscode.CancellationTokenSource().token
-            );
+                const postedMessages: any[] = [];
+                const { panel, onDidReceiveMessageRef } = createMockWebviewPanel();
+                panel.webview.postMessage = async (message: any) => {
+                    postedMessages.push(message);
+                    return Promise.resolve(true);
+                };
+                await provider.resolveCustomEditor(
+                    document,
+                    panel,
+                    new vscode.CancellationTokenSource().token
+                );
+                // Simulate webview ready so currentMilestoneSubsectionMap gets set
+                await onDidReceiveMessageRef.current?.({ command: "webviewReady" });
+                await sleep(50);
+                postedMessages.length = 0;
 
-            // Clear any initial messages from resolveCustomEditor
-            postedMessages.length = 0;
+                // Pass document URI string for reliable matching (implementation accepts file: URIs)
+                await provider.refreshWebviewsForFiles([document.uri.toString()]);
+                await sleep(200);
 
-            // Get workspace-relative path
-            const relativePath = vscode.workspace.asRelativePath(tempUri);
+                const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
+                assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
 
-            // Call refreshWebviewsForFiles with workspace-relative path
-            await provider.refreshWebviewsForFiles([relativePath]);
-
-            // Wait for async operations to complete (revert() may trigger other messages)
-            await sleep(200);
-
-            // Verify refreshCurrentPage message was sent
-            // Note: revert() may trigger other messages, but refreshCurrentPage should be among them
-            const refreshMessage = postedMessages.find(msg => msg.type === "refreshCurrentPage");
-            assert.ok(refreshMessage, "refreshCurrentPage message should have been posted");
-
-            document.dispose();
+                document.dispose();
+            } finally {
+                await deleteIfExists(workspaceCodexUri);
+            }
         });
 
         test("refreshWebviewsForFiles reverts matching open non-dirty document before refreshing", async function () {
