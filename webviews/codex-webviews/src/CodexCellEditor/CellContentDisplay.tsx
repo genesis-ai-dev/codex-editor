@@ -949,6 +949,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         return (
             <div
                 ref={cellRef}
+                data-cell-id={cellIds[0]}
                 className={`cell-content-display my-4 group ${getAnimationClassName()}`}
                 style={{
                     backgroundColor: getBackgroundColor(),

@@ -9,7 +9,8 @@ import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
-import { addMetadataEdit } from "../../utils/editMapUtils";
+import { addMetadataEdit, addProjectMetadataEdit, EditMapUtils } from "../../utils/editMapUtils";
+import { MetadataManager } from "../../utils/metadataManager";
 import { getAuthApi } from "../../extension";
 import { CustomNotebookMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
@@ -259,6 +260,19 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             }
                         }
 
+                        // Read the codex notebook metadata before deletion to get originalFileName
+                        let originalFileName: string | undefined;
+                        let notebookBaseName: string | undefined;
+                        try {
+                            const codexContent = await vscode.workspace.fs.readFile(codexUri);
+                            const codexNotebook = JSON.parse(new TextDecoder().decode(codexContent));
+                            originalFileName = codexNotebook?.metadata?.originalName || codexNotebook?.metadata?.originalFileName;
+                            // Derive notebook base name from codex filename (without extension)
+                            notebookBaseName = path.basename(normalizedPath).replace(/\.[^/.]+$/, '');
+                        } catch (err) {
+                            console.warn(`[Navigation] Could not read codex metadata for original file cleanup: ${err}`);
+                        }
+
                         // Delete the codex file
                         try {
                             await vscode.workspace.fs.delete(codexUri);
@@ -300,6 +314,35 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                 console.error("Error deleting source file:", error);
                                 errors.push(`Failed to delete source file: ${error}`);
                             }
+                        }
+
+                        // Clean up original file in attachments/originals (if applicable)
+                        // Remove this notebook's reference; delete the original file only if no other notebooks use it
+                        if (notebookBaseName) {
+                            try {
+                                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                                if (workspaceFolder) {
+                                    const { removeNotebookReference } = await import('../NewSourceUploader/originalFileUtils');
+                                    const result = await removeNotebookReference(
+                                        workspaceFolder,
+                                        notebookBaseName,
+                                        originalFileName
+                                    );
+                                    if (result.originalFileDeleted && result.fileName) {
+                                        deletedFiles.push(`original: ${result.fileName}`);
+                                        console.log(`[Navigation] Deleted unreferenced original file: ${result.fileName}`);
+                                    } else if (result.fileName) {
+                                        console.log(`[Navigation] Original file "${result.fileName}" still referenced by other notebooks, kept`);
+                                    }
+                                }
+                            } catch (err) {
+                                console.warn(`[Navigation] Could not clean up original file: ${err}`);
+                            }
+                        }
+
+                        // Record single file deletion to project edit history
+                        if (deletedFiles.length > 0 && message.type === "codexDocument") {
+                            await this.recordFileDeletionToEditHistory(normalizedPath, message.label);
                         }
 
                         // Show appropriate message based on results
@@ -396,6 +439,27 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 } catch (error) {
                     console.error("Error updating corpus marker:", error);
                     vscode.window.showErrorMessage(`Failed to update corpus marker: ${error}`);
+                }
+                break;
+            }
+            case "deleteCorpusMarker": {
+                try {
+                    const content = message.content ?? {};
+                    const { corpusLabel, displayName, children } = content;
+
+                    const fileCount = children?.length ?? 0;
+                    const confirmed = await vscode.window.showWarningMessage(
+                        `Are you sure you want to delete the folder "${displayName}"? This will permanently delete ${fileCount} file(s) and cannot be undone.`,
+                        { modal: true },
+                        "Delete"
+                    );
+
+                    if (confirmed === "Delete" && children?.length > 0) {
+                        await this.deleteCorpusMarker(corpusLabel, displayName, children);
+                    }
+                } catch (error) {
+                    console.error("Error deleting corpus marker:", error);
+                    vscode.window.showErrorMessage(`Failed to delete folder: ${error}`);
                 }
                 break;
             }
@@ -1217,6 +1281,206 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             console.error("Error updating book name:", error);
             vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
         }
+    }
+
+    private async recordFileDeletionToEditHistory(filePath: string, label: string): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return;
+
+        try {
+            const author = await this.getCurrentUser();
+            await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (metadata: { edits?: unknown[] }) => {
+                    if (!metadata.edits) metadata.edits = [];
+                    addProjectMetadataEdit(
+                        metadata,
+                        EditMapUtils.deletedFile(),
+                        { filePath, label },
+                        author
+                    );
+                    return metadata;
+                },
+                { author }
+            );
+        } catch (err) {
+            console.warn(`[Navigation] Could not record file deletion to edit history: ${err}`);
+        }
+    }
+
+    private async recordCorpusDeletionToEditHistory(
+        corpusMarker: string,
+        deletedFiles: Array<{ filePath: string; label: string }>
+    ): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return;
+
+        try {
+            const author = await this.getCurrentUser();
+            await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (metadata: { edits?: unknown[] }) => {
+                    if (!metadata.edits) metadata.edits = [];
+                    addProjectMetadataEdit(
+                        metadata,
+                        EditMapUtils.deletedCorpusMarker(),
+                        { corpusMarker, deletedFiles },
+                        author
+                    );
+                    return metadata;
+                },
+                { author }
+            );
+        } catch (err) {
+            console.warn(`[Navigation] Could not record corpus deletion to edit history: ${err}`);
+        }
+    }
+
+    private async getCurrentUser(): Promise<string> {
+        try {
+            const authApi = getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            return userInfo?.username || "anonymous";
+        } catch {
+            return "anonymous";
+        }
+    }
+
+    private async deleteCorpusMarker(
+        corpusLabel: string,
+        displayName: string,
+        children: Array<{ uri: string; label: string; type: string }>
+    ): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage("No workspace folder found");
+            return;
+        }
+
+        const codexEditorProvider = CodexCellEditorProvider.getInstance();
+        const closePanelByUri = (uri: vscode.Uri) => {
+            if (!codexEditorProvider) return;
+            const webviewPanels = codexEditorProvider.getWebviewPanels();
+            let panelToClose = webviewPanels.get(uri.toString());
+            if (!panelToClose) {
+                for (const [panelUri, panel] of webviewPanels.entries()) {
+                    const panelUriObj = vscode.Uri.parse(panelUri);
+                    if (panelUriObj.fsPath === uri.fsPath) {
+                        panelToClose = panel;
+                        break;
+                    }
+                }
+            }
+            if (panelToClose) panelToClose.dispose();
+        };
+
+        const allDeletedFiles: Array<{ filePath: string; label: string }> = [];
+        const errors: string[] = [];
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Deleting folder "${displayName}"`,
+                cancellable: false,
+            },
+            async (progress) => {
+                const total = children.length;
+                for (let i = 0; i < children.length; i++) {
+                    const child = children[i];
+                    progress.report({
+                        increment: (100 / total),
+                        message: `Deleting ${child.label}...`,
+                    });
+
+                    const normalizedPath = (child.uri as string).replace(/\\/g, "/");
+                    const codexUri = vscode.Uri.file(normalizedPath);
+
+                    // Close webviews
+                    closePanelByUri(codexUri);
+                    if (child.type === "codexDocument") {
+                        const baseFileName = path.basename(normalizedPath);
+                        const sourceFileName = baseFileName.replace(".codex", ".source");
+                        const sourceUri = vscode.Uri.joinPath(
+                            workspaceFolder.uri,
+                            ".project",
+                            "sourceTexts",
+                            sourceFileName
+                        );
+                        closePanelByUri(sourceUri);
+                    }
+
+                    let originalFileName: string | undefined;
+                    let notebookBaseName: string | undefined;
+                    try {
+                        const codexContent = await vscode.workspace.fs.readFile(codexUri);
+                        const codexNotebook = JSON.parse(new TextDecoder().decode(codexContent));
+                        originalFileName = codexNotebook?.metadata?.originalName || codexNotebook?.metadata?.originalFileName;
+                        notebookBaseName = path.basename(normalizedPath).replace(/\.[^/.]+$/, "");
+                    } catch {
+                        // File may already be gone
+                    }
+
+                    try {
+                        await vscode.workspace.fs.delete(codexUri);
+                        allDeletedFiles.push({ filePath: normalizedPath, label: child.label });
+                    } catch (error) {
+                        console.error("Error deleting codex file:", error);
+                        errors.push(`Failed to delete ${child.label}: ${error}`);
+                    }
+
+                    if (child.type === "codexDocument") {
+                        try {
+                            const baseFileName = path.basename(normalizedPath);
+                            const sourceFileName = baseFileName.replace(".codex", ".source");
+                            const sourceUri = vscode.Uri.joinPath(
+                                workspaceFolder.uri,
+                                ".project",
+                                "sourceTexts",
+                                sourceFileName
+                            );
+                            try {
+                                await vscode.workspace.fs.delete(sourceUri);
+                            } catch (deleteError: unknown) {
+                                const err = deleteError as { code?: string };
+                                if (err.code !== "FileNotFound" && err.code !== "ENOENT") {
+                                    errors.push(`Failed to delete source for ${child.label}`);
+                                }
+                            }
+                        } catch (error) {
+                            errors.push(`Failed to delete source for ${child.label}`);
+                        }
+                    }
+
+                    if (notebookBaseName) {
+                        try {
+                            const { removeNotebookReference } = await import("../NewSourceUploader/originalFileUtils");
+                            await removeNotebookReference(workspaceFolder, notebookBaseName, originalFileName);
+                        } catch {
+                            // Non-fatal
+                        }
+                    }
+                }
+            }
+        );
+
+        // Record folder and all deleted files to edit history
+        if (allDeletedFiles.length > 0) {
+            await this.recordCorpusDeletionToEditHistory(corpusLabel, allDeletedFiles);
+        }
+
+        if (allDeletedFiles.length > 0 && errors.length === 0) {
+            vscode.window.showInformationMessage(
+                `Successfully deleted folder "${displayName}" and ${allDeletedFiles.length} file(s)`
+            );
+        } else if (allDeletedFiles.length > 0 && errors.length > 0) {
+            vscode.window.showWarningMessage(
+                `Partially deleted: ${allDeletedFiles.length} file(s). Errors: ${errors.join("; ")}`
+            );
+        } else {
+            vscode.window.showErrorMessage(`Failed to delete folder "${displayName}": ${errors.join("; ")}`);
+        }
+
+        await this.buildInitialData();
     }
 
     public dispose(): void {

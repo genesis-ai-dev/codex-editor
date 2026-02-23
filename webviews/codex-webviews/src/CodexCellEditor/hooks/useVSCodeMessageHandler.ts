@@ -11,6 +11,7 @@ interface UseVSCodeMessageHandlerProps {
     ) => void;
     setSpellCheckResponse: Dispatch<SetStateAction<SpellCheckResponse | null>>;
     jumpToCell: (cellId: string) => void;
+    jumpToCellWithPosition?: (cellId: string, milestoneIndex: number, subsectionIndex: number) => void;
     updateCell: (data: { cellId: string; newContent: string; progress: number; }) => void;
     autocompleteChapterComplete: () => void;
     updateTextDirection: (direction: "ltr" | "rtl") => void;
@@ -84,6 +85,7 @@ export const useVSCodeMessageHandler = ({
     setContent,
     setSpellCheckResponse,
     jumpToCell,
+    jumpToCellWithPosition,
     updateCell,
     autocompleteChapterComplete,
     updateTextDirection,
@@ -139,7 +141,11 @@ export const useVSCodeMessageHandler = ({
                                     else hasAvailable = true;
                                 }
                             }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                            const selectedId = unit?.metadata?.selectedAudioId;
+                            const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                            const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+                            availability[cellId] = selectedIsMissing ? "missing" : hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                         }
                         setAudioAttachments(availability);
                     } catch { /* ignore */ }
@@ -186,7 +192,17 @@ export const useVSCodeMessageHandler = ({
                     setSpellCheckResponse(message.content);
                     break;
                 case "jumpToSection":
-                    jumpToCell(message.content);
+                    // Use pre-computed position from extension if available
+                    if (
+                        jumpToCellWithPosition &&
+                        typeof message.milestoneIndex === "number" &&
+                        typeof message.subsectionIndex === "number"
+                    ) {
+                        jumpToCellWithPosition(message.content, message.milestoneIndex, message.subsectionIndex);
+                    } else {
+                        // Fallback to old behavior
+                        jumpToCell(message.content);
+                    }
                     break;
                 case "updateCell":
                     updateCell(message.data);
@@ -348,7 +364,11 @@ export const useVSCodeMessageHandler = ({
                                     else hasAvailable = true;
                                 }
                             }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                            const selectedId = unit?.metadata?.selectedAudioId;
+                            const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                            const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+                            availability[cellId] = selectedIsMissing ? "missing" : hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                         }
                         setAudioAttachments(availability);
                     } catch { /* ignore */ }
@@ -388,7 +408,11 @@ export const useVSCodeMessageHandler = ({
                                     else hasAvailable = true;
                                 }
                             }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                            const selectedId = unit?.metadata?.selectedAudioId;
+                            const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                            const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+                            availability[cellId] = selectedIsMissing ? "missing" : hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
                         }
                         setAudioAttachments((prev) => ({ ...prev, ...availability }));
                     } catch { /* ignore */ }
@@ -405,6 +429,7 @@ export const useVSCodeMessageHandler = ({
         setContent,
         setSpellCheckResponse,
         jumpToCell,
+        jumpToCellWithPosition,
         updateCell,
         autocompleteChapterComplete,
         updateTextDirection,

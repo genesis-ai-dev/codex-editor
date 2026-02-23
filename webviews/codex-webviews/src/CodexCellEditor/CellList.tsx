@@ -508,11 +508,15 @@ const CellList: React.FC<CellListProps> = ({
             allCells: QuillCellContent[],
             fallbackCells?: QuillCellContent[]
         ): number => {
+            // Use cellMarkers[0] (UUID) for finding the cell's position, not getCellIdentifier
+            // getCellIdentifier may return non-unique values (e.g., Biblica imports where multiple
+            // cells share the same first globalReference due to verse array accumulation)
+            const cellUuid = cell.cellMarkers?.[0];
             const cellIdentifier = getCellIdentifier(cell);
-            if (!cellIdentifier) return 1; // Fallback if no identifier
+            if (!cellUuid) return 1; // Fallback if no UUID
 
             const cellIndex = allCells.findIndex(
-                (unit) => getCellIdentifier(unit) === cellIdentifier
+                (unit) => unit.cellMarkers?.[0] === cellUuid
             );
 
             // If not found in full document (e.g. state out of sync after opening a cell), use visible list
@@ -661,6 +665,21 @@ const CellList: React.FC<CellListProps> = ({
                         return `${parentLabel}.${childIndex}`;
                     }
                 }
+            }
+
+            // For cells with cellLabel but no verse-level global references (e.g., Biblica importer cells before verses),
+            // use the cellLabel instead of chapter-based verse number
+            // Biblica cells before verses have globalReferences like ["GEN"] (book only), while cells with verses have ["GEN 1:34"] (book chapter:verse)
+            const globalRefs = cell.data?.globalReferences;
+            const hasGlobalRefs = globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0;
+            const hasVerseLevelRefs = hasGlobalRefs && globalRefs.some((ref: string) => {
+                // Check if reference contains chapter:verse format (e.g., "GEN 1:34" or "GEN 1:1")
+                return typeof ref === 'string' && /\d+:\d+/.test(ref);
+            });
+
+            // If cell has a label but no verse-level references, use the label (for Biblica cells before verses)
+            if (cell.cellLabel && !hasVerseLevelRefs) {
+                return cell.cellLabel;
             }
 
             // Get chapter-based verse number (skipping paratext cells).
