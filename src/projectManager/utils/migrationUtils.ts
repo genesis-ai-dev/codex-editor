@@ -3182,26 +3182,12 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
 /**
  * Migration: Fix verse-range cell positions (after chapter milestone, in verse order) and set
  * cellLabel for verse-range refs. Runs on both .codex and .source files. Idempotent.
+ * Invoked manually via command palette (Codex: Fix Verse Range Labels and Positions).
  */
-export const migration_verseRangeLabelsAndPositions = async (
-    context?: vscode.ExtensionContext
-): Promise<void> => {
+export const migration_verseRangeLabelsAndPositions = async (): Promise<void> => {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) return;
-
-        const migrationKey = "verseRangeLabelsAndPositionsMigrationCompleted";
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        let hasMigrationRun = false;
-        try {
-            hasMigrationRun = config.get(migrationKey, false);
-        } catch {
-            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
-        }
-        if (hasMigrationRun) {
-            debug("Verse range labels/positions migration already completed, skipping");
-            return;
-        }
 
         debug("Running verse range labels/positions migration...");
         const workspaceFolder = workspaceFolders[0];
@@ -3213,14 +3199,7 @@ export const migration_verseRangeLabelsAndPositions = async (
         );
         const allFiles = [...codexFiles, ...sourceFiles];
 
-        if (allFiles.length === 0) {
-            try {
-                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
-            } catch {
-                await context?.workspaceState.update(migrationKey, true);
-            }
-            return;
-        }
+        if (allFiles.length === 0) return;
 
         let processedFiles = 0;
         let migratedFiles = 0;
@@ -3248,11 +3227,6 @@ export const migration_verseRangeLabelsAndPositions = async (
             }
         );
 
-        try {
-            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
-        } catch {
-            await context?.workspaceState.update(migrationKey, true);
-        }
         debug(
             `Verse range labels/positions migration completed: ${processedFiles} files processed, ${migratedFiles} migrated`
         );

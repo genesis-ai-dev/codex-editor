@@ -624,7 +624,6 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_addMilestoneCells(context);
         await migration_reorderMisplacedParatextCells(context);
         await migration_addGlobalReferences(context);
-        await migration_verseRangeLabelsAndPositions(context);
         await migration_cellIdsToUuid(context);
         await migration_recoverTempFilesAndMergeDuplicates(context);
 
@@ -727,6 +726,16 @@ export async function activate(context: vscode.ExtensionContext) {
             "codex-editor-extension.migrateValidationsForUserEdits",
             async () => {
                 await migration_addValidationsForUserEdits();
+            }
+        )
+    );
+
+    // Command: Fix verse range labels and positions (manual migration, not run by default)
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.runVerseRangeLabelsAndPositionsMigration",
+            async () => {
+                await migration_verseRangeLabelsAndPositions();
             }
         )
     );
