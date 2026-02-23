@@ -81,8 +81,17 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
                         placeholder="my-translation-project"
                         autoFocus
                     />
+                    {name.trim() ? (
+                        <div className="rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2 text-sm text-yellow-800">
+                            Your project name may appear in publicly available bug reports. Please do
+                            not name your project anything that could pose a security or IP risk to
+                            your team.
+                        </div>
+                    ) : null}
                     {validationError ? (
-                        <span className="text-sm text-red-500">{validationError}</span>
+                        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                            {validationError}
+                        </div>
                     ) : null}
                 </div>
 
