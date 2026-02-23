@@ -14,6 +14,14 @@ import "../tailwind.css";
 import { CodexItem } from "types";
 import { Languages, Mic } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../components/ui/dialog";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -47,6 +55,13 @@ interface State {
         isOpen: boolean;
         item: CodexItem | null;
         newName: string;
+    };
+    deleteModal: {
+        isOpen: boolean;
+        item: CodexItem | null;
+        displayName: string;
+        typedName: string;
+        isCorpus: boolean;
     };
 }
 
@@ -192,6 +207,13 @@ function NavigationView() {
             isOpen: false,
             item: null,
             newName: "",
+        },
+        deleteModal: {
+            isOpen: false,
+            item: null,
+            displayName: "",
+            typedName: "",
+            isCorpus: false,
         },
     });
 
@@ -408,12 +430,18 @@ function NavigationView() {
     };
 
     const handleDelete = (item: CodexItem) => {
-        vscode.postMessage({
-            command: "deleteFile",
-            uri: item.uri,
-            label: item.label,
-            type: item.type,
-        });
+        const displayName =
+            item.fileDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                isOpen: true,
+                item,
+                displayName,
+                typedName: "",
+                isCorpus: false,
+            },
+        }));
     };
 
     const handleToggleDictionary = () => {
@@ -466,18 +494,67 @@ function NavigationView() {
         const displayName =
             item.children?.[0]?.corpusMarker ||
             formatLabel(item.label, state.bibleBookMap || new Map());
-        vscode.postMessage({
-            command: "deleteCorpusMarker",
-            content: {
-                corpusLabel: item.label,
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                isOpen: true,
+                item,
                 displayName,
-                children: item.children?.map((c) => ({
-                    uri: c.uri,
-                    label: c.label,
-                    type: c.type,
-                })) ?? [],
+                typedName: "",
+                isCorpus: true,
             },
-        });
+        }));
+    };
+
+    const handleDeleteModalClose = () => {
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                isOpen: false,
+                item: null,
+                displayName: "",
+                typedName: "",
+                isCorpus: false,
+            },
+        }));
+    };
+
+    const handleDeleteModalInputChange = (value: string) => {
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                ...prev.deleteModal,
+                typedName: value,
+            },
+        }));
+    };
+
+    const handleDeleteModalConfirm = () => {
+        const { item, displayName, typedName, isCorpus } = state.deleteModal;
+        if (!item || typedName !== displayName) return;
+
+        if (isCorpus) {
+            vscode.postMessage({
+                command: "deleteCorpusMarker",
+                content: {
+                    corpusLabel: item.label,
+                    displayName,
+                    children: item.children?.map((c) => ({
+                        uri: c.uri,
+                        label: c.label,
+                        type: c.type,
+                    })) ?? [],
+                },
+            });
+        } else {
+            vscode.postMessage({
+                command: "deleteFile",
+                uri: item.uri,
+                label: item.label,
+                type: item.type,
+            });
+        }
+        handleDeleteModalClose();
     };
 
     const handleRenameModalClose = () => {
@@ -1043,6 +1120,98 @@ function NavigationView() {
                 onConfirm={handleBookNameModalConfirm}
                 onValueChange={handleBookNameModalInputChange}
             />
+
+            {/* Delete Confirmation Modal */}
+            <Dialog
+                open={state.deleteModal.isOpen}
+                onOpenChange={(isOpen) => !isOpen && handleDeleteModalClose()}
+            >
+                <DialogContent
+                    showCloseButton={false}
+                    className="bg-vscode-editor-background border-vscode-editorWidget-border min-w-[300px] max-w-[400px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
+                    style={{
+                        backgroundColor: "var(--vscode-editor-background)",
+                        borderColor: "var(--vscode-editorWidget-border)",
+                    }}
+                >
+                    <DialogHeader className="text-left">
+                        <DialogTitle
+                            className="text-base font-semibold mb-2"
+                            style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "var(--vscode-errorForeground)",
+                            }}
+                        >
+                            Delete {state.deleteModal.isCorpus ? "Folder" : "File"}
+                        </DialogTitle>
+                        <DialogDescription
+                            className="text-sm text-left leading-relaxed"
+                            style={{
+                                fontSize: "14px",
+                                color: "var(--vscode-descriptionForeground)",
+                                lineHeight: "1.5",
+                            }}
+                        >
+                            {state.deleteModal.isCorpus
+                                ? `This will permanently delete the folder and ${state.deleteModal.item?.children?.length ?? 0} file(s). This cannot be undone.`
+                                : "This will delete both the codex file and its corresponding source file. This cannot be undone."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <p
+                        className="text-sm mt-3 mb-1"
+                        style={{ color: "var(--vscode-foreground)" }}
+                    >
+                        Type{" "}
+                        <strong
+                            className="select-all"
+                            style={{ color: "var(--vscode-errorForeground)" }}
+                        >
+                            {state.deleteModal.displayName}
+                        </strong>{" "}
+                        to confirm:
+                    </p>
+                    <Input
+                        autoFocus
+                        type="text"
+                        value={state.deleteModal.typedName}
+                        onChange={(e) => handleDeleteModalInputChange(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleDeleteModalConfirm();
+                            } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                handleDeleteModalClose();
+                            }
+                        }}
+                        placeholder={state.deleteModal.displayName}
+                        className="w-full mb-4 bg-vscode-input-background placeholder:text-gray-500 text-vscode-input-foreground border-vscode-input-border"
+                        style={{
+                            padding: "8px",
+                            fontSize: "14px",
+                            backgroundColor: "var(--vscode-input-background)",
+                            color: "var(--vscode-input-foreground)",
+                            borderColor: "var(--vscode-input-border)",
+                            borderRadius: "6px",
+                        }}
+                    />
+                    <DialogFooter className="flex gap-3 justify-end">
+                        <Button variant="secondary" onClick={handleDeleteModalClose}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDeleteModalConfirm}
+                            disabled={
+                                state.deleteModal.typedName !== state.deleteModal.displayName
+                            }
+                        >
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

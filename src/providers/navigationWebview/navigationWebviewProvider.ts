@@ -202,19 +202,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 break;
             case "deleteFile":
                 try {
-                    const typedName = await vscode.window.showInputBox({
-                        title: `Delete "${message.label}"`,
-                        prompt: `This will delete both the codex file and its corresponding source file. Type "${message.label}" to confirm.`,
-                        placeHolder: message.label,
-                        validateInput: (value) => {
-                            if (value !== message.label) {
-                                return `Type "${message.label}" to confirm deletion`;
-                            }
-                            return undefined;
-                        },
-                    });
-
-                    if (typedName === message.label) {
+                    // Confirmation is handled by the webview's delete modal
+                    {
                         const deletedFiles: string[] = [];
                         const errors: string[] = [];
 
@@ -450,23 +439,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             }
             case "deleteCorpusMarker": {
                 try {
+                    // Confirmation is handled by the webview's delete modal
                     const content = message.content ?? {};
                     const { corpusLabel, displayName, children } = content;
 
-                    const fileCount = children?.length ?? 0;
-                    const typedName = await vscode.window.showInputBox({
-                        title: `Delete folder "${displayName}"`,
-                        prompt: `This will permanently delete ${fileCount} file(s) and cannot be undone. Type "${displayName}" to confirm.`,
-                        placeHolder: displayName,
-                        validateInput: (value: string) => {
-                            if (value !== displayName) {
-                                return `Type "${displayName}" to confirm deletion`;
-                            }
-                            return undefined;
-                        },
-                    });
-
-                    if (typedName === displayName && children?.length > 0) {
+                    if (children?.length > 0) {
                         await this.deleteCorpusMarker(corpusLabel, displayName, children);
                     }
                 } catch (error) {
