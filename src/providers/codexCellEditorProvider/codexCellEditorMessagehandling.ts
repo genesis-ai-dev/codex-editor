@@ -31,6 +31,7 @@ import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -105,7 +106,8 @@ interface MessageHandlerContext {
 async function getAudioFilePathForCell(
     cell: any,
     cellId: string,
-    workspaceFolder: vscode.WorkspaceFolder
+    workspaceFolder: vscode.WorkspaceFolder,
+    documentUri: vscode.Uri,
 ): Promise<string | null> {
     // First, check if cell has audio attachments in metadata
     if (cell?.metadata?.attachments) {
@@ -144,7 +146,8 @@ async function getAudioFilePathForCell(
 
     // Fallback to parsing cell ID if globalReferences not available (legacy support)
     if (!bookAbbr) {
-        bookAbbr = cellId.split(' ')[0];
+        // Cell IDs may be UUIDs; avoid deriving book from them.
+        bookAbbr = getAttachmentDocumentSegmentFromUri(documentUri);
     }
 
     const parseCellIdToBookChapterVerse = (refId: string): { book: string; chapter?: number; verse?: number; } => {
@@ -555,7 +558,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             // First, update the global state to set the current cell ID
             const uri = document.uri.toString();
-            provider.updateCellIdState(typedEvent.content.cellId, uri);
+            provider.updateCellIdState(typedEvent.content.cellId, uri, document);
 
             // Open the comments view and navigate to the specific cell
             await vscode.commands.executeCommand("codex-editor-extension.focusCommentsView");
@@ -652,11 +655,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    saveHtml: async ({ event, document, provider }) => {
+    saveHtml: async ({ event, document, provider, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
+        const requestId = typedEvent.requestId;
 
         if (document.uri.toString() !== (typedEvent.content.uri || document.uri.toString())) {
             console.warn("Attempted to update content in a different file. This operation is not allowed.");
+            // Always ack so the webview doesn't spin indefinitely
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId: typedEvent.content.cellMarkers?.[0] || "",
+                    success: false,
+                    error: "Attempted to update content in a different file.",
+                },
+            });
             return;
         }
 
@@ -666,6 +680,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Block saveHtml operations on locked cells
         if (oldContent?.metadata?.isLocked) {
             console.warn(`Attempted to save locked cell ${cellId}. Operation blocked.`);
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId,
+                    success: false,
+                    error: `Cell ${cellId} is locked`,
+                },
+            });
             return;
         }
 
@@ -691,20 +714,34 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         // For source file transcriptions, wait for index update to complete
         // so that the source content is immediately available for translation
-        if (isSourceText && isTranscription) {
-            await document.updateCellContent(
-                cellId,
-                finalContent,
-                EditType.USER_EDIT
-            );
-            // Wait for the index to be updated and verify it's available
-            await document.ensureCellIndexed(cellId, 3000);
-        } else {
-            await document.updateCellContent(
-                cellId,
-                finalContent,
-                EditType.USER_EDIT
-            );
+        try {
+            if (isSourceText && isTranscription) {
+                await document.updateCellContent(cellId, finalContent, EditType.USER_EDIT);
+                // Wait for the index to be updated and verify it's available
+                await document.ensureCellIndexed(cellId, 3000);
+            } else {
+                await document.updateCellContent(cellId, finalContent, EditType.USER_EDIT);
+            }
+
+            // Persist the change all the way to disk before acknowledging completion to the webview.
+            // This ensures UI "Save complete" state truly reflects the full round-trip.
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: { requestId, cellId, success: true },
+            });
+        } catch (error) {
+            console.error("Error persisting saveHtml:", error);
+            safePostMessageToPanel(webviewPanel, {
+                type: "saveHtmlSaved",
+                content: {
+                    requestId,
+                    cellId,
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
         }
     },
 
@@ -715,7 +752,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     setCurrentIdToGlobalState: ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState"; }>;
         const uri = document.uri.toString();
-        provider.updateCellIdState(typedEvent.content.currentLineId, uri);
+        provider.updateCellIdState(typedEvent.content.currentLineId, uri, document);
     },
 
     llmCompletion: async ({ event, document, webviewPanel, provider }) => {
@@ -2084,7 +2121,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         // If no attachment in metadata, check filesystem for legacy files
-        const bookAbbr = cellId.split(' ')[0];
+        const bookAbbr = getAttachmentDocumentSegmentFromUri(document.uri);
         const attachmentsFilesPath = path.join(
             workspaceFolder.uri.fsPath,
             ".project",
@@ -2152,6 +2189,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment"; }>;
+        const requestId = typedEvent.requestId;
         console.log("saveAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId,
@@ -2163,15 +2201,22 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cell = document.getCell(cellId);
         if (cell?.metadata?.isLocked) {
             console.warn(`Attempted to save audio to locked cell ${cellId}. Operation blocked.`);
-            safePostMessageToPanel(webviewPanel, {
-                type: "error",
-                content: { message: `Cannot save audio: cell ${cellId} is locked` }
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId,
+                    audioId: typedEvent.content.audioId,
+                    requestId,
+                    success: false,
+                    savedToCodexFile: false,
+                    error: `Cannot save audio: cell ${cellId} is locked`,
+                },
             });
             return;
         }
 
         try {
-            const documentSegment = typedEvent.content.cellId.split(' ')[0];
+            const documentSegment = getAttachmentDocumentSegmentFromUri(document.uri);
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (!workspaceFolder) {
                 throw new Error("No workspace folder found");
@@ -2245,23 +2290,42 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Store the files path in metadata (not the pointer path) so we can directly read the actual file
             const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
+
+            // Get current username for createdBy field
+            let createdBy: string = "anonymous";
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                if (userInfo?.username) {
+                    createdBy = userInfo.username;
+                }
+            } catch (error) {
+                console.warn("Failed to get username for audio attachment:", error);
+            }
+
             await document.updateCellAttachment(typedEvent.content.cellId, sanitizedAudioId, {
                 url: relativePath,
                 type: "audio",
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
+                createdBy: createdBy,
                 // Persist optional metadata if provided by client
                 ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
             } as any);
+
+            // Persist metadata update to the .codex/.source file before we show "saved" in the webview.
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "audioAttachmentSaved",
                 content: {
                     cellId: typedEvent.content.cellId,
                     audioId: sanitizedAudioId,
-                    success: true
-                }
+                    requestId,
+                    success: true,
+                    savedToCodexFile: true,
+                },
             });
 
             // Send targeted audio attachment update instead of full refresh to preserve tab state
@@ -2394,7 +2458,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 content: {
                     cellId: typedEvent.content.cellId,
                     audioId: typedEvent.content.audioId,
+                    requestId,
                     success: false,
+                    savedToCodexFile: false,
                     error: error instanceof Error ? error.message : String(error)
                 }
             });
@@ -2911,7 +2977,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                         // Fallback to legacy parsing if globalReferences not available
                         if (!bookAbbr) {
-                            bookAbbr = previousCellId.split(' ')[0];
+                            bookAbbr = getAttachmentDocumentSegmentFromUri(document.uri);
                         }
                         if (!basename) {
                             const parseCellIdToBookChapterVerse = (cellId: string): { book: string; chapter?: number; verse?: number; } => {
@@ -3290,6 +3356,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Send the cell page to the webview
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsCellPage",
+                rev: provider.getDocumentRevision(document.uri.toString()),
                 milestoneIndex,
                 subsectionIndex,
                 cells: processedCells,
@@ -3516,6 +3583,8 @@ export async function scanForAudioAttachments(
         const documentText = document.getText();
         const notebookData = JSON.parse(documentText);
 
+        const docSegment = getAttachmentDocumentSegmentFromUri(document.uri);
+
         // Process each cell in the document
         if (notebookData.cells && Array.isArray(notebookData.cells)) {
             for (const cell of notebookData.cells) {
@@ -3552,7 +3621,7 @@ export async function scanForAudioAttachments(
                     }
 
                     // Also check the filesystem for legacy audio files
-                    const bookAbbr = cellId.split(' ')[0];
+                    const bookAbbr = docSegment;
                     const attachmentsFilesPath = path.join(
                         workspaceFolder.uri.fsPath,
                         ".project",

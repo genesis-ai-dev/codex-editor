@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { ImporterComponentProps } from "../../types/plugin";
 import { NotebookPair, ImportProgress, ProcessedCell } from "../../types/common";
+import { v4 as uuidv4 } from "uuid";
 import { Button } from "../../../components/ui/button";
 import { parseJsonIntelligently, mightBeJson } from "./jsonParser";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
@@ -423,28 +424,37 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
                     const chunks = splitTextSmart(fileContent, separators, chunkSize, chunkOverlap);
 
-                    sourceCells = chunks.map((chunk: Chunk, index: number) => ({
-                        id: `${cleanFileName} 1:${index + 1}`,
-                        content: chunk.text,
-                        metadata: {
-                            type: "text" as const,
-                            chunkIndex: index,
-                            chunkSize: chunk.text.length,
-                            startOffset: chunk.start,
-                            endOffset: chunk.end,
-                        },
-                        images: [],
-                    }));
+                    sourceCells = chunks.map((chunk: Chunk, index: number): ProcessedCell => {
+                        const legacyId = `${cleanFileName} 1:${index + 1}`;
+                        const id = uuidv4();
+                        return {
+                            id,
+                            content: chunk.text,
+                            metadata: {
+                                type: "text" as const,
+                                chunkIndex: index,
+                                chunkSize: chunk.text.length,
+                                startOffset: chunk.start,
+                                endOffset: chunk.end,
+                                data: {
+                                    originalText: chunk.text,
+                                    globalReferences: [legacyId],
+                                },
+                            },
+                            images: [],
+                        };
+                    });
 
-                    codexCells = chunks.map((chunk: Chunk, index: number) => ({
-                        id: `${cleanFileName} 1:${index + 1}`,
-                        content: "", // Empty for user translation
-                        metadata: {
-                            type: "text" as const,
-                            chunkIndex: index,
-                        },
-                        images: [],
-                    }));
+                    codexCells = sourceCells.map(
+                        (cell): ProcessedCell => ({
+                            id: cell.id,
+                            content: "", // Empty for user translation
+                            metadata: {
+                                ...(cell.metadata || {}),
+                            },
+                            images: [],
+                        })
+                    );
                 }
             } else {
                 // Regular text file
@@ -462,28 +472,37 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     progress: 70,
                 });
 
-                sourceCells = chunks.map((chunk: Chunk, index: number) => ({
-                    id: `${cleanFileName} 1:${index + 1}`,
-                    content: chunk.text,
-                    metadata: {
-                        type: "text" as const,
-                        chunkIndex: index,
-                        chunkSize: chunk.text.length,
-                        startOffset: chunk.start,
-                        endOffset: chunk.end,
-                    },
-                    images: [],
-                }));
+                sourceCells = chunks.map((chunk: Chunk, index: number): ProcessedCell => {
+                    const legacyId = `${cleanFileName} 1:${index + 1}`;
+                    const id = uuidv4();
+                    return {
+                        id,
+                        content: chunk.text,
+                        metadata: {
+                            type: "text" as const,
+                            chunkIndex: index,
+                            chunkSize: chunk.text.length,
+                            startOffset: chunk.start,
+                            endOffset: chunk.end,
+                            data: {
+                                originalText: chunk.text,
+                                globalReferences: [legacyId],
+                            },
+                        },
+                        images: [],
+                    };
+                });
 
-                codexCells = chunks.map((chunk: Chunk, index: number) => ({
-                    id: `${cleanFileName} 1:${index + 1}`,
-                    content: "", // Empty for user translation
-                    metadata: {
-                        type: "text" as const,
-                        chunkIndex: index,
-                    },
-                    images: [],
-                }));
+                codexCells = sourceCells.map(
+                    (cell): ProcessedCell => ({
+                        id: cell.id,
+                        content: "", // Empty for user translation
+                        metadata: {
+                            ...(cell.metadata || {}),
+                        },
+                        images: [],
+                    })
+                );
             }
 
             const notebookPair: NotebookPair = {
@@ -493,8 +512,16 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `source-${Date.now()}`,
                         originalFileName: file.name,
+                        sourceFile: file.name,
                         importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
+                        importContext: {
+                            importerType: "smart-segmenter",
+                            fileName: file.name,
+                            originalFileName: file.name,
+                            fileSize: file.size,
+                            importTimestamp: new Date().toISOString(),
+                        },
                     },
                 },
                 codex: {
@@ -503,8 +530,16 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `codex-${Date.now()}`,
                         originalFileName: file.name,
+                        sourceFile: file.name,
                         importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
+                        importContext: {
+                            importerType: "smart-segmenter",
+                            fileName: file.name,
+                            originalFileName: file.name,
+                            fileSize: file.size,
+                            importTimestamp: new Date().toISOString(),
+                        },
                     },
                 },
             };
@@ -522,7 +557,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
             // Auto-complete after brief delay
             setTimeout(() => {
-                onComplete(notebookPairWithMilestones);
+                onComplete?.(notebookPairWithMilestones);
             }, 1000);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
@@ -544,14 +579,17 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
             : 0;
 
     // Chunk colors for visualization
-    const chunkColors = [
-        "bg-sky-200/70 dark:bg-sky-700/70",
-        "bg-lime-200/70 dark:bg-lime-700/70",
-        "bg-orange-200/70 dark:bg-orange-700/70",
-        "bg-fuchsia-200/70 dark:bg-fuchsia-700/70",
-        "bg-yellow-200/70 dark:bg-yellow-700/70",
-        "bg-teal-200/70 dark:bg-teal-700/70",
-    ];
+    const chunkColors = useMemo(
+        () => [
+            "bg-sky-200/70 dark:bg-sky-700/70",
+            "bg-lime-200/70 dark:bg-lime-700/70",
+            "bg-orange-200/70 dark:bg-orange-700/70",
+            "bg-fuchsia-200/70 dark:bg-fuchsia-700/70",
+            "bg-yellow-200/70 dark:bg-yellow-700/70",
+            "bg-teal-200/70 dark:bg-teal-700/70",
+        ],
+        []
+    );
 
     const highlightedPreview = useMemo(() => {
         const segments: { text: string; style?: string; isChunk: boolean }[] = [];

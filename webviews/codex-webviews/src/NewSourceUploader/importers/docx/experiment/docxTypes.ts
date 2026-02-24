@@ -238,15 +238,6 @@ export interface DocxCellMetadata {
         afterRunXml?: string;
     };
 
-    // Document context
-    documentContext: {
-        documentId: string;
-        originalHash: string;
-        fileName: string;
-        importerType: 'docx-roundtrip';
-        importTimestamp: string;
-    };
-
     // Optional cell label
     cellLabel?: string;
 }

@@ -66,7 +66,12 @@ export const migration_moveTimestampsToMetadataData = async (context?: vscode.Ex
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping timestamps migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -160,7 +165,12 @@ export const migration_promoteCellTypeToTopLevel = async (context?: vscode.Exten
         );
         const allFiles = [...codexFiles, ...sourceFiles];
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping cell type promotion migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -636,7 +646,12 @@ export const migration_editHistoryFormat = async (context?: vscode.ExtensionCont
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping migration");
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
@@ -1591,6 +1606,286 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
     }
 };
 
+type Primitive = string | number | boolean | null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPrimitive(value: unknown): value is Primitive {
+    return (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+    );
+}
+
+type CellDocumentContextRef = {
+    ctx: Record<string, unknown>;
+    container: Record<string, unknown>;
+    path: "metadata.documentContext" | "metadata.data.documentContext";
+};
+
+function getCellDocumentContextRef(cell: unknown): CellDocumentContextRef | null {
+    if (!isRecord(cell)) return null;
+    const md = cell["metadata"];
+    if (!isRecord(md)) return null;
+
+    const direct = md["documentContext"];
+    if (isRecord(direct)) {
+        return { ctx: direct, container: md, path: "metadata.documentContext" };
+    }
+
+    const data = md["data"];
+    if (isRecord(data)) {
+        const nested = data["documentContext"];
+        if (isRecord(nested)) {
+            return { ctx: nested, container: data, path: "metadata.data.documentContext" };
+        }
+    }
+
+    return null;
+}
+
+function allEqual<T>(values: T[]): boolean {
+    if (values.length <= 1) return true;
+    const first = values[0];
+    for (let i = 1; i < values.length; i++) {
+        if (values[i] !== first) return false;
+    }
+    return true;
+}
+
+/**
+ * Migration: Hoist per-cell documentContext into notebook metadata.importContext
+ * - Idempotent
+ * - Only hoists keys when values are consistent across all found documentContext objects
+ * - Removes per-cell keys that were hoisted; deletes the per-cell documentContext object only if it becomes empty
+ */
+export const migration_hoistDocumentContextToNotebookMetadata = async (
+    context?: vscode.ExtensionContext
+) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const migrationKey = "documentContextHoistMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+
+        if (hasMigrationRun) {
+            console.log("DocumentContext hoist migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running documentContext hoist migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+
+        const allFiles = [...codexFiles, ...sourceFiles];
+        if (allFiles.length === 0) {
+            // Mark migration as completed even when no files exist to prevent re-running
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        const serializer = new CodexContentSerializer();
+
+        const HOIST_KEYS: ReadonlyArray<string> = [
+            "importerType",
+            "fileName",
+            "originalFileName",
+            "originalHash",
+            "documentId",
+            "documentVersion",
+            "importTimestamp",
+            "fileSize",
+        ];
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Hoisting documentContext to notebook metadata",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const fileUri = allFiles[i];
+                    progress.report({
+                        message: `Processing ${path.basename(fileUri.fsPath)}`,
+                        increment: 100 / allFiles.length,
+                    });
+
+                    try {
+                        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                        const notebookDataUnknown: unknown = await serializer.deserializeNotebook(
+                            fileContent,
+                            new vscode.CancellationTokenSource().token
+                        );
+
+                        if (!isRecord(notebookDataUnknown)) {
+                            processedFiles++;
+                            continue;
+                        }
+
+                        const notebookData = notebookDataUnknown as Record<string, unknown>;
+                        const cellsUnknown = notebookData.cells;
+                        const cells = Array.isArray(cellsUnknown) ? cellsUnknown : [];
+
+                        const refs: CellDocumentContextRef[] = [];
+                        for (const cell of cells) {
+                            const ref = getCellDocumentContextRef(cell);
+                            if (ref) refs.push(ref);
+                        }
+
+                        // Nothing to do for this file.
+                        if (refs.length === 0) {
+                            processedFiles++;
+                            continue;
+                        }
+
+                        if (!isRecord(notebookData.metadata)) {
+                            notebookData.metadata = {};
+                        }
+                        const md = notebookData.metadata as Record<string, unknown>;
+
+                        const hoisted: Record<string, Primitive> = {};
+
+                        for (const key of HOIST_KEYS) {
+                            const values: Primitive[] = [];
+                            for (const ref of refs) {
+                                const v = ref.ctx[key];
+                                if (v === undefined) continue;
+                                if (isPrimitive(v)) {
+                                    values.push(v);
+                                }
+                            }
+                            if (values.length > 0 && allEqual(values)) {
+                                hoisted[key] = values[0];
+                            }
+                        }
+
+                        let hasChanges = false;
+
+                        // Hoist importerType to top-level metadata.importerType when missing.
+                        const hoistedImporterType = hoisted.importerType;
+                        if (typeof hoistedImporterType === "string" && !md["importerType"]) {
+                            const standardized = standardizeImporterType(hoistedImporterType);
+                            if (standardized) {
+                                md["importerType"] = standardized;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Hoist originalFileName when missing (derived from fileName/originalFileName).
+                        if (!md["originalFileName"]) {
+                            const candidate =
+                                (typeof hoisted.originalFileName === "string" && hoisted.originalFileName) ||
+                                (typeof hoisted.fileName === "string" && hoisted.fileName) ||
+                                undefined;
+                            if (candidate) {
+                                md["originalFileName"] = candidate;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Hoist to metadata.importContext (fill missing keys only).
+                        const existingImportContext = md["importContext"];
+                        if (!isRecord(existingImportContext)) {
+                            md["importContext"] = {};
+                        }
+                        const importContext = md["importContext"] as Record<string, unknown>;
+
+                        for (const [key, value] of Object.entries(hoisted)) {
+                            if (importContext[key] === undefined) {
+                                importContext[key] = value;
+                                hasChanges = true;
+                            }
+                        }
+
+                        // Remove hoisted keys from per-cell contexts (only if they match what we hoisted).
+                        const hoistedKeys = Object.keys(hoisted);
+                        if (hoistedKeys.length > 0) {
+                            for (const ref of refs) {
+                                let ctxChanged = false;
+                                for (const key of hoistedKeys) {
+                                    const current = ref.ctx[key];
+                                    const target = hoisted[key];
+                                    if (current === target) {
+                                        delete ref.ctx[key];
+                                        ctxChanged = true;
+                                    }
+                                }
+
+                                if (ctxChanged) {
+                                    // If the context is now empty, remove it from its container.
+                                    if (Object.keys(ref.ctx).length === 0) {
+                                        delete ref.container["documentContext"];
+                                    }
+                                    hasChanges = true;
+                                }
+                            }
+                        }
+
+                        if (hasChanges) {
+                            const updatedContent = await serializer.serializeNotebook(
+                                notebookData as unknown as vscode.NotebookData,
+                                new vscode.CancellationTokenSource().token
+                            );
+                            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+                            migratedFiles++;
+                        }
+
+                        processedFiles++;
+                    } catch (error) {
+                        processedFiles++;
+                        console.error(`Error processing ${fileUri.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        console.log(
+            `DocumentContext hoist migration completed: ${processedFiles} files processed, ${migratedFiles} files migrated`
+        );
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `DocumentContext hoist migration complete: ${migratedFiles} files updated`
+            );
+        }
+    } catch (error) {
+        console.error("Error running documentContext hoist migration:", error);
+    }
+};
+
 /**
  * Gets the current user name for edit tracking
  */
@@ -1842,6 +2137,11 @@ async function migrateMilestoneCellsForFilePair(
             return result;
         }
 
+        // Extract basename for deterministic UUID generation
+        // Use sourceUri first, fallback to codexUri, then extract basename without extension
+        const filePath = sourceUri?.fsPath || codexUri?.fsPath || '';
+        const basename = filePath ? path.basename(filePath, path.extname(filePath)) : 'unknown';
+
         // Map to store UUIDs for each chapter to ensure consistency across source and codex
         const chapterUuids = new Map<string, string>();
 
@@ -1858,7 +2158,8 @@ async function migrateMilestoneCellsForFilePair(
         // Handle first milestone
         const firstCellId = firstCell.metadata?.id;
         const firstChapter = firstCellId ? extractChapterFromCellId(firstCellId) : null;
-        const firstMilestoneUuid = randomUUID();
+        const firstMilestoneKey = firstChapter || `milestone-${milestoneIndex}`;
+        const firstMilestoneUuid = await generateCellIdFromHash(`milestone:${basename}:${firstMilestoneKey}`);
         if (firstChapter) {
             chapterUuids.set(firstChapter, firstMilestoneUuid);
             chapterMilestoneIndex.set(firstChapter, milestoneIndex);
@@ -1876,7 +2177,7 @@ async function migrateMilestoneCellsForFilePair(
             if (cellId) {
                 const chapter = extractChapterFromCellId(cellId);
                 if (chapter && !seenChapters.has(chapter)) {
-                    const chapterUuid = randomUUID();
+                    const chapterUuid = await generateCellIdFromHash(`milestone:${basename}:${chapter}`);
                     chapterUuids.set(chapter, chapterUuid);
                     chapterMilestoneIndex.set(chapter, milestoneIndex);
                     seenChapters.add(chapter);
@@ -2129,248 +2430,6 @@ export const migration_addMilestoneCells = async (context?: vscode.ExtensionCont
 
     } catch (error) {
         console.error("Error running milestone cells migration:", error);
-    }
-};
-
-/**
- * Deduplicates consecutive milestone cells that both have INITIAL_IMPORT edits.
- * Keeps the one with the latest timestamp and soft-deletes the other.
- * This should run only once after syncing the project.
- */
-export const deduplicateConsecutiveMilestoneCells = async (context?: vscode.ExtensionContext) => {
-    try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            return;
-        }
-
-        const workspaceFolder = workspaceFolders[0];
-
-        // Find all codex and source files
-        const codexFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
-        );
-        const sourceFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceFolder, "**/*.source")
-        );
-
-        const allFiles = [...codexFiles, ...sourceFiles];
-
-        if (allFiles.length === 0) {
-            console.log("No codex or source files found, skipping milestone cells deduplication");
-            return;
-        }
-
-        // Scan for duplicates first - if duplicates exist, proceed with deduplication
-        const serializer = new CodexContentSerializer();
-        let hasDuplicates = false;
-
-        for (const fileUri of allFiles) {
-            try {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                const notebookData: any = await serializer.deserializeNotebook(
-                    fileContent,
-                    new vscode.CancellationTokenSource().token
-                );
-
-                const cells: any[] = notebookData.cells || [];
-                if (cells.length === 0) {
-                    continue;
-                }
-
-                // Check for consecutive milestone cells with matching values and initial_import edits
-                for (let i = 0; i < cells.length - 1; i++) {
-                    const currentCell = cells[i];
-                    const nextCell = cells[i + 1];
-
-                    // Skip if either cell is already deleted
-                    if (currentCell?.metadata?.data?.deleted || nextCell?.metadata?.data?.deleted) {
-                        continue;
-                    }
-
-                    // Check that both are milestone cells
-                    const currentIsMilestone = currentCell?.metadata?.type === CodexCellTypes.MILESTONE;
-                    const nextIsMilestone = nextCell?.metadata?.type === CodexCellTypes.MILESTONE;
-
-                    if (!currentIsMilestone || !nextIsMilestone) {
-                        continue;
-                    }
-
-                    // Check if values match
-                    if (currentCell.value !== nextCell.value) {
-                        continue;
-                    }
-
-                    // Check if both have INITIAL_IMPORT edits
-                    const currentEdits = currentCell.metadata?.edits || [];
-                    const nextEdits = nextCell.metadata?.edits || [];
-
-                    const currentInitialEdit = currentEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-                    const nextInitialEdit = nextEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-
-                    if (currentInitialEdit && nextInitialEdit) {
-                        hasDuplicates = true;
-                        break;
-                    }
-                }
-
-                if (hasDuplicates) {
-                    break;
-                }
-            } catch (error) {
-                // Continue scanning other files even if one fails
-                continue;
-            }
-        }
-
-        // If no duplicates found, skip deduplication
-        if (!hasDuplicates) {
-            console.log("No duplicate milestone cells found, skipping deduplication");
-            return;
-        }
-
-        console.log("Running milestone cells deduplication...");
-
-        const author = await getCurrentUserName();
-
-        let processedFiles = 0;
-        let deduplicatedFiles = 0;
-
-        // Process files
-        for (const fileUri of allFiles) {
-            try {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                const notebookData: any = await serializer.deserializeNotebook(
-                    fileContent,
-                    new vscode.CancellationTokenSource().token
-                );
-
-                const cells: any[] = notebookData.cells || [];
-                if (cells.length === 0) {
-                    processedFiles++;
-                    continue;
-                }
-
-                let fileWasModified = false;
-
-                // Iterate through cells to find consecutive milestone cells
-                for (let i = 0; i < cells.length - 1; i++) {
-                    const currentCell = cells[i];
-                    const nextCell = cells[i + 1];
-
-                    // Skip if either cell is already deleted
-                    if (currentCell?.metadata?.data?.deleted || nextCell?.metadata?.data?.deleted) {
-                        continue;
-                    }
-
-                    // Explicitly check that both are milestone cells - skip if not
-                    const currentIsMilestone = currentCell?.metadata?.type === CodexCellTypes.MILESTONE;
-                    const nextIsMilestone = nextCell?.metadata?.type === CodexCellTypes.MILESTONE;
-
-                    if (!currentIsMilestone || !nextIsMilestone) {
-                        // Skip non-milestone cells - we only process milestone cells
-                        continue;
-                    }
-
-                    // Both are milestone cells - proceed with deduplication check
-                    // Check if values match (only deduplicate when milestone values are the same)
-                    if (currentCell.value !== nextCell.value) {
-                        continue;
-                    }
-
-                    // Check if both have INITIAL_IMPORT edits
-                    const currentEdits = currentCell.metadata?.edits || [];
-                    const nextEdits = nextCell.metadata?.edits || [];
-
-                    const currentInitialEdit = currentEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-                    const nextInitialEdit = nextEdits.find(
-                        (edit: any) => edit.type === EditType.INITIAL_IMPORT
-                    );
-
-                    if (currentInitialEdit && nextInitialEdit) {
-                        // Compare timestamps - keep the one with latest timestamp, delete the other
-                        const cellToDelete =
-                            currentInitialEdit.timestamp < nextInitialEdit.timestamp
-                                ? currentCell
-                                : nextCell;
-
-                        // Double-check that we're only modifying milestone cells
-                        if (cellToDelete?.metadata?.type !== CodexCellTypes.MILESTONE) {
-                            console.warn(
-                                `Skipping non-milestone cell during deduplication: ${cellToDelete?.metadata?.id}`
-                            );
-                            continue;
-                        }
-
-                        // Ensure metadata exists
-                        if (!cellToDelete.metadata) {
-                            cellToDelete.metadata = {
-                                id: cellToDelete.metadata?.id || randomUUID(),
-                                type: CodexCellTypes.MILESTONE,
-                                edits: [],
-                                data: {}
-                            };
-                        }
-
-                        // Preserve the cell type - ensure it remains MILESTONE
-                        const preservedType = cellToDelete.metadata.type || CodexCellTypes.MILESTONE;
-
-                        // Soft delete the cell with earlier timestamp
-                        if (!cellToDelete.metadata.data) {
-                            cellToDelete.metadata.data = {};
-                        }
-                        cellToDelete.metadata.data.deleted = true;
-
-                        // Ensure edits array exists
-                        if (!cellToDelete.metadata.edits) {
-                            cellToDelete.metadata.edits = [];
-                        }
-
-                        // Add deletion edit
-                        const currentTimestamp = Date.now();
-                        cellToDelete.metadata.edits.push({
-                            editMap: EditMapUtils.dataDeleted(),
-                            value: true,
-                            timestamp: currentTimestamp,
-                            type: EditType.USER_EDIT,
-                            author: author,
-                            validatedBy: []
-                        });
-
-                        // Explicitly preserve the cell type
-                        cellToDelete.metadata.type = preservedType;
-
-                        fileWasModified = true;
-                    }
-                }
-
-                // Save file if modified
-                if (fileWasModified) {
-                    const updatedContent = await serializer.serializeNotebook(
-                        notebookData,
-                        new vscode.CancellationTokenSource().token
-                    );
-                    await vscode.workspace.fs.writeFile(fileUri, updatedContent);
-                    deduplicatedFiles++;
-                }
-
-                processedFiles++;
-            } catch (error) {
-                console.error(`Error processing ${fileUri.fsPath} during deduplication:`, error);
-            }
-        }
-
-        console.log(
-            `Milestone cells deduplication completed: ${processedFiles} files processed, ${deduplicatedFiles} files deduplicated`
-        );
-    } catch (error) {
-        console.error("Error running milestone cells deduplication:", error);
     }
 };
 

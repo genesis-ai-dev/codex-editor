@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, SpellCheckResponse, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
@@ -69,13 +69,13 @@ interface UseVSCodeMessageHandlerProps {
         currentMilestoneIndex: number,
         currentSubsectionIndex: number,
         isSourceText: boolean,
-        sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
     ) => void;
     handleCellPage?: (
         milestoneIndex: number,
         subsectionIndex: number,
         cells: QuillCellContent[],
-        sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
     ) => void;
 }
 
@@ -112,6 +112,9 @@ export const useVSCodeMessageHandler = ({
     setContentPaginated,
     handleCellPage,
 }: UseVSCodeMessageHandlerProps) => {
+    // Track the last applied provider revision so we can ignore out-of-order / stale payloads.
+    const lastAppliedRevRef = useRef<number>(0);
+
     useEffect(() => {
         const handler = (event: MessageEvent) => {
             const message = event.data;
@@ -310,6 +313,13 @@ export const useVSCodeMessageHandler = ({
                     break;
 
                 case "providerSendsInitialContentPaginated":
+                    if (typeof (message as any).rev === "number") {
+                        const msgRev = (message as any).rev as number;
+                        if (msgRev < lastAppliedRevRef.current) {
+                            break; // ignore stale payload
+                        }
+                        lastAppliedRevRef.current = msgRev;
+                    }
                     if (setContentPaginated) {
                         setContentPaginated(
                             message.milestoneIndex,
@@ -344,6 +354,13 @@ export const useVSCodeMessageHandler = ({
                     break;
 
                 case "providerSendsCellPage":
+                    if (typeof (message as any).rev === "number") {
+                        const msgRev = (message as any).rev as number;
+                        if (msgRev < lastAppliedRevRef.current) {
+                            break; // ignore stale payload
+                        }
+                        lastAppliedRevRef.current = msgRev;
+                    }
                     if (handleCellPage) {
                         handleCellPage(
                             message.milestoneIndex,

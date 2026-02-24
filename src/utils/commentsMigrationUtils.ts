@@ -14,6 +14,13 @@ function debug(message: string, ...args: any[]): void {
  */
 
 export class CommentsMigrator {
+    // Cache `needsMigration()` results keyed by workspace path + comments.json stat signature.
+    // This avoids repeatedly reading/parsing potentially-large `.project/comments.json` during sync.
+    private static needsMigrationCache = new Map<string, { commentsStatKey: string; result: boolean }>();
+
+    private static clearNeedsMigrationCache(workspaceUri: vscode.Uri): void {
+        CommentsMigrator.needsMigrationCache.delete(workspaceUri.fsPath);
+    }
 
     /**
  * Ensures consistent JSON formatting for minimal git diffs
@@ -206,6 +213,8 @@ export class CommentsMigrator {
             const migratedContent = CommentsMigrator.formatCommentsForStorage(migratedComments);
             await vscode.workspace.fs.writeFile(newCommentsFilePath, new TextEncoder().encode(migratedContent));
 
+            // Ensure subsequent checks don't re-parse the old on-disk content.
+            CommentsMigrator.clearNeedsMigrationCache(workspaceUri);
 
             return true;
 
@@ -512,19 +521,27 @@ export class CommentsMigrator {
         try {
             // Check for legacy file-comments.json
             const legacyFilePath = vscode.Uri.joinPath(workspaceUri, "file-comments.json");
-            try {
-                await vscode.workspace.fs.stat(legacyFilePath);
+            if (await CommentsMigrator.fileExists(legacyFilePath)) {
                 return true;
-            } catch (error) {
-                // Legacy file doesn't exist, check if comments.json needs migration
             }
 
             // Check if comments.json exists and needs structural migration
             const commentsFilePath = vscode.Uri.joinPath(workspaceUri, ".project", "comments.json");
             try {
+                const stat = await vscode.workspace.fs.stat(commentsFilePath);
+                const statKey = `${stat.mtime}:${stat.size}`;
+
+                const cacheKey = workspaceUri.fsPath;
+                const cached = CommentsMigrator.needsMigrationCache.get(cacheKey);
+                if (cached && cached.commentsStatKey === statKey) {
+                    return cached.result;
+                }
+
                 const fileContent = await vscode.workspace.fs.readFile(commentsFilePath);
                 const comments = JSON.parse(new TextDecoder().decode(fileContent));
-                return CommentsMigrator.needsStructuralMigration(comments);
+                const result = CommentsMigrator.needsStructuralMigration(comments);
+                CommentsMigrator.needsMigrationCache.set(cacheKey, { commentsStatKey: statKey, result });
+                return result;
             } catch (error) {
                 // Comments file doesn't exist or is invalid
                 return false;

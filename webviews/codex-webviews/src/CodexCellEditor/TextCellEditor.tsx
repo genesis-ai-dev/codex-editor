@@ -330,6 +330,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
+    const [isAudioSaving, setIsAudioSaving] = useState<boolean>(false);
+    const audioSaveRequestIdRef = useRef<string | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [showRecorder, setShowRecorder] = useState(() => {
@@ -1193,6 +1195,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const saveAudioToCell = (blob: Blob) => {
+        setIsAudioSaving(true);
+        setRecordingStatus("Saving audio…");
+
         // Generate a unique ID for the audio file
         const normalizedCellId = cellMarkers[0].replace(/\s+/g, "-").toLowerCase();
         const uniqueId = `audio-${normalizedCellId}-${Date.now()}-${Math.random()
@@ -1264,8 +1269,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 // ignore metadata decode errors
             }
             // Send to provider to save file
+            const requestId =
+                typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function"
+                    ? (crypto as any).randomUUID()
+                    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            audioSaveRequestIdRef.current = requestId;
+
             const messageContent: EditorPostMessages = {
                 command: "saveAudioAttachment",
+                requestId,
                 content: {
                     cellId: cellMarkers[0],
                     audioData: base64data,
@@ -1718,6 +1730,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.type === "audioAttachmentSaved" &&
                 message.content.cellId === cellMarkers[0]
             ) {
+                const reqId = message?.content?.requestId as string | undefined;
+                const pendingReqId = audioSaveRequestIdRef.current;
+                // If provider echoes a requestId, only clear saving for the matching request.
+                if (reqId && pendingReqId && reqId !== pendingReqId) {
+                    return;
+                }
+
+                setIsAudioSaving(false);
+                audioSaveRequestIdRef.current = null;
+
                 if (message.content.success) {
                     setRecordingStatus("Audio saved successfully");
                 } else {
@@ -2861,6 +2883,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         isRecording ? "animate-pulse" : ""
                                                     }`}
                                                 >
+                                                    {isAudioSaving && (
+                                                        <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                                                    )}
                                                     {recordingStatus}
                                                 </Badge>
                                             )}

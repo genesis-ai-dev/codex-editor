@@ -38,6 +38,8 @@ const extensionConfig = {
         alias: {
             "@": path.resolve(__dirname, "src"),
             "@types": path.resolve(__dirname, "types"),
+            // Allow webview code to import project types via `types/...` in extension/test bundles
+            types: path.resolve(__dirname, "types"),
             "@newSourceUploaderTypes": path.resolve(
                 __dirname,
                 "webviews/codex-webviews/src/NewSourceUploader/types.ts"
@@ -202,6 +204,8 @@ const testConfig = {
                 __dirname,
                 "webviews/codex-webviews/src/StartupFlow/types.ts"
             ),
+            // Allow webview code to import project types via `types/...` in test bundles
+            types: path.resolve(__dirname, "types"),
             "fs/promises": "memfs",
             "process/browser": require.resolve("process/browser"),
             // Map Node.js scheme imports to browser polyfills for the test bundle

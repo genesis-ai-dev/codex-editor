@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.13.0",
+    "version": "0.14.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -499,6 +499,26 @@
                         "type": "boolean",
                         "default": false,
                         "description": "Internal flag indicating the importerType migration has completed."
+                    },
+                    "codex-project-manager.timestampsDataMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the timestamps data migration has completed."
+                    },
+                    "codex-project-manager.cellTypePromotionMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the cell type promotion migration has completed."
+                    },
+                    "codex-project-manager.editHistoryFormatMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the edit history format migration has completed."
+                    },
+                    "codex-project-manager.documentContextHoistMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the documentContext hoist migration has completed."
                     },
                     "codex-project-manager.projectName": {
                         "type": "string",

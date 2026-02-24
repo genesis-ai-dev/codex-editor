@@ -16,20 +16,24 @@ import {
     CardDescription,
     CardHeader,
     CardTitle,
-} from "../../../components/ui/card";
-import { Progress } from "../../../components/ui/progress";
-import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { FileText, Upload, ArrowLeft, BookOpen, Languages } from "lucide-react";
-import { IDMLParser } from "./biblicaParser";
-import { HTMLMapper } from "./htmlMapper";
+} from '../../../components/ui/card';
+import { Progress } from '../../../components/ui/progress';
+import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { 
+    FileText, 
+    Upload, 
+    ArrowLeft,
+    BookOpen
+} from 'lucide-react';
+import { IDMLParser } from './biblicaParser';
+import { HTMLMapper } from './htmlMapper';
+import { createProcessedCell, sanitizeFileName, createStandardCellId, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
+import { extractImagesFromHtml } from '../../utils/imageProcessor';
+import { CodexCellTypes } from 'types/enums';
 import {
-    createProcessedCell,
-    sanitizeFileName,
-    createStandardCellId,
-    addMilestoneCellsToNotebookPair,
-} from "../../utils/workflowHelpers";
-import { extractImagesFromHtml } from "../../utils/imageProcessor";
-import { CodexCellTypes } from "types/enums";
+    createNoteCellMetadata,
+    type NoteCellMetadataParams
+} from './cellMetadata';
 
 /**
  * Escape HTML characters and convert newlines to <br> tags
@@ -80,15 +84,14 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
     existingFiles,
     wizardContext,
 }) => {
-    // Study Bible (IDML) - populates source file
+    // Study Bible (IDML) - populates source file with notes
     const [studyBibleFile, setStudyBibleFile] = useState<File | null>(null);
-    // Translated Bible - populates target/codex file with verse content
-    const [translatedBibleFile, setTranslatedBibleFile] = useState<File | null>(null);
-
+    // NOTE: Translated Bible import removed - will use Bible Swapper later
+    
     const [isProcessing, setIsProcessing] = useState(false);
     const [progress, setProgress] = useState<string>("");
     const [debugLogs, setDebugLogs] = useState<string[]>([]);
-    const [importResult, setImportResult] = useState<any>(null);
+    const [importResult, setImportResult] = useState<any[] | null>(null);
     const [showCompleteButton, setShowCompleteButton] = useState(false);
 
     const addDebugLog = useCallback((message: string) => {
@@ -114,610 +117,463 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
         [addDebugLog]
     );
 
-    const handleTranslatedBibleSelect = useCallback(
-        (event: React.ChangeEvent<HTMLInputElement>) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-
-            if (!file.name.toLowerCase().endsWith(".idml")) {
-                alert("Please select a valid IDML file (.idml extension)");
-                return;
-            }
-
-            setTranslatedBibleFile(file);
-            addDebugLog(`Translated Bible file selected: ${file.name}`);
-        },
-        [addDebugLog]
-    );
+    // NOTE: handleTranslatedBibleSelect removed - will use Bible Swapper later
 
     /**
-     * Create cells from Study Bible stories (populates source file)
-     * Maps verses by their labels (e.g., MAT 1:1) for later matching with translated bible
+     * Create cells from Study Bible stories (populates source file with notes only)
+     * Verses are detected and tracked for globalReferences assignment to notes, but cells are only created for notes
      */
-    const createCellsFromStories = useCallback(
-        async (
-            stories: any[],
-            htmlRepresentation: any,
-            document: any,
-            verseMap?: Map<string, string>, // Map of verse labels to translated content
-            footnotesMap?: Map<string, string[]> // Map of verse labels to footnote XML arrays
-        ) => {
-            const cells: any[] = [];
-            let globalCellIndex = 0; // Global counter for sequential numbering across all content
-
-            for (const story of stories) {
-                // Try to find HTML story, but don't require it
-                const htmlStory = htmlRepresentation.stories?.find((s: any) => s.id === story.id);
-                if (!htmlStory) {
-                    addDebugLog(
-                        `No HTML story found for: ${story.id}, creating cells directly from story`
-                    );
-                }
-
-                // Create cells from paragraphs - check for verse segments first
-                for (let i = 0; i < story.paragraphs.length; i++) {
-                    const paragraph = story.paragraphs[i];
-                    const paragraphStyle = paragraph.paragraphStyleRange.appliedParagraphStyle;
-
-                    // Check if this paragraph has verse segments
-                    const verseSegments = (paragraph.metadata as any)?.biblicaVerseSegments;
-
-                    if (verseSegments && Array.isArray(verseSegments) && verseSegments.length > 0) {
-                        // Create one cell per verse
-                        addDebugLog(`Found ${verseSegments.length} verse(s) in paragraph`);
-
-                        for (const verse of verseSegments) {
-                            const {
-                                bookAbbreviation,
-                                chapterNumber,
-                                verseNumber,
-                                beforeVerse,
-                                verseContent,
-                                afterVerse,
-                            } = verse;
-                            // Use simple sequential numbering for all cells
-                            globalCellIndex++;
-                            const cellId = `biblica 1:${globalCellIndex}`;
-                            // Store original verse reference for metadata (e.g., "MAT 1:1")
-                            const originalVerseRef = bookAbbreviation
-                                ? `${bookAbbreviation} ${chapterNumber}:${verseNumber}`
-                                : `${chapterNumber}:${verseNumber}`;
-
-                            // Check if we have translated content for this verse
-                            const translatedContent = verseMap?.get(originalVerseRef);
-                            // Get footnotes for this verse from translated Bible
-                            const footnotes = footnotesMap?.get(originalVerseRef);
-
-                            // Replace &nbsp; entities (non-breaking spaces) with regular spaces
-                            // They are converted to regular spaces during import so they appear correctly in Codex cells
-                            const cleanedVerseContent = verseContent
-                                .replace(/&nbsp;/gi, " ")
-                                .replace(/\u00A0/g, " ");
-
-                            // Create HTML content for the verse (source file - study bible content)
-                            const htmlContent = `<p class="biblica-verse" data-book="${bookAbbreviation}" data-chapter="${chapterNumber}" data-verse="${verseNumber}" data-paragraph-style="${paragraphStyle}" data-story-id="${
-                                story.id
-                            }">${escapeHtml(cleanedVerseContent)}</p>`;
-
-                            const cellMetadata = {
-                                id: cellId,
-                                type: CodexCellTypes.TEXT,
-                                edits: [],
-                                cellLabel: originalVerseRef, // Keep original verse reference in label
-                                isBibleVerse: true,
-                                bookAbbreviation,
-                                chapterNumber,
-                                verseNumber,
-                                verseId: originalVerseRef, // Keep original verse reference for matching
-                                storyId: story.id,
-                                paragraphId: paragraph.id,
-                                appliedParagraphStyle: paragraphStyle,
-                                beforeVerse, // Serialized XML for round-trip
-                                afterVerse, // Serialized XML for round-trip
-                                footnotes: footnotes || undefined, // Footnotes from translated Bible (for round-trip preservation)
-                                data: {
-                                    originalContent: cleanedVerseContent, // Store cleaned content (with &nbsp; replaced by spaces)
-                                    sourceFile: studyBibleFile?.name || "unknown",
-                                    // Minimal structure needed for export fallback
-                                    idmlStructure: {
-                                        storyId: story.id,
-                                        paragraphId: paragraph.id,
-                                        paragraphStyleRange: {
-                                            appliedParagraphStyle: paragraphStyle,
-                                            // Only keep dataAfter if present (used for paragraph-based export fallback)
-                                            dataAfter: paragraph.paragraphStyleRange.dataAfter,
-                                        },
-                                    },
-                                    // Minimal context - only what's needed for identification
-                                    documentContext: {
-                                        originalHash: htmlRepresentation.originalHash,
-                                        importerType: "biblica",
-                                        fileName: studyBibleFile?.name || "unknown",
-                                    },
-                                },
-                            };
-
-                            const cell = createProcessedCell(
-                                cellId,
-                                htmlContent,
-                                cellMetadata as any
-                            );
-                            const images = await extractImagesFromHtml(htmlContent);
-                            cell.images = images;
-                            cells.push(cell);
-                            addDebugLog(
-                                `Created verse cell: ${cellId} (original: ${originalVerseRef})${
-                                    translatedContent ? " - with translated content" : ""
-                                }`
-                            );
+    const createCellsFromStories = useCallback(async (
+        stories: any[], 
+        htmlRepresentation: any, 
+        document: any,
+        verseMap?: Map<string, string>, // Not used - kept for compatibility
+        footnotesMap?: Map<string, string[]> // Not used - kept for compatibility
+    ) => {
+        const cells: any[] = [];
+        let globalCellIndex = 0; // Global counter for sequential numbering across all content
+        
+        // Track current book and chapter for globalReferences
+        let currentBook = '';
+        let currentChapter = '1';
+        
+        // Track verse array for assigning to notes that come after bible text
+        let currentVerseArray: string[] = [];
+        let lastChapterSeen = '';
+        let hasEncounteredVerses = false; // Track if we've seen any verses yet
+        let hasEncounteredNotesSinceLastVerse = false; // Track if we've encountered notes since the last verse
+        
+        for (const story of stories) {
+            // Try to find HTML story, but don't require it
+            const htmlStory = htmlRepresentation.stories?.find((s: any) => s.id === story.id);
+            if (!htmlStory) {
+                addDebugLog(`No HTML story found for: ${story.id}, creating cells directly from story`);
+            }
+            
+            // Create cells from paragraphs - check for verse segments first
+            for (let i = 0; i < story.paragraphs.length; i++) {
+                const paragraph = story.paragraphs[i];
+                const paragraphStyle = paragraph.paragraphStyleRange.appliedParagraphStyle;
+                
+                // FIRST: Check if this paragraph has verse segments - check chapter BEFORE updating currentChapter
+                // This ensures we can detect chapter changes from verses themselves
+                const verseSegments = (paragraph.metadata as any)?.biblicaVerseSegments;
+                const isPartOfSpanningVerse = (paragraph.metadata as any)?.isPartOfSpanningVerse;
+                const spanningVerseInfo = (paragraph.metadata as any)?.spanningVerseInfo;
+                
+                // Track if we detected a chapter from verse segments (to prioritize it over other sources)
+                let chapterDetectedFromVerse = false;
+                
+                // Check chapter from verse segments BEFORE updating currentChapter from other sources
+                if (verseSegments && Array.isArray(verseSegments) && verseSegments.length > 0) {
+                    const firstVerse = verseSegments[0];
+                    const verseChapter = firstVerse.chapterNumber;
+                    
+                    // If verse chapter exists
+                    if (verseChapter) {
+                        // Check if this is the first time we're encountering verses
+                        const isFirstVerseEncounter = !hasEncounteredVerses;
+                        
+                        // Only reset array if we've encountered notes since the last verse
+                        // This allows consecutive chapters (like 1 and 2) to be in the same array
+                        if (verseChapter !== currentChapter && hasEncounteredNotesSinceLastVerse) {
+                            currentVerseArray = [];
+                            addDebugLog(`[RESET] Verse segments belong to new chapter ${verseChapter} (was ${currentChapter}) AFTER notes, resetting verse array`);
+                        } else if (verseChapter !== currentChapter && !hasEncounteredNotesSinceLastVerse) {
+                            addDebugLog(`[NO RESET] Verse segments belong to new chapter ${verseChapter} (was ${currentChapter}) but no notes in between, keeping array (current array length: ${currentVerseArray.length})`);
+                        } else if (verseChapter === currentChapter) {
+                            if (isFirstVerseEncounter) {
+                                addDebugLog(`[FIRST VERSES] First verse segments encountered for chapter ${verseChapter}, will add to array`);
+                            } else {
+                                addDebugLog(`[SAME CHAPTER] Verse segments belong to same chapter ${verseChapter}, continuing to add verses (current array length: ${currentVerseArray.length})`);
+                            }
                         }
+                        currentChapter = verseChapter;
+                        lastChapterSeen = verseChapter;
+                        chapterDetectedFromVerse = true;
+                        // Reset the flag since we're now processing verses
+                        hasEncounteredNotesSinceLastVerse = false;
                     } else {
-                        // Split paragraph at <Br/> tags (represented as \n in content) into multiple cells
-                        const content = paragraph.paragraphStyleRange.content;
-                        const ranges = paragraph.characterStyleRanges || [];
-
-                        // Build combined content from ranges to detect all \n characters
-                        // The parser converts <Br/> tags to \n in the content
-                        let combinedContent = content;
-                        if (ranges.length > 0) {
-                            // Rebuild content from ranges to ensure we capture all \n characters
-                            combinedContent = ranges.map((r: any) => r.content || "").join("");
+                        addDebugLog(`[WARNING] Verse segments found but no chapter number in first verse: ${JSON.stringify(firstVerse)}`);
+                    }
+                } else if (isPartOfSpanningVerse && spanningVerseInfo) {
+                    // Check chapter from spanning verse BEFORE updating currentChapter
+                    const spanningVerseChapter = spanningVerseInfo.chapterNumber;
+                    
+                    if (spanningVerseChapter) {
+                        // Only reset array if we've encountered notes since the last verse
+                        if (spanningVerseChapter !== currentChapter && hasEncounteredNotesSinceLastVerse) {
+                            currentVerseArray = [];
+                            addDebugLog(`[RESET] Spanning verse belongs to new chapter ${spanningVerseChapter} (was ${currentChapter}) AFTER notes, resetting verse array`);
+                        } else if (spanningVerseChapter !== currentChapter && !hasEncounteredNotesSinceLastVerse) {
+                            addDebugLog(`[NO RESET] Spanning verse belongs to new chapter ${spanningVerseChapter} (was ${currentChapter}) but no notes in between, keeping array`);
                         }
-
-                        // Check if paragraph is empty or only contains <Br/> tags (represented as \n)
-                        // Remove all whitespace and newlines to check if there's any actual content
-                        const contentWithoutBreaks = combinedContent
-                            .replace(/[\r\n]+/g, "") // Remove all line breaks
-                            .replace(/\s+/g, " ") // Collapse whitespace
-                            .trim(); // Trim
-
-                        // Skip paragraphs that are empty or only contain <Br/> tags
-                        if (!contentWithoutBreaks || contentWithoutBreaks.length === 0) {
-                            addDebugLog(`Skipping empty paragraph ${i} (only contains <Br/> tags)`);
-                            continue;
+                        currentChapter = spanningVerseChapter;
+                        lastChapterSeen = spanningVerseChapter;
+                        chapterDetectedFromVerse = true;
+                        // Reset the flag since we're now processing verses
+                        hasEncounteredNotesSinceLastVerse = false;
+                    }
+                }
+                
+                // Update current book and chapter from paragraph metadata (AFTER checking verse segments)
+                if ((paragraph.metadata as any)?.bookAbbreviation) {
+                    currentBook = (paragraph.metadata as any).bookAbbreviation;
+                }
+                if ((paragraph.metadata as any)?.lastChapterNumber) {
+                    const newChapter = (paragraph.metadata as any).lastChapterNumber;
+                    // Only update if we didn't detect chapter from verses, or if metadata indicates a different chapter
+                    if (!chapterDetectedFromVerse && newChapter !== currentChapter) {
+                        // Only reset if we've encountered notes since last verse
+                        if (hasEncounteredNotesSinceLastVerse) {
+                            currentVerseArray = [];
+                            addDebugLog(`[RESET] Chapter changed from ${currentChapter} to ${newChapter} (from metadata) AFTER notes, resetting verse array`);
+                        } else {
+                            addDebugLog(`[NO RESET] Chapter changed from ${currentChapter} to ${newChapter} (from metadata) but no notes in between, keeping array`);
                         }
-
-                        // Preserve newlines for structure
-                        const contentWithBreaks = combinedContent
-                            .replace(/\r\n/g, "\n") // Normalize line endings
-                            .replace(/\r/g, "\n"); // Normalize line endings
-
-                        // Check if we have any line breaks to split on
-                        const hasLineBreaks = contentWithBreaks.includes("\n");
-
-                        // Split content at line breaks (\n represents <Br/> tags)
-                        // Keep empty segments to preserve structure
-                        const segments = contentWithBreaks.split("\n");
-
-                        // Split character style ranges at line breaks too
-                        let rangeSegments: Array<{ ranges: any[]; content: string }> = [];
-
-                        if (ranges.length > 0) {
-                            // Group ranges by line breaks - split at each \n
-                            let currentSegment: { ranges: any[]; content: string } = {
-                                ranges: [],
-                                content: "",
-                            };
-
-                            for (const range of ranges) {
-                                const rangeContent = range.content || "";
-
-                                // Check if this range contains line breaks
-                                if (rangeContent.includes("\n")) {
-                                    const rangeParts = rangeContent.split("\n");
-
-                                    for (let j = 0; j < rangeParts.length; j++) {
-                                        const part = rangeParts[j];
-
-                                        // Add this part to current segment
-                                        if (part) {
-                                            currentSegment.ranges.push({
-                                                ...range,
-                                                content: part,
-                                            });
-                                            currentSegment.content += part;
-                                        }
-
-                                        // If this is not the last part, finalize current segment and start new one
-                                        if (j < rangeParts.length - 1) {
-                                            // Finalize current segment (even if empty, to preserve structure)
-                                            rangeSegments.push({ ...currentSegment });
-                                            currentSegment = { ranges: [], content: "" };
-                                        }
-                                    }
+                        currentChapter = newChapter;
+                        lastChapterSeen = newChapter;
+                    } else if (chapterDetectedFromVerse && newChapter !== currentChapter) {
+                        // If verse said one chapter but metadata says another, only reset if notes were encountered
+                        if (hasEncounteredNotesSinceLastVerse) {
+                            currentVerseArray = [];
+                            addDebugLog(`[RESET] Chapter mismatch: verse said ${currentChapter}, metadata says ${newChapter} AFTER notes, resetting array`);
+                        } else {
+                            addDebugLog(`[NO RESET] Chapter mismatch: verse said ${currentChapter}, metadata says ${newChapter} but no notes in between, keeping array`);
+                        }
+                        currentChapter = newChapter;
+                        lastChapterSeen = newChapter;
+                    }
+                }
+                
+                // If currentBook is still empty, try to extract it from paragraph content
+                // This handles cases like "GEN - New International Readers Version..." at the start of a book
+                if (!currentBook) {
+                    // Valid 3-letter Bible book codes
+                    const validBookCodes = [
+                        'GEN', 'EXO', 'LEV', 'NUM', 'DEU', 'JOS', 'JDG', 'RUT', '1SA', '2SA',
+                        '1KI', '2KI', '1CH', '2CH', 'EZR', 'NEH', 'EST', 'JOB', 'PSA', 'PRO',
+                        'ECC', 'SNG', 'ISA', 'JER', 'LAM', 'EZK', 'DAN', 'HOS', 'JOL', 'AMO',
+                        'OBA', 'JON', 'MIC', 'NAM', 'HAB', 'ZEP', 'HAG', 'ZEC', 'MAL',
+                        'MAT', 'MRK', 'LUK', 'JHN', 'ACT', 'ROM', '1CO', '2CO', 'GAL', 'EPH',
+                        'PHP', 'COL', '1TH', '2TH', '1TI', '2TI', 'TIT', 'PHM', 'HEB', 'JAS',
+                        '1PE', '2PE', '1JN', '2JN', '3JN', 'JUD', 'REV'
+                    ];
+                    
+                    // Try to extract book code from paragraph content
+                    const paragraphContent = paragraph.characterStyleRanges
+                        ?.map((r: any) => r.content || '')
+                        .join('')
+                        .trim() || '';
+                    
+                    // Check if content starts with a valid book code (e.g., "GEN - ..." or "GEN\n...")
+                    const bookCodeMatch = paragraphContent.match(/^([A-Z0-9]{3})\s*[-–—\n]/);
+                    if (bookCodeMatch && validBookCodes.includes(bookCodeMatch[1])) {
+                        currentBook = bookCodeMatch[1];
+                        addDebugLog(`Extracted book code from content: ${currentBook}`);
+                    }
+                }
+                
+                // Check for chapter markers in character style ranges
+                const characterRanges = paragraph.characterStyleRanges || [];
+                for (const range of characterRanges) {
+                    const style = range.appliedCharacterStyle || '';
+                    if (style.includes('cv%3adc') || style.includes('cv:dc')) {
+                        const chapterNum = range.content.trim();
+                        if (chapterNum && /^\d+$/.test(chapterNum)) {
+                            // If chapter changed (different from what we're currently tracking), reset verse array
+                            // But only if we didn't already detect chapter from verses, or if marker indicates different chapter
+                            // AND only if we've encountered notes since the last verse
+                            if (!chapterDetectedFromVerse && currentChapter !== chapterNum) {
+                                if (hasEncounteredNotesSinceLastVerse) {
+                                    currentVerseArray = [];
+                                    addDebugLog(`[RESET] Chapter changed from ${currentChapter} to ${chapterNum} (from chapter marker) AFTER notes, resetting verse array`);
                                 } else {
-                                    // No line breaks in this range, add to current segment
-                                    currentSegment.ranges.push(range);
-                                    currentSegment.content += rangeContent;
+                                    addDebugLog(`[NO RESET] Chapter changed from ${currentChapter} to ${chapterNum} (from chapter marker) but no notes in between, keeping array`);
                                 }
+                                currentChapter = chapterNum;
+                                lastChapterSeen = chapterNum;
+                            } else if (chapterDetectedFromVerse && chapterNum !== currentChapter) {
+                                // If verse said one chapter but marker says another, only reset if notes were encountered
+                                if (hasEncounteredNotesSinceLastVerse) {
+                                    currentVerseArray = [];
+                                    addDebugLog(`[RESET] Chapter mismatch: verse said ${currentChapter}, marker says ${chapterNum} AFTER notes, resetting array`);
+                                } else {
+                                    addDebugLog(`[NO RESET] Chapter mismatch: verse said ${currentChapter}, marker says ${chapterNum} but no notes in between, keeping array`);
+                                }
+                                currentChapter = chapterNum;
+                                lastChapterSeen = chapterNum;
                             }
-
-                            // Add the final segment
-                            if (currentSegment.content || currentSegment.ranges.length > 0) {
-                                rangeSegments.push(currentSegment);
-                            }
-
-                            // If no segments were created (no line breaks), use original ranges
-                            if (rangeSegments.length === 0) {
-                                rangeSegments = [{ ranges, content: contentWithBreaks }];
+                            addDebugLog(`Updated current chapter to ${currentChapter}`);
+                            break;
+                        }
+                    }
+                }
+                
+                if (verseSegments && Array.isArray(verseSegments) && verseSegments.length > 0) {
+                    // Track verses for globalReferences assignment to notes (but don't create cells for them)
+                    // Note: Chapter check and array reset already happened above
+                    addDebugLog(`Found ${verseSegments.length} verse(s) in paragraph - tracking for globalReferences (not creating cells)`);
+                    
+                    for (const verse of verseSegments) {
+                        const { bookAbbreviation, chapterNumber, verseNumber } = verse;
+                        
+                        // Add this verse to the current verse array for globalReferences assignment
+                        // Always use the verse's own chapter number (don't fall back to currentChapter)
+                        const finalVerseBook = bookAbbreviation || currentBook;
+                        const finalVerseChapter = chapterNumber; // Use verse's own chapter, don't fall back
+                        
+                        // Debug: Log verse details before adding
+                        addDebugLog(`Processing verse: bookAbbreviation=${bookAbbreviation}, chapterNumber=${chapterNumber}, verseNumber=${verseNumber}, currentBook=${currentBook}, currentChapter=${currentChapter}`);
+                        
+                        if (finalVerseBook && finalVerseChapter && verseNumber) {
+                            const verseRef = `${finalVerseBook} ${finalVerseChapter}:${verseNumber}`;
+                            // Check if verse is already in array (shouldn't happen, but be safe)
+                            if (!currentVerseArray.includes(verseRef)) {
+                                currentVerseArray.push(verseRef);
+                                hasEncounteredVerses = true;
+                                addDebugLog(`✓ Added verse to array: ${verseRef} (array now has ${currentVerseArray.length} verses)`);
+                            } else {
+                                addDebugLog(`⚠ Verse already in array: ${verseRef} (skipping duplicate)`);
                             }
                         } else {
-                            // No ranges, split plain content - create one segment per split
-                            rangeSegments = segments.map((seg: string) => ({
-                                ranges: [],
-                                content: seg,
-                            }));
-                        }
-
-                        // Use rangeSegments as finalSegments (they're already properly split)
-                        // If we have more content segments than range segments, align them
-                        const finalSegments: Array<{ ranges: any[]; content: string }> =
-                            rangeSegments.length > 0
-                                ? rangeSegments
-                                : segments.map((seg: string) => ({ ranges: [], content: seg }));
-
-                        // Debug: Log if we're splitting
-                        if (finalSegments.length > 1) {
-                            addDebugLog(
-                                `Splitting paragraph ${i} (${paragraphStyle}) into ${finalSegments.length} segments at <Br/> tags (had ${segments.length} content segments, ${rangeSegments.length} range segments)`
-                            );
-                        } else if (hasLineBreaks && finalSegments.length === 1) {
-                            addDebugLog(
-                                `Warning: Paragraph ${i} has line breaks but wasn't split (content: "${contentWithBreaks.substring(
-                                    0,
-                                    100
-                                )}...")`
-                            );
-                        }
-
-                        // Create one cell per segment
-                        for (
-                            let segmentIndex = 0;
-                            segmentIndex < finalSegments.length;
-                            segmentIndex++
-                        ) {
-                            const segment = finalSegments[segmentIndex];
-
-                            // Create cleanText for empty check (without excessive whitespace)
-                            const cleanText = segment.content
-                                .replace(/[\r\n]+/g, " ")
-                                .replace(/\s+/g, " ")
-                                .trim();
-
-                            // Skip completely empty segments (but keep segments with only whitespace if they're meaningful)
-                            // Only skip if it's not the first segment and has no content
-                            if (!cleanText && segmentIndex > 0 && segment.ranges.length === 0) {
-                                addDebugLog(
-                                    `Skipping empty segment ${segmentIndex} of paragraph ${i}`
-                                );
-                                continue;
-                            }
-
-                            // Use simple sequential numbering for all cells
-                            globalCellIndex++;
-                            const cellId = `biblica 1:${globalCellIndex}`;
-
-                            // Build HTML for this segment
-                            let inlineHTML: string;
-                            if (segment.ranges.length > 0) {
-                                inlineHTML = buildInlineHTMLFromRanges(segment.ranges);
-                            } else {
-                                // Fallback: escape HTML (no <br /> needed since we split at breaks)
-                                inlineHTML = escapeHtml(segment.content);
-                            }
-
-                            // Only add <br /> if this is not the last segment (to preserve structure)
-                            const isLastSegment = segmentIndex === finalSegments.length - 1;
-                            const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}" data-segment-index="${segmentIndex}" data-is-last-segment="${isLastSegment}">${inlineHTML}</p>`;
-
-                            const cellMetadata = {
-                                id: cellId,
-                                type: CodexCellTypes.TEXT,
-                                edits: [],
-                                cellLabel: globalCellIndex.toString(), // Use sequential number as label
-                                storyId: story.id,
-                                paragraphId: paragraph.id,
-                                appliedParagraphStyle: paragraphStyle,
-                                data: {
-                                    originalContent: cleanText || segment.content,
-                                    sourceFile: studyBibleFile?.name || "unknown",
-                                    // Minimal structure needed for export
-                                    idmlStructure: {
-                                        storyId: story.id,
-                                        paragraphId: paragraph.id,
-                                        paragraphStyleRange: {
-                                            appliedParagraphStyle: paragraphStyle,
-                                            // Only keep dataAfter if present and this is the last segment
-                                            dataAfter: isLastSegment
-                                                ? paragraph.paragraphStyleRange.dataAfter
-                                                : undefined,
-                                        },
-                                    },
-                                    // Minimal relationships needed for export
-                                    relationships: {
-                                        parentStory: story.id,
-                                        storyOrder: stories.indexOf(story),
-                                        paragraphOrder: i,
-                                        segmentIndex: segmentIndex, // Track which segment this is within the paragraph
-                                        totalSegments: finalSegments.length, // Track total segments for this paragraph
-                                    },
-                                    // Minimal context - only what's needed for identification
-                                    documentContext: {
-                                        originalHash: htmlRepresentation.originalHash,
-                                        importerType: "biblica-experimental",
-                                        fileName: studyBibleFile?.name || "unknown",
-                                    },
-                                },
-                            };
-
-                            const cell = createProcessedCell(
-                                cellId,
-                                htmlContent,
-                                cellMetadata as any
-                            );
-                            const images = await extractImagesFromHtml(htmlContent);
-                            cell.images = images;
-                            cells.push(cell);
-                            addDebugLog(
-                                `Created paragraph segment cell: ${cellId} (segment ${
-                                    segmentIndex + 1
-                                }/${finalSegments.length})`
-                            );
+                            addDebugLog(`✗ Skipping verse - missing data: book=${finalVerseBook}, chapter=${finalVerseChapter}, verse=${verseNumber}`);
                         }
                     }
-                }
-            }
-            return cells;
-        },
-        [addDebugLog, studyBibleFile]
-    );
-
-    /**
-     * Parse translated bible file and extract verse content
-     * Parses IDML file and extracts ONLY bible verses (ignores notes, titles, etc.)
-     * Returns verse map and footnotes map for verse labels (e.g., "MAT 1:1")
-     */
-    const parseTranslatedBible = useCallback(
-        async (
-            file: File
-        ): Promise<{ verseMap: Map<string, string>; footnotesMap: Map<string, string[]> }> => {
-            addDebugLog(`Parsing translated bible file: ${file.name}`);
-
-            try {
-                // Step 1: Read file content
-                const arrayBuffer = await file.arrayBuffer();
-                addDebugLog(`Translated Bible ArrayBuffer size: ${arrayBuffer.byteLength}`);
-
-                // Validate ZIP signature
-                const uint8Array = new Uint8Array(arrayBuffer);
-                const firstBytes = Array.from(uint8Array.slice(0, 4))
-                    .map((b) => String.fromCharCode(b))
-                    .join("");
-                if (firstBytes !== "PK\u0003\u0004") {
-                    throw new Error(
-                        "The translated Bible file does not appear to be a valid IDML file"
-                    );
-                }
-
-                // Step 2: Parse IDML
-                const parser = new IDMLParser({
-                    preserveAllFormatting: true,
-                    preserveObjectIds: true,
-                    validateRoundTrip: false,
-                    strictMode: false,
-                });
-
-                parser.setDebugCallback((msg) => addDebugLog(`[Translated Bible Parser] ${msg}`));
-
-                const document = await parser.parseIDML(arrayBuffer);
-                addDebugLog(`Parsed translated Bible: ${document.stories.length} stories`);
-
-                // Step 3: Extract verses from all stories
-                const verseMap = new Map<string, string>();
-                const footnotesMap = new Map<string, string[]>(); // Map verse labels to footnote XML arrays
-                let currentBook = "";
-
-                for (const story of document.stories) {
-                    let currentChapter = "1";
-
-                    for (const paragraph of story.paragraphs) {
-                        const paragraphStyle = paragraph.paragraphStyleRange.appliedParagraphStyle;
-
-                        // Check for book abbreviation (meta:bk)
-                        if (
-                            paragraphStyle.includes("meta%3abk") ||
-                            paragraphStyle.includes("meta:bk")
-                        ) {
-                            const bookAbbrev = paragraph.paragraphStyleRange.content.trim();
-                            if (bookAbbrev && bookAbbrev.length >= 2 && bookAbbrev.length <= 4) {
-                                currentBook = bookAbbrev;
-                                addDebugLog(
-                                    `Found book abbreviation in translated Bible: ${currentBook}`
-                                );
-                            }
-                            continue;
+                    // Skip creating cells for verses - we only track them for globalReferences
+                    continue;
+                } else if (isPartOfSpanningVerse && spanningVerseInfo) {
+                    // This paragraph is part of a verse that spans multiple paragraphs
+                    // Track verse for globalReferences assignment (but don't create cells for it)
+                    const { bookAbbreviation, chapterNumber, verseNumber, verseKey } = spanningVerseInfo;
+                    addDebugLog(`Found paragraph part of spanning verse: ${verseKey} - tracking for globalReferences (not creating cell)`);
+                    
+                    // Note: Chapter check and array reset already happened above
+                    // Always use the verse's own chapter number (don't fall back to currentChapter)
+                    const spanningVerseBook = bookAbbreviation || currentBook;
+                    const spanningVerseChapter = chapterNumber; // Use verse's own chapter, don't fall back
+                    
+                    // Add this verse to the current verse array (only if not already added)
+                    if (spanningVerseBook && spanningVerseChapter && verseNumber) {
+                        const verseRef = `${spanningVerseBook} ${spanningVerseChapter}:${verseNumber}`;
+                        // Only add if not already in array (spanning verses might be processed multiple times)
+                        if (!currentVerseArray.includes(verseRef)) {
+                            currentVerseArray.push(verseRef);
+                            hasEncounteredVerses = true;
+                            addDebugLog(`Added spanning verse to array: ${verseRef} (array now has ${currentVerseArray.length} verses)`);
                         }
-
-                        // Extract chapter number from paragraph if it contains chapter markers
-                        // Look for cv%3adc style in character style ranges
-                        const characterRanges = paragraph.characterStyleRanges || [];
-                        for (const range of characterRanges) {
-                            const style = range.appliedCharacterStyle || "";
-                            if (style.includes("cv%3adc") || style.includes("cv:dc")) {
-                                const chapterNum = range.content.trim();
-                                if (chapterNum && /^\d+$/.test(chapterNum)) {
-                                    currentChapter = chapterNum;
-                                    addDebugLog(
-                                        `Found chapter ${currentChapter} in translated Bible`
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Skip non-verse paragraphs (titles, notes, etc.)
-                        // Only process paragraphs that contain verse segments
-                        const verseSegments = (paragraph.metadata as any)?.biblicaVerseSegments;
-                        if (
-                            !verseSegments ||
-                            !Array.isArray(verseSegments) ||
-                            verseSegments.length === 0
-                        ) {
-                            continue;
-                        }
-
-                        // Extract verses from this paragraph
-                        for (const verse of verseSegments) {
-                            const {
-                                bookAbbreviation,
-                                chapterNumber,
-                                verseNumber,
-                                verseContent,
-                                verseStructureXml,
-                                footnotes,
-                                beforeVerse,
-                                afterVerse,
-                            } = verse;
-
-                            // Use book from verse segment if available, otherwise use current book
-                            const book = bookAbbreviation || currentBook;
-                            // Use chapter from verse segment if available, otherwise use current chapter
-                            const chapter = chapterNumber || currentChapter;
-
-                            if (!book || !chapter || !verseNumber) {
-                                addDebugLog(
-                                    `Skipping verse with missing metadata: book=${book}, chapter=${chapter}, verse=${verseNumber}`
-                                );
-                                continue;
-                            }
-
-                            // Create verse label (e.g., "MAT 1:1") - must match Study Bible format
-                            const verseLabel = `${book} ${chapter}:${verseNumber}`;
-
-                            // Replace &nbsp; entities (non-breaking spaces) with regular spaces for display
-                            // NOTE: &nbsp; entities are preserved in verseStructureXml for round-trip export
-                            // They are only replaced here in the displayed value (verseContentWithBreaks) for Codex editor
-                            const cleanedVerseContent = verseContent
-                                .replace(/&nbsp;/gi, " ")
-                                .replace(/\u00A0/g, " ");
-
-                            // Preserve verse content structure - convert newlines to <br/> tags
-                            // The verseContent already has newlines from <Br/> tags preserved by the parser
-                            // We need to preserve these as HTML <br/> tags for the codex cells
-                            let verseContentWithBreaks = cleanedVerseContent;
-
-                            // Convert newlines to <br/> tags while preserving the structure
-                            // Don't trim lines - preserve leading/trailing spaces within lines
-                            verseContentWithBreaks = cleanedVerseContent
-                                .split("\n")
-                                .map((line: string) => {
-                                    // Preserve the line as-is (don't trim) but escape HTML
-                                    return escapeHtml(line);
-                                })
-                                .join("<br/>");
-
-                            // If content is empty or just whitespace, skip
-                            const trimmedContent = cleanedVerseContent.trim();
-                            if (!trimmedContent || trimmedContent.length === 0) {
-                                continue;
-                            }
-
-                            // Build full verse structure XML (beforeVerse + verseStructureXml + afterVerse)
-                            // This preserves footnotes in their original positions
-                            let fullVerseStructureXml: string | undefined;
-                            if (verseStructureXml) {
-                                fullVerseStructureXml =
-                                    (beforeVerse || "") + verseStructureXml + (afterVerse || "");
-                                if (fullVerseStructureXml) {
-                                    addDebugLog(
-                                        `Preserved full verse structure for ${verseLabel} (${fullVerseStructureXml.length} chars)`
-                                    );
-                                }
-                            }
-
-                            // If verse already exists (may span paragraphs), append content
-                            if (verseMap.has(verseLabel)) {
-                                const existingContent = verseMap.get(verseLabel)!;
-                                // Append with space separator if needed
-                                verseContentWithBreaks =
-                                    existingContent + " " + verseContentWithBreaks;
-                                addDebugLog(
-                                    `Appending to verse ${verseLabel} (verse spans multiple paragraphs)`
-                                );
-
-                                // For structure XML, also append if exists
-                                if (fullVerseStructureXml) {
-                                    const existingStructure = footnotesMap.get(
-                                        verseLabel + "_structure"
-                                    );
-                                    if (existingStructure && existingStructure.length > 0) {
-                                        fullVerseStructureXml =
-                                            existingStructure[0] + fullVerseStructureXml;
+                    } else {
+                        addDebugLog(`Skipping spanning verse - missing book/bookAbbreviation: ${spanningVerseBook}, chapter: ${spanningVerseChapter}, verse: ${verseNumber}`);
+                    }
+                    // Skip creating cells for spanning verses - we only track them for globalReferences
+                    continue;
+                } else {
+                    // This is a note paragraph (non-verse content)
+                    // Split paragraph at <Br/> tags (represented as \n in content) into multiple cells
+                    const content = paragraph.paragraphStyleRange.content;
+                    const ranges = paragraph.characterStyleRanges || [];
+                    
+                    // Build combined content from ranges to detect all \n characters
+                    // The parser converts <Br/> tags to \n in the content
+                    let combinedContent = content;
+                    if (ranges.length > 0) {
+                        // Rebuild content from ranges to ensure we capture all \n characters
+                        combinedContent = ranges.map((r: any) => r.content || '').join('');
+                    }
+                    
+                    // Check if paragraph is empty or only contains <Br/> tags (represented as \n)
+                    // Remove all whitespace and newlines to check if there's any actual content
+                    const contentWithoutBreaks = combinedContent
+                        .replace(/[\r\n]+/g, '')  // Remove all line breaks
+                        .replace(/\s+/g, ' ')     // Collapse whitespace
+                        .trim();                   // Trim
+                    
+                    // Skip paragraphs that are empty or only contain <Br/> tags
+                    // IMPORTANT: Don't mark as "notes encountered" if it's just an empty break paragraph
+                    if (!contentWithoutBreaks || contentWithoutBreaks.length === 0) {
+                        addDebugLog(`Skipping empty paragraph ${i} (only contains <Br/> tags) - NOT marking as notes encountered`);
+                        continue;
+                    }
+                    
+                    // Only mark that we've encountered notes if the paragraph has actual content
+                    hasEncounteredNotesSinceLastVerse = true;
+                    addDebugLog(`Note paragraph detected with content, marking hasEncounteredNotesSinceLastVerse = true`);
+                    
+                    // Preserve newlines for structure
+                    const contentWithBreaks = combinedContent
+                        .replace(/\r\n/g, '\n')  // Normalize line endings
+                        .replace(/\r/g, '\n');   // Normalize line endings
+                    
+                    // Check if we have any line breaks to split on
+                    const hasLineBreaks = contentWithBreaks.includes('\n');
+                    
+                    // Split content at line breaks (\n represents <Br/> tags)
+                    // Keep empty segments to preserve structure
+                    const segments = contentWithBreaks.split('\n');
+                    
+                    // Split character style ranges at line breaks too
+                    let rangeSegments: Array<{ ranges: any[], content: string }> = [];
+                    
+                    if (ranges.length > 0) {
+                        // Group ranges by line breaks - split at each \n
+                        let currentSegment: { ranges: any[], content: string } = { ranges: [], content: '' };
+                        
+                        for (const range of ranges) {
+                            const rangeContent = range.content || '';
+                            
+                            // Check if this range contains line breaks
+                            if (rangeContent.includes('\n')) {
+                                const rangeParts = rangeContent.split('\n');
+                                
+                                for (let j = 0; j < rangeParts.length; j++) {
+                                    const part = rangeParts[j];
+                                    
+                                    // Add this part to current segment
+                                    if (part) {
+                                        currentSegment.ranges.push({
+                                            ...range,
+                                            content: part
+                                        });
+                                        currentSegment.content += part;
+                                    }
+                                    
+                                    // If this is not the last part, finalize current segment and start new one
+                                    if (j < rangeParts.length - 1) {
+                                        // Finalize current segment (even if empty, to preserve structure)
+                                        rangeSegments.push({ ...currentSegment });
+                                        currentSegment = { ranges: [], content: '' };
                                     }
                                 }
-                            }
-
-                            // Store verse content (preserving structure)
-                            verseMap.set(verseLabel, verseContentWithBreaks);
-
-                            // Store full verse structure XML (with footnotes in original positions)
-                            // The structure includes beforeVerse + verseStructureXml + afterVerse
-                            // This will be used to replace the entire verse section in export
-                            if (fullVerseStructureXml && fullVerseStructureXml.length > 0) {
-                                // Use a special key format to store structure separately
-                                footnotesMap.set(verseLabel + "_structure", [
-                                    fullVerseStructureXml,
-                                ]);
-                            }
-
-                            // Store footnotes if present (for backward compatibility)
-                            if (footnotes && Array.isArray(footnotes) && footnotes.length > 0) {
-                                // If verse already exists, merge footnotes
-                                if (footnotesMap.has(verseLabel)) {
-                                    const existingFootnotes = footnotesMap.get(verseLabel)!;
-                                    footnotesMap.set(verseLabel, [
-                                        ...existingFootnotes,
-                                        ...footnotes,
-                                    ]);
-                                } else {
-                                    footnotesMap.set(verseLabel, [...footnotes]);
-                                }
-                                addDebugLog(
-                                    `Extracted ${footnotes.length} footnote(s) for verse ${verseLabel}`
-                                );
-                            }
-
-                            addDebugLog(
-                                `Extracted verse ${verseLabel}: "${verseContentWithBreaks.substring(
-                                    0,
-                                    50
-                                )}..."${fullVerseStructureXml ? " (with full structure)" : ""}`
-                            );
-
-                            // Update current chapter if this verse has a different chapter
-                            if (chapterNumber && chapterNumber !== currentChapter) {
-                                currentChapter = chapterNumber;
+                            } else {
+                                // No line breaks in this range, add to current segment
+                                currentSegment.ranges.push(range);
+                                currentSegment.content += rangeContent;
                             }
                         }
+                        
+                        // Add the final segment
+                        if (currentSegment.content || currentSegment.ranges.length > 0) {
+                            rangeSegments.push(currentSegment);
+                        }
+                        
+                        // If no segments were created (no line breaks), use original ranges
+                        if (rangeSegments.length === 0) {
+                            rangeSegments = [{ ranges, content: contentWithBreaks }];
+                        }
+                    } else {
+                        // No ranges, split plain content - create one segment per split
+                        rangeSegments = segments.map((seg: string) => ({ ranges: [], content: seg }));
+                    }
+                    
+                    // Use rangeSegments as finalSegments (they're already properly split)
+                    // If we have more content segments than range segments, align them
+                    const finalSegments: Array<{ ranges: any[], content: string }> = 
+                        rangeSegments.length > 0 ? rangeSegments : 
+                        segments.map((seg: string) => ({ ranges: [], content: seg }));
+                    
+                    // Debug: Log if we're splitting
+                    if (finalSegments.length > 1) {
+                        addDebugLog(`Splitting paragraph ${i} (${paragraphStyle}) into ${finalSegments.length} segments at <Br/> tags (had ${segments.length} content segments, ${rangeSegments.length} range segments)`);
+                    } else if (hasLineBreaks && finalSegments.length === 1) {
+                        addDebugLog(`Warning: Paragraph ${i} has line breaks but wasn't split (content: "${contentWithBreaks.substring(0, 100)}...")`);
+                    }
+                    
+                    // Create one cell per segment
+                    for (let segmentIndex = 0; segmentIndex < finalSegments.length; segmentIndex++) {
+                        const segment = finalSegments[segmentIndex];
+                        
+                        // Create cleanText for empty check (without excessive whitespace)
+                        const cleanText = segment.content
+                            .replace(/[\r\n]+/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim();
+                        
+                        // Skip completely empty segments (but keep segments with only whitespace if they're meaningful)
+                        // Only skip if it's not the first segment and has no content
+                        if (!cleanText && segmentIndex > 0 && segment.ranges.length === 0) {
+                            addDebugLog(`Skipping empty segment ${segmentIndex} of paragraph ${i}`);
+                            continue;
+                        }
+                        
+                        // Use simple sequential numbering for cell labels (not IDs - IDs are UUIDs)
+                        globalCellIndex++;
+                        
+                        // Build HTML for this segment
+                        let inlineHTML: string;
+                        if (segment.ranges.length > 0) {
+                            inlineHTML = buildInlineHTMLFromRanges(segment.ranges);
+                        } else {
+                            // Fallback: escape HTML (no <br /> needed since we split at breaks)
+                            inlineHTML = escapeHtml(segment.content);
+                        }
+                        
+                        // Only add <br /> if this is not the last segment (to preserve structure)
+                        const isLastSegment = segmentIndex === finalSegments.length - 1;
+                        const htmlContent = `<p class="biblica-paragraph" data-paragraph-style="${paragraphStyle}" data-story-id="${story.id}" data-segment-index="${segmentIndex}" data-is-last-segment="${isLastSegment}">${inlineHTML}</p>`;
+                        
+                        // Build globalReferences for note cell
+                        // If we've encountered verses, use the verse array (e.g., ["GEN 1:1", "GEN 1:2", ... "GEN 2:25"])
+                        // If we haven't encountered verses yet, use just the book abbreviation (e.g., "GEN")
+                        let noteGlobalReferences: string[] = [];
+                        if (hasEncounteredVerses && currentVerseArray.length > 0) {
+                            // Use the accumulated verse array
+                            noteGlobalReferences = [...currentVerseArray];
+                            addDebugLog(`Note cell using verse array with ${currentVerseArray.length} verses`);
+                        } else if (currentBook) {
+                            // Before any verses, use just the book abbreviation without chapter number
+                            noteGlobalReferences = [currentBook];
+                            addDebugLog(`Note cell before verses, using book abbreviation: ${currentBook}`);
+                        }
+                        
+                        // Extract chapter number for milestone detection
+                        // Priority: Extract from first globalReference, fallback to currentChapter
+                        let chapterNumber: string | undefined;
+                        if (noteGlobalReferences.length > 0) {
+                            const firstRef = noteGlobalReferences[0]; // e.g., "GEN 1:1" or "GEN"
+                            const match = firstRef.match(/\s+(\d+):/); // Extract chapter number from "BOOK CH:V"
+                            if (match) {
+                                chapterNumber = match[1];
+                            } else if (currentChapter) {
+                                // If no chapter in reference but we have currentChapter, use it
+                                chapterNumber = currentChapter;
+                            }
+                        } else if (currentChapter) {
+                            // No globalReferences but we have currentChapter
+                            chapterNumber = currentChapter;
+                        }
+                        
+                        // Create cell metadata (generates UUID internally)
+                        const { cellId, metadata: cellMetadata } = createNoteCellMetadata({
+                            cellLabel: globalCellIndex.toString(), // Use sequential number as label
+                            storyId: story.id,
+                            paragraphId: paragraph.id,
+                            appliedParagraphStyle: paragraphStyle,
+                            originalText: cleanText || segment.content,
+                            globalReferences: noteGlobalReferences,
+                            sourceFileName: studyBibleFile?.name || 'unknown',
+                            originalHash: htmlRepresentation.originalHash,
+                            paragraphDataAfter: paragraph.paragraphStyleRange.dataAfter,
+                            storyOrder: stories.indexOf(story),
+                            paragraphOrder: i,
+                            segmentIndex: segmentIndex,
+                            totalSegments: finalSegments.length,
+                            isLastSegment,
+                            chapterNumber // Add chapter number for milestone detection
+                        });
+                        
+                        const cell = createProcessedCell(cellId, htmlContent, cellMetadata as any);
+                        const images = await extractImagesFromHtml(htmlContent);
+                        cell.images = images;
+                        cells.push(cell);
+                        addDebugLog(`Created paragraph segment cell: ${cellId} (segment ${segmentIndex + 1}/${finalSegments.length})`);
                     }
                 }
-
-                addDebugLog(`Successfully extracted ${verseMap.size} verses from translated Bible`);
-                addDebugLog(`Extracted footnotes for ${footnotesMap.size} verses`);
-
-                // Return both verse map and footnotes map
-                return { verseMap, footnotesMap };
-            } catch (error) {
-                addDebugLog(
-                    `Error parsing translated Bible: ${
-                        error instanceof Error ? error.message : "Unknown error"
-                    }`
-                );
-                throw error;
             }
-        },
-        [addDebugLog]
-    );
+        }
+        return cells;
+    }, [addDebugLog, studyBibleFile]);
+
+    // NOTE: parseTranslatedBible function removed - will use Bible Swapper for verse content later
 
     const handleImport = useCallback(async () => {
         if (!studyBibleFile) {
@@ -731,35 +587,10 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
         try {
             addDebugLog("Starting Biblica import process...");
             addDebugLog(`Study Bible: ${studyBibleFile.name}`);
-            if (translatedBibleFile) {
-                addDebugLog(`Translated Bible: ${translatedBibleFile.name}`);
-            } else {
-                addDebugLog("Translated Bible: Not provided (will create empty codex cells)");
-            }
-
-            // Step 1: Parse translated bible if provided (for populating codex file)
-            let verseMap = new Map<string, string>();
-            let footnotesMap = new Map<string, string[]>();
-            if (translatedBibleFile) {
-                setProgress("Parsing translated bible file...");
-                try {
-                    const result = await parseTranslatedBible(translatedBibleFile);
-                    verseMap = result.verseMap;
-                    footnotesMap = result.footnotesMap;
-                    addDebugLog(`Parsed ${verseMap.size} verses from translated bible`);
-                    addDebugLog(`Extracted footnotes for ${footnotesMap.size} verses`);
-                } catch (parseError) {
-                    addDebugLog(
-                        `Warning: Failed to parse translated bible: ${
-                            parseError instanceof Error ? parseError.message : "Unknown error"
-                        }`
-                    );
-                    addDebugLog("Continuing with empty verse map...");
-                }
-            }
-
-            // Step 2: Read Study Bible file content
-            setProgress("Reading Study Bible IDML file...");
+            // NOTE: Translated Bible import removed - will use Bible Swapper later
+            
+            // Step 1: Read Study Bible file content
+            setProgress('Reading Study Bible IDML file...');
             addDebugLog(`Reading file: ${studyBibleFile.name}, Size: ${studyBibleFile.size}`);
 
             // Read as ArrayBuffer to preserve binary data
@@ -838,16 +669,11 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             const htmlRepresentation = htmlMapper.convertToHTML(document);
 
             // Step 5: Create source cells from Study Bible stories
-            setProgress("Creating source notebook cells from Study Bible...");
-            let sourceCells;
+            setProgress('Creating source notebook cells from Study Bible...');
+            let allCells;
             try {
-                sourceCells = await createCellsFromStories(
-                    document.stories,
-                    htmlRepresentation,
-                    document,
-                    verseMap,
-                    footnotesMap
-                );
+                // NOTE: verseMap and footnotesMap removed - will use Bible Swapper later
+                allCells = await createCellsFromStories(document.stories, htmlRepresentation, document);
             } catch (cellError) {
                 addDebugLog(
                     `Cell creation error: ${
@@ -861,82 +687,45 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 );
                 throw cellError;
             }
-
-            if (sourceCells.length === 0) {
-                addDebugLog("WARNING: No cells were created!");
-                throw new Error(
-                    "No cells were created from the parsed content. Check the cell creation logic."
-                );
+            
+            if (allCells.length === 0) {
+                addDebugLog('WARNING: No cells were created!');
+                throw new Error('No cells were created from the parsed content. Check the cell creation logic.');
             }
-
-            // Step 6: Create codex cells (target file) with translated content
-            setProgress("Creating codex notebook cells...");
-            const codexCells = sourceCells.map((cell, index) => {
-                const metadata = cell.metadata;
-                const isBibleVerse = metadata?.isBibleVerse;
-                const verseId = metadata?.verseId;
-
-                // For bible verses, populate with translated content if available
-                let codexContent = "";
-                if (isBibleVerse && verseId && verseMap.has(verseId)) {
-                    const translatedVerse = verseMap.get(verseId)!;
-                    // Preserve structure (br tags, etc.) from translated bible
-                    codexContent = translatedVerse;
-                    addDebugLog(`Matched verse ${verseId} with translated content`);
-                }
-
-                // Get footnotes for this verse if available
-                const cellFootnotes =
-                    isBibleVerse && verseId ? footnotesMap.get(verseId) : undefined;
-                // Get full verse structure XML (with footnotes in original positions)
-                const verseStructureXml =
-                    isBibleVerse && verseId
-                        ? footnotesMap.get(verseId + "_structure")?.[0]
-                        : undefined;
-
-                return {
-                    id: cell.id,
-                    content: codexContent,
-                    images: cell.images || [], // Include images property
-                    metadata: {
-                        ...metadata,
-                        // Mark Bible verses as locked
-                        isLocked: isBibleVerse ? true : undefined,
-                        originalContent: cell.content,
-                        // Mark that this came from translated bible
-                        translatedBibleFile: translatedBibleFile?.name || null,
-                        // Preserve footnotes from translated Bible (for backward compatibility)
-                        footnotes: cellFootnotes || metadata.footnotes || undefined,
-                        // Preserve full verse structure XML (with footnotes in original positions)
-                        verseStructureXml:
-                            verseStructureXml || metadata.verseStructureXml || undefined,
-                    },
-                };
-            });
-
-            setProgress("Import completed successfully!");
+            
+            // Step 6: All cells are note cells (verses are tracked but not created as cells)
+            // NOTE: Verses are detected and tracked for globalReferences assignment, but cells are only created for notes
+            const noteCells = allCells; // All created cells are notes (verses are skipped)
+            
+            addDebugLog(`Created ${noteCells.length} note cells (verses tracked but not created as cells)`);
+            
+            if (noteCells.length === 0) {
+                addDebugLog('WARNING: No note cells were found!');
+                throw new Error('No note cells were found in the document.');
+            }
+            
+            setProgress('Import completed successfully!');
 
             // Complete the import
             if (onComplete) {
-                addDebugLog("Calling onComplete...");
-                addDebugLog(`Source cells count: ${sourceCells.length}`);
-                addDebugLog(`Codex cells count: ${codexCells.length}`);
+                addDebugLog('Calling onComplete...');
+                addDebugLog(`Note cells count: ${noteCells.length}`);
                 addDebugLog(`Document ID: ${document.id}`);
                 addDebugLog(`Stories count: ${document.stories.length}`);
 
                 try {
                     // Preserve full metadata structure (don't simplify)
-                    const simplifiedSourceCells = sourceCells.map((cell) => ({
+                    const simplifiedNoteCells = noteCells.map(cell => ({
                         id: cell.id,
                         content: cell.content,
-                        images: cell.images || [], // Include images property
-                        metadata: cell.metadata, // Keep the full metadata structure
+                        images: cell.images,
+                        metadata: cell.metadata // Keep the full metadata structure
                     }));
-
-                    addDebugLog(`Simplified source cells count: ${simplifiedSourceCells.length}`);
-
-                    const baseName = sanitizeFileName(studyBibleFile.name.replace(/\.idml$/i, ""));
-                    const notebookName = sanitizeFileName(`${baseName}-biblica`);
+                    
+                    addDebugLog(`Simplified note cells count: ${simplifiedNoteCells.length}`);
+                    
+                    const baseName = sanitizeFileName(studyBibleFile.name.replace(/\.idml$/i, ''));
+                    const notesNotebookName = sanitizeFileName(`${baseName}-notes`);
                     // Add -biblica suffix to originalFileName to match naming convention (e.g., "mat-john.idml" -> "mat-john-biblica.idml")
                     // This ensures the saved file in attachments matches what the exporter will look for
                     const originalFileName = studyBibleFile.name.replace(
@@ -944,58 +733,101 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         "-biblica.idml"
                     );
                     addDebugLog(`Base name: "${baseName}"`);
-                    addDebugLog(`Notebook name: "${notebookName}"`);
+                    addDebugLog(`Notes notebook name: "${notesNotebookName}"`);
                     addDebugLog(`Original file name: "${originalFileName}"`);
-
-                    const result = {
-                        source: {
-                            name: notebookName,
-                            cells: simplifiedSourceCells,
-                            metadata: {
-                                id: `biblica-source-${Date.now()}`,
-                                originalFileName: originalFileName,
-                                originalFileData: arrayBuffer,
-                                importerType: "biblica",
-                                createdAt: new Date().toISOString(),
-                                documentId: document.id,
-                                storyCount: document.stories.length,
-                                originalHash: document.originalHash,
-                                totalCells: simplifiedSourceCells.length,
-                                fileType: "biblica",
+                    
+                    // Create notebook pair for notes only
+                    // NOTE: Verses file removed - will use Bible Swapper for verse content later
+                    const notebookPairs = [];
+                    
+                    // Pair 1: Notes (source only, empty codex)
+                    if (simplifiedNoteCells.length > 0) {
+                        notebookPairs.push({
+                            source: { 
+                                name: notesNotebookName, 
+                                cells: simplifiedNoteCells,
+                                metadata: {
+                                    id: `biblica-notes-source-${Date.now()}`,
+                                    originalFileName: originalFileName,
+                                    sourceFile: originalFileName,
+                                    originalFileData: arrayBuffer,
+                                    importerType: 'biblica',
+                                    createdAt: new Date().toISOString(),
+                                    importContext: {
+                                        importerType: 'biblica',
+                                        fileName: originalFileName,
+                                        originalFileName: originalFileName,
+                                        originalHash: document.originalHash,
+                                        documentId: document.id,
+                                        importTimestamp: new Date().toISOString(),
+                                        contentType: 'notes',
+                                    },
+                                    documentId: document.id,
+                                    storyCount: document.stories.length,
+                                    originalHash: document.originalHash,
+                                    totalCells: simplifiedNoteCells.length,
+                                    fileType: 'biblica',
+                                    contentType: 'notes' // Mark as notes content
+                                }
                             },
-                        },
-                        codex: {
-                            name: notebookName,
-                            cells: codexCells,
-                            metadata: {
-                                id: `biblica-codex-${Date.now()}`,
-                                originalFileName: originalFileName,
-                                translatedBibleFileName: translatedBibleFile?.name || null,
-                                importerType: "biblica",
-                                createdAt: new Date().toISOString(),
-                                documentId: document.id,
-                                storyCount: document.stories.length,
-                                originalHash: document.originalHash,
-                                totalCells: codexCells.length,
-                                fileType: "biblica",
-                                isCodex: true,
-                            },
-                        },
-                    };
-
-                    addDebugLog(`Source notebook name: "${result.source.name}"`);
-                    addDebugLog(`Codex notebook name: "${result.codex.name}"`);
-
-                    addDebugLog("Import completed successfully!");
-                    addDebugLog(`Result size: ${JSON.stringify(result).length} characters`);
-                    addDebugLog(`Source cells count: ${result.source.cells.length}`);
-                    addDebugLog(`Codex cells count: ${result.codex.cells.length}`);
-
-                    // Add milestone cells to the notebook pair
-                    const resultWithMilestones = addMilestoneCellsToNotebookPair(result);
-
+                            codex: { 
+                                name: notesNotebookName,
+                                cells: simplifiedNoteCells.map(cell => ({
+                                    id: cell.id,
+                                    content: '', // Empty codex for notes
+                                    images: cell.images,
+                                    metadata: {
+                                        ...cell.metadata,
+                                        originalContent: cell.content
+                                    }
+                                })),
+                                metadata: {
+                                    id: `biblica-notes-codex-${Date.now()}`,
+                                    originalFileName: originalFileName,
+                                    sourceFile: originalFileName,
+                                    importerType: 'biblica',
+                                    createdAt: new Date().toISOString(),
+                                    importContext: {
+                                        importerType: 'biblica',
+                                        fileName: originalFileName,
+                                        originalFileName: originalFileName,
+                                        originalHash: document.originalHash,
+                                        documentId: document.id,
+                                        importTimestamp: new Date().toISOString(),
+                                        contentType: 'notes',
+                                    },
+                                    documentId: document.id,
+                                    storyCount: document.stories.length,
+                                    originalHash: document.originalHash,
+                                    totalCells: simplifiedNoteCells.length,
+                                    fileType: 'biblica',
+                                    isCodex: true,
+                                    contentType: 'notes' // Mark as notes content
+                                }
+                            }
+                        });
+                    }
+                    
+                    // NOTE: Pair 2 (Verses) commented out - will use Bible Swapper for verse content later
+                    // Only creating the Notes file now
+                    
+                    addDebugLog(`Created ${notebookPairs.length} notebook pair(s) (notes only)`);
+                    notebookPairs.forEach((pair, index) => {
+                        addDebugLog(`Pair ${index + 1}: "${pair.source.name}" - ${pair.source.cells.length} source cells, ${pair.codex.cells.length} codex cells`);
+                    });
+                    
+                    // Add milestone cells to notebook pairs
+                    addDebugLog('Adding milestone cells to notebook pairs...');
+                    const notebookPairsWithMilestones = notebookPairs.map(pair => {
+                        const pairWithMilestones = addMilestoneCellsToNotebookPair(pair);
+                        addDebugLog(`Added milestones to "${pair.source.name}": ${pairWithMilestones.source.cells.length} source cells (was ${pair.source.cells.length}), ${pairWithMilestones.codex.cells.length} codex cells (was ${pair.codex.cells.length})`);
+                        return pairWithMilestones;
+                    });
+                    
+                    addDebugLog('Import completed successfully!');
+                    
                     // Store the result and show complete button
-                    setImportResult(resultWithMilestones);
+                    setImportResult(notebookPairsWithMilestones);
                     setShowCompleteButton(true);
                     addDebugLog('Import result stored. Click "Complete Import" to finish.');
                 } catch (onCompleteError) {
@@ -1026,21 +858,20 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
         } finally {
             setIsProcessing(false);
         }
-    }, [
-        studyBibleFile,
-        translatedBibleFile,
-        onComplete,
-        addDebugLog,
-        createCellsFromStories,
-        parseTranslatedBible,
-    ]);
+    }, [studyBibleFile, onComplete, addDebugLog, createCellsFromStories]);
 
     const handleCompleteImport = useCallback(() => {
         if (importResult && onComplete) {
             try {
-                // If multiple pairs are present, pass them through
-                onComplete(importResult);
-                addDebugLog("Import completed and window will close.");
+                // importResult is now an array of notebook pairs
+                // Pass them as an array to onComplete
+                if (Array.isArray(importResult)) {
+                    onComplete(importResult);
+                } else {
+                    // Fallback for old format (single pair)
+                    onComplete(importResult);
+                }
+                addDebugLog('Import completed and window will close.');
             } catch (error) {
                 addDebugLog(
                     `Error completing import: ${
@@ -1060,7 +891,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         Biblica Importer
                     </h1>
                     <p className="text-muted-foreground">
-                        Import Study Bible (IDML) and Translated Bible files
+                        Import Biblica Study Bible Notes (IDML format)
                     </p>
                 </div>
                 <Button onClick={onCancel} className="flex items-center gap-2">
@@ -1072,16 +903,10 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             <Alert>
                 <BookOpen className="h-4 w-4" />
                 <AlertDescription>
-                    <strong>Two-File Import:</strong> This importer supports two-file import:
+                    <strong>Notes Import:</strong> This importer creates a source file containing notes and study content:
                     <ul className="list-disc list-inside mt-2 space-y-1">
-                        <li>
-                            <strong>Study Bible (IDML):</strong> Populates source file with all
-                            notes and bible verses
-                        </li>
-                        <li>
-                            <strong>Translated Bible:</strong> Populates target/codex file with
-                            translated verse content (format TBD)
-                        </li>
+                        <li><strong>Study Bible (IDML):</strong> Required. Creates a notes source file containing all non-verse content (notes, titles, commentary, etc.)</li>
+                        <li><strong>Bible Verses:</strong> Use the Bible Swapper feature later to add translated Bible verses</li>
                     </ul>
                 </AlertDescription>
             </Alert>
@@ -1135,60 +960,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                 </CardContent>
             </Card>
 
-            {/* Translated Bible File Input */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Languages className="h-5 w-5" />
-                        Translated Bible File - Optional
-                    </CardTitle>
-                    <CardDescription>
-                        Select the translated Bible file (IDML format). This will populate the
-                        target/codex file with translated verse content, matching verses by their
-                        labels (e.g., MAT 1:1). The structure (br tags, etc.) will be preserved from
-                        the translated file.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
-                        <input
-                            type="file"
-                            accept=".idml"
-                            onChange={handleTranslatedBibleSelect}
-                            className="hidden"
-                            id="translated-bible-file-input"
-                            disabled={isProcessing}
-                        />
-                        <label
-                            htmlFor="translated-bible-file-input"
-                            className="cursor-pointer inline-flex flex-col items-center gap-2"
-                        >
-                            <Upload className="h-12 w-12 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">
-                                Click to select Translated Bible file or drag and drop
-                            </span>
-                            <span className="text-xs text-muted-foreground/75 italic">
-                                (IDML format)
-                            </span>
-                        </label>
-                    </div>
-
-                    {translatedBibleFile && (
-                        <div className="space-y-2">
-                            <div className="text-sm font-medium">
-                                Selected Translated Bible File
-                            </div>
-                            <div className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm">
-                                <FileText className="h-4 w-4 text-muted-foreground" />
-                                <span className="flex-1">{translatedBibleFile.name}</span>
-                                <span className="text-muted-foreground">
-                                    {(translatedBibleFile.size / 1024 / 1024).toFixed(2)} MB
-                                </span>
-                            </div>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+            {/* NOTE: Translated Bible File Input removed - will use Bible Swapper later */}
 
             {isProcessing && (
                 <Card>

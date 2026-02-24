@@ -158,7 +158,8 @@ interface SmartEdit {
 }
 
 interface CellIdGlobalState {
-    cellId: string;
+    cellId: string; // UUID for internal cell reference
+    globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
 }
@@ -178,7 +179,7 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
-    | { command: "reload"; data?: { cellId: string; uri?: string; }; }
+    | { command: "reload"; data?: { cellId: string; globalReferences: string[]; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
@@ -254,7 +255,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.status"; }
     | { command: "auth.checkAuthStatus"; }
     | { command: "auth.backToLogin"; }
-    | { command: "auth.requestPasswordReset"; resetEmail: string; }
+    | { command: "auth.requestPasswordReset"; }
+    // | { command: "auth.requestPasswordReset"; resetEmail: string; }
     | { command: "project.clone"; repoUrl: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.new"; }
     | { command: "workspace.status"; }
@@ -615,7 +617,7 @@ export type EditorPostMessages =
             data: CustomNotebookCellData["metadata"]["data"];
         };
     }
-    | { command: "saveHtml"; content: EditorCellContent; }
+    | { command: "saveHtml"; requestId?: string; content: EditorCellContent; }
     | { command: "saveTimeBlocks"; content: TimeBlock[]; }
     | { command: "replaceDuplicateCells"; content: QuillCellContent; }
     | { command: "getContent"; }
@@ -694,6 +696,7 @@ export type EditorPostMessages =
     | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
+        requestId?: string;
         content: {
             cellId: string;
             audioData: string; // base64 encoded audio data
@@ -947,6 +950,7 @@ type CustomCellMetaData = BaseCustomCellMetaData & {
             isDeleted: boolean;
             isMissing?: boolean;
             validatedBy?: ValidationEntry[];
+            createdBy?: string;
         };
     };
     cellLabel?: string;
@@ -991,18 +995,90 @@ export interface CustomNotebookMetadata {
     fileDisplayName?: string;
     edits?: FileEditHistory[];
     importerType?: FileImporterType;
+    /**
+     * The original filename of the imported artifact (if any).
+     * Example: "MAT.idml", "mydoc.docx"
+     */
+    originalFileName?: string;
+    /**
+     * Canonical source identifier for the imported artifact.
+     * Stored at notebook-level (not per-cell). For most importers this matches originalFileName.
+     */
+    sourceFile?: string;
+    /**
+     * One-time import context derived from the import process.
+     * This is the canonical home for attributes that do not vary per-cell.
+     */
+    importContext?: NotebookImportContext;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
     metadata: CustomNotebookMetadata;
 };
 
-type CodexNotebookAsJSONData = {
-    cells: CustomNotebookCellData[];
-    metadata: CustomNotebookMetadata;
+export type NotebookAsJSONData<TCells, TMetadata> = {
+    cells: TCells[];
+    metadata: TMetadata;
 };
 
-type FileImporterType = "smart-segmenter" | "audio" | "docx-roundtrip" | "markdown" | "subtitles" | "spreadsheet" | "tms" | "pdf" | "indesign" | "usfm" | "paratext" | "ebible" | "macula" | "biblica" | "obs";
+type CodexNotebookAsJSONData = NotebookAsJSONData<CustomNotebookCellData, CustomNotebookMetadata>;
+
+type FileImporterType =
+    | "smart-segmenter"
+    | "plaintext"
+    | "audio"
+    | "docx"
+    | "docx-roundtrip"
+    | "markdown"
+    | "subtitles"
+    | "spreadsheet"
+    | "tms"
+    | "pdf"
+    | "indesign"
+    | "usfm"
+    | "usfm-experimental"
+    | "paratext"
+    | "ebible"
+    | "ebibleCorpus"
+    | "macula"
+    | "biblica"
+    | "obs";
+
+/**
+ * Minimal notebook metadata shared by importer/webview DTOs and persisted notebook metadata.
+ * This avoids duplicating the same "import core" fields across webview and extension types.
+ */
+export type NotebookImportMetadataCore = Pick<
+    CustomNotebookMetadata,
+    | "id"
+    | "originalFileName"
+    | "sourceFile"
+    | "importerType"
+    | "importContext"
+    | "textDirection"
+    | "audioOnly"
+    | "videoUrl"
+    | "fileDisplayName"
+> & {
+    corpusMarker?: string;
+    /**
+     * Import-time timestamp (webview DTOs). The provider may map this into sourceCreatedAt.
+     */
+    createdAt?: string;
+    isCodex?: boolean;
+};
+
+export type NotebookImportContext = {
+    importerType?: FileImporterType | string;
+    fileName?: string;
+    originalFileName?: string;
+    originalHash?: string;
+    documentId?: string;
+    documentVersion?: string;
+    importTimestamp?: string;
+    fileSize?: number;
+    [key: string]: unknown;
+};
 
 /**
  * Represents information about a single milestone in a document.
@@ -1723,6 +1799,15 @@ interface CodexItem {
 }
 type EditorReceiveMessages =
     | {
+        type: "saveHtmlSaved";
+        content: {
+            requestId?: string;
+            cellId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
@@ -1735,6 +1820,11 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsInitialContentPaginated";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
         milestoneIndex: MilestoneIndex;
         cells: QuillCellContent[];
         currentMilestoneIndex: number;
@@ -1749,6 +1839,11 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsCellPage";
+        /**
+         * Monotonic revision number for the document content as observed by the provider.
+         * Used by the webview to ignore out-of-order / stale payloads.
+         */
+        rev?: number;
         milestoneIndex: number;
         subsectionIndex: number;
         cells: QuillCellContent[];
@@ -1935,7 +2030,13 @@ type EditorReceiveMessages =
     }
     | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
-    | { type: "refreshCurrentPage"; }
+    | {
+        type: "refreshCurrentPage";
+        /**
+         * Optional rev for correlation; refresh is a pull-trigger, so the response payload rev is authoritative.
+         */
+        rev?: number;
+    }
     | { type: "asrConfig"; content: { endpoint: string; authToken?: string; }; }
     | { type: "startBatchTranscription"; content: { count: number; }; }
     | {
@@ -2012,6 +2113,15 @@ type EditorReceiveMessages =
         status: "dirty" | "syncing" | "synced" | "none";
     }
     | {
+        type: "highlightCell";
+        globalReferences: string[];
+        cellId?: string; // Optional cellId for fallback matching when globalReferences is empty
+    }
+    | {
+        type: "updateCellsPerPage";
+        cellsPerPage: number;
+    }
+    | {
         type: "editorPosition";
         position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
     }
@@ -2048,7 +2158,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioId: string;
+            requestId?: string;
             success: boolean;
+            /**
+             * True when the attachment metadata has been persisted to the .codex/.source file
+             * (in addition to the audio file itself being written).
+             */
+            savedToCodexFile?: boolean;
             error?: string;
         };
     }
