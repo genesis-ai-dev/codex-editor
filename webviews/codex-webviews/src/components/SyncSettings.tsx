@@ -123,7 +123,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         >
                             <i
                                 className={`codicon ${
-                                    isSyncInProgress || isImportInProgress
+                                    isSyncInProgress
                                         ? "codicon-loading codicon-modifier-spin"
                                         : "codicon-sync"
                                 }`}
@@ -144,8 +144,6 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         <span className="hidden sm:inline">
                             {!isOnline
                                 ? "Offline"
-                                : isImportInProgress
-                                ? "Importing..."
                                 : isSyncInProgress
                                 ? syncStage || "Syncing..."
                                 : !isAuthenticated
@@ -155,8 +153,6 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         <span className="sm:hidden">
                             {!isOnline
                                 ? "Offline"
-                                : isImportInProgress
-                                ? "Importing"
                                 : isSyncInProgress
                                 ? "Syncing"
                                 : !isAuthenticated
