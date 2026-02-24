@@ -587,17 +587,6 @@ const ThreadCard = ({
                                     </Button>
                                 </div>
 
-                                {/* Preview of the reply with rendered blockquotes */}
-                                {replyText[thread.id]?.trim() && (
-                                    <div className="border border-border rounded-md p-2 bg-muted/30 text-sm">
-                                        <div className="text-xs text-muted-foreground mb-1">
-                                            Preview:
-                                        </div>
-                                        <div className="text-sm leading-relaxed break-words">
-                                            {renderCommentBody(replyText[thread.id])}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}
