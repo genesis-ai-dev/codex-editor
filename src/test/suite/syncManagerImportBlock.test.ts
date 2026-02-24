@@ -5,9 +5,12 @@ import sinon from "sinon";
 
 /**
  * Tests that the sync process does not run while NewSourceUploader is importing files.
- * The NewSourceUploaderProvider calls beginImportInProgress() when processing writeNotebooks,
- * writeTranslation, etc., and endImportInProgress() when done. SyncManager.executeSync()
- * must skip execution when import is in progress.
+ * The NewSourceUploaderProvider calls beginImportInProgress() when it receives importStarted
+ * (from notifyImportStarted in importer forms) or when processing writeNotebooks,
+ * writeTranslation, etc. It calls endImportInProgress() when receiving importEnded or when
+ * those operations complete. SyncManager.executeSync() and scheduleSyncOperation() must
+ * skip execution when import is in progress. The sync button is disabled via
+ * addImportInProgressListener.
  */
 suite("SyncManager - Import Block Tests", () => {
     let syncManager: SyncManager;
@@ -79,5 +82,70 @@ suite("SyncManager - Import Block Tests", () => {
             false,
             "getSyncStatus should report isImportInProgress=false when no import in progress"
         );
+    });
+
+    test("scheduleSyncOperation does not schedule when import is in progress", () => {
+        const setTimeoutStub = sinon.stub(global, "setTimeout").returns(0 as unknown as NodeJS.Timeout);
+
+        syncManager.beginImportInProgress();
+        try {
+            syncManager.scheduleSyncOperation("Auto-sync during import");
+
+            assert.ok(
+                !setTimeoutStub.called,
+                "setTimeout must not be called when import is in progress - sync should not be scheduled"
+            );
+        } finally {
+            syncManager.endImportInProgress();
+            setTimeoutStub.restore();
+        }
+    });
+
+    test("nested begin/end import counter - sync remains blocked until all imports end", () => {
+        syncManager.beginImportInProgress();
+        syncManager.beginImportInProgress();
+
+        try {
+            assert.strictEqual(
+                syncManager.getSyncStatus().isImportInProgress,
+                true,
+                "Should be blocked with 2 begins"
+            );
+
+            syncManager.endImportInProgress();
+            assert.strictEqual(
+                syncManager.getSyncStatus().isImportInProgress,
+                true,
+                "Should still be blocked after 1 end (nested import)"
+            );
+
+            syncManager.endImportInProgress();
+            assert.strictEqual(
+                syncManager.getSyncStatus().isImportInProgress,
+                false,
+                "Should not be blocked after all imports end"
+            );
+        } finally {
+            for (let i = 0; i < 5; i++) {
+                syncManager.endImportInProgress();
+            }
+        }
+    });
+
+    test("addImportInProgressListener notifies when import state changes", () => {
+        const listener = sinon.stub();
+        const disposable = syncManager.addImportInProgressListener(listener);
+
+        try {
+            syncManager.beginImportInProgress();
+            assert.ok(listener.calledWith(true), "Listener should be notified with true when import starts");
+
+            listener.resetHistory();
+            syncManager.endImportInProgress();
+            assert.ok(listener.calledWith(false), "Listener should be notified with false when import ends");
+        } finally {
+            disposable.dispose();
+            syncManager.endImportInProgress();
+        }
     });
 });
