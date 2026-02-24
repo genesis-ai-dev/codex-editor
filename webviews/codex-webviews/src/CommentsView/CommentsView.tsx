@@ -40,7 +40,7 @@ const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
 type SortMode = "location" | "time-increasing" | "time-decreasing";
 
-interface UserAvatar {
+interface UserAvatarProps {
     username: string;
     email?: string;
     size?: "small" | "medium" | "large";
@@ -129,7 +129,7 @@ const formatTimestamp = (timestamp: string | number): { display: string; full: s
     }
 };
 
-const UserAvatar = ({ username, email, size = "small" }: UserAvatar) => {
+const UserAvatar = ({ username, email, size = "small" }: UserAvatarProps) => {
     const sizeMap = {
         small: { width: "24px", height: "24px", fontSize: "12px" },
         medium: { width: "32px", height: "32px", fontSize: "14px" },
@@ -159,6 +159,528 @@ const UserAvatar = ({ username, email, size = "small" }: UserAvatar) => {
         </div>
     );
 };
+
+// Helper function to render comment body with blockquotes
+const renderCommentBody = (body: string): JSX.Element[] | null => {
+    if (!body) return null;
+
+    const lines = body.split("\n");
+    const elements: JSX.Element[] = [];
+    let currentQuoteLines: string[] = [];
+
+    const flushQuote = () => {
+        if (currentQuoteLines.length > 0) {
+            elements.push(
+                <blockquote
+                    key={`quote-${elements.length}`}
+                    className="border-l-4 border-muted-foreground/30 pl-3 py-1 my-2 bg-muted/30 text-muted-foreground italic"
+                >
+                    {currentQuoteLines.join("\n")}
+                </blockquote>
+            );
+            currentQuoteLines = [];
+        }
+    };
+
+    lines.forEach((line, index) => {
+        if (line.startsWith("> ")) {
+            currentQuoteLines.push(line.substring(2));
+        } else {
+            flushQuote();
+            if (line.trim() || index < lines.length - 1) {
+                elements.push(
+                    <span key={`text-${elements.length}`}>
+                        {line}
+                        {index < lines.length - 1 && <br />}
+                    </span>
+                );
+            }
+        }
+    });
+
+    flushQuote();
+    return elements;
+};
+
+// ─── Module-level component interfaces & definitions ────────────────────────
+// Defining these outside App prevents React from treating them as new component
+// types on every render, which would cause inputs to lose focus on each keystroke.
+
+interface CommentCardProps {
+    thread: NotebookCommentThread;
+    comment: Comment;
+    currentUser: { username: string; email: string; isAuthenticated: boolean };
+    onReplyToComment: (comment: Comment, threadId: string) => void;
+    onDeleteComment: (commentId: string, commentThreadId: string) => void;
+    onUndoDeleteComment: (commentId: string, commentThreadId: string) => void;
+}
+
+const CommentCard = ({
+    thread,
+    comment,
+    currentUser,
+    onReplyToComment,
+    onDeleteComment,
+    onUndoDeleteComment,
+}: CommentCardProps) => {
+    const formattedTime = formatTimestamp(comment.timestamp);
+    const [isHovered, setIsHovered] = useState(false);
+
+    return (
+        <div
+            className={`group relative hover:bg-muted/50 rounded-md p-2 transition-colors ${
+                comment.deleted ? "opacity-60" : ""
+            }`}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <div className="flex gap-2 items-start">
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <UserAvatar username={comment.author.name} size="small" />
+                    </TooltipTrigger>
+                    <TooltipContent>{comment.author.name}</TooltipContent>
+                </Tooltip>
+
+                {/* Comment content */}
+                <div className="flex-1 min-w-0">
+                    <div className="flex justify-between">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="text-xs text-muted-foreground">
+                                    {formattedTime.display}
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{formattedTime.full}</TooltipContent>
+                        </Tooltip>
+                    </div>
+                    <div
+                        className={`text-sm leading-relaxed break-words ${
+                            comment.deleted ? "text-muted-foreground italic" : ""
+                        }`}
+                    >
+                        {comment.deleted
+                            ? "This comment has been deleted"
+                            : renderCommentBody(comment.body)}
+                    </div>
+                </div>
+            </div>
+
+            {/* Action buttons - positioned at bottom right */}
+            {isHovered && currentUser.isAuthenticated && !comment.deleted && (
+                <div className="absolute bottom-1 right-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded px-1 py-0.5 border border-border/50">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => onReplyToComment(comment, thread.id)}
+                        title="Reply to this comment"
+                    >
+                        <Reply className="h-3 w-3" />
+                    </Button>
+
+                    {comment.author.name === currentUser.username && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => onDeleteComment(comment.id, thread.id)}
+                            title="Delete comment"
+                        >
+                            <Trash2 className="h-3 w-3" />
+                        </Button>
+                    )}
+                </div>
+            )}
+
+            {/* Undo deletion button for deleted comments - only show on hover */}
+            {comment.deleted && comment.author.name === currentUser.username && isHovered && (
+                <div className="absolute bottom-1 right-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 border border-border/50">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => onUndoDeleteComment(comment.id, thread.id)}
+                        title="Undo deletion"
+                    >
+                        <Undo2 className="h-3 w-3 mr-1" />
+                        Undo
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+interface ThreadCardProps {
+    thread: NotebookCommentThread;
+    collapsedThreads: Record<string, boolean>;
+    editingTitle: string | null;
+    threadTitleEdit: string;
+    replyText: Record<string, string>;
+    replyingTo: { threadId: string; username?: string } | null;
+    pendingResolveThreads: Set<string>;
+    currentUser: { username: string; email: string; isAuthenticated: boolean };
+    isThreadResolved: (thread: NotebookCommentThread) => boolean;
+    getCellDisplayName: (cellId: CellIdGlobalState | string) => string;
+    onToggleCollapsed: (threadId: string) => void;
+    onSetEditingTitle: (id: string | null) => void;
+    onSetThreadTitleEdit: (title: string) => void;
+    onSaveEditTitle: (threadId: string) => void;
+    onToggleResolved: (thread: NotebookCommentThread) => void;
+    onSetReplyText: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
+    onSetReplyingTo: (value: { threadId: string; username?: string } | null) => void;
+    onSubmitReply: (threadId: string) => void;
+    onReplyToComment: (comment: Comment, threadId: string) => void;
+    onDeleteComment: (commentId: string, commentThreadId: string) => void;
+    onUndoDeleteComment: (commentId: string, commentThreadId: string) => void;
+}
+
+const ThreadCard = ({
+    thread,
+    collapsedThreads,
+    editingTitle,
+    threadTitleEdit,
+    replyText,
+    replyingTo,
+    pendingResolveThreads,
+    currentUser,
+    isThreadResolved,
+    getCellDisplayName,
+    onToggleCollapsed,
+    onSetEditingTitle,
+    onSetThreadTitleEdit,
+    onSaveEditTitle,
+    onToggleResolved,
+    onSetReplyText,
+    onSetReplyingTo,
+    onSubmitReply,
+    onReplyToComment,
+    onDeleteComment,
+    onUndoDeleteComment,
+}: ThreadCardProps) => (
+    <Card
+        className={`overflow-hidden border transition-opacity duration-200 ${
+            isThreadResolved(thread) ? "opacity-75" : "opacity-100"
+        }`}
+    >
+        {/* Thread header */}
+        <CardHeader
+            className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors p-3"
+            onClick={() => onToggleCollapsed(thread.id)}
+        >
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {collapsedThreads[thread.id] ? (
+                        <ChevronRight className="h-4 w-4" />
+                    ) : (
+                        <ChevronDown className="h-4 w-4" />
+                    )}
+
+                    {editingTitle === thread.id ? (
+                        <Input
+                            value={threadTitleEdit}
+                            placeholder="Thread title"
+                            className="flex-1"
+                            onChange={(e) => onSetThreadTitleEdit(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    onSaveEditTitle(thread.id);
+                                } else if (e.key === "Escape") {
+                                    onSetEditingTitle(null);
+                                }
+                            }}
+                        />
+                    ) : (
+                        <span className="font-medium text-sm truncate">
+                            {thread.threadTitle || "Untitled Thread"}
+                        </span>
+                    )}
+                </div>
+
+                <div className="flex gap-1.5 items-center">
+                    {isThreadResolved(thread) && (
+                        <Badge variant="secondary" className="text-xs">
+                            <Check className="h-3 w-3 mr-1" />
+                            Resolved
+                        </Badge>
+                    )}
+
+                    {/* Action Buttons */}
+                    {!editingTitle && (
+                        <div className="flex gap-1">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title="Edit title"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSetEditingTitle(thread.id);
+                                    onSetThreadTitleEdit(thread.threadTitle || "");
+                                }}
+                            >
+                                <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title={
+                                    isThreadResolved(thread)
+                                        ? "Mark as unresolved"
+                                        : "Mark as resolved"
+                                }
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onToggleResolved(thread);
+                                }}
+                                disabled={pendingResolveThreads.has(thread.id)}
+                            >
+                                {pendingResolveThreads.has(thread.id) ? (
+                                    <Clock className="h-4 w-4 animate-spin" />
+                                ) : isThreadResolved(thread) ? (
+                                    <Check className="h-4 w-4" />
+                                ) : (
+                                    <Circle className="h-4 w-4" />
+                                )}
+                            </Button>
+                        </div>
+                    )}
+
+                    {/* Edit mode actions */}
+                    {editingTitle === thread.id && (
+                        <div className="flex gap-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title="Cancel"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSetEditingTitle(null);
+                                }}
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title="Save"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSaveEditTitle(thread.id);
+                                }}
+                            >
+                                <Check className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex gap-2 items-center">
+                    <span
+                        className="text-primary max-w-48 truncate"
+                        title={
+                            typeof thread.cellId === "string"
+                                ? thread.cellId
+                                : `Cell ID: ${thread.cellId.cellId}${
+                                      thread.cellId.globalReferences?.length
+                                          ? `\nReferences: ${thread.cellId.globalReferences.join(", ")}`
+                                          : ""
+                                  }`
+                        }
+                    >
+                        {getCellDisplayName(thread.cellId)}
+                    </span>
+                </div>
+                <span className="flex items-center gap-1">
+                    <MessageSquare className="h-3 w-3" />
+                    {thread.comments.length}{" "}
+                    {thread.comments.length === 1 ? "comment" : "comments"}
+                </span>
+            </div>
+        </CardHeader>
+
+        {/* Comments section */}
+        {!collapsedThreads[thread.id] && (
+            <CardContent className="p-3">
+                <div className="flex flex-col gap-3">
+                    {/* Reply form at top */}
+                    {currentUser.isAuthenticated && (
+                        <div className="flex gap-3 items-start pb-3 border-b border-border">
+                            <UserAvatar
+                                username={currentUser.username}
+                                email={currentUser.email}
+                                size="small"
+                            />
+
+                            <div className="flex-1 flex flex-col gap-2">
+                                {replyingTo?.threadId === thread.id && (
+                                    <div className="text-xs text-primary flex items-center gap-1 pb-2 border-b border-border">
+                                        <Reply className="h-3 w-3" />
+                                        Replying to @{replyingTo.username}
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-4 w-4 p-0 ml-auto"
+                                            onClick={() => {
+                                                onSetReplyingTo(null);
+                                                onSetReplyText((prev) => ({
+                                                    ...prev,
+                                                    [thread.id]: "",
+                                                }));
+                                            }}
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                    </div>
+                                )}
+
+                                <div className="flex gap-2">
+                                    <textarea
+                                        placeholder="Add a reply..."
+                                        value={replyText[thread.id] || ""}
+                                        className="flex-1 resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] max-h-32"
+                                        rows={
+                                            replyText[thread.id]?.includes("\n")
+                                                ? Math.min(
+                                                      replyText[thread.id].split("\n").length,
+                                                      5
+                                                  )
+                                                : 1
+                                        }
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && !e.shiftKey) {
+                                                e.preventDefault();
+                                                onSubmitReply(thread.id);
+                                            } else if (e.key === "Escape") {
+                                                onSetReplyingTo(null);
+                                                onSetReplyText((prev) => ({
+                                                    ...prev,
+                                                    [thread.id]: "",
+                                                }));
+                                            }
+                                        }}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            onSetReplyText((prev) => ({
+                                                ...prev,
+                                                [thread.id]: value,
+                                            }));
+                                        }}
+                                    />
+
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 self-end"
+                                        onClick={() => onSubmitReply(thread.id)}
+                                        title="Send reply"
+                                        disabled={!replyText[thread.id]?.trim()}
+                                    >
+                                        <Send className="h-4 w-4" />
+                                    </Button>
+                                </div>
+
+                                {/* Preview of the reply with rendered blockquotes */}
+                                {replyText[thread.id]?.trim() && (
+                                    <div className="border border-border rounded-md p-2 bg-muted/30 text-sm">
+                                        <div className="text-xs text-muted-foreground mb-1">
+                                            Preview:
+                                        </div>
+                                        <div className="text-sm leading-relaxed break-words">
+                                            {renderCommentBody(replyText[thread.id])}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Comments - newest first like YouTube */}
+                    <div className="flex flex-col gap-3">
+                        {thread.comments
+                            .slice()
+                            .reverse()
+                            .map((comment) => (
+                                <CommentCard
+                                    key={comment.id}
+                                    comment={comment}
+                                    thread={thread}
+                                    currentUser={currentUser}
+                                    onReplyToComment={onReplyToComment}
+                                    onDeleteComment={onDeleteComment}
+                                    onUndoDeleteComment={onUndoDeleteComment}
+                                />
+                            ))}
+                    </div>
+                </div>
+            </CardContent>
+        )}
+    </Card>
+);
+
+interface LocationGroupedCommentsProps {
+    threads: NotebookCommentThread[];
+    getMissingLabel: (type: "file" | "milestone" | "cell") => string;
+    threadCardBaseProps: Omit<ThreadCardProps, "thread">;
+}
+
+const LocationGroupedComments = ({
+    threads,
+    getMissingLabel,
+    threadCardBaseProps,
+}: LocationGroupedCommentsProps) => {
+    // Group by file, then milestone
+    const grouped = threads.reduce(
+        (acc, thread) => {
+            const file = thread.cellId.fileDisplayName || getMissingLabel("file");
+            const milestone = thread.cellId.milestoneValue || getMissingLabel("milestone");
+
+            if (!acc[file]) acc[file] = {};
+            if (!acc[file][milestone]) acc[file][milestone] = [];
+            acc[file][milestone].push(thread);
+
+            return acc;
+        },
+        {} as Record<string, Record<string, NotebookCommentThread[]>>
+    );
+
+    return (
+        <div className="flex flex-col gap-2">
+            {Object.entries(grouped).map(([fileName, milestones]) => (
+                <div key={fileName} className="flex flex-col">
+                    <div className="px-4 py-2 bg-muted/30 font-semibold text-sm sticky top-0 z-10">
+                        {fileName}
+                    </div>
+                    {Object.entries(milestones).map(([milestoneName, threadsInMilestone]) => (
+                        <div key={`${fileName}-${milestoneName}`} className="flex flex-col">
+                            <div className="px-6 py-1.5 bg-muted/20 font-medium text-xs text-muted-foreground">
+                                {milestoneName}
+                            </div>
+                            <div className="ml-8 flex flex-col gap-2 mb-2">
+                                {threadsInMilestone.map((thread) => (
+                                    <ThreadCard
+                                        key={thread.id}
+                                        thread={thread}
+                                        {...threadCardBaseProps}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// ─── Main App component ──────────────────────────────────────────────────────
 
 function App() {
     const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "", globalReferences: [] });
@@ -204,7 +726,7 @@ function App() {
     );
     const [editingTitle, setEditingTitle] = useState<string | null>(null);
     const [threadTitleEdit, setThreadTitleEdit] = useState<string>("");
-    
+
     // Sort configuration
     const [sortMode, setSortMode] = useState<SortMode>("location");
 
@@ -564,7 +1086,7 @@ function App() {
      * 1. Use fileDisplayName + milestoneValue + cellLineNumber if available
      * 2. Fall back to globalReferences if available
      * 3. Fall back to shortened cellId
-     * 
+     *
      * Note: For stored comments, the display fields may not be present.
      * The current cell selection will have them, but older saved comments won't.
      * This is intentional - we want fresh data for the current cell, but we fall back
@@ -572,7 +1094,7 @@ function App() {
      */
     const getCellDisplayName = (cellIdState: CellIdGlobalState | string): string => {
         // Handle legacy string format (shouldn't happen after migration, but just in case)
-        if (typeof cellIdState === 'string') {
+        if (typeof cellIdState === "string") {
             const parts = cellIdState.split(":");
             const finalPart = parts[parts.length - 1] || cellIdState;
             return cellIdState.length < 10 ? cellIdState : finalPart;
@@ -597,12 +1119,12 @@ function App() {
         if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
             // For stored comments with globalReferences, show them nicely
             // Extract just the reference part (e.g., "GEN 1:1" -> "Gen 1:1" or "NUM 1:7" -> "Num 1:7")
-            const formatted = cellIdState.globalReferences.map(ref => {
+            const formatted = cellIdState.globalReferences.map((ref) => {
                 // Capitalize first letter, lowercase rest: "NUM 1:7" -> "Num 1:7"
-                const parts = ref.split(' ');
+                const parts = ref.split(" ");
                 if (parts.length >= 2) {
                     const book = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
-                    return `${book} ${parts.slice(1).join(' ')}`;
+                    return `${book} ${parts.slice(1).join(" ")}`;
                 }
                 return ref;
             });
@@ -610,13 +1132,13 @@ function App() {
         }
 
         // Priority 4: Fall back to shortened cellId
-        const cellId = cellIdState.cellId;
-        if (cellId.length > 10) {
+        const currentCellId = cellIdState.cellId;
+        if (currentCellId.length > 10) {
             // Show last 8 characters for UUIDs
-            return `...${cellId.slice(-8)}`;
+            return `...${currentCellId.slice(-8)}`;
         }
 
-        return cellId || "Unknown cell";
+        return currentCellId || "Unknown cell";
     };
 
     const filteredCommentThreads = useMemo(() => {
@@ -677,48 +1199,6 @@ function App() {
     // Whether a user can start a new top-level comment thread (requires auth and active cell)
     const canStartNewComment = currentUser.isAuthenticated && Boolean(cellId.cellId);
 
-    // Helper function to render comment body with blockquotes
-    const renderCommentBody = (body: string) => {
-        if (!body) return null;
-
-        const lines = body.split("\n");
-        const elements: JSX.Element[] = [];
-        let currentQuoteLines: string[] = [];
-
-        const flushQuote = () => {
-            if (currentQuoteLines.length > 0) {
-                elements.push(
-                    <blockquote
-                        key={`quote-${elements.length}`}
-                        className="border-l-4 border-muted-foreground/30 pl-3 py-1 my-2 bg-muted/30 text-muted-foreground italic"
-                    >
-                        {currentQuoteLines.join("\n")}
-                    </blockquote>
-                );
-                currentQuoteLines = [];
-            }
-        };
-
-        lines.forEach((line, index) => {
-            if (line.startsWith("> ")) {
-                currentQuoteLines.push(line.substring(2));
-            } else {
-                flushQuote();
-                if (line.trim() || index < lines.length - 1) {
-                    elements.push(
-                        <span key={`text-${elements.length}`}>
-                            {line}
-                            {index < lines.length - 1 && <br />}
-                        </span>
-                    );
-                }
-            }
-        });
-
-        flushQuote();
-        return elements;
-    };
-
     const handleReplyToComment = (comment: Comment, threadId: string) => {
         const quotedText = `> ${comment.body.replace(/\n/g, "\n> ")}\n\n`;
         setReplyText((prev) => ({
@@ -728,440 +1208,28 @@ function App() {
         setReplyingTo({ threadId, username: comment.author.name });
     };
 
-    const CommentCard = ({
-        thread,
-        comment,
-    }: {
-        thread: NotebookCommentThread;
-        comment: Comment;
-    }) => {
-        const formattedTime = formatTimestamp(comment.timestamp);
-        const [isHovered, setIsHovered] = useState(false);
-
-        return (
-            <div
-                key={comment.id}
-                className={`group relative hover:bg-muted/50 rounded-md p-2 transition-colors ${
-                    comment.deleted ? "opacity-60" : ""
-                }`}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
-            >
-                <div className="flex gap-2 items-start">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <UserAvatar username={comment.author.name} size="small" />
-                        </TooltipTrigger>
-                        <TooltipContent>{comment.author.name}</TooltipContent>
-                    </Tooltip>
-
-                    {/* Comment content */}
-                    <div className="flex-1 min-w-0">
-                        <div className="flex justify-between">
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <span className="text-xs text-muted-foreground">
-                                        {formattedTime.display}
-                                    </span>
-                                </TooltipTrigger>
-                                <TooltipContent>{formattedTime.full}</TooltipContent>
-                            </Tooltip>
-                        </div>
-                        <div
-                            className={`text-sm leading-relaxed break-words ${
-                                comment.deleted ? "text-muted-foreground italic" : ""
-                            }`}
-                        >
-                            {comment.deleted
-                                ? "This comment has been deleted"
-                                : renderCommentBody(comment.body)}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Action buttons - positioned at bottom right */}
-                {isHovered && currentUser.isAuthenticated && !comment.deleted && (
-                    <div className="absolute bottom-1 right-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded px-1 py-0.5 border border-border/50">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                            onClick={() => handleReplyToComment(comment, thread.id)}
-                            title="Reply to this comment"
-                        >
-                            <Reply className="h-3 w-3" />
-                        </Button>
-
-                        {comment.author.name === currentUser.username && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                onClick={() => handleCommentDeletion(comment.id, thread.id)}
-                                title="Delete comment"
-                            >
-                                <Trash2 className="h-3 w-3" />
-                            </Button>
-                        )}
-                    </div>
-                )}
-
-                {/* Undo deletion button for deleted comments - only show on hover */}
-                {comment.deleted && comment.author.name === currentUser.username && isHovered && (
-                    <div className="absolute bottom-1 right-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 border border-border/50">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                            onClick={() => handleUndoCommentDeletion(comment.id, thread.id)}
-                            title="Undo deletion"
-                        >
-                            <Undo2 className="h-3 w-3 mr-1" />
-                            Undo
-                        </Button>
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    // Extract ThreadCard component to avoid duplication
-    const ThreadCard = ({ thread }: { thread: NotebookCommentThread }) => (
-                                <Card
-                                    className={`overflow-hidden border transition-opacity duration-200 ${
-                                        isThreadResolved(thread) ? "opacity-75" : "opacity-100"
-                                    }`}
-                                >
-                                    {/* Thread header */}
-                                    <CardHeader
-                                        className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors p-3"
-                                        onClick={() => toggleCollapsed(thread.id)}
-                                    >
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                {collapsedThreads[thread.id] ? (
-                                                    <ChevronRight className="h-4 w-4" />
-                                                ) : (
-                                                    <ChevronDown className="h-4 w-4" />
-                                                )}
-
-                                                {editingTitle === thread.id ? (
-                                                    <Input
-                                                        value={threadTitleEdit}
-                                                        placeholder="Thread title"
-                                                        className="flex-1"
-                                                        onChange={(e) =>
-                                                            setThreadTitleEdit(e.target.value)
-                                                        }
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === "Enter") {
-                                                                e.preventDefault();
-                                                                handleEditThreadTitle(thread.id);
-                                                            } else if (e.key === "Escape") {
-                                                                setEditingTitle(null);
-                                                            }
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <span className="font-medium text-sm truncate">
-                                                        {thread.threadTitle || "Untitled Thread"}
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            <div className="flex gap-1.5 items-center">
-                                                {isThreadResolved(thread) && (
-                                                    <Badge variant="secondary" className="text-xs">
-                                                        <Check className="h-3 w-3 mr-1" />
-                                                        Resolved
-                                                    </Badge>
-                                                )}
-
-                                                {/* Action Buttons */}
-                                                {!editingTitle && (
-                                                    <div className="flex gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0"
-                                                            title="Edit title"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setEditingTitle(thread.id);
-                                                                setThreadTitleEdit(
-                                                                    thread.threadTitle || ""
-                                                                );
-                                                            }}
-                                                        >
-                                                            <Edit className="h-4 w-4" />
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0"
-                                                            title={
-                                                                isThreadResolved(thread)
-                                                                    ? "Mark as unresolved"
-                                                                    : "Mark as resolved"
-                                                            }
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                toggleResolved(thread);
-                                                            }}
-                                                            disabled={pendingResolveThreads.has(
-                                                                thread.id
-                                                            )}
-                                                        >
-                                                            {pendingResolveThreads.has(
-                                                                thread.id
-                                                            ) ? (
-                                                                <Clock className="h-4 w-4 animate-spin" />
-                                                            ) : isThreadResolved(thread) ? (
-                                                                <Check className="h-4 w-4" />
-                                                            ) : (
-                                                                <Circle className="h-4 w-4" />
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                )}
-
-                                                {/* Edit mode actions */}
-                                                {editingTitle === thread.id && (
-                                                    <div className="flex gap-2">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0"
-                                                            title="Cancel"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setEditingTitle(null);
-                                                            }}
-                                                        >
-                                                            <X className="h-4 w-4" />
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-8 w-8 p-0"
-                                                            title="Save"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleEditThreadTitle(thread.id);
-                                                            }}
-                                                        >
-                                                            <Check className="h-4 w-4" />
-                                                        </Button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="flex justify-between text-xs text-muted-foreground">
-                                            <div className="flex gap-2 items-center">
-                                                <span
-                                                    className="text-primary max-w-48 truncate"
-                                                    title={
-                                                        typeof thread.cellId === 'string'
-                                                            ? thread.cellId
-                                                            : `Cell ID: ${thread.cellId.cellId}${
-                                                                  thread.cellId.globalReferences?.length
-                                                                      ? `\nReferences: ${thread.cellId.globalReferences.join(", ")}`
-                                                                      : ""
-                                                              }`
-                                                    }
-                                                >
-                                                    {getCellDisplayName(thread.cellId)}
-                                                </span>
-                                            </div>
-                                            <span className="flex items-center gap-1">
-                                                <MessageSquare className="h-3 w-3" />
-                                                {thread.comments.length}{" "}
-                                                {thread.comments.length === 1
-                                                    ? "comment"
-                                                    : "comments"}
-                                            </span>
-                                        </div>
-                                    </CardHeader>
-
-                                    {/* Comments section */}
-                                    {!collapsedThreads[thread.id] && (
-                                        <CardContent className="p-3">
-                                            <div className="flex flex-col gap-3">
-                                                {/* Reply form at top */}
-                                                {currentUser.isAuthenticated && (
-                                                    <div className="flex gap-3 items-start pb-3 border-b border-border">
-                                                        <UserAvatar
-                                                            username={currentUser.username}
-                                                            email={currentUser.email}
-                                                            size="small"
-                                                        />
-
-                                                        <div className="flex-1 flex flex-col gap-2">
-                                                            {replyingTo?.threadId === thread.id && (
-                                                                <div className="text-xs text-primary flex items-center gap-1 pb-2 border-b border-border">
-                                                                    <Reply className="h-3 w-3" />
-                                                                    Replying to @
-                                                                    {replyingTo.username}
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-4 w-4 p-0 ml-auto"
-                                                                        onClick={() => {
-                                                                            setReplyingTo(null);
-                                                                            setReplyText(
-                                                                                (prev) => ({
-                                                                                    ...prev,
-                                                                                    [thread.id]: "",
-                                                                                })
-                                                                            );
-                                                                        }}
-                                                                    >
-                                                                        <X className="h-3 w-3" />
-                                                                    </Button>
-                                                                </div>
-                                                            )}
-
-                                                            <div className="flex gap-2">
-                                                                <textarea
-                                                                    placeholder="Add a reply..."
-                                                                    value={
-                                                                        replyText[thread.id] || ""
-                                                                    }
-                                                                    className="flex-1 resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] max-h-32"
-                                                                    rows={
-                                                                        replyText[
-                                                                            thread.id
-                                                                        ]?.includes("\n")
-                                                                            ? Math.min(
-                                                                                  replyText[
-                                                                                      thread.id
-                                                                                  ].split("\n")
-                                                                                      .length,
-                                                                                  5
-                                                                              )
-                                                                            : 1
-                                                                    }
-                                                                    onKeyDown={(e) => {
-                                                                        if (
-                                                                            e.key === "Enter" &&
-                                                                            !e.shiftKey
-                                                                        ) {
-                                                                            e.preventDefault();
-                                                                            handleReply(thread.id);
-                                                                        } else if (
-                                                                            e.key === "Escape"
-                                                                        ) {
-                                                                            setReplyingTo(null);
-                                                                            setReplyText(
-                                                                                (prev) => ({
-                                                                                    ...prev,
-                                                                                    [thread.id]: "",
-                                                                                })
-                                                                            );
-                                                                        }
-                                                                    }}
-                                                                    onChange={(e) => {
-                                                                        const value =
-                                                                            e.target.value;
-                                                                        setReplyText((prev) => ({
-                                                                            ...prev,
-                                                                            [thread.id]: value,
-                                                                        }));
-                                                                    }}
-                                                                />
-
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 w-8 p-0 self-end"
-                                                                    onClick={() =>
-                                                                        handleReply(thread.id)
-                                                                    }
-                                                                    title="Send reply"
-                                                                    disabled={
-                                                                        !replyText[
-                                                                            thread.id
-                                                                        ]?.trim()
-                                                                    }
-                                                                >
-                                                                    <Send className="h-4 w-4" />
-                                                                </Button>
-                                                            </div>
-
-                                                            {/* Preview of the reply with rendered blockquotes */}
-                                                            {replyText[thread.id]?.trim() && (
-                                                                <div className="border border-border rounded-md p-2 bg-muted/30 text-sm">
-                                                                    <div className="text-xs text-muted-foreground mb-1">
-                                                                        Preview:
-                                                                    </div>
-                                                                    <div className="text-sm leading-relaxed break-words">
-                                                                        {renderCommentBody(
-                                                                            replyText[thread.id]
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Comments - newest first like YouTube */}
-                                                <div className="flex flex-col gap-3">
-                                                    {thread.comments
-                                                        .slice()
-                                                        .reverse()
-                                                        .map((comment, index) => (
-                                                            <CommentCard
-                                                                key={comment.id}
-                                                                comment={comment}
-                                                                thread={thread}
-                                                            />
-                                                        ))}
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    )}
-                                </Card>
-    );
-
-    // Component for rendering location-grouped comments
-    const LocationGroupedComments = ({ threads }: { threads: NotebookCommentThread[] }) => {
-        // Group by file, then milestone
-        const grouped = threads.reduce((acc, thread) => {
-            const file = thread.cellId.fileDisplayName || getMissingLabel("file");
-            const milestone = thread.cellId.milestoneValue || getMissingLabel("milestone");
-            
-            if (!acc[file]) acc[file] = {};
-            if (!acc[file][milestone]) acc[file][milestone] = [];
-            acc[file][milestone].push(thread);
-            
-            return acc;
-        }, {} as Record<string, Record<string, NotebookCommentThread[]>>);
-
-        return (
-            <div className="flex flex-col gap-2">
-                {Object.entries(grouped).map(([fileName, milestones]) => (
-                    <div key={fileName} className="flex flex-col">
-                        <div className="px-4 py-2 bg-muted/30 font-semibold text-sm sticky top-0 z-10">
-                            {fileName}
-                        </div>
-                        {Object.entries(milestones).map(([milestoneName, threadsInMilestone]) => (
-                            <div key={`${fileName}-${milestoneName}`} className="flex flex-col">
-                                <div className="px-6 py-1.5 bg-muted/20 font-medium text-xs text-muted-foreground">
-                                    {milestoneName}
-                                </div>
-                                <div className="ml-8 flex flex-col gap-2 mb-2">
-                                    {threadsInMilestone.map((thread) => (
-                                        <ThreadCard key={thread.id} thread={thread} />
-                            ))}
-                        </div>
-                    </div>
-                        ))}
-                    </div>
-                ))}
-            </div>
-        );
+    // Props shared by every ThreadCard instance
+    const threadCardBaseProps: Omit<ThreadCardProps, "thread"> = {
+        collapsedThreads,
+        editingTitle,
+        threadTitleEdit,
+        replyText,
+        replyingTo,
+        pendingResolveThreads,
+        currentUser,
+        isThreadResolved,
+        getCellDisplayName,
+        onToggleCollapsed: toggleCollapsed,
+        onSetEditingTitle: setEditingTitle,
+        onSetThreadTitleEdit: setThreadTitleEdit,
+        onSaveEditTitle: handleEditThreadTitle,
+        onToggleResolved: toggleResolved,
+        onSetReplyText: setReplyText,
+        onSetReplyingTo: setReplyingTo,
+        onSubmitReply: handleReply,
+        onReplyToComment: handleReplyToComment,
+        onDeleteComment: handleCommentDeletion,
+        onUndoDeleteComment: handleUndoCommentDeletion,
     };
 
     return (
@@ -1401,11 +1469,19 @@ function App() {
                 {filteredCommentThreads.length > 0 && (
                     <div className="flex-1 overflow-y-auto p-2">
                         {sortMode === "location" && viewMode === "all" ? (
-                            <LocationGroupedComments threads={filteredCommentThreads} />
+                            <LocationGroupedComments
+                                threads={filteredCommentThreads}
+                                getMissingLabel={getMissingLabel}
+                                threadCardBaseProps={threadCardBaseProps}
+                            />
                         ) : (
                             <div className="flex flex-col gap-3">
                                 {filteredCommentThreads.map((thread) => (
-                                    <ThreadCard key={thread.id} thread={thread} />
+                                    <ThreadCard
+                                        key={thread.id}
+                                        thread={thread}
+                                        {...threadCardBaseProps}
+                                    />
                                 ))}
                             </div>
                         )}
