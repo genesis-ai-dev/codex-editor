@@ -18,6 +18,7 @@ import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
@@ -36,6 +37,7 @@ import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
+import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
 
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
@@ -171,6 +173,8 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    const { setContentToScrollTo } = useContext(ScrollToContentContext);
+    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
     // Backtranslation inline display state
     const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
@@ -312,6 +316,9 @@ const CodexCellEditor: React.FC = () => {
     // Track the latest request to ignore stale responses
     const latestRequestRef = useRef<{ milestoneIdx: number; subsectionIdx: number } | null>(null);
 
+    // Track pending scroll to cell after navigation (for jumpToCell with pagination)
+    const [pendingScrollToCellId, setPendingScrollToCellId] = useState<string | null>(null);
+
     // Refs to access current milestone/subsection indices in message handlers without dependencies
     const currentMilestoneIndexRef = useRef<number>(0);
     const currentSubsectionIndexRef = useRef<number>(0);
@@ -357,6 +364,15 @@ const CodexCellEditor: React.FC = () => {
         testId: "",
     });
     const abTestOriginalContentRef = useRef<Map<string, string>>(new Map());
+
+    // Floating search bar state
+    const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchCurrentMatchIndex, setSearchCurrentMatchIndex] = useState(0);
+    const [searchMilestoneMatchCounts, setSearchMilestoneMatchCounts] = useState<{
+        [milestoneIdx: number]: number;
+    }>({});
+    const [searchTotalDocumentMatches, setSearchTotalDocumentMatches] = useState(0);
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -571,6 +587,74 @@ const CodexCellEditor: React.FC = () => {
         },
         []
     );
+
+    // Handle toggle search message from extension (Cmd+F)
+    useMessageHandler(
+        "codexCellEditor-toggleSearch",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "toggleSearch") {
+                setIsSearchOpen((prev) => !prev);
+            }
+        },
+        []
+    );
+
+    // Handle search match counts response from extension
+    useMessageHandler(
+        "codexCellEditor-searchMatchCounts",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "searchMatchCounts") {
+                setSearchMilestoneMatchCounts(message.milestoneMatchCounts || {});
+                setSearchTotalDocumentMatches(message.totalMatches || 0);
+            }
+        },
+        []
+    );
+
+    // Request search match counts from extension
+    const requestSearchMatchCounts = useCallback(
+        (query: string, matchCase: boolean) => {
+            vscode.postMessage({
+                command: "countMatchesInDocument",
+                content: { query, matchCase },
+            });
+        },
+        [vscode]
+    );
+
+    // Handle navigation to cell from search
+    const handleSearchNavigateToCell = useCallback(
+        (cellId: string) => {
+            setContentToScrollTo(cellId);
+        },
+        [setContentToScrollTo]
+    );
+
+    // Handle replace in cell from search
+    const handleSearchReplaceInCell = useCallback(
+        (cellId: string, oldContent: string, newContent: string) => {
+            vscode.postMessage({
+                command: "saveHtml",
+                content: {
+                    cellMarkers: [cellId],
+                    cellContent: newContent,
+                    cellChanged: true,
+                },
+            } as EditorPostMessages);
+        },
+        [vscode]
+    );
+
+    // Handle search close
+    const handleSearchClose = useCallback(() => {
+        setIsSearchOpen(false);
+        setSearchQuery("");
+        setSearchCurrentMatchIndex(0);
+        setSearchMilestoneMatchCounts({});
+        setSearchTotalDocumentMatches(0);
+    }, []);
 
     // A/B test variant selection handler
     const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
@@ -1177,15 +1261,100 @@ const CodexCellEditor: React.FC = () => {
             setSourceCellMap(sourceCellMap);
         },
         jumpToCell: (cellId) => {
+            if (!cellId) return;
+
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             const newChapterNumber = parseInt(chapter) || 1;
 
-            // Reset subsection index when jumping to a cell
-            if (newChapterNumber !== chapterNumber) {
-                setCurrentSubsectionIndex(0);
+            // Find the milestone index for this chapter number
+            // Each milestone has a 'value' that can be extracted to get the chapter number
+            let targetMilestoneIdx = 0;
+            if (milestoneIndex && milestoneIndex.milestones.length > 0) {
+                const foundIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                    const milestoneChapter = extractChapterNumberFromMilestoneValue(milestone.value);
+                    return milestoneChapter === newChapterNumber;
+                });
+                if (foundIdx >= 0) {
+                    targetMilestoneIdx = foundIdx;
+                }
             }
 
+            // Calculate which subsection (page) contains this cell
+            // We need to find the cell's position within the milestone
+            let targetSubsectionIdx = 0;
+            if (milestoneIndex) {
+                const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
+                // Parse verse number from cellId to estimate position
+                // Format is typically "BOOK CHAPTER:VERSE" e.g., "GEN 1:5"
+                const versePart = cellId.split(":")[1];
+                if (versePart) {
+                    // Extract just the verse number (handle ranges like "1-2" by taking first number)
+                    const verseMatch = versePart.match(/^(\d+)/);
+                    if (verseMatch) {
+                        const verseNumber = parseInt(verseMatch[1], 10);
+                        // Verse numbers are 1-based, calculate 0-based cell index within milestone
+                        const cellIndexInMilestone = Math.max(0, verseNumber - 1);
+                        targetSubsectionIdx = Math.floor(cellIndexInMilestone / effectiveCellsPerPage);
+                    }
+                }
+            }
+
+            debug(
+                "navigation",
+                `jumpToCell: ${cellId} -> milestone ${targetMilestoneIdx}, subsection ${targetSubsectionIdx}`
+            );
+
+            // Store the cell ID to scroll to after loading completes
+            setPendingScrollToCellId(cellId);
+
+            // Update chapter number for display
             setChapterNumber(newChapterNumber);
+
+            // Request the correct milestone and subsection
+            if (requestCellsForMilestoneRef.current) {
+                requestCellsForMilestoneRef.current(targetMilestoneIdx, targetSubsectionIdx);
+            } else {
+                // Fallback: if ref not ready, just try to scroll after a delay
+                debug("navigation", "requestCellsForMilestoneRef not ready, using fallback");
+                setContentToScrollTo(null);
+                setTimeout(() => {
+                    setContentToScrollTo(cellId);
+                    setPendingScrollToCellId(null);
+                }, 300);
+            }
+        },
+        jumpToCellWithPosition: (cellId, milestoneIndex, subsectionIndex) => {
+            // Use the pre-computed position from the extension
+            // This is more accurate than computing position in the webview
+            debug(
+                "navigation",
+                `jumpToCellWithPosition: ${cellId} -> milestone ${milestoneIndex}, subsection ${subsectionIndex}`
+            );
+
+            // Store the cell ID to scroll to after loading completes
+            setPendingScrollToCellId(cellId);
+
+            // Update indices directly
+            setCurrentMilestoneIndex(milestoneIndex);
+            setCurrentSubsectionIndex(subsectionIndex);
+
+            // Extract chapter number for display (fallback from cellId parsing)
+            const chapter = cellId?.split(" ")[1]?.split(":")[0];
+            const newChapterNumber = parseInt(chapter) || 1;
+            setChapterNumber(newChapterNumber);
+
+            // Request the cells for this position
+            if (requestCellsForMilestoneRef.current) {
+                requestCellsForMilestoneRef.current(milestoneIndex, subsectionIndex);
+            } else {
+                // Fallback: if ref not ready, just try to scroll after a delay
+                debug("navigation", "requestCellsForMilestoneRef not ready, using fallback");
+                setContentToScrollTo(null);
+                setTimeout(() => {
+                    setContentToScrollTo(cellId);
+                    setPendingScrollToCellId(null);
+                }, 300);
+            }
         },
         updateCell: (data) => {
             if (
@@ -1480,6 +1649,16 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+            // Clear any stale dirty state so navigation is not blocked after loading new content.
+            // If the current editing cell is still on this page (e.g. initial load with editor open), preserve it.
+            const currentEditingCellId = contentBeingUpdated.cellMarkers?.[0];
+            const editingCellIsOnPage =
+                currentEditingCellId &&
+                cells.some((c) => c.cellMarkers?.[0] === currentEditingCellId);
+            if (!editingCellIsOnPage) {
+                setContentBeingUpdated({} as EditorCellContent);
+                setUnsavedChanges(false);
+            }
         },
 
         handleCellPage: (
@@ -1529,6 +1708,32 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+            // Clear any stale dirty state so navigation is not blocked after loading new content.
+            // If the current editing cell is still on this page (e.g. after sparkle LLM refresh), preserve the editor.
+            const currentEditingCellId = contentBeingUpdated.cellMarkers?.[0];
+            const editingCellIsOnPage =
+                currentEditingCellId &&
+                cells.some((c) => c.cellMarkers?.[0] === currentEditingCellId);
+            if (editingCellIsOnPage) {
+                // Keep editor open. Only sync label and timestamps from the page; do NOT overwrite
+                // cellContent — the Editor (Quill) has the authoritative content (LLM + user edits),
+                // and the provider's page may have been built before the cell was updated, so overwriting
+                // would clobber the in-editor content and cause save to persist empty/stale content.
+                setContentBeingUpdated((prev) => {
+                    const cellId = prev.cellMarkers?.[0];
+                    if (!cellId) return prev;
+                    const match = cells.find((c) => c.cellMarkers?.[0] === cellId);
+                    if (!match) return prev;
+                    return {
+                        ...prev,
+                        cellLabel: match.cellLabel ?? prev.cellLabel,
+                        cellTimestamps: match.timestamps ?? prev.cellTimestamps,
+                    };
+                });
+            } else {
+                setContentBeingUpdated({} as EditorCellContent);
+                setUnsavedChanges(false);
+            }
         },
     });
 
@@ -1652,6 +1857,13 @@ const CodexCellEditor: React.FC = () => {
     // Request cells for a specific milestone/subsection
     const requestCellsForMilestone = useCallback(
         (milestoneIdx: number, subsectionIdx: number = 0) => {
+            // Validate milestone index to prevent invalid requests
+            const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+            if (milestoneIdx < 0 || (milestoneCount > 0 && milestoneIdx >= milestoneCount)) {
+                console.warn(`[requestCellsForMilestone] Invalid milestone index: ${milestoneIdx}, total: ${milestoneCount}`);
+                return;
+            }
+
             const pageKey = `${milestoneIdx}-${subsectionIdx}`;
 
             // Track this as the latest request
@@ -1703,7 +1915,7 @@ const CodexCellEditor: React.FC = () => {
                 },
             } as EditorPostMessages);
         },
-        [vscode, getCachedCells]
+        [vscode, getCachedCells, milestoneIndex?.milestones.length]
     );
 
     // Keep refs in sync with state (must be after requestCellsForMilestone is defined)
@@ -1719,6 +1931,33 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         requestCellsForMilestoneRef.current = requestCellsForMilestone;
     }, [requestCellsForMilestone]);
+
+    // Handle pending scroll to cell after page loads (for jumpToCell with pagination)
+    // We track translationUnits changes because cached pages update translationUnits
+    // but don't go through the isLoadingCells true->false transition
+    useEffect(() => {
+        if (pendingScrollToCellId && !isLoadingCells) {
+            // Check if the target cell exists in the current translation units
+            const cellExists = translationUnits.some(
+                (unit) => unit.cellMarkers[0] === pendingScrollToCellId
+            );
+
+            if (cellExists) {
+                debug(
+                    "navigation",
+                    `Cells loaded, scrolling to pending cell: ${pendingScrollToCellId}`
+                );
+                // Clear and set contentToScrollTo to trigger the scroll
+                setContentToScrollTo(null);
+                // Small delay to ensure React has rendered the cells
+                const timeoutId = setTimeout(() => {
+                    setContentToScrollTo(pendingScrollToCellId);
+                    setPendingScrollToCellId(null);
+                }, 50);
+                return () => clearTimeout(timeoutId);
+            }
+        }
+    }, [pendingScrollToCellId, isLoadingCells, translationUnits, setContentToScrollTo]);
 
     // Get total number of milestones
     const totalMilestones = useMemo(() => {
@@ -1907,8 +2146,6 @@ const CodexCellEditor: React.FC = () => {
     const translationUnitsForSection = useMemo(() => {
         return allCellsForChapter;
     }, [allCellsForChapter]);
-
-    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
     const handleCloseEditor = () => {
         debug("editor", "Closing editor");
@@ -2851,6 +3088,23 @@ const CodexCellEditor: React.FC = () => {
                     opacity: 1 !important;
                 }
             `}</style>
+
+            {/* Floating Search Bar */}
+            <FloatingSearchBar
+                isOpen={isSearchOpen}
+                onClose={handleSearchClose}
+                translationUnits={translationUnits}
+                onNavigateToCell={handleSearchNavigateToCell}
+                onReplaceInCell={handleSearchReplaceInCell}
+                currentMilestoneIndex={currentMilestoneIndex}
+                totalMilestones={milestoneIndex?.milestones?.length || 1}
+                onNavigateToMilestone={requestCellsForMilestone}
+                onRequestMatchCounts={requestSearchMatchCounts}
+                milestoneMatchCounts={searchMilestoneMatchCounts}
+                totalDocumentMatches={searchTotalDocumentMatches}
+                vscode={vscode}
+                isSourceText={isSourceText}
+            />
 
             <div className="codex-cell-editor">
                 <div

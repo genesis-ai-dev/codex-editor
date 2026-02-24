@@ -36,6 +36,7 @@ class ProjectManagerStore {
         isInitializing: false,
         isSyncInProgress: false,
         syncStage: "",
+        isImportInProgress: false,
         isPublishingInProgress: false,
         publishingStage: "",
         updateState: null,
@@ -406,10 +407,19 @@ export class MainMenuProvider extends BaseWebviewProvider {
         // Register listener for sync status updates from SyncManager
         const syncManager = SyncManager.getInstance();
         const syncStatusListener = (isSyncInProgress: boolean, syncStage: string) => {
-            this.sendSyncStatusUpdate(isSyncInProgress, syncStage);
+            const status = syncManager.getSyncStatus();
+            this.sendSyncStatusUpdate(status.isSyncInProgress, status.syncStage, status.isImportInProgress);
         };
 
         syncManager.addSyncStatusListener(syncStatusListener);
+
+        // Register listener for import-in-progress updates (disables sync button during NewSourceUploader imports)
+        const importInProgressListener = () => {
+            const status = syncManager.getSyncStatus();
+            this.sendSyncStatusUpdate(status.isSyncInProgress, status.syncStage, status.isImportInProgress);
+        };
+
+        this.disposables.push(syncManager.addImportInProgressListener(importInProgressListener));
 
         // Store the listener reference for cleanup
         this.disposables.push({
@@ -958,11 +968,16 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
     }
 
-    private sendSyncStatusUpdate(isSyncInProgress: boolean, syncStage: string = ""): void {
+    private sendSyncStatusUpdate(isSyncInProgress: boolean, syncStage: string = "", isImportInProgress?: boolean): void {
+        const syncManager = SyncManager.getInstance();
+        const status = syncManager.getSyncStatus();
+        const importInProgress = isImportInProgress ?? status.isImportInProgress;
+
         // Update the store state
         this.store.setState({
             isSyncInProgress,
             syncStage,
+            isImportInProgress: importInProgress,
         });
 
         // Send update to webview
@@ -972,6 +987,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 data: {
                     isSyncInProgress,
                     syncStage,
+                    isImportInProgress: importInProgress,
                 },
             } as ProjectManagerMessageToWebview, "MainMenu");
         }

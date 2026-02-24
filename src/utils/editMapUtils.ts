@@ -25,6 +25,9 @@ type MetaGeneratorEditMap = ["meta", "generator"];
 type MetaEditMap = ["meta"];
 type MetaFieldEditMap = ["meta", string];
 type LanguagesEditMap = ["languages"];
+type DeletedCorpusMarkerEditMap = ["deletedCorpusMarker"];
+type DeletedFileEditMap = ["deletedFile"];
+
 import { EditType } from "../../types/enums";
 
 // Utility functions for working with editMaps
@@ -136,6 +139,14 @@ export const EditMapUtils = {
 
     languages(): LanguagesEditMap {
         return ["languages"];
+    },
+
+    deletedCorpusMarker(): DeletedCorpusMarkerEditMap {
+        return ["deletedCorpusMarker"];
+    },
+
+    deletedFile(): DeletedFileEditMap {
+        return ["deletedFile"];
     },
 
     // Compare editMaps

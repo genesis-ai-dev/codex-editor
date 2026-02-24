@@ -3,6 +3,7 @@ import { NotebookCommentThread, NotebookComment } from "../../types";
 import { writeSerializedData } from "./fileUtils";
 
 const DEBUG_COMMENTS_MIGRATION = false;
+const COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE = new Date("2026-02-27");
 function debug(message: string, ...args: any[]): void {
     if (DEBUG_COMMENTS_MIGRATION) {
         console.log(`[CommentsMigrator] ${message}`, ...args);
@@ -16,7 +17,7 @@ function debug(message: string, ...args: any[]): void {
 export class CommentsMigrator {
     // Cache `needsMigration()` results keyed by workspace path + comments.json stat signature.
     // This avoids repeatedly reading/parsing potentially-large `.project/comments.json` during sync.
-    private static needsMigrationCache = new Map<string, { commentsStatKey: string; result: boolean }>();
+    private static needsMigrationCache = new Map<string, { commentsStatKey: string; result: boolean; }>();
 
     private static clearNeedsMigrationCache(workspaceUri: vscode.Uri): void {
         CommentsMigrator.needsMigrationCache.delete(workspaceUri.fsPath);
@@ -35,7 +36,15 @@ export class CommentsMigrator {
                 canReply: thread.canReply,
                 cellId: {
                     cellId: thread.cellId.cellId,
-                    uri: thread.cellId.uri
+                    uri: thread.cellId.uri,
+                    ...(thread.cellId.globalReferences && thread.cellId.globalReferences.length > 0 
+                        ? { globalReferences: thread.cellId.globalReferences } 
+                        : {}),
+                    // NOTE: Display fields (fileDisplayName, milestoneValue, cellLineNumber) are calculated at runtime
+                    // and NOT persisted to JSON to keep files clean and ensure fresh data on each load.
+                    // ...(thread.cellId.fileDisplayName ? { fileDisplayName: thread.cellId.fileDisplayName } : {}),
+                    // ...(thread.cellId.milestoneValue ? { milestoneValue: thread.cellId.milestoneValue } : {}),
+                    // ...(thread.cellId.cellLineNumber ? { cellLineNumber: thread.cellId.cellLineNumber } : {})
                 },
                 collapsibleState: thread.collapsibleState,
                 threadTitle: thread.threadTitle
@@ -559,6 +568,8 @@ export class CommentsMigrator {
             return false;
         }
 
+        console.log(`[CommentsMigrator] Checking ${comments.length} threads for migration needs`);
+
         const needsMigration = comments.some(thread => {
             // Check for old thread structure or missing new fields
             if (thread.version !== undefined ||
@@ -570,6 +581,18 @@ export class CommentsMigrator {
                 (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://')))) {
                 return true;
             }
+
+            // ===== CHECK FOR OLD CELL IDs =====
+            // Check if cellId is in old format (not UUID)
+            if (thread.cellId?.cellId && typeof thread.cellId.cellId === 'string') {
+                // Quick check: UUIDs have dashes, old format like "LUK 1:1" has spaces
+                if (thread.cellId.cellId.includes(' ')) {
+                    console.log(`[CommentsMigrator] Found old-format cell ID: "${thread.cellId.cellId}" in thread ${thread.id}`);
+                    return true;
+                }
+            }
+            // ===== END CELL ID CHECK =====
+
 
             // Check for old comment structure
             if (thread.comments && Array.isArray(thread.comments)) {
@@ -590,6 +613,7 @@ export class CommentsMigrator {
      * Migrates the structure of all comments to the new format
      */
     static async migrateCommentsStructure(comments: any[]): Promise<NotebookCommentThread[]> {
+        console.warn("Arried at the migrateCommentsStructure function! XXXXXXXXXXXXXXXXXXXXXXX");
         if (!Array.isArray(comments)) {
             return [];
         }
@@ -651,6 +675,12 @@ export class CommentsMigrator {
             }
             // ============= END MIGRATION CLEANUP =============
 
+
+            // ============= COMMENTS CELL ID POINTER MIGRATION =============
+            result = await CommentsMigrator.migrateCellIdToUuid(result);
+            // ============= END COMMENTS CELL ID POINTER MIGRATION =============
+
+
             // ============= DATA INTEGRITY REPAIR =============
             // Repair corrupted comment event data automatically
             result = CommentsMigrator.repairCommentThreadData(result);
@@ -661,6 +691,37 @@ export class CommentsMigrator {
 
             return result;
         }));
+    }
+
+    private static async migrateCellIdToUuid(thread: any): Promise<any> {
+        const { generateCellIdFromHash, isUuidFormat } = await import("./uuidUtils");
+
+        const result = { ...thread };
+
+        if (Date.now() < COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.getTime()) {
+            // Before cutoff - migrate if needed
+            if (result.cellId?.cellId && !isUuidFormat(result.cellId.cellId)) {
+                const oldId = result.cellId.cellId;
+                const newUuid = await generateCellIdFromHash(oldId);
+
+                debug(`Migrating cell ID: "${oldId}" → "${newUuid}"`);
+
+                result.cellId = {
+                    ...result.cellId,
+                    cellId: newUuid,
+                    globalReferences: result.cellId.globalReferences || [oldId]
+                };
+            }
+        } else {
+            // Migration period has passed - show warning
+            console.warn(
+                "[CommentsMigrator] Cell ID migration cutoff date has passed!" + " (" +
+                COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.toISOString() + ") " +
+                "This migration code should be removed if all users have updated."
+            );
+        }
+
+        return result;
     }
 
     /**

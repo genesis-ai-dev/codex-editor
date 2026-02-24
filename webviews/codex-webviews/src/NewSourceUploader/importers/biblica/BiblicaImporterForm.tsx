@@ -25,9 +25,11 @@ import {
     ArrowLeft,
     BookOpen
 } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { IDMLParser } from './biblicaParser';
 import { HTMLMapper } from './htmlMapper';
 import { createProcessedCell, sanitizeFileName, createStandardCellId, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
+import { notifyImportStarted, notifyImportEnded } from '../../utils/importProgress';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { CodexCellTypes } from 'types/enums';
 import {
@@ -581,6 +583,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             return;
         }
 
+        notifyImportStarted();
         setIsProcessing(true);
         setProgress("Starting import...");
 
@@ -724,16 +727,14 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     
                     addDebugLog(`Simplified note cells count: ${simplifiedNoteCells.length}`);
                     
-                    const baseName = sanitizeFileName(studyBibleFile.name.replace(/\.idml$/i, ''));
-                    const notesNotebookName = sanitizeFileName(`${baseName}-notes`);
-                    // Add -biblica suffix to originalFileName to match naming convention (e.g., "mat-john.idml" -> "mat-john-biblica.idml")
-                    // This ensures the saved file in attachments matches what the exporter will look for
-                    const originalFileName = studyBibleFile.name.replace(
-                        /\.idml$/i,
-                        "-biblica.idml"
-                    );
-                    addDebugLog(`Base name: "${baseName}"`);
-                    addDebugLog(`Notes notebook name: "${notesNotebookName}"`);
+                    // Remove .idml extension and any "-notes" or "_notes" suffix from filename
+                    const rawBaseName = studyBibleFile.name.replace(/\.idml$/i, '');
+                    const cleanBaseName = rawBaseName.replace(/[-_]?notes$/i, '');
+                    const baseName = sanitizeFileName(cleanBaseName);
+                    // Use the original file name as-is - importer type is stored in metadata
+                    const originalFileName = studyBibleFile.name;
+                    addDebugLog(`Raw base name: "${rawBaseName}"`);
+                    addDebugLog(`Clean base name (notes removed): "${baseName}"`);
                     addDebugLog(`Original file name: "${originalFileName}"`);
                     
                     // Create notebook pair for notes only
@@ -744,10 +745,10 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     if (simplifiedNoteCells.length > 0) {
                         notebookPairs.push({
                             source: { 
-                                name: notesNotebookName, 
+                                name: baseName, 
                                 cells: simplifiedNoteCells,
                                 metadata: {
-                                    id: `biblica-notes-source-${Date.now()}`,
+                                    id: uuidv4(),
                                     originalFileName: originalFileName,
                                     sourceFile: originalFileName,
                                     originalFileData: arrayBuffer,
@@ -771,7 +772,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                 }
                             },
                             codex: { 
-                                name: notesNotebookName,
+                                name: baseName,
                                 cells: simplifiedNoteCells.map(cell => ({
                                     id: cell.id,
                                     content: '', // Empty codex for notes
@@ -782,7 +783,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                     }
                                 })),
                                 metadata: {
-                                    id: `biblica-notes-codex-${Date.now()}`,
+                                    id: uuidv4(),
                                     originalFileName: originalFileName,
                                     sourceFile: originalFileName,
                                     importerType: 'biblica',
@@ -855,6 +856,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             addDebugLog(`Import error stack: ${error instanceof Error ? error.stack : "No stack"}`);
             alert(`Import failed: ${error instanceof Error ? error.message : "Unknown error"}`);
             setIsProcessing(false);
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

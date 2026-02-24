@@ -279,6 +279,13 @@ function getWebviewContent(
                     opacity: 0.8;
                     align-self: flex-start;
                 }
+                .format-tag.format-tag-roundtrip {
+                    background-color: rgba(34, 197, 94, 0.15) !important;
+                    color: var(--vscode-charts-green, #16a34a) !important;
+                    border: 1px solid rgba(34, 197, 94, 0.3) !important;
+                    border-radius: 4px;
+                    opacity: 1;
+                }
             </style>
         </head>
         <body>
@@ -287,6 +294,27 @@ function getWebviewContent(
             ? `
                     <h3>Select Export Format</h3>
                     <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
+                        <!-- Round-trip Export - Full Width -->
+                        <div style="display: flex; gap: 1rem;">
+                            <div class="format-option" data-format="rebuild-export" style="flex: 1;">
+                                <i class="codicon codicon-refresh"></i>
+                                <div>
+                                    <strong>Round-trip Export</strong>
+                                    <p>Intelligently detects file type and exports back the original file you imported with applied translations</p>
+                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
+                                        <span class="format-tag format-tag-roundtrip">USFM</span>    
+                                        <span class="format-tag format-tag-roundtrip">DOCX</span>
+                                        <span class="format-tag format-tag-roundtrip">OBS</span>
+                                        <span class="format-tag format-tag-roundtrip">TMS</span>
+                                        <span class="format-tag format-tag-roundtrip">Markdown</span>
+                                        <span class="format-tag format-tag-roundtrip">CSV/TSV</span>
+                                        <span class="format-tag format-tag-roundtrip">IDML</span>
+                                        <span class="format-tag format-tag-roundtrip">Biblica Study Notes</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Standard Export Formats - Row 1: Plaintext | USFM -->
                         <div style="display: flex; gap: 1rem;">
                             <div class="format-option" data-format="plaintext" style="flex: 1;">
@@ -324,25 +352,6 @@ function getWebviewContent(
                                     <strong>XLIFF</strong>
                                     <p>Export in XML Localization Interchange File Format (XLIFF) for translation workflows</p>
                                     <span class="format-tag">Translation Ready</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Rebuild Export - Full Width -->
-                        <div style="display: flex; gap: 1rem;">
-                            <div class="format-option" data-format="rebuild-export" style="flex: 1;">
-                                <i class="codicon codicon-refresh"></i>
-                                <div>
-                                    <strong>Rebuild Export</strong>
-                                    <p>Intelligently detects file type and exports back to original format (DOCX, IDML, Biblica, OBS, TMS, USFM)</p>
-                                    <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">DOCX</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">IDML</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">Biblica</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">OBS</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">TMS</span>
-                                        <span class="format-tag" style="background-color: var(--vscode-charts-blue);">USFM</span>
-                                    </div>
                                 </div>
                             </div>
                         </div>

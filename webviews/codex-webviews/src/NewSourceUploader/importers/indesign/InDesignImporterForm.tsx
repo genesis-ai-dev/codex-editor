@@ -15,6 +15,7 @@ import {
 } from '../../../components/ui/card';
 import { Progress } from '../../../components/ui/progress';
 import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { v4 as uuidv4 } from 'uuid';
 import { 
     FileText, 
     Upload, 
@@ -23,6 +24,7 @@ import {
 import { IDMLParser } from './idmlParser';
 import { HTMLMapper } from './htmlMapper';
 import { createProcessedCell, sanitizeFileName, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
+import { notifyImportStarted, notifyImportEnded } from '../../utils/importProgress';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { createIndesignVerseCellMetadata, createIndesignParagraphCellMetadata } from './cellMetadata';
 
@@ -107,6 +109,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
     const handleImport = useCallback(async () => {
         if (!selectedFile) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setProgress('Starting import...');
         
@@ -220,7 +223,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                             name: baseName, 
                             cells: simplifiedCells,
                             metadata: {
-                                id: `indesign-source-${Date.now()}`,
+                                id: uuidv4(),
                                 originalFileName: selectedFile.name,
                                 sourceFile: selectedFile.name,
                                 // Pass the original file bytes so the provider can persist it under .project/attachments/originals
@@ -253,7 +256,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                                 }
                             })),
                             metadata: {
-                                id: `indesign-codex-${Date.now()}`,
+                                id: uuidv4(),
                                 originalFileName: selectedFile.name,
                                 sourceFile: selectedFile.name,
                                 importerType: 'indesign',
@@ -304,6 +307,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
             addDebugLog(`Import error stack: ${error instanceof Error ? error.stack : 'No stack'}`);
             alert(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             setIsProcessing(false);
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

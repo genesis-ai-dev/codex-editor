@@ -8,7 +8,7 @@
 
 // Schema version — bump this whenever the schema changes.
 // Using a full recreation strategy (no incremental migrations).
-export const CURRENT_SCHEMA_VERSION = 13; // Added project_id/project_name to schema_info, fixed FTS triggers (DELETE+INSERT instead of INSERT OR REPLACE), added NULL-content cleanup triggers
+export const CURRENT_SCHEMA_VERSION = 15; // Added cell_label column for semantic display labels (e.g., "GEN 5:12")
 
 // ── Tables + FTS virtual table ──────────────────────────────────────────────
 
@@ -64,6 +64,7 @@ export const CREATE_TABLES_SQL = `
         t_audio_validated_by TEXT,
         t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
         milestone_index INTEGER,
+        cell_label TEXT,
         FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
         FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
     );
@@ -111,6 +112,7 @@ export const CREATE_DEFERRED_INDEXES_SQL = `
     CREATE INDEX IF NOT EXISTS idx_cells_t_audio_validation_count ON cells(t_audio_validation_count);
     CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);
     CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id);
+    CREATE INDEX IF NOT EXISTS idx_cells_cell_label ON cells(cell_label);
 `;
 
 // ── schema_info table (created separately because setSchemaVersion manages it) ─

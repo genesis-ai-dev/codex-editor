@@ -4,6 +4,7 @@
  * Standalone implementation - doesn't rely on common/usfmUtils.ts
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -97,7 +98,7 @@ export const parseFile = async (
             name: baseName,
             cells: parsedDocument.cells,
             metadata: {
-                id: `usfm-experimental-source-${Date.now()}`,
+                id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
                 // Store original file data as ArrayBuffer for saving to attachments/originals
@@ -143,7 +144,7 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: `usfm-experimental-codex-${Date.now()}`,
+                id: uuidv4(),
                 // Don't duplicate original file data in codex metadata
                 originalFileData: undefined,
             },

@@ -325,46 +325,64 @@ export class FileSyncManager {
         // Calculate logical line positions for all non-paratext cells (1-indexed)
         let logicalLinePosition = 1;
 
-        // Process all cells in the file using sync operations
-        for (const cell of fileData.cells) {
-            const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
-            const isParatext = cell.metadata?.type === "paratext";
+        // Extract book name from file path (filename without extension)
+        const fileName = filePath.split('/').pop() || '';
+        const bookName = fileName.replace(/\.(codex|source)$/i, '');
+
+        // Track chapter (milestone) and position within chapter for labels
+        let currentChapter = 0;
+        let positionInChapter = 0;
+
+        // Process all cells in the file
+        for (let cellIndex = 0; cellIndex < fileData.cells.length; cellIndex++) {
+            const cell = fileData.cells[cellIndex];
+            const cellId = cell.metadata?.id || `${fileData.id}_${cellIndex}`;
+            const isParatext = cell.metadata?.type === "paratext" || cell.metadata?.type === CodexCellTypes.PARATEXT;
             const isMilestone = cell.metadata?.type === CodexCellTypes.MILESTONE;
+            const isStyle = cell.metadata?.type === CodexCellTypes.STYLE;
             const hasContent = cell.value && cell.value.trim() !== "";
 
-            // Check if this is a child cell (has parentId in metadata)
+            if (isMilestone) {
+                currentChapter++;
+                positionInChapter = 0;
+                continue;
+            }
+
+            if (isParatext || isStyle) {
+                continue;
+            }
+
             const isChildCell = cell.metadata?.parentId !== undefined;
 
-            // Calculate line number for database storage
             let lineNumberForDB: number | null = null;
+            let cellLabel: string | null = null;
 
-            if (!isParatext && !isMilestone && !isChildCell) {
+            if (!isChildCell) {
+                positionInChapter++;
+                const chapterNum = currentChapter > 0 ? currentChapter : 1;
+                cellLabel = `${bookName} ${chapterNum}:${positionInChapter}`;
+
                 if (fileType === 'source') {
-                    // Source cells: always store line numbers (they should always have content)
                     lineNumberForDB = logicalLinePosition;
                 } else {
-                    // Target cells: only store line number if cell has content
-                    // But we still calculate the logical position for structural consistency
                     if (hasContent) {
                         lineNumberForDB = logicalLinePosition;
                     }
-                    // If no content, lineNumberForDB stays null but logical position still increments
                 }
 
-                // Always increment logical position for non-paratext, non-milestone, non-child cells
-                // This ensures stable line numbering even as cells get translated
                 logicalLinePosition++;
             }
-            // Paratext, milestone, and child cells: no line numbers, no position increment
 
             await this.sqliteIndex.upsertCellSync(
                 cellId,
                 fileId,
                 fileType === 'source' ? 'source' : 'target',
                 cell.value,
-                lineNumberForDB ?? undefined, // Convert null to undefined for method signature compatibility
+                lineNumberForDB ?? undefined,
                 cell.metadata,
-                cell.value // raw content same as value for now
+                cell.value,
+                null,
+                cellLabel
             );
         }
 

@@ -170,7 +170,9 @@ const CellItem: React.FC<CellItemProps> = ({
                 <div className="flex justify-between items-start mb-4">
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-3">
-                            <h3 className="text-lg font-semibold">{item.cellId}</h3>
+                            <h3 className="text-lg font-semibold">
+                                {item.cellLabel ?? `[NO LABEL: ${item.cellId}]`}
+                            </h3>
                             {isPinned && (
                                 <Badge variant="secondary" className="text-blue-600">
                                     Pinned
@@ -195,34 +197,29 @@ const CellItem: React.FC<CellItemProps> = ({
                 <div className="space-y-4">
                     {hasSourceContent && (
                         <div>
-                            <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-                                Source Text
-                            </div>
-                            <p className="text-sm leading-relaxed mb-3">
-                                {item.sourceCell.content}
-                            </p>
-                            <div className="flex gap-2 mt-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                    Source Text
+                                </div>
                                 <Button
-                                    variant="secondary"
+                                    variant="ghost"
                                     size="sm"
+                                    className="h-6 w-6 p-0"
                                     onClick={handleSourceCopy}
-                                    aria-label="Copy text"
+                                    aria-label="Copy source text"
                                 >
-                                    <span className="codicon codicon-copy mr-2"></span>
-                                    Copy
-                                </Button>
-                                <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={() =>
-                                        onUriClick(item.sourceCell.uri || "", `${item.cellId}`)
-                                    }
-                                    aria-label="Open source text"
-                                >
-                                    <span className="codicon codicon-open-preview mr-2"></span>
-                                    Open
+                                    <span className="codicon codicon-copy" style={{ fontSize: "14px" }}></span>
                                 </Button>
                             </div>
+                            <p
+                                className="text-sm leading-relaxed cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1"
+                                onClick={() =>
+                                    onUriClick(item.sourceCell.uri || "", `${item.cellId}`)
+                                }
+                                title="Click to open"
+                            >
+                                {stripHtml(item.sourceCell.content || "")}
+                            </p>
                         </div>
                     )}
 
@@ -234,57 +231,50 @@ const CellItem: React.FC<CellItemProps> = ({
                                 <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Target Text
                                 </div>
-                                {hasMatch && replaceText && (
-                                    <div className="flex items-center gap-2">
-                                        {!canReplace && (
-                                            <Badge
-                                                variant="outline"
-                                                className="text-xs text-orange-600"
-                                                title="HTML interrupts this match - replacement unavailable"
-                                            >
-                                                HTML Interrupts
+                                <div className="flex items-center gap-2">
+                                    {hasMatch && replaceText && (
+                                        <>
+                                            {!canReplace && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="text-xs text-orange-600"
+                                                    title="HTML interrupts this match - replacement unavailable"
+                                                >
+                                                    HTML Interrupts
+                                                </Badge>
+                                            )}
+                                            <Badge variant="outline" className="text-xs">
+                                                Match
                                             </Badge>
-                                        )}
-                                        <Badge variant="outline" className="text-xs">
-                                            Match
-                                        </Badge>
-                                    </div>
-                                )}
+                                        </>
+                                    )}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={handleTargetCopy}
+                                        aria-label="Copy target text"
+                                    >
+                                        <span className="codicon codicon-copy" style={{ fontSize: "14px" }}></span>
+                                    </Button>
+                                </div>
                             </div>
                             <p
-                                className="text-sm leading-relaxed mb-3"
+                                className="text-sm leading-relaxed cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1"
+                                onClick={() =>
+                                    onUriClick(
+                                        getTargetUri(item.targetCell.uri || ""),
+                                        `${item.cellId}`
+                                    )
+                                }
+                                title="Click to open"
                                 dangerouslySetInnerHTML={{
                                     __html: targetContentDisplay || item.targetCell.content || "",
                                 }}
                             />
-                            <div className="flex gap-2 mt-3">
-                                <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={handleTargetCopy}
-                                    aria-label="Copy text"
-                                >
-                                    <span className="codicon codicon-copy mr-2"></span>
-                                    Copy
-                                </Button>
-                                <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={() =>
-                                        onUriClick(
-                                            getTargetUri(item.targetCell.uri || ""),
-                                            `${item.cellId}`
-                                        )
-                                    }
-                                    aria-label="Open target text"
-                                >
-                                    <span className="codicon codicon-open-preview mr-2"></span>
-                                    Open
-                                </Button>
-                                {hasMatch &&
-                                    replaceText &&
-                                    onReplace &&
-                                    (canReplace ? (
+                            {hasMatch && replaceText && onReplace && (
+                                <div className="flex gap-2 mt-3">
+                                    {canReplace ? (
                                         <div className="flex items-center gap-2">
                                             <div className="flex items-center space-x-1">
                                                 <input
@@ -343,8 +333,9 @@ const CellItem: React.FC<CellItemProps> = ({
                                             <span className="codicon codicon-info mr-2"></span>
                                             Can't Replace
                                         </Button>
-                                    ))}
-                            </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

@@ -707,6 +707,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
 
+            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string } | undefined)?.fileDisplayName;
+            const fallbackName = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
+            const namePart = (fileDisplayName ?? fallbackName).replace(/\s+/g, "");
+            webviewPanel.title = namePart + (isSourceText ? ".source" : ".codex");
+
             // Get bundled metadata to avoid separate requests
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             const validationCount = config.get("validationCount", 1);
@@ -941,9 +946,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 }
                             }
                         }
-                        // Determine provisional state before version gate
+                        // Determine provisional state before version gate.
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -1024,9 +1035,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                     }
 
+                    // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                    const selectedId = cell?.metadata?.selectedAudioId;
+                    const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                    const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                     // Determine provisional state, then apply version gate
                     let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                    if (hasAvailable) state = "available-local";
+                    if (selectedIsMissing) state = "missing";
+                    else if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
                     else if (hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
@@ -1062,10 +1079,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up navigation functions
         const navigateToSection = (cellId: string) => {
             debug("Navigating to section:", cellId);
-            safePostMessageToPanel(webviewPanel, {
-                type: "jumpToSection",
-                content: cellId,
-            });
+
+            // Compute the correct position using the document's milestone/subsection finder
+            // This is more accurate than the webview's algorithm which incorrectly assumes
+            // verse numbers correspond to cell positions
+            const cellsPerPage = this.CELLS_PER_PAGE;
+            const position = document.findMilestoneAndSubsectionForCell(cellId, cellsPerPage);
+
+            if (position) {
+                debug("Computed position for cell:", cellId, "milestoneIndex:", position.milestoneIndex, "subsectionIndex:", position.subsectionIndex);
+                safePostMessageToPanel(webviewPanel, {
+                    type: "jumpToSection",
+                    content: cellId,
+                    milestoneIndex: position.milestoneIndex,
+                    subsectionIndex: position.subsectionIndex,
+                });
+            } else {
+                // Fallback: send just the cellId if position couldn't be computed
+                debug("Could not compute position for cell:", cellId, "falling back to cellId only");
+                safePostMessageToPanel(webviewPanel, {
+                    type: "jumpToSection",
+                    content: cellId,
+                });
+            }
         };
         const openCellByIdImpl = (cellId: string, text: string) => {
             debug("Opening cell by ID:", cellId, text);
@@ -1328,6 +1364,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         } else {
             console.error("No active webview panels");
+        }
+    }
+
+    /**
+     * Toggle the in-tab floating search bar in the current document's webview
+     */
+    public toggleInTabSearch() {
+        debug("Toggling in-tab search");
+        if (!this.currentDocument) {
+            debug("No current document, cannot toggle search");
+            return;
+        }
+
+        const docUri = this.currentDocument.uri.toString();
+        const panel = this.webviewPanels.get(docUri);
+        if (panel) {
+            safePostMessageToPanel(panel, {
+                type: "toggleSearch",
+            } as any);
+        } else {
+            console.error("No webview panel found for current document");
         }
     }
 
@@ -2523,6 +2580,99 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return processVideoUrl(videoPath, webviewPanel.webview);
     }
 
+    /**
+     * Calculate display information for a cell (fileDisplayName, milestoneValue, cellLineNumber, cellLabel)
+     * This is a reusable helper that can be called from multiple places
+     */
+    public static calculateCellDisplayInfo(
+        cellId: string,
+        doc: CodexCellDocument
+    ): {
+        fileDisplayName?: string;
+        milestoneValue?: string;
+        cellLineNumber?: number;
+        cellLabel?: string;
+    } {
+        try {
+            // Get file display name from metadata
+            const metadata = (doc as any)._documentData?.metadata;
+            const fileDisplayName = metadata?.fileDisplayName;
+
+            // Build milestone index first - this populates milestoneIndex on cells
+            const milestoneIndexInfo = doc.buildMilestoneIndex();
+
+            // Get the cell content (now with milestoneIndex populated)
+            const cell = doc.getCellContent(cellId);
+            if (!cell) {
+                return { fileDisplayName };
+            }
+
+            // Get cell label from metadata
+            const cellLabel = cell.cellLabel;
+
+            // Get milestone index from cell data
+            const milestoneIndex = cell.data?.milestoneIndex;
+
+            if (typeof milestoneIndex !== 'number' || milestoneIndex < 0) {
+                return { fileDisplayName, cellLabel };
+            }
+
+            // Get milestone information
+            const milestone = milestoneIndexInfo.milestones[milestoneIndex];
+            if (!milestone) {
+                return { fileDisplayName, cellLabel };
+            }
+
+            const milestoneValue = milestone.value;
+
+            // Calculate line number within milestone
+            const cells = (doc as any)._documentData?.cells || [];
+            const nextMilestone = milestoneIndexInfo.milestones[milestoneIndex + 1];
+            const startCellIndex = milestone.cellIndex + 1; // +1 to skip the milestone cell itself
+            const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+            let cellLineNumber: number | undefined;
+            let lineNumber = 0;
+            for (let i = startCellIndex; i < endCellIndex; i++) {
+                const currentCell = cells[i];
+                const currentCellId = currentCell.metadata?.id;
+
+                // Skip milestone and paratext cells
+                if (
+                    currentCell.metadata?.type === CodexCellTypes.MILESTONE ||
+                    currentCell.metadata?.type === CodexCellTypes.PARATEXT
+                ) {
+                    continue;
+                }
+
+                // Skip child cells (have parentId)
+                const isChildCell = currentCell.metadata?.data?.parentId !== undefined;
+                if (isChildCell) {
+                    continue;
+                }
+
+                // Increment line number for valid content cells
+                lineNumber++;
+
+                // If this is our target cell, we're done
+                if (currentCellId === cellId) {
+                    cellLineNumber = lineNumber;
+                    break;
+                }
+            }
+
+            return {
+                fileDisplayName,
+                milestoneValue,
+                cellLineNumber,
+                cellLabel,
+            };
+        } catch (error) {
+            debug("Error calculating display info for cell:", error);
+            return {};
+        }
+    }
+
     public updateCellIdState(cellId: string, uri: string, document?: CodexCellDocument) {
         debug("Updating cell ID state:", { cellId, uri, stateStore: this.stateStore });
 
@@ -2625,14 +2775,35 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.warn("State store not initialized when trying to update cell ID");
             return;
         }
+
+        // Calculate display information for the cell using the reusable helper
+        let fileDisplayName: string | undefined;
+        let milestoneValue: string | undefined;
+        let cellLineNumber: number | undefined;
+        let cellLabel: string | undefined;
+
+        if (doc) {
+            const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(cellId, doc);
+            fileDisplayName = displayInfo.fileDisplayName;
+            milestoneValue = displayInfo.milestoneValue;
+            cellLineNumber = displayInfo.cellLineNumber;
+            cellLabel = displayInfo.cellLabel;
+        }
+
+        const cellIdState = {
+            cellId,
+            globalReferences,
+            uri,
+            timestamp: new Date().toISOString(),
+            fileDisplayName,
+            milestoneValue,
+            cellLineNumber,
+            cellLabel,
+        };
+
         this.stateStore.updateStoreState({
             key: "cellId",
-            value: {
-                cellId,
-                globalReferences,
-                uri,
-                timestamp: new Date().toISOString(),
-            },
+            value: cellIdState,
         });
     }
 

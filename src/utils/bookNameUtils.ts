@@ -117,20 +117,32 @@ export async function getBookDisplayName(usfmCode: string): Promise<string> {
 export function isBiblicalImporterType(importerType: string | undefined): boolean {
     if (!importerType) return false;
     const normalizedType = importerType.toLowerCase().trim();
+    
+    // Exact matches for biblical importers
     const bibleTypeImporters = [
         'usfm',
+        'usfm-experimental',
         'paratext',
         'ebiblecorpus',
         'ebible',
         'ebible-download',
         'maculabible',
         'macula',
-        'biblica',
         'obs',
-        'pdf', // PDF can contain Bible content
-        'indesign', // InDesign can contain Bible content
+        // Note: 'pdf', 'docx', 'indesign', and 'biblica' are NOT included here
+        // because they are generic document formats that should preserve
+        // their original filenames rather than being converted to Bible book codes.
+        // The importer type is stored in metadata, so filename suffixes are not needed.
     ];
-    return bibleTypeImporters.includes(normalizedType);
+    
+    // Check exact match first
+    if (bibleTypeImporters.includes(normalizedType)) {
+        return true;
+    }
+    
+    // Also check prefixes for variations (e.g., 'usfm-*' matches any USFM variant)
+    const biblicalPrefixes = ['usfm', 'paratext', 'ebible', 'macula'];
+    return biblicalPrefixes.some(prefix => normalizedType.startsWith(prefix));
 }
 
 /**

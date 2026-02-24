@@ -60,6 +60,7 @@ import {
 } from "./components/translationUtils";
 import { downloadEbibleCorpus } from "./download";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { EbibleDownloadForm } from "../../components/EbibleDownloadForm";
 import { ebibleCorpusImporter } from "./index";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
@@ -153,6 +154,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
             return;
         }
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -251,6 +253,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                                 setError(
                                     err instanceof Error ? err.message : "Failed to complete import"
                                 );
+                                notifyImportEnded();
                             }
                         }, 2000);
                     } else {
@@ -264,6 +267,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                             setError(
                                 err instanceof Error ? err.message : "Failed to complete import"
                             );
+                            notifyImportEnded();
                         }
                     }
                 }
@@ -273,6 +277,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
         } catch (err) {
             setError(err instanceof Error ? err.message : "Download failed");
             setIsProcessing(false);
+            notifyImportEnded();
         }
     }, [selectedTranslation, props]);
 
@@ -302,6 +307,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
             if (!window.confirm("Cancel download in progress?")) {
                 return;
             }
+            notifyImportEnded();
         }
         onCancel();
     };
