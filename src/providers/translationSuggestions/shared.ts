@@ -203,10 +203,14 @@ export function buildFewShotExamplesText(
   return `<examples>\n${examplesInner}\n</examples>`;
 }
 
+export function parseFinalAnswer(response: string): string {
+  const match = response.match(/<final_answer>([\s\S]*?)<\/final_answer>/);
+  return match ? match[1].trim() : response.trim();
+}
+
 export function buildMessages(
   targetLanguage: string | null,
   chatSystemMessage: string,
-  userInstructions: string[],
   fewShotExamples: string,
   precedingContextPairs: (string | null)[],
   currentCellSourceContent: string,
@@ -215,22 +219,34 @@ export function buildMessages(
   sourceLanguage: string | null = null
 ): ChatMessage[] {
   let systemMessage = chatSystemMessage || `You are a helpful assistant`;
-  
+
   if (exampleFormat === "target-only") {
-    systemMessage += `\n\nReference translations are provided in XML <target> tags. Use these as examples of the translation style and patterns you should follow. Return only the completed translation for the current task without XML wrappers.`;
+    systemMessage += `\n\nReference translations are provided in XML <target> tags. Use these as examples of the translation style and patterns you should follow.`;
   } else {
-    systemMessage += `\n\nInput sections for examples and context are provided in XML. Only use values within <source> and <target> tags. Ignore any arrows (->) that may appear in text. Return only the completed translation for the current task without XML wrappers.`;
+    systemMessage += `\n\nInput sections for examples and context are provided in XML. Only use values within <source> and <target> tags.`;
   }
   // Preserve line breaks and specify output format
   if (allowHtml) {
-    systemMessage += `\n\nYou may include inline HTML tags when appropriate (e.g., <span>, <i>, <b>) consistent with examples. Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters. Do not include XML in your answer.`;
+    systemMessage += `\n\nYou may include inline HTML tags when appropriate (e.g., <span>, <i>, <b>) consistent with examples. Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
   } else {
     systemMessage += `\n\nReturn plain text only (no XML/HTML). Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
   }
   const sourceLangText = sourceLanguage ? `from ${sourceLanguage} ` : "from the source language ";
   systemMessage += `\n\nAlways translate ${sourceLangText}to the target language ${targetLanguage || ""
     }, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
-  systemMessage += `\n\n${userInstructions.join("\n")}`;
+
+  systemMessage += `\n\n1. Analyze the provided reference data to understand the translation patterns and style.`;
+  systemMessage += `\n2. Complete the partial or complete translation of the line.`;
+  systemMessage += `\n3. Ensure your translation fits seamlessly with the existing partial translation.`;
+  systemMessage += `\n4. Provide only the completed translation without any additional commentary or metadata.`;
+  systemMessage += `\n5. Translate only into the target language ${targetLanguage || ""}.`;
+  systemMessage += `\n6. Pay careful attention to the provided reference data.`;
+  systemMessage += `\n7. If in doubt, err on the side of literalness.`;
+  if (allowHtml) {
+    systemMessage += `\n8. If the project has any styles, return HTML with the appropriate tags or classes as per the examples in the translation memory.`;
+  }
+
+  systemMessage += `\n\nWrap your final translation in <final_answer>...</final_answer> XML tags. Do not include any other XML tags in your response outside of these tags.`;
 
   const contextXml = `<context>\n${precedingContextPairs.filter(Boolean).join("\n")}\n</context>`;
   const currentTaskXml = allowHtml
