@@ -134,6 +134,7 @@ export interface FrontierAPI {
             lastActivity: string;
             namespace: string;
             owner: string;
+            archived?: boolean;
         }>
     >;
     cloneRepository: (

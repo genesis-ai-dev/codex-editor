@@ -5370,8 +5370,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             const projectList: ProjectWithSyncStatus[] = [];
 
+            // Build a set of normalized URLs for archived remote projects so locally-cloned
+            // copies can be flagged with isArchivedButLocallyCloned without appearing as clone-able.
+            const archivedRemoteUrls = new Set<string>();
+
             // Process remote projects (only if server was reachable)
             for (const project of remoteProjects) {
+                // Archived projects that are not locally cloned should not be shown — users cannot
+                // meaningfully clone or sync them and sync will fail.  We handle the case where a
+                // user already has one cloned after the normalizeUrl helper is defined below.
+                if (project.archived) {
+                    // Record the URL so we can flag any locally-cloned copy later.
+                    // We must defer normalization until after normalizeUrl is defined, so we
+                    // store the raw URL and normalize it in a second pass below.
+                    archivedRemoteUrls.add(project.url);
+                    continue;
+                }
                 projectList.push({
                     name: project.name,
                     path: "",
@@ -5423,6 +5437,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             };
 
+            // Normalize archived remote URLs now that normalizeUrl is defined.
+            const normalizedArchivedUrls = new Set(
+                [...archivedRemoteUrls].map(normalizeUrl).filter(Boolean)
+            );
+
             // Process local projects and check for matches
             for (const project of localProjects) {
                 if (!project.gitOriginUrl) {
@@ -5434,6 +5453,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
 
                 const localNormalized = normalizeUrl(project.gitOriginUrl);
+
+                // Check if this local project matches an archived remote project.
+                // Show it as synced but flag it so the UI can display an "Archived" badge
+                // and users understand why syncing will fail.
+                if (normalizedArchivedUrls.has(localNormalized)) {
+                    projectList.push({
+                        ...project,
+                        syncStatus: "downloadedAndSynced",
+                        isArchivedButLocallyCloned: true,
+                    });
+                    continue;
+                }
+
                 const matchInRemoteIndex = projectList.findIndex(
                     (p) => normalizeUrl(p.gitOriginUrl) === localNormalized
                 );

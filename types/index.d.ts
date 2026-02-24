@@ -308,6 +308,7 @@ export type GitLabProject = {
     lastActivity: string;
     namespace: string;
     owner: string;
+    archived?: boolean;
 };
 
 export type ProjectSyncStatus =
@@ -327,6 +328,7 @@ export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     mediaStrategy?: MediaFilesStrategy; // Media files download strategy for this project
     projectSwap?: ProjectSwapInfo;
+    isArchivedButLocallyCloned?: boolean;
 };
 
 export type MessagesFromStartupFlowProvider =
