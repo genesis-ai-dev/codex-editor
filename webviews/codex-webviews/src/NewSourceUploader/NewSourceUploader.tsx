@@ -33,6 +33,7 @@ import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
 import { SystemMessageStep } from "../StartupFlow/components/SystemMessageStep";
 import { createDownloadHelper } from "./utils/downloadHelper";
+import { notifyImportEnded } from "./utils/importProgress";
 import "./App.css";
 import "../tailwind.css";
 
@@ -348,6 +349,7 @@ const NewSourceUploader: React.FC = () => {
             };
 
             vscode.postMessage(message);
+            notifyImportEnded();
 
             // Reset wizard
             setWizardState((prev) => ({
@@ -393,6 +395,7 @@ const NewSourceUploader: React.FC = () => {
             };
 
             vscode.postMessage(message);
+            notifyImportEnded();
 
             // Reset wizard
             setWizardState((prev) => ({

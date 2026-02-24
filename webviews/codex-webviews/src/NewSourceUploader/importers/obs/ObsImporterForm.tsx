@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { obsImporter } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
@@ -59,6 +60,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
     }, []);
 
     const handleRepositoryDownload = useCallback(async () => {
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -139,6 +141,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
@@ -150,6 +153,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
             return;
         }
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -228,6 +232,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
@@ -240,6 +245,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 await handleImportCompletion(result, props);
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to complete import");
+                notifyImportEnded();
             }
         }
     }, [result, props]);

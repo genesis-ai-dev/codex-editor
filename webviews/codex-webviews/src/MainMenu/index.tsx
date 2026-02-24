@@ -9,6 +9,7 @@ import {
     TextDisplaySettingsModal,
     type TextDisplaySettings,
 } from "../components/TextDisplaySettingsModal";
+import { vscode } from "../EditableReactTable/utilities/vscode";
 import "../tailwind.css";
 
 // Inline editable field component
@@ -105,10 +106,6 @@ function EditableField({
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
 const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 
-// Declare the acquireVsCodeApi function and acquire the VS Code API
-declare function acquireVsCodeApi(): any;
-const vscode = acquireVsCodeApi();
-
 interface ProjectManagerState {
     projectOverview: any | null;
     webviewReady: boolean;
@@ -121,6 +118,7 @@ interface ProjectManagerState {
     isInitializing: boolean;
     isSyncInProgress: boolean;
     syncStage: string;
+    isImportInProgress: boolean;
     isPublishingInProgress: boolean;
     publishingStage: string;
     updateState:
@@ -166,6 +164,7 @@ function MainMenu() {
             appVersion: null,
             isSyncInProgress: false,
             syncStage: "",
+            isImportInProgress: false,
             isPublishingInProgress: false,
             publishingStage: "",
         },
@@ -229,6 +228,9 @@ function MainMenu() {
                                 message.data.isSyncInProgress ??
                                 prevState.projectState.isSyncInProgress,
                             syncStage: message.data.syncStage ?? prevState.projectState.syncStage,
+                            isImportInProgress:
+                                message.data.isImportInProgress ??
+                                prevState.projectState.isImportInProgress,
                         },
                     }));
                     break;
@@ -742,6 +744,7 @@ function MainMenu() {
                                     syncDelayMinutes={state.syncDelayMinutes}
                                     isSyncInProgress={projectState.isSyncInProgress}
                                     syncStage={projectState.syncStage}
+                                    isImportInProgress={projectState.isImportInProgress ?? false}
                                     isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
                                     isAuthenticated={state.isAuthenticated}
                                     onToggleAutoSync={handleToggleAutoSync}
