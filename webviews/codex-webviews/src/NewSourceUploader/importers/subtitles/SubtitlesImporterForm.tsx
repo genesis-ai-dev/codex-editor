@@ -27,6 +27,7 @@ import { Badge } from "../../../components/ui/badge";
 import { subtitlesImporter } from "./index";
 import { subtitlesImporterPlugin } from "./index.tsx";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
 
@@ -111,6 +112,7 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
     const handleImport = async () => {
         if (!file) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -189,11 +191,13 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
                         await handleImportCompletion(importResult.notebookPair!, props);
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
+                        notifyImportEnded();
                     }
                 }, 1500);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

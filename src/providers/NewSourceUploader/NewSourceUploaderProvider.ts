@@ -180,6 +180,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             },
                         });
                     }
+                } else if (message.command === "importStarted") {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                } else if (message.command === "importEnded") {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.endImportInProgress();
                 } else if (message.command === "writeNotebooks") {
                     const syncManager = SyncManager.getInstance();
                     syncManager.beginImportInProgress();
