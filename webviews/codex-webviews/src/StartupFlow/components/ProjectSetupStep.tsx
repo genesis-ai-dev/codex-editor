@@ -248,17 +248,17 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         </div>
                     </span>
                     <div style={{ display: "flex", gap: "8px" }}>
-                        <VSCodeButton
-                            appearance="secondary"
-                            disabled={isCloningDeprecated}
-                            onClick={() => {
-                                setSwapCloneWarning(null);
-                                setDisableAllActions(false);
-                                setIsCloningDeprecated(false);
-                            }}
-                        >
-                            Cancel
-                        </VSCodeButton>
+                        {!isCloningDeprecated && (
+                            <VSCodeButton
+                                appearance="secondary"
+                                onClick={() => {
+                                    setSwapCloneWarning(null);
+                                    setDisableAllActions(false);
+                                }}
+                            >
+                                Cancel
+                            </VSCodeButton>
+                        )}
                         {swapCloneWarning.repoUrl && (
                             <VSCodeButton
                                 appearance="primary"
