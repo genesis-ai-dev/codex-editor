@@ -41,6 +41,7 @@ import {
 import { Badge } from "../../../components/ui/badge";
 import { paratextImporter } from "./parser";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 // Use the real parser functions from the Paratext importer
@@ -98,6 +99,7 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) =>
     const handleImport = async () => {
         if (!file) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -191,6 +193,7 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) =>
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
@@ -199,6 +202,9 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) =>
     const handleCancel = () => {
         if (isDirty && !window.confirm("Cancel import? Any unsaved changes will be lost.")) {
             return;
+        }
+        if (isProcessing) {
+            notifyImportEnded();
         }
         onCancel();
     };
@@ -211,6 +217,7 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) =>
                 await handleImportCompletion(notebooks, props);
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to complete import");
+                notifyImportEnded();
             }
         }
     };
