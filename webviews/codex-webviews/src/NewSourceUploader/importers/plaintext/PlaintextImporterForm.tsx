@@ -29,6 +29,7 @@ import {
 } from "../../../components/ui/select";
 import { plaintextImporter } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 // Use the real parser functions from the Plaintext importer
@@ -79,6 +80,7 @@ export const PlaintextImporterForm: React.FC<ImporterComponentProps> = (props) =
     const handleImport = async () => {
         if (!file) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -159,11 +161,13 @@ export const PlaintextImporterForm: React.FC<ImporterComponentProps> = (props) =
                         await handleImportCompletion(importResult.notebookPair!, props);
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
+                        notifyImportEnded();
                     }
                 }, 1500);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

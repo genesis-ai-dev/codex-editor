@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Button } from "../../../components/ui/button";
 import { parseJsonIntelligently, mightBeJson } from "./jsonParser";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import {
     Card,
     CardContent,
@@ -365,6 +366,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
     const handleImport = async () => {
         if (!file || !fileContent) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -561,6 +563,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
             }, 1000);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

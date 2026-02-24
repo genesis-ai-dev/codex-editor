@@ -1644,6 +1644,7 @@ interface ProjectManagerState {
     isInitializing: boolean;
     isSyncInProgress: boolean;
     syncStage: string;
+    isImportInProgress: boolean;
     isPublishingInProgress: boolean;
     publishingStage: string;
     updateState: 'ready' | 'downloaded' | 'available for download' | 'downloading' | 'updating' | 'checking for updates' | 'idle' | 'disabled' | null;
@@ -1676,6 +1677,7 @@ type ProjectManagerMessageToWebview =
         data: {
             isSyncInProgress: boolean;
             syncStage: string;
+            isImportInProgress?: boolean;
         };
     }
     | {
