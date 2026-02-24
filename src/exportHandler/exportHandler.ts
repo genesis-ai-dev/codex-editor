@@ -1,13 +1,14 @@
 import * as vscode from "vscode";
-import JSZip from "jszip";
 import { extractVerseRefFromLine, getVerseRefFromCellMetadata } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { exec } from "child_process";
 import { promisify } from "util";
+import archiver from "archiver";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
 // import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
@@ -315,6 +316,25 @@ export enum CodexExportFormat {
 export interface ExportOptions {
     skipValidation?: boolean;
     removeIds?: boolean;
+    zipOutput?: boolean;
+}
+
+/**
+ * Zips the contents of sourceDir (flat, no subdirectory wrapper) into a .zip file at destZipPath.
+ * Uses archiver for streaming efficiency, consistent with how project backups work.
+ */
+async function zipDirectory(sourceDir: string, destZipPath: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        const output = fs.createWriteStream(destZipPath);
+        const archive = archiver("zip", { zlib: { level: 6 } });
+
+        output.on("close", resolve);
+        archive.on("error", reject);
+
+        archive.pipe(output);
+        archive.directory(sourceDir, false);
+        archive.finalize();
+    });
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -1894,6 +1914,19 @@ export async function exportCodexContent(
     filesToExport: string[],
     options?: ExportOptions
 ) {
+    if (options?.zipOutput) {
+        const tempDir = path.join(os.tmpdir(), `codex-export-${Date.now()}`);
+        fs.mkdirSync(tempDir, { recursive: true });
+        try {
+            await exportCodexContent(format, tempDir, filesToExport, { ...options, zipOutput: false });
+            await zipDirectory(tempDir, userSelectedPath);
+            vscode.window.showInformationMessage(`Export saved to ${userSelectedPath}`);
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+        return;
+    }
+
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
             await exportCodexContentAsPlaintext(userSelectedPath, filesToExport, options);

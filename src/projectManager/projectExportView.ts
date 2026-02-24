@@ -70,6 +70,21 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                     }, "ProjectExport");
                 }
                 break;
+            case "selectZipSavePath": {
+                const zipUri = await vscode.window.showSaveDialog({
+                    title: "Save Export as ZIP",
+                    saveLabel: "Save ZIP",
+                    filters: { "ZIP files": ["zip"] },
+                });
+
+                if (zipUri) {
+                    safePostMessageToPanel(panel, {
+                        command: "updateExportPath",
+                        path: zipUri.fsPath,
+                    }, "ProjectExport");
+                }
+                break;
+            }
             case "export":
                 try {
                     await vscode.commands.executeCommand(
@@ -475,11 +490,16 @@ function getWebviewContent(
                         </div>
                     </div>
 
+                    <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="zipOutput" onchange="onZipOutputChange()" />
+                        <label for="zipOutput">Save as ZIP file</label>
+                    </div>
+
                     <div class="export-path">
                         <div class="path-display" id="exportPath">No export location selected</div>
                         <button class="secondary" onclick="selectExportPath()">
-                            <i class="codicon codicon-folder"></i>
-                            Select Location
+                            <i class="codicon codicon-folder-opened"></i>
+                            <span id="selectLocationLabel">Select Folder</span>
                         </button>
                     </div>
 
@@ -598,7 +618,20 @@ function getWebviewContent(
                 }
 
                 function selectExportPath() {
-                    vscode.postMessage({ command: 'selectExportPath' });
+                    const isZip = document.getElementById('zipOutput').checked;
+                    vscode.postMessage({ command: isZip ? 'selectZipSavePath' : 'selectExportPath' });
+                }
+
+                function onZipOutputChange() {
+                    exportPath = null;
+                    const isZip = document.getElementById('zipOutput').checked;
+                    document.getElementById('exportPath').textContent = isZip
+                        ? 'No ZIP save location selected'
+                        : 'No export location selected';
+                    document.getElementById('selectLocationLabel').textContent = isZip
+                        ? 'Save ZIP As…'
+                        : 'Select Folder';
+                    updateExportButton();
                 }
 
                 window.addEventListener('message', event => {
@@ -629,6 +662,8 @@ function getWebviewContent(
                     if (selectedFormat === 'plaintext') {
                         options.removeIds = document.getElementById('togglePlainTextIds').checked;
                     }
+                    // ZIP output option
+                    options.zipOutput = document.getElementById('zipOutput').checked;
                     
                     vscode.postMessage({
                         command: 'export',
