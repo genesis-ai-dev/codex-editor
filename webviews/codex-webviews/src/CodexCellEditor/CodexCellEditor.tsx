@@ -180,6 +180,7 @@ const CodexCellEditor: React.FC = () => {
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
+    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
     // Backtranslation inline display state
     const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
@@ -634,10 +635,7 @@ const CodexCellEditor: React.FC = () => {
     // Handle navigation to cell from search
     const handleSearchNavigateToCell = useCallback(
         (cellId: string) => {
-            setContentToScrollTo({
-                type: "cellId",
-                cellId,
-            });
+            setContentToScrollTo(cellId);
         },
         [setContentToScrollTo]
     );
@@ -1690,8 +1688,16 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
-            // Clear any stale dirty state so navigation is not blocked after loading new content
-            setContentBeingUpdated({} as EditorCellContent);
+            // Clear any stale dirty state so navigation is not blocked after loading new content.
+            // If the current editing cell is still on this page (e.g. initial load with editor open), preserve it.
+            const currentEditingCellId = contentBeingUpdated.cellMarkers?.[0];
+            const editingCellIsOnPage =
+                currentEditingCellId &&
+                cells.some((c) => c.cellMarkers?.[0] === currentEditingCellId);
+            if (!editingCellIsOnPage) {
+                setContentBeingUpdated({} as EditorCellContent);
+                setUnsavedChanges(false);
+            }
         },
 
         handleCellPage: (
@@ -1741,8 +1747,32 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
-            // Clear any stale dirty state so navigation is not blocked after loading new content
-            setContentBeingUpdated({} as EditorCellContent);
+            // Clear any stale dirty state so navigation is not blocked after loading new content.
+            // If the current editing cell is still on this page (e.g. after sparkle LLM refresh), preserve the editor.
+            const currentEditingCellId = contentBeingUpdated.cellMarkers?.[0];
+            const editingCellIsOnPage =
+                currentEditingCellId &&
+                cells.some((c) => c.cellMarkers?.[0] === currentEditingCellId);
+            if (editingCellIsOnPage) {
+                // Keep editor open. Only sync label and timestamps from the page; do NOT overwrite
+                // cellContent — the Editor (Quill) has the authoritative content (LLM + user edits),
+                // and the provider's page may have been built before the cell was updated, so overwriting
+                // would clobber the in-editor content and cause save to persist empty/stale content.
+                setContentBeingUpdated((prev) => {
+                    const cellId = prev.cellMarkers?.[0];
+                    if (!cellId) return prev;
+                    const match = cells.find((c) => c.cellMarkers?.[0] === cellId);
+                    if (!match) return prev;
+                    return {
+                        ...prev,
+                        cellLabel: match.cellLabel ?? prev.cellLabel,
+                        cellTimestamps: match.timestamps ?? prev.cellTimestamps,
+                    };
+                });
+            } else {
+                setContentBeingUpdated({} as EditorCellContent);
+                setUnsavedChanges(false);
+            }
         },
     });
 
@@ -2160,8 +2190,6 @@ const CodexCellEditor: React.FC = () => {
     const translationUnitsForSection = useMemo(() => {
         return allCellsForChapter;
     }, [allCellsForChapter]);
-
-    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
     const handleCloseEditor = () => {
         debug("editor", "Closing editor");
