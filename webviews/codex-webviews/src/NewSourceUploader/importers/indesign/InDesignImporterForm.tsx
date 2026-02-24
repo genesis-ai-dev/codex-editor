@@ -24,6 +24,7 @@ import {
 import { IDMLParser } from './idmlParser';
 import { HTMLMapper } from './htmlMapper';
 import { createProcessedCell, sanitizeFileName, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
+import { notifyImportStarted, notifyImportEnded } from '../../utils/importProgress';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { createIndesignVerseCellMetadata, createIndesignParagraphCellMetadata } from './cellMetadata';
 
@@ -108,6 +109,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
     const handleImport = useCallback(async () => {
         if (!selectedFile) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setProgress('Starting import...');
         
@@ -305,6 +307,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
             addDebugLog(`Import error stack: ${error instanceof Error ? error.stack : 'No stack'}`);
             alert(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             setIsProcessing(false);
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

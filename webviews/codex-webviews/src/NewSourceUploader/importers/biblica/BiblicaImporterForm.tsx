@@ -29,6 +29,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { IDMLParser } from './biblicaParser';
 import { HTMLMapper } from './htmlMapper';
 import { createProcessedCell, sanitizeFileName, createStandardCellId, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
+import { notifyImportStarted, notifyImportEnded } from '../../utils/importProgress';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { CodexCellTypes } from 'types/enums';
 import {
@@ -582,6 +583,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             return;
         }
 
+        notifyImportStarted();
         setIsProcessing(true);
         setProgress("Starting import...");
 
@@ -854,6 +856,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
             addDebugLog(`Import error stack: ${error instanceof Error ? error.stack : "No stack"}`);
             alert(`Import failed: ${error instanceof Error ? error.message : "Unknown error"}`);
             setIsProcessing(false);
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

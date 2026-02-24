@@ -43,6 +43,7 @@ import { ParsedSpreadsheet, ColumnType, ColumnTypeSelection } from "./types";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
 import { createSpreadsheetCellMetadata } from "./cellMetadata";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 
 export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const { onComplete, onCancel, wizardContext, onTranslationComplete, alignContent } = props;
@@ -366,6 +367,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
             return;
         }
 
+        notifyImportStarted();
         try {
             if (isTranslationImport) {
                 // Translation import - create ImportedContent from target column
@@ -807,6 +809,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Import failed");
+            notifyImportEnded();
         } finally {
             setIsAligning(false);
         }
@@ -817,6 +820,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
         try {
             (window as any).vscodeApi?.postMessage(pendingImport);
             onComplete?.(pendingNotebookPair);
+            notifyImportEnded();
             debugLog("Import dispatched to extension.");
         } finally {
             setPendingImport(null);
