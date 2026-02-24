@@ -539,11 +539,12 @@ function NavigationView() {
                 content: {
                     corpusLabel: item.label,
                     displayName,
-                    children: item.children?.map((c) => ({
-                        uri: c.uri,
-                        label: c.label,
-                        type: c.type,
-                    })) ?? [],
+                    children:
+                        item.children?.map((c) => ({
+                            uri: c.uri,
+                            label: c.label,
+                            type: c.type,
+                        })) ?? [],
                 },
             });
         } else {
@@ -1154,14 +1155,13 @@ function NavigationView() {
                             }}
                         >
                             {state.deleteModal.isCorpus
-                                ? `This will permanently delete the folder and ${state.deleteModal.item?.children?.length ?? 0} file(s). This cannot be undone.`
+                                ? `This will permanently delete the folder and ${
+                                      state.deleteModal.item?.children?.length ?? 0
+                                  } file(s). This cannot be undone.`
                                 : "This will delete both the codex file and its corresponding source file. This cannot be undone."}
                         </DialogDescription>
                     </DialogHeader>
-                    <p
-                        className="text-sm mt-3 mb-1"
-                        style={{ color: "var(--vscode-foreground)" }}
-                    >
+                    <p className="text-sm mt-3 mb-1" style={{ color: "var(--vscode-foreground)" }}>
                         Type{" "}
                         <strong
                             className="select-all"
@@ -1202,10 +1202,9 @@ function NavigationView() {
                         </Button>
                         <Button
                             variant="destructive"
+                            className="cursor-pointer"
                             onClick={handleDeleteModalConfirm}
-                            disabled={
-                                state.deleteModal.typedName !== state.deleteModal.displayName
-                            }
+                            disabled={state.deleteModal.typedName !== state.deleteModal.displayName}
                         >
                             Delete
                         </Button>
