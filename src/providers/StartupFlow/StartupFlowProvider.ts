@@ -1278,6 +1278,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             "Open Deprecated Project"
                         );
                         if (firstPrompt !== "Open Deprecated Project") {
+                            this.safeSendMessage({
+                                command: "project.openingInProgress",
+                                projectPath,
+                                opening: false,
+                            } as any);
                             return;
                         }
                     } else if (!activeEntry && swapInfo?.swapEntries?.length) {
@@ -1395,6 +1400,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                                 if (warningAction !== "Open Anyway") {
                                     debugLog("User cancelled open of previously deprecated project");
+                                    this.safeSendMessage({
+                                        command: "project.openingInProgress",
+                                        projectPath,
+                                        opening: false,
+                                    } as any);
                                     return;
                                 }
                             }
@@ -6060,6 +6070,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 undefined,
                 mediaStrategy
             );
+        }
+
+        // Clear the deprecated project warning banner after clone completes (success or failure)
+        if (skipDeprecatedPrompt) {
+            try {
+                this.safeSendMessage({
+                    command: "project.swapCloneWarning",
+                    repoUrl,
+                    isOldProject: false,
+                    message: "",
+                } as any);
+            } catch {
+                // non-fatal
+            }
         }
 
         // Refresh list after clone attempt
