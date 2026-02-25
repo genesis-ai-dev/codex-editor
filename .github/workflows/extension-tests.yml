@@ -77,6 +77,9 @@ jobs:
                     npm install --no-audit --no-fund
                   fi
 
+            - name: Lint
+              run: npm run lint
+
             # Build is handled by npm pretest (compile + lint); no separate build step needed
 
             # On Linux, VS Code tests need an X server; run them under xvfb
