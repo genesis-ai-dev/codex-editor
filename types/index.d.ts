@@ -308,7 +308,7 @@ export type GitLabProject = {
     lastActivity: string;
     namespace: string;
     owner: string;
-    archived?: boolean;
+    isArchived?: boolean;
 };
 
 export type ProjectSyncStatus =
