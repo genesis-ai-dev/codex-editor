@@ -5780,7 +5780,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         }
 
-                        if (userAlreadySwappedOnClone) {
+                        if (userAlreadySwappedOnClone && !skipDeprecatedPrompt) {
                             // User already swapped - show informational modal
                             const swapTargetLabel = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                             const alreadySwappedChoice = await vscode.window.showWarningMessage(
@@ -5788,14 +5788,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 `You have already swapped to ${swapTargetLabel}.\n\n` +
                                 `This project is deprecated. You can still clone it if needed.`,
                                 { modal: true },
-                                "Clone Anyway",
-                                "Cancel"
+                                "Clone Anyway"
                             );
                             if (alreadySwappedChoice !== "Clone Anyway") {
+                                this.safeSendMessage({
+                                    command: "project.cloningInProgress",
+                                    projectPath: "",
+                                    gitOriginUrl: repoUrl,
+                                    cloning: false,
+                                } as any);
                                 return;
                             }
-                            // User chose to clone anyway - skip the deprecation banner prompt
-                            skipDeprecatedPrompt = true;
                         }
 
                         // ACTIVE swap - this project is currently deprecated
@@ -5812,6 +5815,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // If user has not explicitly confirmed (via banner button), stop here.
                         if (!skipDeprecatedPrompt) {
                             debugLog("Deprecated project clone blocked until user confirms via banner button");
+                            this.safeSendMessage({
+                                command: "project.cloningInProgress",
+                                projectPath: "",
+                                gitOriginUrl: repoUrl,
+                                cloning: false,
+                            } as any);
                             return;
                         }
                     } else if (!activeEntry && normalizedSwapInfo?.swapEntries?.length) {
@@ -5909,6 +5918,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                                 if (warningAction !== "Clone Anyway") {
                                     debugLog("User cancelled clone of previously deprecated project");
+                                    this.safeSendMessage({
+                                        command: "project.cloningInProgress",
+                                        projectPath: "",
+                                        gitOriginUrl: repoUrl,
+                                        cloning: false,
+                                    } as any);
                                     return;
                                 }
                             }
