@@ -50,7 +50,31 @@ suite("notebookSafeSaveUtils", () => {
         };
 
         await assert.rejects(async () => readExistingFileOrThrowWithFs(fs, uri));
-    });
+    }).timeout(5000);
+
+    test("readExistingFileOrThrow returns readable after retry when first read is empty but file has size", async () => {
+        const uri = vscode.Uri.file("/tmp/eventually-readable.codex");
+        const validContent = '{"cells":[],"metadata":{}}';
+        const fs: NotebookFs = {
+            readFile: sinon
+                .stub()
+                .onFirstCall()
+                .resolves(Buffer.from("", "utf-8"))
+                .onSecondCall()
+                .resolves(Buffer.from(validContent, "utf-8")),
+            stat: sinon.stub().resolves({ type: vscode.FileType.File, ctime: 0, mtime: 0, size: 100 }),
+            writeFile: sinon.stub().resolves(),
+            rename: sinon.stub().resolves(),
+            delete: sinon.stub().resolves(),
+        };
+
+        const result = await readExistingFileOrThrowWithFs(fs, uri);
+        assert.strictEqual(result.kind, "readable");
+        if (result.kind === "readable") {
+            assert.strictEqual(result.content, validContent);
+        }
+        assert.strictEqual((fs.readFile as sinon.SinonStub).callCount, 2, "should have retried read once");
+    }).timeout(5000);
 
     test("readExistingFileOrThrow returns missing when it reads empty and file size is zero", async () => {
         const uri = vscode.Uri.file("/tmp/empty-file.codex");

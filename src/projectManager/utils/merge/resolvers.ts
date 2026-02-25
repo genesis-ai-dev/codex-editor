@@ -16,7 +16,7 @@ import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
-import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
+import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../../utils/notebookFileFormattingUtils";
 import {
     buildCellPositionContextMap,
     insertUniqueCellsPreservingRelativePositions,
@@ -951,10 +951,11 @@ function migrateEditHistoryInContent(content: string): string {
 
         if (hasChanges) {
             debugLog("Edit history migration completed for content");
-            return JSON.stringify(notebook, null, 2);
+            return formatJsonForNotebookFile(notebook);
         }
 
-        return content;
+        // No migration needed: normalize line endings/trailing newline only (cheap), skip full stringify
+        return normalizeNotebookFileText(content);
     } catch (error) {
         debugLog("Error migrating edit history in content:", error);
         return content;

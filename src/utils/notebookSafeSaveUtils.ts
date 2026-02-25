@@ -137,10 +137,27 @@ export type ReadExistingFileResult =
     | { kind: "missing"; }
     | { kind: "readable"; content: string; };
 
+/** Max retries when file is not found (e.g. during atomic rename). */
+const MAX_NOT_FOUND_RETRIES = 3;
+const NOT_FOUND_RETRY_DELAY_MS = 25;
+
+/** When read returns empty but file has size (race/locking), retry with backoff. */
+const EMPTY_READ_MAX_RETRIES = 4;
+const EMPTY_READ_INITIAL_DELAY_MS = 50;
+const EMPTY_READ_BACKOFF_MULTIPLIER = 2;
+/** Files larger than this get one extra retry and longer delays. */
+const LARGE_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+
+/** Normalize Windows CRLF to LF so merge/migration see consistent line endings. */
+function normalizeLineEndings(text: string): string {
+    return text.replace(/\r\n/g, "\n");
+}
+
 /**
  * Reads current content if the file exists and is readable.
  * - If the file does not exist: returns { kind: "missing" }.
  * - If the file exists but cannot be read: throws (callers should avoid overwriting).
+ * - Retries with backoff when read returns empty but file has size (reduces race/locking issues on large files).
  */
 export async function readExistingFileOrThrow(uri: vscode.Uri): Promise<ReadExistingFileResult> {
     return readExistingFileOrThrowWithFs(vscode.workspace.fs, uri);
@@ -152,22 +169,37 @@ export async function readExistingFileOrThrowWithFs(
 ): Promise<ReadExistingFileResult> {
     // Defensive retry: in some environments the atomic rename used by our save path can momentarily
     // remove the target file, causing transient EntryNotFound errors. Retrying avoids flaky saves/tests.
-    const maxAttempts = 3;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let attempt = 1; attempt <= MAX_NOT_FOUND_RETRIES; attempt++) {
         try {
             const content = await readUriTextWithFs(fs, uri);
             // Defensive: if we read an empty/whitespace-only string from a file that is non-empty on disk,
-            // treat it as a transient read error and DO NOT allow overwrite.
-            // (This can happen during races / partial writes and is a common cause of "saved empty" bugs.)
+            // treat as a transient read error and retry with backoff before giving up.
+            // (This can happen during races / partial writes / Windows locking and is a common cause of "saved empty" bugs.)
             if (content.trim().length === 0) {
                 const stat = await fs.stat(uri);
                 if (stat.size === 0) {
-                    // Empty file on disk: allow caller to treat this as "missing" and do an initial write.
                     return { kind: "missing" };
+                }
+                // Retry with backoff; use more retries and longer delays for large files
+                const isLarge = stat.size > LARGE_FILE_SIZE_BYTES;
+                const retries = isLarge ? EMPTY_READ_MAX_RETRIES + 1 : EMPTY_READ_MAX_RETRIES;
+                const initialDelay = isLarge ? EMPTY_READ_INITIAL_DELAY_MS * 2 : EMPTY_READ_INITIAL_DELAY_MS;
+
+                for (let r = 0; r < retries; r++) {
+                    const delayMs = initialDelay * Math.pow(EMPTY_READ_BACKOFF_MULTIPLIER, r);
+                    await new Promise((resolve) => setTimeout(resolve, delayMs));
+                    const retryContent = await readUriTextWithFs(fs, uri);
+                    if (retryContent.trim().length > 0) {
+                        return { kind: "readable", content: normalizeLineEndings(retryContent) };
+                    }
+                    const retryStat = await fs.stat(uri);
+                    if (retryStat.size === 0) {
+                        return { kind: "missing" };
+                    }
                 }
                 throw new Error(`Read empty content from non-empty file: ${uri.fsPath}`);
             }
-            return { kind: "readable", content };
+            return { kind: "readable", content: normalizeLineEndings(content) };
         } catch (error) {
             // If file doesn't exist, treat as missing.
             // If it exists, propagate the read error (except for a small set of transient-not-found races).
@@ -183,8 +215,8 @@ export async function readExistingFileOrThrowWithFs(
                 error instanceof vscode.FileSystemError &&
                 (error.code === "EntryNotFound" || error.code === "FileNotFound");
 
-            if (exists && isTransientNotFound && attempt < maxAttempts) {
-                await new Promise((resolve) => setTimeout(resolve, 25));
+            if (exists && isTransientNotFound && attempt < MAX_NOT_FOUND_RETRIES) {
+                await new Promise((resolve) => setTimeout(resolve, NOT_FOUND_RETRY_DELAY_MS));
                 continue;
             }
 
@@ -194,4 +226,3 @@ export async function readExistingFileOrThrowWithFs(
 
     return { kind: "missing" };
 }
-
