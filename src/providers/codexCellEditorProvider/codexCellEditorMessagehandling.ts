@@ -2260,17 +2260,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         }
                     }
                 }
-                // If the user's selected audio is missing, show missing icon regardless of other attachments.
                 const selectedId = cell?.metadata?.selectedAudioId;
                 const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                 const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
-                // Provisional state
+                // Provisional state — prefer showing available when a valid file exists,
+                // even if the user's explicit selection points to a missing file.
                 let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                if (selectedIsMissing) state = "missing";
-                else if (hasAvailable) state = "available-local";
+                if (hasAvailable) state = "available-local";
                 else if (hasAvailablePointer) state = "available-pointer";
-                else if (hasMissing) state = "missing";
+                else if (selectedIsMissing || hasMissing) state = "missing";
                 else if (hasDeleted) state = "deletedOnly";
                 else state = "none";
 

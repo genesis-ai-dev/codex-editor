@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import JSZip from "jszip";
-import { extractVerseRefFromLine, getVerseRefFromCellMetadata } from "../utils/verseRefUtils";
+import { extractVerseRefFromLine, getVerseRefFromCellMetadata, parseVerseRef } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
@@ -2848,7 +2848,7 @@ async function exportCodexContentAsHtml(
                     };
 
                     // Helper: get book code, chapter, verse and display ref for a verse cell.
-                    // Supports: (1) id as verse ref "MRK 1:1", (2) chapter/verse on metadata, (3) chapter/verse under metadata.data (e.g. ebibleCorpus).
+                    // Supports: (1) id as verse ref "MRK 1:1", (2) chapter/verse on metadata, (3) chapter/verse under metadata.data (e.g. ebibleCorpus), (4) globalReferences only (e.g. "MAT 28:18").
                     const getVerseChapterAndVerse = (meta: VerseMeta): { bookCode: string; chapterNum: string; verseNumber: string; verseRef: string; } | null => {
                         if (!meta || typeof meta !== "object") return null;
                         const id = meta.id ?? "";
@@ -2865,12 +2865,22 @@ async function exportCodexContentAsHtml(
                         }
                         // Prefer metadata.data when present (ebibleCorpus / persisted format)
                         const d = meta.data;
-                        const ch = d != null && (typeof d.chapter === "number" || typeof d.chapter === "string")
-                            ? Number(d.chapter)
-                            : meta.chapter;
-                        const v = d != null && (d.verse !== undefined && d.verse !== null)
-                            ? d.verse
-                            : meta.verse;
+                        let ch: number | undefined =
+                            d != null && (typeof d.chapter === "number" || typeof d.chapter === "string")
+                                ? Number(d.chapter)
+                                : meta.chapter;
+                        let v: number | string | undefined =
+                            d != null && (d.verse !== undefined && d.verse !== null)
+                                ? d.verse
+                                : meta.verse;
+                        // Fallback: when chapter/verse are missing but globalReferences has "BOOK C:V" or "BOOK C:V1-V2", parse it
+                        if ((ch == null || v == null) && d != null && Array.isArray(d.globalReferences) && typeof d.globalReferences[0] === "string") {
+                            const parsed = parseVerseRef(d.globalReferences[0]);
+                            if (parsed) {
+                                ch = parsed.chapter;
+                                v = parsed.kind === "single" ? parsed.verse : parsed.cellLabel;
+                            }
+                        }
                         if (ch == null || v == null || Number.isNaN(ch)) return null;
                         const chapterNum = String(ch);
                         const verseNumber = String(v);
