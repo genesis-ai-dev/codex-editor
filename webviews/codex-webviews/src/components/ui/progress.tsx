@@ -132,7 +132,7 @@ function Progress({
                             <Tooltip key={i}>
                                 <TooltipTrigger asChild>
                                     <div
-                                        className="h-full cursor-default"
+                                        className="h-full cursor-default pointer-events-auto"
                                         style={{
                                             position: "absolute",
                                             left: `${zone.left}%`,
