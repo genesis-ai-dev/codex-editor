@@ -245,6 +245,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         const { container } = render(<CellList {...mockProps} />);
@@ -452,6 +453,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         render(<CellList {...mockProps} />);
@@ -563,6 +565,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             scrollSyncEnabled: true,
             currentUsername: "test-user",
             requiredValidations: 1,
+            highlightedGlobalReferences: [],
         };
 
         render(<CellList {...cellListProps} />);
@@ -1032,7 +1035,7 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
         );
 
         // Start Recording button should be disabled when locked
-        const startBtn = await screen.findByRole("button", { name: /Start Recording/i });
+        const startBtn = await screen.findByRole("button", { name: /Record/i });
         expect(startBtn.hasAttribute("disabled")).toBe(true);
 
         fireEvent.click(startBtn);

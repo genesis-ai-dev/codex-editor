@@ -72,8 +72,8 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 break;
             case "export":
                 try {
-                    await vscode.commands.executeCommand(
-                        `codex-editor-extension.exportCodexContent`,
+                    const completed = await vscode.commands.executeCommand<boolean>(
+                        "codex-editor-extension.exportCodexContent",
                         {
                             format: message.format as CodexExportFormat,
                             userSelectedPath: message.userSelectedPath,
@@ -81,7 +81,9 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                             options: message.options,
                         }
                     );
-                    panel.dispose();
+                    if (completed !== false) {
+                        panel.dispose();
+                    }
                 } catch (error) {
                     vscode.window.showErrorMessage(
                         "Failed to export project. Please check your configuration."
@@ -434,6 +436,13 @@ function getWebviewContent(
                                     <div class="format-option-content">
                                         <strong>WebVTT Plain</strong>
                                         <p>Web-native subtitles without text formatting</p>
+                                        <span class="format-tag">Plain Text Only</span>
+                                    </div>
+                                </div>
+                                <div class="format-option" data-format="subtitles-vtt-with-cue-splitting">
+                                    <div class="format-option-content">
+                                        <strong>WebVTT with Cue Splitting</strong>
+                                        <p>Only use this option if you have overlapping subtitles representing independent speakers that need to appear and disappear at different times.</p>
                                         <span class="format-tag">Plain Text Only</span>
                                     </div>
                                 </div>

@@ -1,16 +1,7 @@
-import React, { useContext, useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
-import { globalAudioController, type AudioControllerEvent } from "../lib/audioController";
-import {
-    EditorCellContent,
-    EditorPostMessages,
-    Timestamps,
-    EditHistory,
-    QuillCellContent,
-} from "../../../../types";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { EditorPostMessages, QuillCellContent } from "../../../../types";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
-import { CodexCellTypes } from "../../../../types/enums";
-import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
 import AudioValidationButton from "./AudioValidationButton";
@@ -24,7 +15,6 @@ const CELL_DISPLAY_MODE = CELL_DISPLAY_MODES.ONE_LINE_PER_CELL;
 import "./TranslationAnimations.css"; // Import the animation CSS
 import { useTooltip } from "./contextProviders/TooltipContext";
 import CommentsBadge from "./CommentsBadge";
-import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import ReactMarkdown from "react-markdown";
 import {
     Dialog,
@@ -34,6 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "../components/ui/dialog";
+import AudioPlayButton from "./AudioPlayButton";
 import { MessageCircle } from "lucide-react";
 
 const SHOW_VALIDATION_BUTTON = true;
@@ -76,6 +67,12 @@ interface CellContentDisplayProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
+    // Video player props
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    shouldShowVideoPlayer?: boolean;
+    videoUrl?: string;
+    // Audio playback state from other webview type (source or target)
+    isOtherTypeAudioPlaying?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -84,337 +81,6 @@ function debug(message: string, ...args: any[]): void {
         console.log(`[CellContentDisplay] ${message}`, ...args);
     }
 }
-
-// Audio Play Button Component
-const AudioPlayButton: React.FC<{
-    cellId: string;
-    vscode: WebviewApi<unknown>;
-    state?:
-        | "available"
-        | "available-local"
-        | "available-pointer"
-        | "missing"
-        | "deletedOnly"
-        | "none";
-    onOpenCell?: (cellId: string) => void;
-    isCellLocked?: boolean;
-    onLockedClick?: () => void;
-}> = React.memo(
-    ({ cellId, vscode, state = "available", onOpenCell, isCellLocked = false, onLockedClick }) => {
-        const [isPlaying, setIsPlaying] = useState(false);
-        const [audioUrl, setAudioUrl] = useState<string | null>(null);
-        const [isLoading, setIsLoading] = useState(false);
-        const pendingPlayRef = useRef(false);
-        const audioRef = useRef<HTMLAudioElement | null>(null);
-
-        // Do not pre-load on mount; we will request on first click to avoid spinner churn
-
-        // Listen for audio data messages
-        useMessageHandler(
-            "cellContentDisplay-audioData",
-            async (event: MessageEvent) => {
-                const message = event.data;
-
-                // Handle audio attachments updates - clear current url and cache; fetch on next click
-                if (message.type === "providerSendsAudioAttachments") {
-                    // Clear cached audio data since selected audio might have changed
-                    const { clearCachedAudio } = await import("../lib/audioCache");
-                    clearCachedAudio(cellId);
-
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
-                    }
-                    setAudioUrl(null);
-                    setIsLoading(false);
-                }
-
-                if (
-                    message.type === "providerSendsAudioData" &&
-                    message.content.cellId === cellId
-                ) {
-                    if (message.content.audioData) {
-                        // Clean up previous URL if exists
-                        if (audioUrl && audioUrl.startsWith("blob:")) {
-                            URL.revokeObjectURL(audioUrl);
-                        }
-
-                        // Convert base64 to blob URL
-                        fetch(message.content.audioData)
-                            .then((res) => res.blob())
-                            .then((blob) => {
-                                const blobUrl = URL.createObjectURL(blob);
-                                try {
-                                    setCachedAudioDataUrl(cellId, message.content.audioData);
-                                } catch {
-                                    /* empty */
-                                }
-                                setAudioUrl(blobUrl);
-                                setIsLoading(false);
-                                if (pendingPlayRef.current) {
-                                    // Auto-play once the data arrives
-                                    try {
-                                        if (!audioRef.current) {
-                                            audioRef.current = new Audio();
-                                            audioRef.current.onended = () => setIsPlaying(false);
-                                            audioRef.current.onerror = () => {
-                                                console.error(
-                                                    "Error playing audio for cell:",
-                                                    cellId
-                                                );
-                                                setIsPlaying(false);
-                                            };
-                                        }
-                                        audioRef.current.src = blobUrl;
-                                        globalAudioController
-                                            .playExclusive(audioRef.current)
-                                            .then(() => setIsPlaying(true))
-                                            .catch((e) => {
-                                                console.error(
-                                                    "Error auto-playing audio for cell:",
-                                                    e
-                                                );
-                                                setIsPlaying(false);
-                                            });
-                                    } finally {
-                                        pendingPlayRef.current = false;
-                                    }
-                                }
-                            })
-                            .catch((error) => {
-                                console.error("Error converting audio data:", error);
-                                setIsLoading(false);
-                            });
-                    } else {
-                        // No audio data - clear the audio URL and stop loading
-                        setAudioUrl(null);
-                        setIsLoading(false);
-                    }
-                }
-            },
-            [audioUrl, cellId, vscode]
-        ); // Add vscode to dependencies
-
-        // Clean up blob URL on unmount
-        useEffect(() => {
-            return () => {
-                if (audioUrl && audioUrl.startsWith("blob:")) {
-                    URL.revokeObjectURL(audioUrl);
-                }
-                // Stop audio if playing when unmounting
-                if (audioRef.current && isPlaying) {
-                    audioRef.current.pause();
-                }
-            };
-        }, [audioUrl, isPlaying]);
-
-        const handlePlayAudio = async () => {
-            try {
-                // For any non-available state, open editor on audio tab and auto-start recording
-                if (
-                    state !== "available" &&
-                    state !== "available-local" &&
-                    state !== "available-pointer"
-                ) {
-                    // Locked cells: don't open editor to record/re-record.
-                    // (Playback is handled in available/available-local/available-pointer states.)
-                    if (isCellLocked && state !== "missing") {
-                        onLockedClick?.();
-                        return;
-                    }
-
-                    // For missing audio, just open the editor without auto-starting recording
-                    // Also don't auto-start if cell is locked
-                    if (state !== "missing" && !isCellLocked) {
-                        try {
-                            sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                        } catch (e) {
-                            void e;
-                        }
-                    }
-                    vscode.postMessage({
-                        command: "setPreferredEditorTab",
-                        content: { tab: "audio" },
-                    } as any);
-                    if (onOpenCell) onOpenCell(cellId);
-                    return;
-                }
-
-                if (isPlaying) {
-                    // Stop current audio
-                    if (audioRef.current) {
-                        audioRef.current.pause();
-                        audioRef.current.currentTime = 0;
-                    }
-                    setIsPlaying(false);
-                } else {
-                    // If we don't have audio yet, try cached data first; only request if not cached
-                    let effectiveUrl: string | null = audioUrl;
-                    if (!effectiveUrl) {
-                        const cached = getCachedAudioDataUrl(cellId);
-                        if (cached) {
-                            pendingPlayRef.current = true;
-                            setIsLoading(true);
-                            try {
-                                const res = await fetch(cached);
-                                const blob = await res.blob();
-                                const blobUrl = URL.createObjectURL(blob);
-                                setAudioUrl(blobUrl); // update state for future plays
-                                effectiveUrl = blobUrl; // use immediately for this play
-                                setIsLoading(false);
-                                // fall through to playback below
-                            } catch {
-                                // If cache hydration fails, request from provider
-                                pendingPlayRef.current = true;
-                                setIsLoading(true);
-                                vscode.postMessage({
-                                    command: "requestAudioForCell",
-                                    content: { cellId },
-                                } as EditorPostMessages);
-                                return;
-                            }
-                        } else {
-                            pendingPlayRef.current = true;
-                            setIsLoading(true);
-                            vscode.postMessage({
-                                command: "requestAudioForCell",
-                                content: { cellId },
-                            } as EditorPostMessages);
-                            return;
-                        }
-                    }
-
-                    // Create or reuse audio element
-                    if (!audioRef.current) {
-                        audioRef.current = new Audio();
-                        audioRef.current.onended = () => setIsPlaying(false);
-                        audioRef.current.onerror = () => {
-                            console.error("Error playing audio for cell:", cellId);
-                            setIsPlaying(false);
-                        };
-                    }
-
-                    audioRef.current.src = effectiveUrl || audioUrl || "";
-                    await globalAudioController.playExclusive(audioRef.current);
-                    setIsPlaying(true);
-                }
-            } catch (error) {
-                console.error("Error handling audio playback:", error);
-                setIsPlaying(false);
-            }
-        };
-
-        // Keep inline button in sync if this audio is stopped by global controller
-        useEffect(() => {
-            const handler = (e: AudioControllerEvent) => {
-                if (audioRef.current && e.audio === audioRef.current) {
-                    setIsPlaying(false);
-                }
-            };
-            globalAudioController.addListener(handler);
-            return () => globalAudioController.removeListener(handler);
-        }, []);
-
-        // Decide icon color/style based on state
-        const { iconClass, color, titleSuffix } = (() => {
-            // If we already have audio bytes (from cache or just streamed), show Play regardless of pointer/local state
-            if (audioUrl || getCachedAudioDataUrl(cellId)) {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                        ? "codicon-debug-stop"
-                        : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                    titleSuffix: "(available)",
-                } as const;
-            }
-            // Local file present but not yet loaded into memory
-            if (state === "available-local") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                        ? "codicon-debug-stop"
-                        : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                    titleSuffix: "(local)",
-                } as const;
-            }
-            // Available remotely/downloadable or pointer-only → show cloud
-            if (state === "available" || state === "available-pointer") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : "codicon-cloud-download", // cloud behind play
-                    color: "var(--vscode-charts-blue)",
-                    titleSuffix: state === "available-pointer" ? "(pointer)" : "(in cloud)",
-                } as const;
-            }
-            if (state === "missing") {
-                return {
-                    iconClass: "codicon-warning",
-                    color: "var(--vscode-errorForeground)",
-                    titleSuffix: "(missing)",
-                } as const;
-            }
-            // deletedOnly or none => show mic to begin recording
-            return {
-                iconClass: "codicon-mic",
-                color: "var(--vscode-foreground)",
-                titleSuffix: "(record)",
-            } as const;
-        })();
-
-        return (
-            <button
-                onClick={handlePlayAudio}
-                className="audio-play-button"
-                title={
-                    isLoading
-                        ? "Preparing audio..."
-                        : state === "available" || state === "available-pointer"
-                        ? audioUrl || getCachedAudioDataUrl(cellId)
-                            ? "Play"
-                            : "Download"
-                        : state === "available-local"
-                        ? "Play"
-                        : state === "missing"
-                        ? "Missing audio"
-                        : isCellLocked
-                        ? "Cell is locked"
-                        : "Record"
-                }
-                disabled={false}
-                style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: "1px",
-                    borderRadius: "4px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color,
-                    opacity: isPlaying ? 1 : 0.8,
-                    transition: "opacity 0.2s",
-                }}
-                onMouseEnter={(e) => {
-                    e.stopPropagation();
-                    e.currentTarget.style.opacity = "1";
-                }}
-                onMouseLeave={(e) => {
-                    e.stopPropagation();
-                    e.currentTarget.style.opacity = isPlaying ? "1" : "0.8";
-                }}
-            >
-                <i
-                    className={`codicon ${iconClass}`}
-                    style={{ fontSize: "16px", position: "relative" }}
-                />
-            </button>
-        );
-    }
-);
 
 // Cell Label Text Component
 const CellLabelText: React.FC<{
@@ -456,6 +122,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         allTranslationsComplete = false,
         handleCellTranslation,
         handleCellClick,
+        playerRef,
+        shouldShowVideoPlayer = false,
+        videoUrl,
         audioAttachments,
         footnoteOffset = 0,
         isCorrectionEditorMode = false,
@@ -469,8 +138,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        isOtherTypeAudioPlaying = false,
     }) => {
-        // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
         // Lock state is ONLY honored from top-level metadata.isLocked
         const isCellLocked = !!cell.metadata?.isLocked;
@@ -482,14 +151,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
-        const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-
         const cellRef = useRef<HTMLDivElement>(null);
         const contentRef = useRef<HTMLDivElement>(null);
 
         // Effect to attach event listeners to footnote markers
         useEffect(() => {
-            if (!contentRef.current) return;
+            // Add type guard to ensure contentRef.current is a DOM element
+            if (!contentRef.current || !(contentRef.current instanceof Element)) return;
 
             // Find all footnote markers in the rendered content
             const markers = contentRef.current.querySelectorAll("sup.footnote-marker");
@@ -519,7 +187,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             });
 
             // Use the proper footnote numbering utility
-            if (contentRef.current) {
+            if (contentRef.current instanceof Element) {
                 updateFootnoteNumbering(contentRef.current, footnoteOffset + 1, false);
             }
 
@@ -856,6 +524,43 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
+            const timestamps = () => {
+                if (
+                    cell.timestamps &&
+                    (cell.timestamps.startTime !== undefined ||
+                        cell.timestamps.endTime !== undefined)
+                ) {
+                    return (
+                        <div
+                            className="timestamp-display"
+                            style={{
+                                fontSize: "0.75rem",
+                                color: "var(--vscode-descriptionForeground)",
+                                marginTop: "0.25rem",
+                                fontFamily: "monospace",
+                                opacity: 0.8,
+                                textAlign: "start",
+                                width: "100%",
+                            }}
+                        >
+                            {cell.timestamps.startTime !== undefined &&
+                            cell.timestamps.endTime !== undefined ? (
+                                <span>
+                                    {formatTime(cell.timestamps.startTime)} →{" "}
+                                    {formatTime(cell.timestamps.endTime)}
+                                </span>
+                            ) : cell.timestamps.startTime !== undefined ? (
+                                <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                            ) : cell.timestamps.endTime !== undefined ? (
+                                <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                            ) : null}
+                        </div>
+                    );
+                }
+
+                return null;
+            };
+
             // Handle empty cell case
             if (
                 (!cell.cellContent || cell.cellContent.trim() === "") &&
@@ -863,16 +568,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 (!isSourceText || !isAudioOnly)
             ) {
                 return (
-                    <div
-                        ref={contentRef}
-                        className="cell-content empty-cell-content"
-                        style={{
-                            color: "var(--vscode-descriptionForeground)",
-                            fontStyle: "italic",
-                            opacity: 0.8,
-                        }}
-                    >
-                        {isSourceText ? "No text" : "Click to translate"}
+                    <div className="flex flex-col gap-[0.5rem]">
+                        <div
+                            ref={contentRef}
+                            className="cell-content empty-cell-content"
+                            style={{
+                                color: "var(--vscode-descriptionForeground)",
+                                fontStyle: "italic",
+                                opacity: 0.8,
+                            }}
+                        >
+                            {isSourceText ? "No text" : "Click to translate"}
+                        </div>
+                        {timestamps()}
                     </div>
                 );
             }
@@ -902,8 +610,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             // Render content with timestamp display when timestamps are present
             return (
                 <div
-                    onClick={handleCellContentClick}
-                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                    className="flex flex-col gap-[0.5rem]"
+                    onClick={() => {
+                        hideTooltip();
+                        handleCellClick(cellIds[0]);
+                    }}
                 >
                     <div
                         ref={contentRef}
@@ -912,34 +623,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             __html: processedHtml,
                         }}
                     />
-                    {cell.timestamps &&
-                        (cell.timestamps.startTime !== undefined ||
-                            cell.timestamps.endTime !== undefined) && (
-                            <div
-                                className="timestamp-display"
-                                style={{
-                                    fontSize: "0.75rem",
-                                    color: "var(--vscode-descriptionForeground)",
-                                    marginTop: "0.25rem",
-                                    fontFamily: "monospace",
-                                    opacity: 0.8,
-                                    textAlign: "start",
-                                    width: "100%",
-                                }}
-                            >
-                                {cell.timestamps.startTime !== undefined &&
-                                cell.timestamps.endTime !== undefined ? (
-                                    <span>
-                                        {formatTime(cell.timestamps.startTime)} →{" "}
-                                        {formatTime(cell.timestamps.endTime)}
-                                    </span>
-                                ) : cell.timestamps.startTime !== undefined ? (
-                                    <span>Start: {formatTime(cell.timestamps.startTime)}</span>
-                                ) : cell.timestamps.endTime !== undefined ? (
-                                    <span>End: {formatTime(cell.timestamps.endTime)}</span>
-                                ) : null}
-                            </div>
-                        )}
+                    {timestamps()}
                 </div>
             );
         };
@@ -1183,6 +867,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             (window as any).openCellById;
                                                         if (typeof open === "function") open(id);
                                                     }}
+                                                    playerRef={playerRef}
+                                                    cellTimestamps={cell.timestamps}
+                                                    shouldShowVideoPlayer={shouldShowVideoPlayer}
+                                                    videoUrl={videoUrl}
+                                                    disabled={isOtherTypeAudioPlaying}
+                                                    isSourceText={isSourceText}
                                                 />
                                             );
                                         })()}

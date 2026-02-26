@@ -60,12 +60,20 @@ export function extractParentCellIdFromParatext(paratextCellId: string, cellMeta
  */
 export function convertCellToQuillContent(cell: CustomNotebookCellData): QuillCellContent {
     const cellId = cell.metadata?.id || "";
+    const audioTimestamps: QuillCellContent["audioTimestamps"] =
+        cell.metadata.data?.audioStartTime !== undefined || cell.metadata.data?.audioEndTime !== undefined
+            ? {
+                startTime: cell.metadata.data.audioStartTime,
+                endTime: cell.metadata.data.audioEndTime,
+            }
+            : undefined;
     return {
         cellMarkers: [cellId],
         cellContent: cell.value || "",
         cellType: cell.metadata?.type || CodexCellTypes.TEXT,
         editHistory: cell.metadata?.edits || [],
         timestamps: cell.metadata?.data,
+        audioTimestamps,
         cellLabel: cell.metadata?.cellLabel,
         merged: cell.metadata?.data?.merged,
         deleted: cell.metadata?.data?.deleted,
