@@ -127,7 +127,7 @@ function Progress({
 
                 {/* Tooltip overlay zones */}
                 {tooltipZones && tooltipZones.length > 0 && (
-                    <div className="absolute inset-0 flex" style={{ zIndex: 200 }}>
+                    <div className="absolute inset-0 flex" style={{ zIndex: 10 }}>
                         {tooltipZones.map((zone, i) => (
                             <Tooltip key={i}>
                                 <TooltipTrigger asChild>

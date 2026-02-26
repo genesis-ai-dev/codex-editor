@@ -947,17 +947,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 }
                             }
                         }
-                        // Determine provisional state before version gate.
-                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
                         const selectedId = cell?.metadata?.selectedAudioId;
                         const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                         const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
+                        // Prefer showing available when a valid file exists,
+                        // even if the user's explicit selection points to a missing file.
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (selectedIsMissing) state = "missing";
-                        else if (hasAvailable) state = "available-local";
+                        if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
-                        else if (hasMissing) state = "missing";
+                        else if (selectedIsMissing || hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
                         else state = "none";
 
@@ -1025,28 +1024,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     if (ws && url) {
                                         const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                                         const abs = path.join(ws.uri.fsPath, filesRel);
+                                        await vscode.workspace.fs.stat(vscode.Uri.file(abs));
                                         const { isPointerFile } = await import("../../utils/lfsHelpers");
                                         const isPtr = await isPointerFile(abs).catch(() => false);
                                         if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
                                     } else {
-                                        hasAvailable = true;
+                                        hasMissing = true;
                                     }
-                                } catch { hasAvailable = true; }
+                                } catch { hasMissing = true; }
                             }
                         }
                     }
 
-                    // If the user's selected audio is missing, show missing icon regardless of other attachments.
                     const selectedId = cell?.metadata?.selectedAudioId;
                     const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                     const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
-                    // Determine provisional state, then apply version gate
+                    // Prefer showing available when a valid file exists,
+                    // even if the user's explicit selection points to a missing file.
                     let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                    if (selectedIsMissing) state = "missing";
-                    else if (hasAvailable) state = "available-local";
+                    if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
-                    else if (hasMissing) state = "missing";
+                    else if (selectedIsMissing || hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
                     else state = "none";
 
@@ -4328,11 +4327,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         try {
             const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
             const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+            await vscode.workspace.fs.stat(vscode.Uri.file(abs));
             const { isPointerFile } = await import("../../utils/lfsHelpers");
             const isPtr = await isPointerFile(abs).catch(() => false);
             return isPtr ? "available-pointer" : "available-local";
         } catch {
-            // If file doesn't exist, check for pointer file
+            // File doesn't exist at files/ path, check for pointer
             try {
                 const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                 const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
