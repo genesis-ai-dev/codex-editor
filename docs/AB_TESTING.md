@@ -21,7 +21,6 @@ A/B testing in Codex shows two translation suggestions side‑by‑side once in 
 Change these in VS Code Settings → Extensions → Codex Editor.
 
 ## Results & privacy
-- Local log: Each choice is appended to `files/ab-test-results.jsonl` in your workspace (newline‑delimited JSON).
 - Win rates: The editor may compute simple win‑rates by variant label and show them in the chooser.
 - Network: If analytics posting is enabled in code, the extension may attempt to send anonymized A/B summaries to a configured endpoint. If your environment blocks network access, the extension continues without error.
 

@@ -11,7 +11,7 @@ import { importLabelsFromVscodeUri } from "./fileHandler";
 import { matchCellLabels } from "./matcher";
 import { copyToTempStorage, getColumnHeaders } from "./utils";
 import { updateCellLabels } from "./updater";
-import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
+import { getNonce } from "../utils/getNonce";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 
 const DEBUG_CELL_LABEL_IMPORTER = false;

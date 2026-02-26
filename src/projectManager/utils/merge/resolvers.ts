@@ -1,7 +1,7 @@
 import { CodexCellDocument } from './../../../providers/codexCellEditorProvider/codexDocument';
 import * as vscode from "vscode";
 import * as path from "path";
-import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
+import { ConflictResolutionStrategy, ConflictFile } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
 import { checkProjectAdminPermissions } from "../../../utils/projectAdminPermissionChecker";
@@ -496,24 +496,11 @@ export async function resolveConflictFile(
                 resolvedContent = conflict.ours; // Keep our version
                 break;
 
-            case ConflictResolutionStrategy.SOURCE:
             case ConflictResolutionStrategy.OVERRIDE: {
                 debugLog("Resolving conflict for:", conflict.filepath);
                 // TODO: Compare content timestamps if embedded in the content
                 // For now, default to our version
                 resolvedContent = conflict.ours;
-                break;
-            }
-
-            case ConflictResolutionStrategy.JSONL: {
-                debugLog("Resolving JSONL conflict for:", conflict.filepath);
-                // Parse and merge JSONL content
-                const ourLines = conflict.ours.split("\n").filter(Boolean);
-                const theirLines = conflict.theirs.split("\n").filter(Boolean);
-
-                // Combine and deduplicate
-                const allLines = new Set([...ourLines, ...theirLines]);
-                resolvedContent = Array.from(allLines).join("\n");
                 break;
             }
 
@@ -530,11 +517,7 @@ export async function resolveConflictFile(
             // SPECIAL = "special", // Merge based on timestamps/rules
             case ConflictResolutionStrategy.SPECIAL: {
                 debugLog("Resolving special conflict for:", conflict.filepath);
-                if (conflict.filepath === "metadata.json") {
-                    resolvedContent = await resolveMetadataJsonConflict(conflict);
-                } else {
-                    resolvedContent = await resolveSmartEditsConflict(conflict.ours, conflict.theirs);
-                }
+                resolvedContent = await resolveMetadataJsonConflict(conflict);
                 break;
             }
 
@@ -1721,67 +1704,6 @@ function isValidSelection(selectedId: string, attachments?: { [key: string]: any
         attachment.type === "audio" &&
         !attachment.isDeleted &&
         !attachment.isMissing;
-}
-
-/**
- * Resolves conflicts in smart_edits.json files
- */
-async function resolveSmartEditsConflict(
-    ourContent: string,
-    theirContent: string
-): Promise<string> {
-    // Handle empty content cases
-    if (!ourContent.trim()) {
-        return theirContent.trim() || "{}";
-    }
-    if (!theirContent.trim()) {
-        return ourContent.trim() || "{}";
-    }
-
-    try {
-        const ourEdits = JSON.parse(ourContent);
-        const theirEdits = JSON.parse(theirContent);
-
-        // Merge the edits, preferring newer versions for same cellIds
-        const mergedEdits: Record<string, SmartEdit> = {};
-
-        // Process our edits
-        Object.entries(ourEdits).forEach(([cellId, edit]) => {
-            mergedEdits[cellId] = edit as SmartEdit;
-        });
-
-        // Process their edits, comparing timestamps for conflicts
-        Object.entries(theirEdits).forEach(([cellId, theirEdit]) => {
-            if (!mergedEdits[cellId]) {
-                mergedEdits[cellId] = theirEdit as SmartEdit;
-            } else {
-                const ourDate = new Date(mergedEdits[cellId].lastUpdatedDate);
-                const theirDate = new Date((theirEdit as SmartEdit).lastUpdatedDate);
-
-                if (theirDate > ourDate) {
-                    mergedEdits[cellId] = theirEdit as SmartEdit;
-                }
-
-                // Merge suggestions arrays and deduplicate
-                const allSuggestions = [
-                    ...mergedEdits[cellId].suggestions,
-                    ...(theirEdit as SmartEdit).suggestions,
-                ];
-
-                // Deduplicate suggestions based on oldString+newString combination
-                mergedEdits[cellId].suggestions = Array.from(
-                    new Map(
-                        allSuggestions.map((sugg) => [`${sugg.oldString}:${sugg.newString}`, sugg])
-                    ).values()
-                );
-            }
-        });
-
-        return JSON.stringify(mergedEdits, null, 2);
-    } catch (error) {
-        console.error("Error resolving smart_edits.json conflict:", error);
-        return "{}"; // Return empty object if parsing fails
-    }
 }
 
 /**

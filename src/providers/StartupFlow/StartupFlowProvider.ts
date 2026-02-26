@@ -3657,12 +3657,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             console.error("Failed to ensure attachments structure:", e);
                         }
 
-                        // Remove indexes.sqlite so it can be rebuilt
-                        try {
+                        // Remove indexes.sqlite (and WAL/SHM) so it can be rebuilt
+                        {
                             const indexDbPath = vscode.Uri.joinPath(newProjectUri, ".project", "indexes.sqlite");
-                            await vscode.workspace.fs.delete(indexDbPath, { recursive: false, useTrash: false });
-                        } catch {
-                            // Missing index file is fine
+                            for (const suffix of ["", "-wal", "-shm"]) {
+                                try {
+                                    await vscode.workspace.fs.delete(
+                                        vscode.Uri.file(`${indexDbPath.fsPath}${suffix}`),
+                                        { recursive: false, useTrash: false }
+                                    );
+                                } catch {
+                                    // Missing file is fine
+                                }
+                            }
                         }
 
                         // 7. Initialize git repository (fresh .git)
@@ -4322,6 +4329,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
      * Perform project deletion
      */
     private async performProjectDeletion(projectPath: string, projectName: string): Promise<void> {
+        // Close the SQLite index database before deleting the project folder to prevent
+        // writing to an orphaned file descriptor (same guard as swap and update).
+        try {
+            const { clearSQLiteIndexManager } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+            );
+            await clearSQLiteIndexManager();
+            debugLog("SQLite index manager closed before project deletion");
+        } catch (e) {
+            debugLog("Warning: could not close SQLite index manager before deletion:", e);
+        }
+
         try {
             // Use vscode.workspace.fs.delete with the recursive flag
             const projectUri = vscode.Uri.file(projectPath);
@@ -4436,6 +4455,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         showSuccessMessage: boolean = true,
         currentUsername?: string
     ): Promise<void> {
+        // Close the SQLite index database before any file operations to prevent
+        // writing to an orphaned file descriptor after the project folder is moved/deleted.
+        try {
+            const { clearSQLiteIndexManager } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+            );
+            await clearSQLiteIndexManager();
+            debugLog("SQLite index manager closed before project update");
+        } catch (e) {
+            debugLog("Warning: could not close SQLite index manager before update:", e);
+        }
+
         const cleanedPath = await this.cleanupStaleUpdateState(projectPath, projectName);
         if (cleanedPath && cleanedPath !== projectPath) {
             projectPath = cleanedPath;

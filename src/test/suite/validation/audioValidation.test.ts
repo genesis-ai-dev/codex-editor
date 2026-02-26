@@ -42,7 +42,7 @@ suite("Audio Validation Test Suite", () => {
         // Stub background tasks to avoid side-effects and assert calls
         sinon.restore();
         sinon.stub((CodexCellDocument as any).prototype, "addCellToIndexImmediately").callsFake(() => { });
-        sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").resolves();
+        sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").resolves();
         sinon.stub((CodexCellDocument as any).prototype, "populateSourceCellMapFromIndex").resolves();
     });
 
@@ -581,10 +581,10 @@ suite("Audio Validation Test Suite", () => {
                 isDeleted: false,
             });
 
-            // Note: syncAllCellsToDatabase is already stubbed in setup method
+            // Note: syncDirtyCellsToDatabase is already stubbed in setup method
             // We can verify the stub was called by checking if it exists
-            const syncStub = (CodexCellDocument as any).prototype.syncAllCellsToDatabase;
-            assert.ok(syncStub && typeof syncStub === 'function', "syncAllCellsToDatabase should be stubbed");
+            const syncStub = (CodexCellDocument as any).prototype.syncDirtyCellsToDatabase;
+            assert.ok(syncStub && typeof syncStub === 'function', "syncDirtyCellsToDatabase should be stubbed");
 
             // Act: Validate audio
             await document.validateCellAudio(cellId, true);

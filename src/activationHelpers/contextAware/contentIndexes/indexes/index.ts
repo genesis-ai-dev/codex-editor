@@ -24,22 +24,14 @@ import {
 import { SQLiteIndexManager, CURRENT_SCHEMA_VERSION } from "./sqliteIndex";
 import { SearchManager, SearchAlgorithmType } from "../searchAlgorithms";
 
-import {
-    initializeWordsIndex,
-    getWordFrequencies,
-    getWordsAboveThreshold,
-    WordOccurrence,
-} from "./wordsIndex";
 import { initializeFilesIndex, getFilePairs, getWordCountStats, FileInfo } from "./filesIndex";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
-import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
-
-type WordFrequencyMap = Map<string, WordOccurrence[]>;
+import { getSQLiteIndexManager } from "./sqliteIndexManager";
 
 /**
  * Show AI learning progress notification - the core UX for index rebuilds
@@ -133,8 +125,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         const savedRebuildState = context.globalState.get<IndexRebuildState>('indexRebuildState');
         if (savedRebuildState) {
             rebuildState = { ...rebuildState, ...savedRebuildState };
-            // Reset rebuild progress flag on startup
-            rebuildState.rebuildInProgress = false;
+            // Keep rebuildInProgress as-is for now — we use it below as a hint
+            // that the previous session was interrupted. It will be reset after
+            // the rebuild decision is made.
         }
     }
 
@@ -153,7 +146,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     // since FileSyncManager indexes all content into the main database
     const sourceTextIndex = indexManager;
 
-    let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
     let filesIndex: Map<string, FileInfo> = new Map<string, FileInfo>();
 
     await metadataManager.initialize();
@@ -196,9 +188,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     /**
      * Update rebuild state and persist to storage
      */
-    function updateRebuildState(updates: Partial<IndexRebuildState>) {
+    async function updateRebuildState(updates: Partial<IndexRebuildState>): Promise<void> {
+        // In-memory update is synchronous — critical for the check-then-set invariant
+        // in smartRebuildIndexes (no await between isRebuildAllowed and this call).
         rebuildState = { ...rebuildState, ...updates };
-        context.globalState.update('indexRebuildState', rebuildState);
+        await context.globalState.update('indexRebuildState', rebuildState);
     }
 
     /**
@@ -245,14 +239,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
         debug(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
 
-        // Check consecutive rebuilds protection
+        // Check consecutive rebuilds protection.
+        // INVARIANT: No `await` between isRebuildAllowed and updateRebuildState below,
+        // so JS single-threaded execution guarantees no concurrent caller can slip between
+        // the check and the flag-set.
         const rebuildCheck = isRebuildAllowed(reason, isForced);
         if (!rebuildCheck.allowed) {
             console.warn(`[Index] Skipping rebuild: ${rebuildCheck.reason}`);
             return;
         }
 
-        updateRebuildState({
+        await updateRebuildState({
             lastRebuildTime: Date.now(),
             lastRebuildReason: reason,
             rebuildInProgress: true,
@@ -270,7 +267,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 debug("[Index] Forced rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
-                wordsIndex.clear();
                 filesIndex.clear();
             }
 
@@ -298,12 +294,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             debug("[Index] Updating complementary indexes...");
 
             try {
-                // Update words and files indexes
-                const { targetFiles } = await readSourceAndTargetFiles();
-                wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
+                // Update files index
                 filesIndex = await initializeFilesIndex();
 
                 // Update complete drafts
+                const { targetFiles } = await readSourceAndTargetFiles();
                 await updateCompleteDrafts(targetFiles);
 
                 debug("[Index] Complementary indexes updated successfully");
@@ -312,16 +307,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 // Don't fail the entire rebuild for complementary index errors
             }
 
-            const finalDocCount = translationPairsIndex.documentCount;
+            const finalDocCount = await translationPairsIndex.getDocumentCount();
             debug(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
 
+            const sourceDocCount = await sourceTextIndex.getDocumentCount();
             statusBarHandler.updateIndexCounts(
                 finalDocCount,
-                sourceTextIndex.documentCount
+                sourceDocCount
             );
 
             // Reset consecutive rebuilds on successful completion
-            updateRebuildState({
+            await updateRebuildState({
                 rebuildInProgress: false,
                 consecutiveRebuilds: 0
             });
@@ -338,7 +334,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         } catch (error) {
             console.error("Error in smart sync rebuild:", error);
-            updateRebuildState({
+            await updateRebuildState({
                 rebuildInProgress: false
             });
             throw error;
@@ -351,7 +347,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
      * Conservative validation that only rebuilds for critical issues
      */
     async function validateIndexHealthConservatively(): Promise<{ isHealthy: boolean; criticalIssue?: string; }> {
-        const documentCount = translationPairsIndex.documentCount;
+        const documentCount = await translationPairsIndex.getDocumentCount();
 
         // Check if database is empty - regardless of schema, recreation is faster than sync
         if (documentCount === 0) {
@@ -387,17 +383,31 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         } catch (error) {
             console.warn("[Index] Error during health check:", error);
-            // Don't fail health check on file reading errors
+            // Treat health-check errors as unhealthy — hiding failures can mask real problems
+            return { isHealthy: false, criticalIssue: `health check failed: ${error}` };
         }
 
         return { isHealthy: true };
     }
 
+    // Detect if the previous session was interrupted mid-rebuild.
+    // If rebuildInProgress was still true when we loaded state, the previous
+    // sync never completed — skip the health check (which may pass for a
+    // partially-indexed DB) and go straight to the sync check.
+    const previousRebuildWasInterrupted = rebuildState.rebuildInProgress;
+    if (previousRebuildWasInterrupted) {
+        console.log("[Index] Previous rebuild was interrupted — will run sync check regardless of health");
+    }
+    // Now reset the flag so a new rebuild can track its own progress.
+    // Must persist to globalState — otherwise next startup still sees true.
+    await updateRebuildState({ rebuildInProgress: false });
+
     // Check database health and determine if rebuild is needed
-    const currentDocCount = translationPairsIndex.documentCount;
+    const currentDocCount = await translationPairsIndex.getDocumentCount();
     const healthCheck = await validateIndexHealthConservatively();
 
-    debug(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
+    // Always log rebuild decisions to console so we can diagnose "always rebuilds" issues
+    console.log(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
 
     let needsRebuild = false;
     let rebuildReason = '';
@@ -405,6 +415,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     if (!healthCheck.isHealthy) {
         needsRebuild = true;
         rebuildReason = healthCheck.criticalIssue || 'health check failed';
+        console.log(`[Index] Rebuild triggered by HEALTH CHECK: ${rebuildReason}`);
+    } else if (previousRebuildWasInterrupted) {
+        // Health check passed but previous session was interrupted.
+        // The DB may be partially indexed — always run the sync check.
+        const changeCheck = await checkIfRebuildNeeded();
+        if (changeCheck.needsRebuild) {
+            needsRebuild = true;
+            rebuildReason = `interrupted rebuild recovery: ${changeCheck.reason}`;
+            console.log(`[Index] Rebuild triggered by INTERRUPTED REBUILD RECOVERY: ${rebuildReason}`);
+        } else {
+            console.log(`[Index] Previous rebuild was interrupted but DB appears complete (${currentDocCount} documents)`);
+        }
     } else {
         // Health check passed - database is structurally sound
         // Check for file changes to determine if sync is needed
@@ -412,11 +434,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         if (changeCheck.needsRebuild) {
             needsRebuild = true;
             rebuildReason = changeCheck.reason;
+            console.log(`[Index] Rebuild triggered by SYNC CHECK: ${rebuildReason}`);
+        } else {
+            console.log(`[Index] No rebuild needed — database is up to date with ${currentDocCount} documents`);
         }
     }
 
     if (needsRebuild) {
-        debug(`[Index] Rebuild needed: ${rebuildReason}`);
+        console.log(`[Index] Starting rebuild: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically
         const isCritical = !healthCheck.isHealthy;
@@ -426,7 +451,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         try {
             await showAILearningProgress(async (progress) => {
                 await smartRebuildIndexes(rebuildReason, isCritical);
-                const finalCount = translationPairsIndex.documentCount;
+                const finalCount = await translationPairsIndex.getDocumentCount();
                 debug(`[Index] Rebuild completed with ${finalCount} documents`);
 
                 // No need for completion messages - the progress notification handles it
@@ -442,13 +467,15 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     } else {
         // Database is healthy and up to date
         debug(`[Index] Index is healthy and up to date with ${currentDocCount} documents`);
+        const translationDocCount = await translationPairsIndex.getDocumentCount();
+        const sourceDocCount = await sourceTextIndex.getDocumentCount();
         statusBarHandler.updateIndexCounts(
-            translationPairsIndex.documentCount,
-            sourceTextIndex.documentCount
+            translationDocCount,
+            sourceDocCount
         );
 
         // Reset consecutive rebuilds since we didn't need to rebuild
-        updateRebuildState({
+        await updateRebuildState({
             consecutiveRebuilds: 0
         });
     }
@@ -502,21 +529,26 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!query) return []; // User cancelled the input
                     showInfo = true;
                 }
-                const results = await getTranslationPairsFromSourceCellQuery(
-                    translationPairsIndex,
-                    query,
-                    k,
-                    onlyValidated
-                );
-                if (showInfo) {
-                    const resultsString = results
-                        .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                try {
+                    const results = await getTranslationPairsFromSourceCellQuery(
+                        translationPairsIndex,
+                        query,
+                        k,
+                        onlyValidated
                     );
+                    if (showInfo) {
+                        const resultsString = results
+                            .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error("Error searching source cells:", error);
+                    return [];
                 }
-                return results;
             }
         );
 
@@ -538,23 +570,28 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     showInfo = true;
                 }
 
-                const manager = new SearchManager(translationPairsIndex);
-                const results = await manager.getTranslationPairsFromSourceCellQueryWithAlgorithm(
-                    algorithm,
-                    query,
-                    k,
-                    onlyValidated
-                );
-
-                if (showInfo) {
-                    const resultsString = results
-                        .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `(${algorithm}) Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                try {
+                    const manager = new SearchManager(translationPairsIndex);
+                    const results = await manager.getTranslationPairsFromSourceCellQueryWithAlgorithm(
+                        algorithm,
+                        query,
+                        k,
+                        onlyValidated
                     );
+
+                    if (showInfo) {
+                        const resultsString = results
+                            .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `(${algorithm}) Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error(`Error searching with algorithm ${algorithm}:`, error);
+                    return [];
                 }
-                return results;
             }
         );
 
@@ -569,20 +606,25 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!cellId) return null; // User cancelled the input
                     showInfo = true;
                 }
-                debug(
-                    `Executing getSourceCellByCellIdFromAllSourceCells for cellId: ${cellId}`
-                );
-                const results = await getSourceCellByCellIdFromAllSourceCells(
-                    sourceTextIndex,
-                    cellId
-                );
-                debug("getSourceCellByCellIdFromAllSourceCells results:", results);
-                if (showInfo && results) {
-                    vscode.window.showInformationMessage(
-                        `Source cell for ${cellId}: ${results.content}`
+                try {
+                    debug(
+                        `Executing getSourceCellByCellIdFromAllSourceCells for cellId: ${cellId}`
                     );
+                    const results = await getSourceCellByCellIdFromAllSourceCells(
+                        sourceTextIndex,
+                        cellId
+                    );
+                    debug("getSourceCellByCellIdFromAllSourceCells results:", results);
+                    if (showInfo && results) {
+                        vscode.window.showInformationMessage(
+                            `Source cell for ${cellId}: ${results.content}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error(`Error getting source cell for ${cellId}:`, error);
+                    return null;
                 }
-                return results;
             }
         );
 
@@ -597,66 +639,50 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!cellId) return; // User cancelled the input
                     showInfo = true;
                 }
-                const results = await getTargetCellByCellId(translationPairsIndex, cellId);
-                if (showInfo && results) {
-                    vscode.window.showInformationMessage(
-                        `Target cell for ${cellId}: ${JSON.stringify(results)}`
-                    );
+                try {
+                    const results = await getTargetCellByCellId(translationPairsIndex, cellId);
+                    if (showInfo && results) {
+                        vscode.window.showInformationMessage(
+                            `Target cell for ${cellId}: ${JSON.stringify(results)}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error(`Error getting target cell for ${cellId}:`, error);
+                    return null;
                 }
-                return results;
             }
         );
 
         const forceReindexCommand = vscode.commands.registerCommand(
             "codex-editor-extension.forceReindex",
             async () => {
-                await showAILearningProgress(async (progress) => {
-                    await smartRebuildIndexes("manual force reindex command", true);
-                });
+                try {
+                    await showAILearningProgress(async (progress) => {
+                        await smartRebuildIndexes("manual force reindex command", true);
+                    });
+                } catch (error) {
+                    console.error("Error during force reindex:", error);
+                    vscode.window.showErrorMessage("Reindex failed. Check the logs for details.");
+                }
             }
         );
 
         const showIndexOptionsCommand = vscode.commands.registerCommand(
             "codex-editor-extension.showIndexOptions",
             async () => {
-                const option = await vscode.window.showQuickPick(["Force Reindex"], {
-                    placeHolder: "Select an indexing option",
-                });
+                try {
+                    const option = await vscode.window.showQuickPick(["Force Reindex"], {
+                        placeHolder: "Select an indexing option",
+                    });
 
-                if (option === "Force Reindex") {
-                    await smartRebuildIndexes("manual force reindex from options", true);
+                    if (option === "Force Reindex") {
+                        await smartRebuildIndexes("manual force reindex from options", true);
+                    }
+                } catch (error) {
+                    console.error("Error during reindex from options:", error);
+                    vscode.window.showErrorMessage("Reindex failed. Check the logs for details.");
                 }
-            }
-        );
-
-        const getWordFrequenciesCommand = vscode.commands.registerCommand(
-            "codex-editor-extension.getWordFrequencies",
-            async (): Promise<Array<{ word: string; frequency: number; }>> => {
-                return getWordFrequencies(wordsIndex);
-            }
-        );
-
-        const refreshWordIndexCommand = vscode.commands.registerCommand(
-            "codex-editor-extension.refreshWordIndex",
-            async () => {
-                const { targetFiles } = await readSourceAndTargetFiles();
-                wordsIndex = await initializeWordsIndex(new Map(), targetFiles);
-                debug("Word index refreshed");
-            }
-        );
-
-        const getWordsAboveThresholdCommand = vscode.commands.registerCommand(
-            "codex-editor-extension.getWordsAboveThreshold",
-            async () => {
-                const config = vscode.workspace.getConfiguration("codex-editor-extension");
-                const threshold = config.get<number>("wordFrequencyThreshold", 50);
-                if (wordsIndex.size === 0) {
-                    const { targetFiles } = await readSourceAndTargetFiles();
-                    wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
-                }
-                const wordsAboveThreshold = await getWordsAboveThreshold(wordsIndex, threshold);
-                debug(`Words above threshold: ${wordsAboveThreshold}`);
-                return wordsAboveThreshold;
             }
         );
 
@@ -672,106 +698,116 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     showInfo = true;
                 }
 
-                // Use the reliable database-direct search for complete translation pairs
-                let searchResults: any[] = [];
-                const replaceMode = options?.replaceMode || false;
-                
-                if (translationPairsIndex instanceof SQLiteIndexManager) {
-                    if (replaceMode) {
-                        // In replace mode, use the reliable searchCompleteTranslationPairsWithValidation
-                        // Request a large limit since we'll filter to target-only matches
-                        const searchLimit = Math.max(k * 10, 5000);
-                        const allResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
-                            query,
-                            searchLimit,
-                            options?.isParallelPassagesWebview || false,
-                            false // onlyValidated
-                        );
-                        
-                        // Filter to only pairs where target content contains the query
-                        const stripHtml = (html: string): string => {
-                            let strippedText = html.replace(/<[^>]*>/g, "");
-                            strippedText = strippedText.replace(/&nbsp; ?/g, " ");
-                            strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
-                            strippedText = strippedText.replace(/&#\d+;/g, "");
-                            strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
-                            return strippedText.toLowerCase();
-                        };
-                        
-                        const queryLower = query.toLowerCase();
-                        const filteredResults: any[] = [];
-                        for (const result of allResults) {
-                            const targetContent = result.targetContent || "";
-                            if (!targetContent.trim()) continue;
+                try {
+                    // Use the reliable database-direct search for complete translation pairs
+                    let searchResults: any[] = [];
+                    const replaceMode = options?.replaceMode || false;
+                    
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        if (replaceMode) {
+                            // In replace mode, use the reliable searchCompleteTranslationPairsWithValidation
+                            // Request a large limit since we'll filter to target-only matches
+                            const searchLimit = Math.max(k * 10, 5000);
+                            const allResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                                query,
+                                searchLimit,
+                                options?.isParallelPassagesWebview || false,
+                                false // onlyValidated
+                            );
                             
-                            const cleanTarget = stripHtml(targetContent);
-                            if (cleanTarget.includes(queryLower)) {
-                                filteredResults.push(result);
+                            // Filter to only pairs where target content contains the query
+                            const stripHtml = (html: string): string => {
+                                let strippedText = html.replace(/<[^>]*>/g, "");
+                                strippedText = strippedText.replace(/&nbsp; ?/g, " ");
+                                strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
+                                strippedText = strippedText.replace(/&#\d+;/g, "");
+                                strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+                                return strippedText.toLowerCase();
+                            };
+                            
+                            const queryLower = query.toLowerCase();
+                            const filteredResults: any[] = [];
+                            for (const result of allResults) {
+                                const targetContent = result.targetContent || "";
+                                if (!targetContent.trim()) continue;
+                                
+                                const cleanTarget = stripHtml(targetContent);
+                                if (cleanTarget.includes(queryLower)) {
+                                    filteredResults.push(result);
+                                }
+                                
+                                if (filteredResults.length >= k) break;
                             }
-                            
-                            if (filteredResults.length >= k) break;
+                            searchResults = filteredResults;
+                        } else {
+                            // Use the new, reliable database-direct search with validation filtering
+                            // For searchParallelCells, we always want only complete pairs (both source and target)
+                            // and we can optionally filter by validation status if needed
+                            searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                                query,
+                                k,
+                                options?.isParallelPassagesWebview || false, // return raw content for webview display
+                                false // onlyValidated - for now, show all complete pairs regardless of validation
+                            );
                         }
-                        searchResults = filteredResults;
                     } else {
-                        // Use the new, reliable database-direct search with validation filtering
-                        // For searchParallelCells, we always want only complete pairs (both source and target)
-                        // and we can optionally filter by validation status if needed
-                        searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                        console.warn("[searchParallelCells] Non-SQLite index detected, using fallback");
+                        // Fallback to old method for non-SQLite indexes
+                        const results = await searchAllCells(
+                            translationPairsIndex,
+                            sourceTextIndex,
                             query,
                             k,
-                            options?.isParallelPassagesWebview || false, // return raw content for webview display
-                            false // onlyValidated - for now, show all complete pairs regardless of validation
+                            false,
+                            options
+                        );
+                        searchResults = results.slice(0, k);
+                    }
+
+                    // Convert search results to TranslationPair format
+                    const translationPairs: TranslationPair[] = searchResults.map((result) => ({
+                        cellId: result.cellId || result.cell_id,
+                        sourceCell: {
+                            cellId: result.cellId || result.cell_id,
+                            content: result.sourceContent || result.content || "",
+                            uri: result.uri || "",
+                            line: result.line || 0,
+                        },
+                        targetCell: {
+                            cellId: result.cellId || result.cell_id,
+                            content: result.targetContent || "",
+                            uri: result.uri || "",
+                            line: result.line || 0,
+                        },
+                    }));
+
+                    if (showInfo) {
+                        const resultsString = translationPairs
+                            .map(
+                                (r: TranslationPair) =>
+                                    `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${r.targetCell.content}`
+                            )
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `Found ${translationPairs.length} complete translation pairs for query: ${query}\n${resultsString}`
                         );
                     }
-                } else {
-                    console.warn("[searchParallelCells] Non-SQLite index detected, using fallback");
-                    // Fallback to old method for non-SQLite indexes
-                    const results = await searchAllCells(
-                        translationPairsIndex,
-                        sourceTextIndex,
-                        query,
-                        k,
-                        false,
-                        options
-                    );
-                    searchResults = results.slice(0, k);
+                    return translationPairs;
+                } catch (error) {
+                    console.error("Error searching parallel cells:", error);
+                    return [];
                 }
-
-                // Convert search results to TranslationPair format
-                const translationPairs: TranslationPair[] = searchResults.map((result) => ({
-                    cellId: result.cellId || result.cell_id,
-                    sourceCell: {
-                        cellId: result.cellId || result.cell_id,
-                        content: result.sourceContent || result.content || "",
-                        uri: result.uri || "",
-                        line: result.line || 0,
-                    },
-                    targetCell: {
-                        cellId: result.cellId || result.cell_id,
-                        content: result.targetContent || "",
-                        uri: result.uri || "",
-                        line: result.line || 0,
-                    },
-                }));
-
-                if (showInfo) {
-                    const resultsString = translationPairs
-                        .map(
-                            (r: TranslationPair) =>
-                                `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${r.targetCell.content}`
-                        )
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `Found ${translationPairs.length} complete translation pairs for query: ${query}\n${resultsString}`
-                    );
-                }
-                return translationPairs;
             }
         );
         const searchSimilarCellIdsCommand = vscode.commands.registerCommand(
             "codex-editor-extension.searchSimilarCellIds",
             async (cellId: string) => {
-                return searchSimilarCellIds(translationPairsIndex, cellId);
+                try {
+                    return await searchSimilarCellIds(translationPairsIndex, cellId);
+                } catch (error) {
+                    console.error(`Error searching similar cell IDs for ${cellId}:`, error);
+                    return [];
+                }
             }
         );
         const getTranslationPairFromProjectCommand = vscode.commands.registerCommand(
@@ -785,24 +821,29 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!cellId) return; // User cancelled the input
                     showInfo = true;
                 }
-                const result = await getTranslationPairFromProject(
-                    translationPairsIndex,
-                    sourceTextIndex,
-                    cellId,
-                    options
-                );
-                if (showInfo) {
-                    if (result) {
-                        vscode.window.showInformationMessage(
-                            `Translation pair for ${cellId}: Source: ${result.sourceCell.content}, Target: ${result.targetCell.content}`
-                        );
-                    } else {
-                        vscode.window.showInformationMessage(
-                            `No translation pair found for ${cellId}`
-                        );
+                try {
+                    const result = await getTranslationPairFromProject(
+                        translationPairsIndex,
+                        sourceTextIndex,
+                        cellId,
+                        options
+                    );
+                    if (showInfo) {
+                        if (result) {
+                            vscode.window.showInformationMessage(
+                                `Translation pair for ${cellId}: Source: ${result.sourceCell.content}, Target: ${result.targetCell.content}`
+                            );
+                        } else {
+                            vscode.window.showInformationMessage(
+                                `No translation pair found for ${cellId}`
+                            );
+                        }
                     }
+                    return result;
+                } catch (error) {
+                    console.error(`Error getting translation pair for ${cellId}:`, error);
+                    return null;
                 }
-                return result;
             }
         );
 
@@ -824,24 +865,29 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     });
                     if (!cellId) return null; // User cancelled the input
                 }
-                const result = await findNextUntranslatedSourceCell(
-                    sourceTextIndex,
-                    translationPairsIndex,
-                    query,
-                    cellId
-                );
-                if (showInfo) {
-                    if (result) {
-                        vscode.window.showInformationMessage(
-                            `Next untranslated source cell: ${result.cellId}\nContent: ${result.content}`
-                        );
-                    } else {
-                        vscode.window.showInformationMessage(
-                            "No untranslated source cell found matching the query."
-                        );
+                try {
+                    const result = await findNextUntranslatedSourceCell(
+                        sourceTextIndex,
+                        translationPairsIndex,
+                        query,
+                        cellId
+                    );
+                    if (showInfo) {
+                        if (result) {
+                            vscode.window.showInformationMessage(
+                                `Next untranslated source cell: ${result.cellId}\nContent: ${result.content}`
+                            );
+                        } else {
+                            vscode.window.showInformationMessage(
+                                "No untranslated source cell found matching the query."
+                            );
+                        }
                     }
+                    return result;
+                } catch (error) {
+                    console.error("Error finding next untranslated source cell:", error);
+                    return null;
                 }
-                return result;
             }
         );
 
@@ -863,118 +909,123 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     showInfo = true;
                 }
 
-                const searchScope = options?.searchScope || "both";
-                const selectedFiles = options?.selectedFiles || [];
-                const completeOnly = options?.completeOnly || false;
-                const isParallelPassagesWebview = options?.isParallelPassagesWebview || false;
+                try {
+                    const searchScope = options?.searchScope || "both";
+                    const selectedFiles = options?.selectedFiles || [];
+                    const completeOnly = options?.completeOnly || false;
+                    const isParallelPassagesWebview = options?.isParallelPassagesWebview || false;
 
-                let results: TranslationPair[] = [];
+                    let results: TranslationPair[] = [];
 
-                // When includeIncomplete=false, use optimized SQLite path for complete pairs only
-                // When includeIncomplete=true, use searchAllCells which adds source-only cells
-                if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
-                    // Determine search mode based on scope
-                    // searchSourceOnly=true means only search source content
-                    // searchSourceOnly=false means search both source and target
-                    const searchSourceOnly = searchScope === "source";
+                    // When includeIncomplete=false, use optimized SQLite path for complete pairs only
+                    // When includeIncomplete=true, use searchAllCells which adds source-only cells
+                    if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
+                        // Determine search mode based on scope
+                        // searchSourceOnly=true means only search source content
+                        // searchSourceOnly=false means search both source and target
+                        const searchSourceOnly = searchScope === "source";
 
-                    // Request extra results to account for post-filtering
-                    const searchLimit = k * 2;
+                        // Request extra results to account for post-filtering
+                        const searchLimit = k * 2;
 
-                    const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
-                        query,
-                        searchLimit,
-                        isParallelPassagesWebview,
-                        completeOnly, // Pass through completeOnly for validation filtering
-                        searchSourceOnly
-                    );
+                        const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                            query,
+                            searchLimit,
+                            isParallelPassagesWebview,
+                            completeOnly, // Pass through completeOnly for validation filtering
+                            searchSourceOnly
+                        );
 
-                    // Convert to TranslationPair format
-                    let translationPairs: TranslationPair[] = searchResults.map((result) => ({
-                        cellId: result.cellId || result.cell_id,
-                        cellLabel: result.cellLabel,
-                        sourceCell: {
+                        // Convert to TranslationPair format
+                        let translationPairs: TranslationPair[] = searchResults.map((result) => ({
                             cellId: result.cellId || result.cell_id,
-                            content: result.sourceContent || result.content || "",
-                            uri: result.uri || "",
-                            line: result.line || 0,
-                        },
-                        targetCell: {
-                            cellId: result.cellId || result.cell_id,
-                            content: result.targetContent || "",
-                            uri: result.uri || "",
-                            line: result.line || 0,
-                        },
-                    }));
+                            cellLabel: result.cellLabel,
+                            sourceCell: {
+                                cellId: result.cellId || result.cell_id,
+                                content: result.sourceContent || result.content || "",
+                                uri: result.uri || "",
+                                line: result.line || 0,
+                            },
+                            targetCell: {
+                                cellId: result.cellId || result.cell_id,
+                                content: result.targetContent || "",
+                                uri: result.uri || "",
+                                line: result.line || 0,
+                            },
+                        }));
 
-                    // Filter out pairs with empty or minimal content
-                    // Strip HTML and check for meaningful content (not just whitespace or very short text)
-                    translationPairs = translationPairs.filter((pair) => {
-                        const sourceText = stripHtml(pair.sourceCell.content || "").trim();
-                        const targetText = stripHtml(pair.targetCell.content || "").trim();
-                        // Require both source and target to have meaningful content (more than 3 chars)
-                        return sourceText.length > 3 && targetText.length > 3;
-                    });
-
-                    // Apply searchScope content filtering - verify query actually appears in content
-                    if (query.trim()) {
-                        const queryLower = query.toLowerCase();
+                        // Filter out pairs with empty or minimal content
+                        // Strip HTML and check for meaningful content (not just whitespace or very short text)
                         translationPairs = translationPairs.filter((pair) => {
-                            const cleanSource = stripHtml(pair.sourceCell.content || "");
-                            const cleanTarget = stripHtml(pair.targetCell.content || "");
-
-                            if (searchScope === "source") {
-                                return cleanSource.includes(queryLower);
-                            } else if (searchScope === "target") {
-                                return cleanTarget.includes(queryLower);
-                            } else {
-                                // "both" - query should appear in either source or target
-                                return cleanSource.includes(queryLower) || cleanTarget.includes(queryLower);
-                            }
+                            const sourceText = stripHtml(pair.sourceCell.content || "").trim();
+                            const targetText = stripHtml(pair.targetCell.content || "").trim();
+                            // Require both source and target to have meaningful content (more than 3 chars)
+                            return sourceText.length > 3 && targetText.length > 3;
                         });
-                    }
 
-                    // Apply selectedFiles filtering
-                    if (selectedFiles.length > 0) {
-                        translationPairs = translationPairs.filter((pair) => {
-                            const sourceUri = pair.sourceCell?.uri || "";
-                            const targetUri = pair.targetCell?.uri || "";
-                            const normalizedSource = normalizeUri(sourceUri);
-                            const normalizedTarget = normalizeUri(targetUri);
-                            return selectedFiles.some((selectedUri: string) => {
-                                const normalizedSelected = normalizeUri(selectedUri);
-                                return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+                        // Apply searchScope content filtering - verify query actually appears in content
+                        if (query.trim()) {
+                            const queryLower = query.toLowerCase();
+                            translationPairs = translationPairs.filter((pair) => {
+                                const cleanSource = stripHtml(pair.sourceCell.content || "");
+                                const cleanTarget = stripHtml(pair.targetCell.content || "");
+
+                                if (searchScope === "source") {
+                                    return cleanSource.includes(queryLower);
+                                } else if (searchScope === "target") {
+                                    return cleanTarget.includes(queryLower);
+                                } else {
+                                    // "both" - query should appear in either source or target
+                                    return cleanSource.includes(queryLower) || cleanTarget.includes(queryLower);
+                                }
                             });
-                        });
+                        }
+
+                        // Apply selectedFiles filtering
+                        if (selectedFiles.length > 0) {
+                            translationPairs = translationPairs.filter((pair) => {
+                                const sourceUri = pair.sourceCell?.uri || "";
+                                const targetUri = pair.targetCell?.uri || "";
+                                const normalizedSource = normalizeUri(sourceUri);
+                                const normalizedTarget = normalizeUri(targetUri);
+                                return selectedFiles.some((selectedUri: string) => {
+                                    const normalizedSelected = normalizeUri(selectedUri);
+                                    return normalizedSource === normalizedSelected || normalizedTarget === normalizedSelected;
+                                });
+                            });
+                        }
+
+                        results = translationPairs.slice(0, k);
+                    } else {
+                        // Fallback for incomplete searches or non-SQLite indexes
+                        results = await searchAllCells(
+                            translationPairsIndex,
+                            sourceTextIndex,
+                            query,
+                            k,
+                            includeIncomplete,
+                            options
+                        );
                     }
 
-                    results = translationPairs.slice(0, k);
-                } else {
-                    // Fallback for incomplete searches or non-SQLite indexes
-                    results = await searchAllCells(
-                        translationPairsIndex,
-                        sourceTextIndex,
-                        query,
-                        k,
-                        includeIncomplete,
-                        options
-                    );
-                }
+                    debug(`Search results for "${query}":`, results);
 
-                debug(`Search results for "${query}":`, results);
-
-                if (showInfo) {
-                    const resultsString = results
-                        .map((r) => {
-                            const targetContent = r.targetCell.content || "(No target text)";
-                            return `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${targetContent}`;
-                        })
-                        .join("\n");
-                    vscode.window.showInformationMessage(
-                        `Found ${results.length} cells for query: ${query}\n${resultsString}`
-                    );
+                    if (showInfo) {
+                        const resultsString = results
+                            .map((r) => {
+                                const targetContent = r.targetCell.content || "(No target text)";
+                                return `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${targetContent}`;
+                            })
+                            .join("\n");
+                        vscode.window.showInformationMessage(
+                            `Found ${results.length} cells for query: ${query}\n${resultsString}`
+                        );
+                    }
+                    return results;
+                } catch (error) {
+                    console.error("Error searching all cells:", error);
+                    return [];
                 }
-                return results;
             }
         );
 
@@ -1169,7 +1220,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             // Force a complete rebuild
                             await smartRebuildIndexes("manual complete rebuild command", true);
 
-                            const finalCount = translationPairsIndex.documentCount;
+                            const finalCount = await translationPairsIndex.getDocumentCount();
                             debug(`[Index] Rebuild completed with ${finalCount} documents`);
                         });
                     }
@@ -1186,7 +1237,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             async () => {
                 try {
                     const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
-                    const currentDocCount = translationPairsIndex.documentCount;
+                    const currentDocCount = await translationPairsIndex.getDocumentCount();
 
                     let statusMessage = `Index Status:\n`;
                     statusMessage += `• Documents in index: ${currentDocCount}\n`;
@@ -1210,7 +1261,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         statusMessage += `• Orphaned target cells: ${pairStats.orphanedTargetCells}\n`;
 
                         // Run validation with fresh document count
-                        const freshDocCount = translationPairsIndex.documentCount;
+                        const freshDocCount = await translationPairsIndex.getDocumentCount();
                         const validationResult = await validateIndexHealthConservatively();
                         statusMessage += `\nValidation: ${validationResult.isHealthy ? '✅ COMPLETE' : '❌ INCOMPLETE'}`;
                         if (!validationResult.isHealthy) {
@@ -1423,7 +1474,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     debug("[Index] Manual refresh requested");
                     await showAILearningProgress(async (progress) => {
                         await smartRebuildIndexes("manual refresh", true);
-                        debug(`[Index] Refresh completed with ${translationPairsIndex.documentCount} documents`);
+                        const docCount = await translationPairsIndex.getDocumentCount();
+                        debug(`[Index] Refresh completed with ${docCount} documents`);
                     });
                 } catch (error) {
                     console.error("Error refreshing index:", error);
@@ -1474,6 +1526,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     return;
                 }
 
+                // Don't run incremental indexing while a full rebuild is in progress
+                if (rebuildState.rebuildInProgress) {
+                    debug("[Index] Skipping incremental index — full rebuild in progress");
+                    return;
+                }
+
                 debug(`[Index] Incremental indexing requested for ${filePaths.length} files`);
 
                 try {
@@ -1503,15 +1561,16 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             );
 
                             if (relevantTargetFiles.length > 0) {
-                                wordsIndex = await initializeWordsIndex(wordsIndex, relevantTargetFiles);
                                 await updateCompleteDrafts(relevantTargetFiles);
                             }
 
                             debug(`[Index] Incremental sync completed: ${syncResult.syncedFiles} files processed`);
 
+                            const translationDocCount = await translationPairsIndex.getDocumentCount();
+                            const sourceDocCount = await sourceTextIndex.getDocumentCount();
                             statusBarHandler.updateIndexCounts(
-                                translationPairsIndex.documentCount,
-                                sourceTextIndex.documentCount
+                                translationDocCount,
+                                sourceDocCount
                             );
 
                             progress.report({ message: "AI learning complete!" });
@@ -1533,14 +1592,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             async () => {
                 try {
                     if (translationPairsIndex instanceof SQLiteIndexManager) {
-                        const db = translationPairsIndex.database;
-                        if (!db) {
-                            vscode.window.showErrorMessage("Database not available");
-                            return;
-                        }
+                        const db = translationPairsIndex.database; // throws if closed/not init
 
                         // Check target cell timestamp information
-                        const timestampStmt = db.prepare(`
+                        const timestampResult = await db.get<{
+                            total_target_cells: number;
+                            cells_with_edit_timestamp: number;
+                            cells_without_edit_timestamp: number;
+                        }>(`
                             SELECT 
                                 COUNT(*) as total_target_cells,
                                 COUNT(t_current_edit_timestamp) as cells_with_edit_timestamp,
@@ -1549,26 +1608,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             WHERE t_content IS NOT NULL AND t_content != ''
                         `);
 
-                        let timestampStats = {
-                            totalTargetCells: 0,
-                            cellsWithEditTimestamp: 0,
-                            cellsWithoutEditTimestamp: 0
+                        const timestampStats = {
+                            totalTargetCells: (timestampResult?.total_target_cells as number) || 0,
+                            cellsWithEditTimestamp: (timestampResult?.cells_with_edit_timestamp as number) || 0,
+                            cellsWithoutEditTimestamp: (timestampResult?.cells_without_edit_timestamp as number) || 0
                         };
 
-                        try {
-                            timestampStmt.step();
-                            const result = timestampStmt.getAsObject();
-                            timestampStats = {
-                                totalTargetCells: (result.total_target_cells as number) || 0,
-                                cellsWithEditTimestamp: (result.cells_with_edit_timestamp as number) || 0,
-                                cellsWithoutEditTimestamp: (result.cells_without_edit_timestamp as number) || 0
-                            };
-                        } finally {
-                            timestampStmt.free();
-                        }
-
                         // Get sample target cells with timestamps
-                        const sampleStmt = db.prepare(`
+                        const sampleRows = await db.all<{
+                            cell_id: string;
+                            t_current_edit_timestamp: number;
+                            formatted_timestamp: string;
+                        }>(`
                             SELECT 
                                 cell_id,
                                 t_current_edit_timestamp,
@@ -1587,17 +1638,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             formattedTimestamp: string;
                         }> = [];
 
-                        try {
-                            while (sampleStmt.step()) {
-                                const row = sampleStmt.getAsObject();
-                                sampleCells.push({
-                                    cellId: row.cell_id as string,
-                                    editTimestamp: row.t_current_edit_timestamp as number,
-                                    formattedTimestamp: row.formatted_timestamp as string
-                                });
-                            }
-                        } finally {
-                            sampleStmt.free();
+                        for (const row of sampleRows) {
+                            sampleCells.push({
+                                cellId: row.cell_id as string,
+                                editTimestamp: row.t_current_edit_timestamp as number,
+                                formattedTimestamp: row.formatted_timestamp as string
+                            });
                         }
 
                         let message = `Target Cell Timestamp Analysis (Optimized Schema v8):\\n`;
@@ -1709,66 +1755,59 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 try {
                     if (translationPairsIndex instanceof SQLiteIndexManager) {
                         const schemaInfo = await translationPairsIndex.getDetailedSchemaInfo();
-                        const db = translationPairsIndex.database;
+                        const db = translationPairsIndex.database; // throws if closed/not init
 
-                        if (db) {
-                            // Check what columns actually exist in the cells table
-                            const stmt = db.prepare("PRAGMA table_info(cells)");
-                            const actualColumns: Array<{ name: string; type: string; }> = [];
+                        // Check what columns actually exist in the cells table
+                        const pragmaRows = await db.all<{ name: string; type: string; }>("PRAGMA table_info(cells)");
+                        const actualColumns: Array<{ name: string; type: string; }> = [];
 
-                            try {
-                                while (stmt.step()) {
-                                    const row = stmt.getAsObject();
-                                    actualColumns.push({
-                                        name: row.name as string,
-                                        type: row.type as string
-                                    });
-                                }
-                            } finally {
-                                stmt.free();
-                            }
-
-                            let message = `Database Schema Diagnosis (Expected v8):\n\n`;
-                            message += `📊 Schema Version: ${schemaInfo.currentVersion}\n`;
-                            message += `📁 Tables Exist: ${schemaInfo.cellsTableExists ? 'Yes' : 'No'}\n`;
-                            message += `🏗️ New Structure: ${schemaInfo.hasNewStructure ? 'Yes' : 'No'}\n\n`;
-
-                            message += `🔍 Cells Table Columns (${actualColumns.length}):\n`;
-
-                            // Check specifically for the timestamp columns
-                            const hasTargetUpdatedAt = actualColumns.some(col => col.name === 't_updated_at');
-                            const hasTargetCurrentEdit = actualColumns.some(col => col.name === 't_current_edit_timestamp');
-                            const hasSourceUpdatedAt = actualColumns.some(col => col.name === 's_updated_at');
-
-                            for (const col of actualColumns) {
-                                let indicator = '';
-                                if (col.name === 't_updated_at') {
-                                    indicator = ' ❌ (SHOULD NOT EXIST)';
-                                } else if (col.name === 't_current_edit_timestamp') {
-                                    indicator = ' ✅ (CORRECT)';
-                                } else if (col.name === 's_updated_at') {
-                                    indicator = ' ✅ (CORRECT FOR SOURCE)';
-                                }
-                                message += `• ${col.name} (${col.type})${indicator}\n`;
-                            }
-
-                            message += `\n🎯 Timestamp Column Analysis:\n`;
-                            message += `• t_updated_at exists: ${hasTargetUpdatedAt ? '❌ YES (PROBLEM!)' : '✅ No'}\n`;
-                            message += `• t_current_edit_timestamp exists: ${hasTargetCurrentEdit ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n`;
-                            message += `• s_updated_at exists: ${hasSourceUpdatedAt ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n\n`;
-
-                            if (hasTargetUpdatedAt) {
-                                message += `🚨 ISSUE FOUND: t_updated_at should NOT exist in schema v8!\n`;
-                                message += `This suggests an old database that wasn't properly recreated.\n\n`;
-                                message += `💡 SOLUTION: Force recreate the database:\n`;
-                                message += `1. Run "Codex: Force Schema Reset" command\n`;
-                                message += `2. Or delete .project/indexes.sqlite and restart extension\n`;
-                            } else {
-                                message += `✅ Timestamp columns are correct for schema v8!\n`;
-                            }
-
-                            vscode.window.showInformationMessage(message);
+                        for (const row of pragmaRows) {
+                            actualColumns.push({
+                                name: row.name as string,
+                                type: row.type as string
+                            });
                         }
+
+                        let message = `Database Schema Diagnosis (Expected v8):\n\n`;
+                        message += `📊 Schema Version: ${schemaInfo.currentVersion}\n`;
+                        message += `📁 Tables Exist: ${schemaInfo.cellsTableExists ? 'Yes' : 'No'}\n`;
+                        message += `🏗️ New Structure: ${schemaInfo.hasNewStructure ? 'Yes' : 'No'}\n\n`;
+
+                        message += `🔍 Cells Table Columns (${actualColumns.length}):\n`;
+
+                        // Check specifically for the timestamp columns
+                        const hasTargetUpdatedAt = actualColumns.some(col => col.name === 't_updated_at');
+                        const hasTargetCurrentEdit = actualColumns.some(col => col.name === 't_current_edit_timestamp');
+                        const hasSourceUpdatedAt = actualColumns.some(col => col.name === 's_updated_at');
+
+                        for (const col of actualColumns) {
+                            let indicator = '';
+                            if (col.name === 't_updated_at') {
+                                indicator = ' ❌ (SHOULD NOT EXIST)';
+                            } else if (col.name === 't_current_edit_timestamp') {
+                                indicator = ' ✅ (CORRECT)';
+                            } else if (col.name === 's_updated_at') {
+                                indicator = ' ✅ (CORRECT FOR SOURCE)';
+                            }
+                            message += `• ${col.name} (${col.type})${indicator}\n`;
+                        }
+
+                        message += `\n🎯 Timestamp Column Analysis:\n`;
+                        message += `• t_updated_at exists: ${hasTargetUpdatedAt ? '❌ YES (PROBLEM!)' : '✅ No'}\n`;
+                        message += `• t_current_edit_timestamp exists: ${hasTargetCurrentEdit ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n`;
+                        message += `• s_updated_at exists: ${hasSourceUpdatedAt ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n\n`;
+
+                        if (hasTargetUpdatedAt) {
+                            message += `🚨 ISSUE FOUND: t_updated_at should NOT exist in schema v8!\n`;
+                            message += `This suggests an old database that wasn't properly recreated.\n\n`;
+                            message += `💡 SOLUTION: Force recreate the database:\n`;
+                            message += `1. Run "Codex: Force Schema Reset" command\n`;
+                            message += `2. Or delete .project/indexes.sqlite and restart extension\n`;
+                        } else {
+                            message += `✅ Timestamp columns are correct for schema v8!\n`;
+                        }
+
+                        vscode.window.showInformationMessage(message);
                     } else {
                         vscode.window.showErrorMessage("SQLite index not available");
                     }
@@ -1847,6 +1886,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     // Use setTimeout to avoid blocking the configuration change
                     setTimeout(async () => {
                         try {
+                            // Skip if DB was closed during the delay (e.g. extension deactivating)
+                            if (!getSQLiteIndexManager()) return;
+
                             const newThreshold = vscode.workspace.getConfiguration('codex-project-manager')
                                 .get('validationCount', 1);
 
@@ -1867,6 +1909,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     // Use setTimeout to avoid blocking the configuration change
                     setTimeout(async () => {
                         try {
+                            // Skip if DB was closed during the delay (e.g. extension deactivating)
+                            if (!getSQLiteIndexManager()) return;
+
                             const newThreshold = vscode.workspace.getConfiguration('codex-project-manager')
                                 .get('validationCountAudio', 1);
 
@@ -1932,11 +1977,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             debug("[SQLiteIndex] 🔍 Analyzing audio validation columns...");
                             progress.report({ message: "Checking audio validation data..." });
 
-                            const db = translationPairsIndex.database;
-                            if (db) {
+                            const db = translationPairsIndex.database; // throws if closed/not init
+                            {
                                 try {
                                     // Get audio validation statistics (excluding milestone cells)
-                                    const audioValidationStmt = db.prepare(`
+                                    const audioValidationResult = await db.get<{
+                                        total_target_cells: number;
+                                        cells_with_audio_validation_count: number;
+                                        cells_with_audio_validated_by: number;
+                                        fully_audio_validated_cells: number;
+                                        avg_audio_validation_count: number;
+                                        max_audio_validation_count: number;
+                                    }>(`
                                         SELECT 
                                             COUNT(*) as total_target_cells,
                                             COUNT(t_audio_validation_count) as cells_with_audio_validation_count,
@@ -1949,32 +2001,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                         AND ((cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone'))
                                     `);
 
-                                    let audioStats = {
-                                        totalTargetCells: 0,
-                                        cellsWithAudioValidationCount: 0,
-                                        cellsWithAudioValidatedBy: 0,
-                                        fullyAudioValidatedCells: 0,
-                                        avgAudioValidationCount: 0,
-                                        maxAudioValidationCount: 0
+                                    const audioStats = {
+                                        totalTargetCells: (audioValidationResult?.total_target_cells as number) || 0,
+                                        cellsWithAudioValidationCount: (audioValidationResult?.cells_with_audio_validation_count as number) || 0,
+                                        cellsWithAudioValidatedBy: (audioValidationResult?.cells_with_audio_validated_by as number) || 0,
+                                        fullyAudioValidatedCells: (audioValidationResult?.fully_audio_validated_cells as number) || 0,
+                                        avgAudioValidationCount: (audioValidationResult?.avg_audio_validation_count as number) || 0,
+                                        maxAudioValidationCount: (audioValidationResult?.max_audio_validation_count as number) || 0
                                     };
 
-                                    try {
-                                        audioValidationStmt.step();
-                                        const result = audioValidationStmt.getAsObject();
-                                        audioStats = {
-                                            totalTargetCells: (result.total_target_cells as number) || 0,
-                                            cellsWithAudioValidationCount: (result.cells_with_audio_validation_count as number) || 0,
-                                            cellsWithAudioValidatedBy: (result.cells_with_audio_validated_by as number) || 0,
-                                            fullyAudioValidatedCells: (result.fully_audio_validated_cells as number) || 0,
-                                            avgAudioValidationCount: (result.avg_audio_validation_count as number) || 0,
-                                            maxAudioValidationCount: (result.max_audio_validation_count as number) || 0
-                                        };
-                                    } finally {
-                                        audioValidationStmt.free();
-                                    }
-
                                     // Get sample audio validation data
-                                    const sampleAudioStmt = db.prepare(`
+                                    const sampleAudioRows = await db.all<any>(`
                                         SELECT 
                                             cell_id,
                                             t_audio_validation_count,
@@ -1989,12 +2026,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                     `);
 
                                     const sampleAudioCells: any[] = [];
-                                    try {
-                                        while (sampleAudioStmt.step()) {
-                                            sampleAudioCells.push(sampleAudioStmt.getAsObject());
-                                        }
-                                    } finally {
-                                        sampleAudioStmt.free();
+                                    for (const row of sampleAudioRows) {
+                                        sampleAudioCells.push(row);
                                     }
 
                                     // Get audio validation threshold
@@ -2035,8 +2068,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                 } catch (error) {
                                     vscode.window.showErrorMessage(`Audio validation analysis failed: ${error}`);
                                 }
-                            } else {
-                                vscode.window.showErrorMessage("Database not available");
                             }
                         });
                     } else {
@@ -2063,11 +2094,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             debug("[SQLiteIndex] 🔍 Analyzing validation columns...");
                             progress.report({ message: "Checking validation data..." });
 
-                            const db = translationPairsIndex.database;
-                            if (db) {
+                            const db = translationPairsIndex.database; // throws if closed/not init
+                            {
                                 try {
                                     // Get validation statistics
-                                    const validationStmt = db.prepare(`
+                                    const validationResult = await db.get<{
+                                        total_target_cells: number;
+                                        cells_with_validation_count: number;
+                                        cells_with_validated_by: number;
+                                        fully_validated_cells: number;
+                                        avg_validation_count: number;
+                                        max_validation_count: number;
+                                    }>(`
                                         SELECT 
                                             COUNT(*) as total_target_cells,
                                             COUNT(t_validation_count) as cells_with_validation_count,
@@ -2079,32 +2117,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                         WHERE t_content IS NOT NULL AND t_content != ''
                                     `);
 
-                                    let stats = {
-                                        totalTargetCells: 0,
-                                        cellsWithValidationCount: 0,
-                                        cellsWithValidatedBy: 0,
-                                        fullyValidatedCells: 0,
-                                        avgValidationCount: 0,
-                                        maxValidationCount: 0
+                                    const stats = {
+                                        totalTargetCells: (validationResult?.total_target_cells as number) || 0,
+                                        cellsWithValidationCount: (validationResult?.cells_with_validation_count as number) || 0,
+                                        cellsWithValidatedBy: (validationResult?.cells_with_validated_by as number) || 0,
+                                        fullyValidatedCells: (validationResult?.fully_validated_cells as number) || 0,
+                                        avgValidationCount: (validationResult?.avg_validation_count as number) || 0,
+                                        maxValidationCount: (validationResult?.max_validation_count as number) || 0
                                     };
 
-                                    try {
-                                        validationStmt.step();
-                                        const result = validationStmt.getAsObject();
-                                        stats = {
-                                            totalTargetCells: (result.total_target_cells as number) || 0,
-                                            cellsWithValidationCount: (result.cells_with_validation_count as number) || 0,
-                                            cellsWithValidatedBy: (result.cells_with_validated_by as number) || 0,
-                                            fullyValidatedCells: (result.fully_validated_cells as number) || 0,
-                                            avgValidationCount: (result.avg_validation_count as number) || 0,
-                                            maxValidationCount: (result.max_validation_count as number) || 0
-                                        };
-                                    } finally {
-                                        validationStmt.free();
-                                    }
-
                                     // Get sample validation data
-                                    const sampleStmt = db.prepare(`
+                                    const sampleRows = await db.all<any>(`
                                         SELECT 
                                             cell_id,
                                             t_validation_count,
@@ -2119,12 +2142,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                     `);
 
                                     const sampleCells: any[] = [];
-                                    try {
-                                        while (sampleStmt.step()) {
-                                            sampleCells.push(sampleStmt.getAsObject());
-                                        }
-                                    } finally {
-                                        sampleStmt.free();
+                                    for (const row of sampleRows) {
+                                        sampleCells.push(row);
                                     }
 
                                     // Get validation threshold
@@ -2165,8 +2184,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                 } catch (error) {
                                     vscode.window.showErrorMessage(`Validation analysis failed: ${error}`);
                                 }
-                            } else {
-                                vscode.window.showErrorMessage("Database not available");
                             }
                         });
                     } else {
@@ -2178,12 +2195,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
-        // Make sure to close the database when extension deactivates
-        context.subscriptions.push({
-            dispose: async () => {
-                await indexManager.close();
-            },
-        });
+        // Database close is handled by clearSQLiteIndexManager() in deactivate(),
+        // which is properly awaited. Do NOT add an async dispose subscription here —
+        // VS Code's Disposable.dispose() is synchronous and won't await it, causing
+        // a race with the deactivate path.
 
         // Update the subscriptions
         context.subscriptions.push(
@@ -2196,9 +2211,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 getTranslationPairFromProjectCommand,
                 forceReindexCommand,
                 showIndexOptionsCommand,
-                getWordFrequenciesCommand,
-                refreshWordIndexCommand,
-                getWordsAboveThresholdCommand,
                 searchParallelCellsCommand,
                 searchSimilarCellIdsCommand,
                 findNextUntranslatedSourceCellCommand,

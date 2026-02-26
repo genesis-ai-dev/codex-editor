@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
+import { getNonce } from "../utils/getNonce";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { matchMigrationCells } from "./matcher";
 import { applyMigrationToTargetFile } from "./updater";

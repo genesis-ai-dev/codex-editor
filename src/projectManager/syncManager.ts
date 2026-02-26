@@ -12,6 +12,7 @@ import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChe
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
 import { markPendingUpdateRequired } from "../utils/localProjectSettings";
+import { isNativeSqliteReady } from "../utils/nativeSqlite";
 
 const DEBUG_SYNC_MANAGER = false;
 
@@ -1215,11 +1216,16 @@ export class SyncManager {
 
     // Fallback method for basic index rebuild (original logic as backup)
     private async fallbackIndexRebuild(): Promise<void> {
+        if (!isNativeSqliteReady()) {
+            console.warn("[SyncManager] Skipping index rebuild — SQLite not available");
+            return;
+        }
+
         const { getSQLiteIndexManager } = await import("../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
         const indexManager = getSQLiteIndexManager();
 
         if (indexManager) {
-            const currentDocCount = indexManager.documentCount;
+            const currentDocCount = await indexManager.getDocumentCount();
             debug(`[FallbackSync] Current index has ${currentDocCount} documents`);
 
             if (currentDocCount > 0) {

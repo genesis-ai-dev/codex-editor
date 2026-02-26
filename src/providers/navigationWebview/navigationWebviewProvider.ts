@@ -42,7 +42,6 @@ interface BibleBookInfo {
 export class NavigationWebviewProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.navigation";
     private codexItems: CodexItem[] = [];
-    private dictionaryItems: CodexItem[] = [];
     private disposables: vscode.Disposable[] = [];
     private isBuilding = false;
     private pendingRebuild = false;
@@ -89,7 +88,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     protected onWebviewResolved(webviewView: vscode.WebviewView): void {
         // Initial data load
-        if (this.codexItems.length === 0 && this.dictionaryItems.length === 0) {
+        if (this.codexItems.length === 0) {
             this.loadBibleBookMap();
             this.buildInitialData();
         } else {
@@ -177,12 +176,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                 { viewColumn: vscode.ViewColumn.Two }
                             );
                         }
-                    } else if (message.type === "dictionary") {
-                        await vscode.commands.executeCommand(
-                            "vscode.openWith",
-                            uri,
-                            "codex.dictionaryEditor"
-                        );
                     } else {
                         const doc = await vscode.workspace.openTextDocument(uri);
                         await vscode.window.showTextDocument(doc);
@@ -371,24 +364,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
             }
-            case "toggleDictionary": {
-                try {
-                    const config = vscode.workspace.getConfiguration("codex-project-manager");
-                    const currentState = config.get<boolean>("spellcheckIsEnabled", false);
-                    await config.update("spellcheckIsEnabled", !currentState, vscode.ConfigurationTarget.Workspace);
-
-                    // Refresh dictionary items to update the enabled state
-                    await this.buildInitialData();
-
-                    vscode.window.showInformationMessage(
-                        `Spellcheck ${!currentState ? 'enabled' : 'disabled'}`
-                    );
-                } catch (error) {
-                    console.error("Error toggling dictionary:", error);
-                    vscode.window.showErrorMessage(`Failed to toggle dictionary: ${error}`);
-                }
-                break;
-            }
             case "openSourceUpload": {
                 try {
                     await vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
@@ -471,7 +446,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 .item-icon { margin-right: 6px; color: var(--vscode-foreground); opacity: 0.7; }
                 .folder-icon { color: var(--vscode-charts-yellow); }
                 .file-icon { color: var(--vscode-charts-blue); }
-                .dictionary-icon { color: var(--vscode-charts-purple); }
                 .search-container { padding: 8px; position: sticky; top: 0; background: var(--vscode-sideBar-background); z-index: 10; display: flex; align-items: center; }
                 .search-input { flex: 1; height: 24px; border-radius: 4px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); color: var(--vscode-input-foreground); padding: 0 8px; outline: none; }
                 .search-input:focus { border-color: var(--vscode-focusBorder); }
@@ -496,7 +470,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders?.length) {
                 this.codexItems = [];
-                this.dictionaryItems = [];
                 return;
             }
 
@@ -505,12 +478,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 rootUri.fsPath,
                 "files/target/**/*.codex"
             );
-            const dictPattern = new vscode.RelativePattern(rootUri.fsPath, "files/**/*.dictionary");
-
-            const [codexUris, dictUris] = await Promise.all([
-                vscode.workspace.findFiles(codexPattern),
-                vscode.workspace.findFiles(dictPattern),
-            ]);
+            const codexUris = await vscode.workspace.findFiles(codexPattern);
 
             // Process codex files with metadata
             const codexItemsWithMetadata = await Promise.all(
@@ -520,11 +488,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             // Group by corpus
             const groupedItems = this.groupByCorpus(codexItemsWithMetadata);
             this.codexItems = groupedItems;
-
-            // Process dictionary items
-            this.dictionaryItems = await Promise.all(
-                dictUris.map((uri) => this.makeDictionaryItem(uri))
-            );
 
             this.sendItemsToWebview();
         } catch (error) {
@@ -790,59 +753,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         };
     }
 
-    private async getDictionaryWordCount(uri: vscode.Uri): Promise<number> {
-        try {
-            const content = await vscode.workspace.fs.readFile(uri);
-            const text = Buffer.from(content).toString('utf8');
-
-            // Parse the dictionary content and count entries
-            // Assuming dictionary is in a structured format (JSON or line-separated)
-            try {
-                const jsonData = JSON.parse(text);
-                if (Array.isArray(jsonData)) {
-                    return jsonData.length;
-                } else if (typeof jsonData === 'object') {
-                    return Object.keys(jsonData).length;
-                }
-            } catch {
-                // If not JSON, count lines (assuming one word per line)
-                const lines = text.split('\n').filter(line => line.trim().length > 0);
-                return lines.length;
-            }
-
-            return 0;
-        } catch (error) {
-            console.warn(`Failed to count words in dictionary ${uri.fsPath}:`, error);
-            return 0;
-        }
-    }
-
-    private async makeDictionaryItem(uri: vscode.Uri): Promise<CodexItem> {
-        const fileName = path.basename(uri.fsPath, ".dictionary");
-        const isProjectDictionary = fileName === "project";
-
-        let wordCount = 0;
-        let isEnabled = true;
-
-        if (isProjectDictionary) {
-            // Get word count from dictionary file
-            wordCount = await this.getDictionaryWordCount(uri);
-
-            // Get spellcheck enabled status from workspace configuration
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            isEnabled = config.get<boolean>("spellcheckIsEnabled", true);
-        }
-
-        return {
-            uri,
-            label: fileName,
-            type: "dictionary",
-            isProjectDictionary,
-            wordCount,
-            isEnabled,
-        };
-    }
-
     private registerWatchers(): void {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders?.length) {
@@ -854,23 +764,13 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             rootUri.fsPath,
             "files/target/**/*.codex"
         );
-        const dictWatcherPattern = new vscode.RelativePattern(
-            rootUri.fsPath,
-            "files/**/*.dictionary"
-        );
-
         const codexWatcher = vscode.workspace.createFileSystemWatcher(codexWatcherPattern);
-        const dictWatcher = vscode.workspace.createFileSystemWatcher(dictWatcherPattern);
 
         this.disposables.push(
             codexWatcher,
-            dictWatcher,
             codexWatcher.onDidCreate(() => this.buildInitialData()),
             codexWatcher.onDidChange(() => this.buildInitialData()),
             codexWatcher.onDidDelete(() => this.buildInitialData()),
-            dictWatcher.onDidCreate(() => this.buildInitialData()),
-            dictWatcher.onDidChange(() => this.buildInitialData()),
-            dictWatcher.onDidDelete(() => this.buildInitialData()),
             vscode.workspace.onDidChangeConfiguration((e) => {
                 if (
                     e.affectsConfiguration("codex-project-manager.validationCount") ||
@@ -885,14 +785,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private sendItemsToWebview(): void {
         if (this._view) {
             const serializedCodexItems = this.codexItems.map((item) => this.serializeItem(item));
-            const serializedDictItems = this.dictionaryItems.map((item) =>
-                this.serializeItem(item)
-            );
 
             safePostMessageToView(this._view, {
                 command: "updateItems",
                 codexItems: serializedCodexItems,
-                dictionaryItems: serializedDictItems,
             });
 
             if (this.bibleBookMap) {

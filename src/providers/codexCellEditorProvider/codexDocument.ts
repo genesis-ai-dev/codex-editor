@@ -22,7 +22,7 @@ import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
-import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
@@ -65,6 +65,26 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Cache for immediate indexing optimization
     private _cachedFileId: number | null = null;
     private _indexManager = getSQLiteIndexManager();
+
+    // Track cell IDs that have been modified since last save to avoid re-indexing ALL cells.
+    // Only cells in this set will be synced to the database on save.
+    private _dirtyCellIds: Set<string> = new Set();
+
+    // Pending index operations that failed because the index manager was unavailable.
+    // These are replayed when the index manager becomes available again, ensuring
+    // no cell edits are silently dropped during project swap or initialization.
+    private _pendingIndexOps: Array<{
+        cellId: string;
+        content: string;
+        editType: EditType;
+    }> = [];
+
+    /**
+     * Maximum number of pending index operations to queue. Beyond this limit
+     * new operations are not queued (they are still tracked via _dirtyCellIds
+     * and will be picked up on the next full save/sync).
+     */
+    private static readonly MAX_PENDING_INDEX_OPS = 500;
 
     // Cache for milestone index to avoid rebuilding on every call
     private _cachedMilestoneIndex: MilestoneIndex | null = null;
@@ -169,9 +189,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     public async populateSourceCellMapFromIndex(sourceFilePath?: string): Promise<void> {
         try {
-            if (!this._indexManager) {
-                this._indexManager = getSQLiteIndexManager();
-            }
+            this.refreshIndexManager();
 
             if (this._indexManager) {
                 this._sourceCellMap = await this._indexManager.getSourceCellsMapForFile(
@@ -344,6 +362,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // This avoids side effects (e.g., merge logic using edit history) from updating the stored value.
             // If the UI needs to reflect the preview, it should use a separate webview-only channel.
             this._isDirty = true;
+            this._dirtyCellIds.add(cellId);
             // Notify both VS Code and the webview that edits changed, so the provider can mark dirty and VS Code can autosave
             this._onDidChangeForVsCodeAndWebview.fire({
                 edits: [{ cellId, newContent, editType }],
@@ -459,6 +478,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newContent, editType }],
         });
@@ -486,7 +506,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
             .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, ''); // Remove any remaining sup tags
 
-        // Step 2: Remove spell check markup and other unwanted elements
+        // Step 2: Remove suggestion markup and other unwanted elements
+        // (The spell-check regex strips legacy elements with "spell-check" CSS classes)
         cleanContent = cleanContent
             .replace(/<[^>]*class=["'][^"']*spell-check[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '')
             .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -517,10 +538,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     // Public method to ensure a cell is indexed (useful for waiting after transcription)
     public async ensureCellIndexed(cellId: string, timeoutMs: number = 5000): Promise<boolean> {
-        if (!this._indexManager) {
-            this._indexManager = getSQLiteIndexManager();
-            if (!this._indexManager) return false;
-        }
+        if (!this.refreshIndexManager()) return false;
 
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
@@ -542,35 +560,97 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return false;
     }
 
+    /**
+     * Invalidate caches that are tied to a specific database instance.
+     * Must be called whenever the index manager is replaced (e.g. after a
+     * project swap) to prevent stale file IDs from the old database leaking
+     * into the new one.
+     */
+    private invalidateIndexCaches(): void {
+        this._cachedFileId = null;
+    }
+
+    /**
+     * Centralized helper: detect a closed/stale index manager and replace it
+     * with the current global instance.  Returns the manager if available, or null.
+     *
+     * This eliminates the repeated "if closed → null → get → invalidate" pattern
+     * that was duplicated across populateSourceCellMapFromIndex, ensureCellIndexed,
+     * addCellToIndexImmediately, updateCellMilestoneIndices, and acquireIndexManagerAndFlush.
+     */
+    private refreshIndexManager(): typeof this._indexManager {
+        if (this._indexManager?.isClosed) {
+            debug(`[CodexDocument] Detected closed index manager — refreshing`);
+            this._indexManager = null;
+            this.invalidateIndexCaches();
+        }
+        if (!this._indexManager) {
+            this._indexManager = getSQLiteIndexManager();
+            if (this._indexManager) {
+                this.invalidateIndexCaches();
+            }
+        }
+        return this._indexManager;
+    }
+
+    /**
+     * Try to acquire a valid (non-closed) index manager and flush any pending
+     * operations that were queued while the index manager was unavailable
+     * (e.g. during project swap or initialization).
+     *
+     * Detects stale managers that have been closed (e.g. after a project swap)
+     * and replaces them with the current global instance.
+     *
+     * Returns the index manager if available, or null.
+     */
+    private async acquireIndexManagerAndFlush(): Promise<typeof this._indexManager> {
+        this.refreshIndexManager();
+
+        if (this._indexManager && this._pendingIndexOps.length > 0) {
+            // Drain the queue — take a snapshot so new ops during flush are queued separately
+            const ops = [...this._pendingIndexOps];
+            this._pendingIndexOps = [];
+            debug(`[CodexDocument] Replaying ${ops.length} pending index operations`);
+            for (const op of ops) {
+                try {
+                    await this.addCellToIndexImmediately(op.cellId, op.content, op.editType);
+                } catch (err) {
+                    console.warn(`[CodexDocument] Failed to replay pending index op for cell ${op.cellId}:`, err);
+                    // Don't re-queue — the cell will be picked up on the next full save via _dirtyCellIds
+                }
+            }
+        }
+        return this._indexManager;
+    }
+
     // TRUE IMMEDIATE INDEXING - No delays, immediate searchability
     private async addCellToIndexImmediately(
         cellId: string,
         content: string,
         editType: EditType
     ): Promise<void> {
+        // Bail early if the database is being torn down (project swap / deactivation)
+        if (isDBShuttingDown()) {
+            this._dirtyCellIds.add(cellId);
+            return;
+        }
+        const hadCachedFileId = this._cachedFileId !== null;
         try {
-            // Refresh index manager reference if it's not available
-            if (!this._indexManager) {
-                this._indexManager = getSQLiteIndexManager();
-                if (!this._indexManager) {
-                    console.warn(`[CodexDocument] Index manager not available for immediate indexing of cell ${cellId}`);
-                    return;
+            if (!this.refreshIndexManager()) {
+                // Queue the operation so it's replayed when the index manager becomes available,
+                // rather than silently dropping the update. Cap the queue to avoid unbounded
+                // memory growth — excess cells are still tracked via _dirtyCellIds.
+                this._dirtyCellIds.add(cellId);
+                if (this._pendingIndexOps.length < CodexCellDocument.MAX_PENDING_INDEX_OPS) {
+                    this._pendingIndexOps.push({ cellId, content, editType });
+                    console.warn(`[CodexDocument] Index manager not available — queued indexing for cell ${cellId} (${this._pendingIndexOps.length} pending)`);
+                } else if (this._pendingIndexOps.length === CodexCellDocument.MAX_PENDING_INDEX_OPS) {
+                    console.warn(`[CodexDocument] Pending index ops cap reached (${CodexCellDocument.MAX_PENDING_INDEX_OPS}) — further ops tracked via dirty cells only`);
                 }
+                return;
             }
 
-            // Use cached file ID or get it once
-            let fileId = this._cachedFileId;
-            if (!fileId) {
-                const fileType = this.uri.toString().includes(".source") ? "source" : "codex";
-                fileId = await this._indexManager.upsertFile(
-                    this.uri.toString(),
-                    fileType,
-                    Date.now()
-                );
-                this._cachedFileId = fileId;
-            }
-
-            // Calculate logical line position based on cell structure
+            // Prepare data outside the transaction (no DB access needed)
             let logicalLinePosition: number | null = null;
             const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
 
@@ -591,9 +671,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         }
                     }
                     logicalLinePosition = logicalPosition;
-
-                    // Since this method is only called when content exists,
-                    // we always assign the logical position as the line number
                 }
                 // Paratext cells get lineNumber = null
             }
@@ -607,20 +684,48 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 ? { ...currentCell.metadata, editType, lastUpdated: Date.now() }
                 : { editType, lastUpdated: Date.now() };
 
-            // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
-            const result = await this._indexManager.upsertCellWithFTSSync(
-                cellId,
-                fileId,
-                this.getContentType(),
-                sanitizedContent,  // Sanitized content for search
-                logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
-                fullMetadata,  // Pass full cell metadata including type (e.g., MILESTONE)
-                content           // Raw content with HTML tags
-            );
+            // Wrap file upsert + cell upsert + FTS sync in a single transaction
+            // so a crash or concurrent write can't leave partial state.
+            // Use retry variant to handle SQLITE_BUSY if a background sync holds the lock.
+            // Non-null guaranteed by refreshIndexManager() guard above.
+            const indexManager = this._indexManager!;
+            await indexManager.runInTransactionWithRetry(async () => {
+                // Use cached file ID or get it once.
+                // Use upsertFileSync (not upsertFile) to avoid disk I/O while
+                // holding the transaction lock — upsertFile reads the file from
+                // disk, which would block all other DB operations.
+                let fileId = this._cachedFileId;
+                if (!fileId) {
+                    const fileType = this.uri.toString().includes(".source") ? "source" : "codex";
+                    fileId = await indexManager.upsertFileSync(
+                        this.uri.toString(),
+                        fileType,
+                        Date.now()
+                    );
+                    this._cachedFileId = fileId;
+                }
+
+                // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
+                await indexManager.upsertCellWithFTSSync(
+                    cellId,
+                    fileId,
+                    this.getContentType(),
+                    sanitizedContent,  // Sanitized content for search
+                    logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
+                    fullMetadata,  // Pass full cell metadata including type (e.g., MILESTONE)
+                    content           // Raw content with HTML tags
+                );
+            });
 
             debug(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
 
         } catch (error) {
+            // If we set _cachedFileId inside the transaction and it rolled back,
+            // the ID is from an uncommitted INSERT — invalidate it so the next
+            // attempt gets a fresh one.
+            if (!hadCachedFileId) {
+                this.invalidateIndexCaches();
+            }
             console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
             throw error;
         }
@@ -712,8 +817,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Record save timestamp to prevent file watcher from reverting our own save
         this._lastSaveTimestamp = Date.now();
 
-        // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
-        await this.syncAllCellsToDatabase();
+        // Sync only modified cells to the database (not all 1000+ cells)
+        await this.syncDirtyCellsToDatabase();
 
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
@@ -728,11 +833,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const text = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
         await atomicWriteUriText(targetResource, text);
 
-        // IMMEDIATE AI LEARNING for non-backup saves
+        // Sync only modified cells for non-backup saves
         if (!backup) {
+            // If saving to a different path, invalidate the cached file ID so the
+            // index picks up the correct file URI on the next sync. The provider
+            // framework may or may not update this.uri after saveAs — by clearing
+            // the cache we ensure whichever URI is current gets used.
+            if (targetResource.toString() !== this.uri.toString()) {
+                this.invalidateIndexCaches();
+            }
+
             // Record save timestamp to prevent file watcher from reverting our own save
             this._lastSaveTimestamp = Date.now();
-            await this.syncAllCellsToDatabase();
+            await this.syncDirtyCellsToDatabase();
             this._isDirty = false; // Reset dirty flag
         }
     }
@@ -745,6 +858,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this.invalidateMilestoneIndexCache();
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
+        this._dirtyCellIds.clear(); // Discard stale dirty IDs — document is back to saved state
         this._onDidChangeForWebview.fire({
             content: this.getText(),
             edits: [],
@@ -899,6 +1013,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, timestamps }],
         });
@@ -973,6 +1088,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, deleted: true }],
         });
@@ -1038,6 +1154,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(newCellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ newCellId, referenceCellId, cellType, data }],
         });
@@ -1342,12 +1459,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * This should be called after buildMilestoneIndex() to persist the milestone indices.
      */
     public async updateCellMilestoneIndices(): Promise<void> {
-        if (!this._indexManager) {
-            this._indexManager = getSQLiteIndexManager();
-            if (!this._indexManager) {
-                console.warn(`[CodexDocument] Index manager not available for milestone index update`);
-                return;
-            }
+        if (!this.refreshIndexManager()) {
+            console.warn(`[CodexDocument] Index manager not available for milestone index update`);
+            return;
         }
 
         const cells = this._documentData.cells || [];
@@ -1365,52 +1479,50 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const contentType = this.getContentType();
+        // Non-null guaranteed by refreshIndexManager() guard above.
+        const indexManager = this._indexManager!;
+        const hadCachedFileId = this._cachedFileId !== null;
 
-        // Get file ID
-        let fileId = this._cachedFileId;
-        if (!fileId) {
-            fileId = await this._indexManager.upsertFile(
-                this.uri.toString(),
-                contentType === "source" ? "source" : "codex",
-                Date.now()
-            );
-            this._cachedFileId = fileId;
-        }
+        try {
+            // Use retry variant to handle SQLITE_BUSY if a background sync holds the lock.
+            await indexManager.runInTransactionWithRetry(async () => {
+                // Get file ID inside the transaction for atomicity.
+                // Use upsertFileSync (not upsertFile) to avoid disk I/O while
+                // holding the transaction lock — consistent with addCellToIndexImmediately
+                // and syncDirtyCellsToDatabase.
+                let fileId = this._cachedFileId;
+                if (!fileId) {
+                    fileId = await indexManager.upsertFileSync(
+                        this.uri.toString(),
+                        contentType === "source" ? "source" : "codex",
+                        Date.now()
+                    );
+                    this._cachedFileId = fileId;
+                }
 
-        // Use targeted UPDATE statement instead of full upserts
-        const db = this._indexManager.database;
-        if (!db) {
-            console.warn(`[CodexDocument] Database not available for milestone index update`);
-            return;
-        }
-
-        await this._indexManager.runInTransaction(() => {
-            // Prepare UPDATE statement once, reuse for all cells
-            const updateStatement = db.prepare(`
-                UPDATE cells 
-                SET milestone_index = ?
-                WHERE cell_id = ?
-            `);
-
-            try {
+                // Update milestone_index for all cells using the index manager's
+                // updateCellMilestoneIndex method instead of raw db.run, so we go
+                // through ensureOpen() and stay consistent with the manager's API.
                 for (const cell of cells) {
                     const cellId = cell.metadata?.id;
                     if (!cellId) continue;
 
                     const milestoneIndex = cell.metadata?.data?.milestoneIndex;
-
-                    // Execute UPDATE statement
-                    updateStatement.bind([
-                        milestoneIndex !== undefined ? milestoneIndex : null,
-                        cellId
-                    ]);
-                    updateStatement.step();
-                    updateStatement.reset();
+                    await indexManager.updateCellMilestoneIndex(
+                        cellId,
+                        milestoneIndex !== undefined ? milestoneIndex : null
+                    );
                 }
-            } finally {
-                updateStatement.free();
+            });
+        } catch (error) {
+            // If _cachedFileId was set inside the rolled-back transaction,
+            // invalidate it so the next attempt gets a fresh one.
+            if (!hadCachedFileId) {
+                this.invalidateIndexCaches();
             }
-        });
+            console.error(`[CodexDocument] Error updating milestone indices:`, error);
+            return; // Non-fatal — milestones will be retried on next call
+        }
 
         // Track that we've updated for this cell count
         this._lastUpdatedMilestoneIndexCellCount = currentCellCount;
@@ -2116,6 +2228,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
         });
@@ -2195,6 +2308,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, isLocked }],
         });
@@ -2337,6 +2451,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2446,6 +2561,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark document as dirty
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
 
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2540,6 +2656,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     );
                     edit.validatedBy = finalValidatedBy;
                     changesDetected = true;
+                    if (cell.metadata?.id) {
+                        this._dirtyCellIds.add(cell.metadata.id);
+                    }
                 }
             }
         }
@@ -2827,6 +2946,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
 
         // Emit change events
         this._onDidChangeForVsCodeAndWebview.fire({
@@ -2898,6 +3018,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -2945,6 +3066,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify both VS Code and webview so the change is persisted
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3074,6 +3196,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3124,6 +3247,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify VS Code (so the file is persisted) and the webview
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3161,6 +3285,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3221,6 +3346,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         delete cell.metadata.selectionTimestamp;
                     }
                     hasChanges = true;
+                    if (cell.metadata?.id) {
+                        this._dirtyCellIds.add(cell.metadata.id);
+                    }
                 }
             }
 
@@ -3274,6 +3402,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Mark as dirty and notify listeners
         this._isDirty = true;
+        this._dirtyCellIds.add(cellId);
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
@@ -3288,143 +3417,193 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
 
-    // Add method to sync all cells to database without modifying content
-    private async syncAllCellsToDatabase(): Promise<void> {
+    // Sync only dirty (modified) cells to the database on save.
+    // Previously this synced ALL cells on every save, causing ~390MB of disk writes
+    // for a single character edit (1,596 cells × full FTS5 upsert each).
+    // Now it only syncs cells that were actually modified since the last save.
+    private async syncDirtyCellsToDatabase(): Promise<void> {
+        // Bail early if the database is being torn down (project swap / deactivation).
+        // Dirty cells stay in the set and will be picked up after re-initialization.
+        if (isDBShuttingDown()) {
+            debug(`[CodexDocument] DB shutting down — skipping dirty cell sync`);
+            return;
+        }
+
+        // Snapshot and clear the dirty set immediately so edits during sync
+        // are captured in the next save cycle. Declared outside try so the
+        // catch can re-add IDs on failure.
+        const dirtyIds = new Set(this._dirtyCellIds);
+        this._dirtyCellIds.clear();
+        const hadCachedFileId = this._cachedFileId !== null;
         try {
-            if (!this._indexManager) {
-                this._indexManager = getSQLiteIndexManager();
-                if (!this._indexManager) {
-                    console.warn(`[CodexDocument] Index manager not available for AI learning`);
-                    return;
-                }
+
+            if (dirtyIds.size === 0) {
+                debug(`[CodexDocument] No dirty cells to sync — skipping database update`);
+                return;
             }
 
-            // Get file ID
-            let fileId = this._cachedFileId;
-            if (!fileId) {
-                fileId = await this._indexManager.upsertFile(
-                    this.uri.toString(),
-                    "codex",
-                    Date.now()
-                );
-                this._cachedFileId = fileId;
+            // Try to acquire index manager and flush any pending ops from earlier failures
+            const indexManager = await this.acquireIndexManagerAndFlush();
+            if (!indexManager) {
+                // Re-add dirty IDs so they aren't lost — they'll be retried on the next save
+                for (const id of dirtyIds) {
+                    this._dirtyCellIds.add(id);
+                }
+                console.warn(`[CodexDocument] Index manager not available for AI learning — ${dirtyIds.size} dirty cells re-queued`);
+                return;
             }
 
             let syncedCells = 0;
             let syncedValidations = 0;
 
-            // Process each cell, including those with audio-only validations
-            for (const cell of this._documentData.cells!) {
-                const cellId = cell.metadata?.id;
-
-                if (!cellId || !this._documentData.cells) {
-                    console.warn(`[CodexDocument] Skipping cell without valid ID or cells array`);
-                    continue;
+            // Wrap all DB writes (file upsert + cell upserts + FTS syncs)
+            // in a single transaction so a crash or concurrent write can't
+            // leave partial state in the database.
+            // Use retry variant to handle SQLITE_BUSY if a background sync holds the lock.
+            await indexManager.runInTransactionWithRetry(async () => {
+                // Get file ID (inside the transaction so it's atomic with cell writes).
+                // Use upsertFileSync (not upsertFile) to avoid disk I/O while
+                // holding the transaction lock.
+                let fileId = this._cachedFileId;
+                if (!fileId) {
+                    fileId = await indexManager.upsertFileSync(
+                        this.uri.toString(),
+                        "codex",
+                        Date.now()
+                    );
+                    this._cachedFileId = fileId;
                 }
 
-                const hasContent = !!(cell.value && cell.value.trim() !== '');
+                // Only process cells that were modified since the last save
+                for (const cell of this._documentData.cells!) {
+                    const cellId = cell.metadata?.id;
 
-                const activeAudioValidators = (cell.metadata?.attachments &&
-                    Object.values(cell.metadata.attachments).flatMap((attachment: any) => {
-                        if (
-                            !attachment ||
-                            attachment.type !== "audio" ||
-                            attachment.isDeleted ||
-                            !Array.isArray(attachment.validatedBy)
-                        ) {
-                            return [];
-                        }
-                        return attachment.validatedBy.filter((entry: any) =>
-                            entry &&
-                            !entry.isDeleted &&
-                            typeof entry.username === "string" &&
-                            entry.username.trim().length > 0
-                        );
-                    })) || [];
+                    if (!cellId || !dirtyIds.has(cellId)) {
+                        continue;
+                    }
 
-                const hasAudioValidation = activeAudioValidators.length > 0;
+                    const hasContent = !!(cell.value && cell.value.trim() !== '');
 
-                if (!hasContent && !hasAudioValidation) {
-                    continue;
-                }
+                    const activeAudioValidators = (cell.metadata?.attachments &&
+                        Object.values(cell.metadata.attachments).flatMap((attachment: any) => {
+                            if (
+                                !attachment ||
+                                attachment.type !== "audio" ||
+                                attachment.isDeleted ||
+                                !Array.isArray(attachment.validatedBy)
+                            ) {
+                                return [];
+                            }
+                            return attachment.validatedBy.filter((entry: any) =>
+                                entry &&
+                                !entry.isDeleted &&
+                                typeof entry.username === "string" &&
+                                entry.username.trim().length > 0
+                            );
+                        })) || [];
 
-                try {
-                    // Calculate logical line position only when we have textual content
-                    let logicalLinePosition: number | null = null;
-                    if (hasContent) {
-                        const cellIndex = this._documentData.cells!.findIndex((c) => c.metadata?.id === cellId);
+                    const hasAudioValidation = activeAudioValidators.length > 0;
 
-                        if (cellIndex >= 0) {
-                            const isCurrentCellParatext = cell.metadata?.type === "paratext";
+                    if (!hasContent && !hasAudioValidation) {
+                        continue;
+                    }
 
-                            if (!isCurrentCellParatext) {
-                                // Count non-paratext cells before this cell
-                                let logicalPosition = 1;
-                                for (let i = 0; i < cellIndex; i++) {
-                                    const checkCell = this._documentData.cells![i];
-                                    const isParatext = checkCell.metadata?.type === "paratext";
-                                    if (!isParatext) {
-                                        logicalPosition++;
+                    try {
+                        // Calculate logical line position only when we have textual content
+                        let logicalLinePosition: number | null = null;
+                        if (hasContent) {
+                            const cellIndex = this._documentData.cells!.findIndex((c) => c.metadata?.id === cellId);
+
+                            if (cellIndex >= 0) {
+                                const isCurrentCellParatext = cell.metadata?.type === "paratext";
+
+                                if (!isCurrentCellParatext) {
+                                    // Count non-paratext cells before this cell
+                                    let logicalPosition = 1;
+                                    for (let i = 0; i < cellIndex; i++) {
+                                        const checkCell = this._documentData.cells![i];
+                                        const isParatext = checkCell.metadata?.type === "paratext";
+                                        if (!isParatext) {
+                                            logicalPosition++;
+                                        }
                                     }
+                                    logicalLinePosition = logicalPosition;
                                 }
-                                logicalLinePosition = logicalPosition;
                             }
                         }
+
+                        // Prepare metadata for database - this will handle validation extraction
+                        const cellMetadata = {
+                            edits: cell.metadata?.edits || [],
+                            attachments: cell.metadata?.attachments || {},
+                            selectedAudioId: cell.metadata?.selectedAudioId,
+                            selectionTimestamp: cell.metadata?.selectionTimestamp,
+                            type: cell.metadata?.type || null,
+                            lastUpdated: Date.now(),
+                        };
+
+                        // Check if this cell has text validation data for logging
+                        const edits = cell.metadata?.edits;
+                        const lastEdit = edits && edits.length > 0 ? edits[edits.length - 1] : null;
+                        const hasTextValidation = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
+
+                        if (hasTextValidation && lastEdit?.validatedBy) {
+                            syncedValidations++;
+                        }
+
+                        if (hasAudioValidation) {
+                            syncedValidations++;
+                        }
+
+                        // Sanitize content for search
+                        const sanitizedContent = hasContent ? this.sanitizeContent(cell.value) : "";
+
+                        const rawContentForSync = hasContent
+                            ? cell.value ?? ""
+                            : JSON.stringify({
+                                audioOnlyValidation: true,
+                                attachments: cell.metadata?.attachments ?? {},
+                            });
+
+                        await indexManager.upsertCellWithFTSSync(
+                            cellId,
+                            fileId,
+                            this.getContentType(),
+                            sanitizedContent,
+                            hasContent ? logicalLinePosition ?? undefined : undefined,
+                            cellMetadata,
+                            rawContentForSync
+                        );
+
+                        syncedCells++;
+                    } catch (error) {
+                        console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
+                        // Re-add the failed cell so it is retried on the next save
+                        this._dirtyCellIds.add(cellId);
                     }
-
-                    // Prepare metadata for database - this will handle validation extraction
-                    const cellMetadata = {
-                        edits: cell.metadata?.edits || [],
-                        attachments: cell.metadata?.attachments || {},
-                        selectedAudioId: cell.metadata?.selectedAudioId,
-                        selectionTimestamp: cell.metadata?.selectionTimestamp,
-                        type: cell.metadata?.type || null,
-                        lastUpdated: Date.now(),
-                    };
-
-                    // Check if this cell has text validation data for logging
-                    const edits = cell.metadata?.edits;
-                    const lastEdit = edits && edits.length > 0 ? edits[edits.length - 1] : null;
-                    const hasTextValidation = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
-
-                    if (hasTextValidation && lastEdit?.validatedBy) {
-                        syncedValidations++;
-                    }
-
-                    if (hasAudioValidation) {
-                        syncedValidations++;
-                    }
-
-                    // Sanitize content for search
-                    const sanitizedContent = hasContent ? this.sanitizeContent(cell.value) : "";
-
-                    const rawContentForSync = hasContent
-                        ? cell.value ?? ""
-                        : JSON.stringify({
-                            audioOnlyValidation: true,
-                            attachments: cell.metadata?.attachments ?? {},
-                        });
-
-                    await this._indexManager.upsertCellWithFTSSync(
-                        cellId,
-                        fileId,
-                        this.getContentType(),
-                        sanitizedContent,
-                        hasContent ? logicalLinePosition ?? undefined : undefined,
-                        cellMetadata,
-                        rawContentForSync
-                    );
-
-                    syncedCells++;
-                } catch (error) {
-                    console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
                 }
-            }
+            });
 
-            debug(`[CodexDocument] ✅ AI knowledge updated: AI learned from ${syncedCells} cells, ${syncedValidations} cells with validation data`);
+            debug(`[CodexDocument] AI knowledge updated: synced ${syncedCells} dirty cells (of ${dirtyIds.size} marked), ${syncedValidations} with validation data`);
 
         } catch (error) {
-            console.error(`[CodexDocument] Error during AI learning:`, error);
+            // Transaction failed (SQLITE_BUSY, closed DB, etc.) — re-add dirty IDs
+            // so they aren't lost. They'll be retried on the next save cycle.
+            for (const id of dirtyIds) {
+                this._dirtyCellIds.add(id);
+            }
+            // If _cachedFileId was set inside the rolled-back transaction, the ID
+            // is from an uncommitted INSERT — always invalidate on any failure.
+            if (!hadCachedFileId) {
+                this.invalidateIndexCaches();
+            }
+            // If the error was due to a closed DB, also clear the stale manager so
+            // the next attempt gets a fresh one.
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes("closing or closed") || msg.includes("not initialized")) {
+                this._indexManager = null;
+            }
+            console.error(`[CodexDocument] Error during AI learning (${dirtyIds.size} dirty cells re-queued):`, error);
         }
     }
 }

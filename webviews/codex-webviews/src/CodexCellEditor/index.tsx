@@ -7,6 +7,12 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { TooltipProvider } from "./contextProviders/TooltipContext";
+import { getVSCodeAPI } from "../shared/vscodeApi";
+
+// Acquire the VS Code API once at module scope and expose it on `window` so that
+// all child components (TextCellEditor, Editor, AddParatextButton, etc.) that
+// reference `window.vscodeApi` can find it.
+(window as any).vscodeApi = getVSCodeAPI();
 
 const Index: React.FC = () => {
     const [unsavedChanges, setUnsavedChanges] = useState<boolean>(false);
@@ -75,6 +81,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<Index />);
 
 // Send webviewReady message when the webview is mounted
 window.addEventListener("load", () => {
-    const vscode = (window as any).vscodeApi;
-    vscode.postMessage({ command: "webviewReady" });
+    (window as any).vscodeApi.postMessage({ command: "webviewReady" });
 });

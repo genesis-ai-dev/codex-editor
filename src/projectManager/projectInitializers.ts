@@ -253,7 +253,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     foldersWithUsfmToConvert,
                 });
 
-                // Ensure the files directory exists for dictionary and other project files
+                // Ensure the files directory exists for project files
                 const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, "files");
                 try {
                     await vscode.workspace.fs.createDirectory(filesDir);

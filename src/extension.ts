@@ -2,12 +2,7 @@ import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
 import { GlobalProvider } from "./globalProvider";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
-import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { registerLanguageServer } from "./tsServer/registerLanguageServer";
-import { registerClientCommands } from "./tsServer/registerClientCommands";
-import registerClientOnRequests from "./tsServer/registerClientOnRequests";
-import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
-import { LanguageClient } from "vscode-languageclient/node";
+import { registerBacktranslationCommands } from "./smartEdits/registerBacktranslationCommands";
 import { registerProjectManager } from "./projectManager";
 import {
     temporaryMigrationScript_checkMatthewNotebook,
@@ -25,13 +20,8 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
-import { Database } from "fts5-sql-bundle";
-import {
-    importWiktionaryJSONL,
-    ingestJsonlDictionaryEntries,
-    initializeSqlJs,
-    registerLookupWordCommand,
-} from "./sqldb";
+import { initNativeSqlite, isNativeSqliteReady } from "./utils/nativeSqlite";
+import { ensureSqliteNativeBinary } from "./utils/sqliteNativeBinaryManager";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
@@ -68,6 +58,7 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
+import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
@@ -168,13 +159,6 @@ function finishRealtimeStep(): number {
     return globalThis.performance.now();
 }
 
-declare global {
-    // eslint-disable-next-line
-    var db: Database | undefined;
-}
-
-let client: LanguageClient | undefined;
-let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 // let commitTimeout: any;
 // const COMMIT_DELAY = 5000; // Delay in milliseconds
@@ -430,8 +414,24 @@ export async function activate(context: vscode.ExtensionContext) {
 
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
-        // Initialize SqlJs with real-time progress since it loads WASM files
-        // Only initialize database if we have a workspace (database is for project content)
+        // Download the native SQLite binary if not already present.
+        // This blocks with a progress notification on first run (~2 MB download).
+        const sqliteBinaryStart = globalThis.performance.now();
+        try {
+            const binaryPath = await ensureSqliteNativeBinary(context);
+            console.log("[SQLite] Binary path resolved:", binaryPath);
+            initNativeSqlite(binaryPath);
+            console.log("[SQLite] Native module initialized successfully");
+        } catch (error: any) {
+            console.error("[SQLite] Failed to set up native binary:", error?.message || error);
+            console.error("[SQLite] Stack:", error?.stack);
+            vscode.window.showWarningMessage(
+                "SQLite native module could not be loaded. Search features will be unavailable."
+            );
+            // Database features (content index) will be unavailable
+        }
+        stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
+
         const workspaceFolders = vscode.workspace.workspaceFolders;
 
         // Check for pending swap downloads (after workspace is ready)
@@ -439,28 +439,6 @@ export async function activate(context: vscode.ExtensionContext) {
             checkPendingSwapDownloads(workspaceFolders[0].uri).catch(err => {
                 console.error("[Extension] Error checking pending swap downloads:", err);
             });
-        }
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            startRealtimeStep("AI preparing search capabilities");
-            try {
-                global.db = await initializeSqlJs(context);
-
-            } catch (error) {
-                console.error("Error initializing SqlJs:", error);
-            }
-            stepStart = finishRealtimeStep();
-            if (global.db) {
-                const importCommand = vscode.commands.registerCommand(
-                    "extension.importWiktionaryJSONL",
-                    () => global.db && importWiktionaryJSONL(global.db)
-                );
-                context.subscriptions.push(importCommand);
-                registerLookupWordCommand(global.db, context);
-                ingestJsonlDictionaryEntries(global.db);
-            }
-        } else {
-            // No workspace, skip database initialization
-            stepStart = trackTiming("AI search capabilities (skipped - no workspace)", globalThis.performance.now());
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -530,7 +508,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
             trackTiming("Initializing Workspace", workspaceStart);
 
-            // Always initialize extension to ensure language server is available before webviews
             await initializeExtension(context, metadataExists);
 
             // Ensure local project settings exist when a Codex project is open
@@ -565,10 +542,9 @@ export async function activate(context: vscode.ExtensionContext) {
         const coreComponentsStart = globalThis.performance.now();
 
         await Promise.all([
-            registerSmartEditCommands(context),
+            registerBacktranslationCommands(context),
             registerProviders(context),
             registerCommands(context),
-            initializeWebviews(context),
         ]);
 
         // Register metadata commands for frontier-authentication to call
@@ -626,6 +602,9 @@ export async function activate(context: vscode.ExtensionContext) {
         await migration_addGlobalReferences(context);
         await migration_cellIdsToUuid(context);
         await migration_recoverTempFilesAndMergeDuplicates(context);
+
+        // Remove leftover files from features that have been removed
+        await cleanupOrphanedProjectFiles();
 
         // After migrations complete, trigger sync directly
         // (All migrations have finished executing since they're awaited sequentially)
@@ -865,58 +844,18 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
     debug("Initializing extension");
 
     if (metadataExists) {
-        // Break down language server initialization
-        const totalLsStart = globalThis.performance.now();
-
-        startRealtimeStep("Initializing Language Server");
-        const lsStart = globalThis.performance.now();
-        client = await registerLanguageServer(context);
-        const lsDuration = globalThis.performance.now() - lsStart;
-        debug(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
-
-        // Always register client commands to prevent "command not found" errors
-        // If language server failed, commands will return appropriate fallbacks
-        const regServicesStart = globalThis.performance.now();
-        clientCommandsDisposable = registerClientCommands(context, client);
-        context.subscriptions.push(clientCommandsDisposable);
-        const regServicesDuration = globalThis.performance.now() - regServicesStart;
-        debug(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
-
-        if (client && global.db) {
-            const optimizeStart = globalThis.performance.now();
-            try {
-                await registerClientOnRequests(client, global.db);
-                await client.start();
-            } catch (error) {
-                console.error("Error registering client requests:", error);
-            }
-            const optimizeDuration = globalThis.performance.now() - optimizeStart;
-            debug(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
-        } else {
-            if (!client) {
-                console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
-            }
-            if (!global.db) {
-                console.info("[Database] Dictionary not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
-            }
-        }
-        finishRealtimeStep();
-        const totalLsDuration = globalThis.performance.now() - totalLsStart;
-        debug(`[Activation] Language Server Ready: ${totalLsDuration.toFixed(2)}ms`);
-
-        // Break down index creation  
+        // Break down index creation
         const totalIndexStart = globalThis.performance.now();
-
-        const verseRefsStart = globalThis.performance.now();
-        // Index verse refs would go here, but it seems to be missing from this section
-        const verseRefsDuration = globalThis.performance.now() - verseRefsStart;
-        debug(`[Activation]  Index Verse Refs: ${verseRefsDuration.toFixed(2)}ms`);
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
-        startRealtimeStep("AI learning your project structure");
-        await createIndexWithContext(context);
-        finishRealtimeStep();
+        if (isNativeSqliteReady()) {
+            startRealtimeStep("AI learning your project structure");
+            await createIndexWithContext(context);
+            finishRealtimeStep();
+        } else {
+            console.warn("[Extension] Skipping content index creation — SQLite native module not available");
+        }
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
@@ -1008,10 +947,6 @@ async function executeCommandsAfter(
     await vscode.workspace
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
-
-    await vscode.workspace
-        .getConfiguration()
-        .update("codex-project-manager.spellcheckIsEnabled", false, vscode.ConfigurationTarget.Global);
 
     // Final splash screen update and close
     updateSplashScreenSync(100, "Finalizing setup...");
@@ -1255,29 +1190,22 @@ async function cancelSwap(projectUri: vscode.Uri, _pendingState: any): Promise<v
     vscode.window.showInformationMessage("Project swap cancelled.");
 }
 
-export function deactivate() {
+export async function deactivate() {
     // Clean up real-time progress timer
     if (currentStepTimer) {
         clearInterval(currentStepTimer);
         currentStepTimer = null;
     }
 
-    if (clientCommandsDisposable) {
-        clientCommandsDisposable.dispose();
+    // Close the index manager's database connection and clear the global reference
+    try {
+        const { clearSQLiteIndexManager } = await import(
+            "./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+        );
+        await clearSQLiteIndexManager();
+    } catch (e) {
+        console.error("[Deactivate] Error clearing index manager:", e);
     }
-    if (client) {
-        return client.stop();
-    }
-    if (global.db) {
-        global.db.close();
-    }
-
-    // Clean up the global index manager
-    import("./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager").then(
-        ({ clearSQLiteIndexManager }) => {
-            clearSQLiteIndexManager();
-        }
-    ).catch(console.error);
 }
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {
