@@ -5,9 +5,7 @@ import { createIndexWithContext } from "../activationHelpers/contextAware/conten
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import * as path from "path";
 import { updateSplashScreenSync } from "../providers/SplashScreen/register";
-import git from "isomorphic-git";
-import fs from "fs";
-import http from "isomorphic-git/http/web";
+import * as dugiteGit from "../utils/dugiteGit";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
@@ -26,22 +24,11 @@ function debug(message: string, ...args: any[]): void {
  */
 async function hasLocalModifications(workspaceFolder: string, filePath: string): Promise<boolean> {
     try {
-        const status = await git.status({
-            fs,
-            dir: workspaceFolder,
-            filepath: filePath,
-        });
+        const statusOutput = await dugiteGit.status(workspaceFolder, filePath);
 
-        // status can be:
-        // - "*modified" (unstaged changes)
-        // - "*added" (new file, unstaged)
-        // - "*deleted" (deleted, unstaged)
-        // - "modified" (staged changes)
-        // - "added" (new file, staged)
-        // - "deleted" (deleted, staged)
-        // - "unmodified" (no changes)
-
-        const hasChanges = status !== "unmodified";
+        // dugiteGit.status returns undefined for unmodified files,
+        // or porcelain v2 output if there are changes
+        const hasChanges = statusOutput !== undefined;
         return hasChanges;
     } catch (error) {
         console.warn(`[SyncManager] Could not check git status for ${filePath}:`, error);

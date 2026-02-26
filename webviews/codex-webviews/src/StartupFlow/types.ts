@@ -169,4 +169,6 @@ export interface FrontierAPI {
         oid: string,
         size: number
     ) => Promise<Buffer>;
+
+    getGitBinaryPath?: () => { localGitDir: string; execPath: string; } | undefined;
 }

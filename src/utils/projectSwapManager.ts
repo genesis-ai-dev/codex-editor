@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { ProjectMetadata, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../types";
 import * as crypto from "crypto";
-import git from "isomorphic-git";
-import fs from "fs";
+import * as dugiteGit from "./dugiteGit";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...args) : () => { };
@@ -821,7 +820,7 @@ export function generateProjectUUID(): string {
  */
 export async function getGitOriginUrl(projectPath: string): Promise<string | null> {
     try {
-        const remotes = await git.listRemotes({ fs, dir: projectPath });
+        const remotes = await dugiteGit.listRemotes(projectPath);
         const origin = remotes.find((r) => r.remote === "origin");
         return origin?.url || null;
     } catch (error) {
@@ -858,15 +857,10 @@ export function sanitizeGitUrl(url: string): string {
 export async function updateGitOriginUrl(projectPath: string, newUrl: string): Promise<void> {
     try {
         // Remove old origin
-        await git.deleteRemote({ fs, dir: projectPath, remote: "origin" });
+        await dugiteGit.deleteRemote(projectPath, "origin");
 
         // Add new origin
-        await git.addRemote({
-            fs,
-            dir: projectPath,
-            remote: "origin",
-            url: newUrl,
-        });
+        await dugiteGit.addRemote(projectPath, "origin", newUrl);
 
         debug("Updated git origin URL to:", newUrl);
     } catch (error) {

@@ -13,9 +13,7 @@
  */
 
 import * as vscode from "vscode";
-import git from "isomorphic-git";
-import fs from "fs";
-import http from "isomorphic-git/http/web";
+import * as dugiteGit from "../../../utils/dugiteGit";
 import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
@@ -108,7 +106,7 @@ export async function stageAndCommitAllAndSync(
         // First check if we have a valid git repo
         let remotes;
         try {
-            remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            remotes = await dugiteGit.listRemotes(workspaceFolder);
             if (remotes.length === 0) {
                 return syncResult;
             }

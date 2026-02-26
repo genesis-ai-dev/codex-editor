@@ -13,9 +13,7 @@ import {
     ProjectManagerState,
 } from "../../../types";
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
-import git from "isomorphic-git";
-// Note: avoid top-level http(s) imports to keep test bundling simple
-import * as fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
@@ -303,10 +301,7 @@ class ProjectManagerStore {
                 return false;
             }
 
-            const remotes = await git.listRemotes({
-                fs,
-                dir: workspacePath,
-            });
+            const remotes = await dugiteGit.listRemotes(workspacePath);
 
             // Send publish status message
             if (this._view) {

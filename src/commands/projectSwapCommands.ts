@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
-import git from "isomorphic-git";
+import * as dugiteGit from "../utils/dugiteGit";
 import { ProjectMetadata, ProjectSwapInfo, ProjectSwapEntry } from "../../types";
 import { MetadataManager } from "../utils/metadataManager";
 import {
@@ -1502,26 +1502,18 @@ export async function initiateSwapCopy(): Promise<void> {
             // Initialize Git
             progress.report({ message: "Initializing git repository..." });
             try {
-                await git.init({
-                    fs,
-                    dir: newProjectPath,
-                    defaultBranch: "main",
-                });
+                await dugiteGit.init(newProjectPath);
 
                 await ensureGitConfigsAreUpToDate();
                 await ensureGitDisabledInSettings();
 
-                await git.add({
-                    fs,
-                    dir: newProjectPath,
-                    filepath: "metadata.json",
-                });
+                await dugiteGit.add(newProjectPath, "metadata.json");
 
                 if (fs.existsSync(path.join(newProjectPath, ".gitignore"))) {
-                    await git.add({ fs, dir: newProjectPath, filepath: ".gitignore" });
+                    await dugiteGit.add(newProjectPath, ".gitignore");
                 }
                 if (fs.existsSync(path.join(newProjectPath, ".gitattributes"))) {
-                    await git.add({ fs, dir: newProjectPath, filepath: ".gitattributes" });
+                    await dugiteGit.add(newProjectPath, ".gitattributes");
                 }
 
                 const { getAuthApi } = await import("../extension");
@@ -1531,15 +1523,14 @@ export async function initiateSwapCopy(): Promise<void> {
                     userInfo = await authApi.getUserInfo();
                 }
 
-                await git.commit({
-                    fs,
-                    dir: newProjectPath,
-                    message: `Initial commit (swapped from ${currentName})`,
-                    author: {
+                await dugiteGit.commit(
+                    newProjectPath,
+                    `Initial commit (swapped from ${currentName})`,
+                    {
                         name: userInfo?.username || "Codex User",
-                        email: userInfo?.email || "user@example.com"
-                    }
-                });
+                        email: userInfo?.email || "user@example.com",
+                    },
+                );
             } catch (error) {
                 console.error("Git initialization failed during swap copy:", error);
                 await vscode.window.showErrorMessage(`Git initialization failed: ${error}`, { modal: true });

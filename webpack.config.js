@@ -31,6 +31,7 @@ const extensionConfig = {
         vm: "commonjs vm",
         encoding: "commonjs encoding",
         // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
+        // Note: dugite is bundled by webpack (its JS API is small; the binary downloads at runtime)
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
@@ -194,6 +195,7 @@ const testConfig = {
         vscode: "commonjs vscode",
         child_process: "commonjs child_process", // Required for audioMigration utility
         util: "commonjs util", // Required for promisify
+        dugite: "commonjs dugite", // Must be external so its embedded binary resolution works (needs real __dirname and process.platform)
         // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
     },
     resolve: {

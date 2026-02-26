@@ -6,6 +6,12 @@
 !out/**
 !out/sqldb/**
 !assets/**
+
+# Exclude test output and source maps from VSIX
+out/test/**
+out/test-runner/**
+out/**/*.map
+.vscode-test/**
 # !servers/**
 
 !webviews/codex-webviews/dist/**
