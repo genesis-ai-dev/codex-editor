@@ -2971,30 +2971,33 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (cell.metadata?.selectedAudioId && attachmentType === "audio") {
             const selectedAttachment = cell.metadata.attachments?.[cell.metadata.selectedAudioId];
 
-            // Validate selection is still valid
+            // Validate selection is still valid and the file isn't missing
             if (selectedAttachment &&
                 selectedAttachment.type === attachmentType &&
-                !selectedAttachment.isDeleted) {
+                !selectedAttachment.isDeleted &&
+                !selectedAttachment.isMissing) {
                 return {
                     attachmentId: cell.metadata.selectedAudioId,
                     attachment: selectedAttachment
                 };
             }
 
-            // Selection is invalid - we'll clean it up later, but don't modify state during read operation
-            // Note: Invalid selection cleanup is deferred to avoid modifying document during initialization
+            // Selection is invalid or missing — fall through to automatic resolution
         }
 
-        // STEP 2: Fall back to latest non-deleted (automatic behavior)
+        // STEP 2: Fall back to latest non-deleted, non-missing attachment (prefer available files)
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
                 attachment.type === attachmentType &&
                 !attachment.isDeleted
             )
-            .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
-                (b.updatedAt || 0) - (a.updatedAt || 0)
-            );
+            .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
+                const aMissing = a.isMissing ? 1 : 0;
+                const bMissing = b.isMissing ? 1 : 0;
+                if (aMissing !== bMissing) return aMissing - bMissing;
+                return (b.updatedAt || 0) - (a.updatedAt || 0);
+            });
 
         if (attachments.length === 0) {
             return null;
@@ -3178,7 +3181,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     /**
      * Cleans up invalid audio selections for all cells (safe to call during document operations)
-     * This is separated from getCurrentAttachment to avoid modifying state during read operations
+     * This is separated from getCurrentAttachment to avoid modifying state during read operations.
+     *
+     * When the selected audio is missing but a valid non-missing alternative exists,
+     * the selection is automatically updated to the best available attachment.
      */
     public cleanupInvalidAudioSelections(): void {
         try {
@@ -3191,13 +3197,29 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
                 const selectedAttachment = cell.metadata.attachments[cell.metadata.selectedAudioId];
 
-                // Check if selection is invalid (deleted, wrong type, or missing)
-                if (!selectedAttachment ||
+                const isInvalid = !selectedAttachment ||
                     selectedAttachment.type !== "audio" ||
-                    selectedAttachment.isDeleted) {
+                    selectedAttachment.isDeleted;
 
-                    delete cell.metadata.selectedAudioId;
-                    delete cell.metadata.selectionTimestamp;
+                const isMissing = !isInvalid && selectedAttachment.isMissing === true;
+
+                if (isInvalid || isMissing) {
+                    // Look for a valid non-missing audio attachment to auto-select
+                    const validAlternative = Object.entries(cell.metadata.attachments)
+                        .filter(([_, att]: [string, any]) =>
+                            att?.type === "audio" && !att.isDeleted && !att.isMissing
+                        )
+                        .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
+                            (b.updatedAt || 0) - (a.updatedAt || 0)
+                        )[0];
+
+                    if (validAlternative) {
+                        cell.metadata.selectedAudioId = validAlternative[0];
+                        cell.metadata.selectionTimestamp = Date.now();
+                    } else {
+                        delete cell.metadata.selectedAudioId;
+                        delete cell.metadata.selectionTimestamp;
+                    }
                     hasChanges = true;
                 }
             }
