@@ -21,6 +21,7 @@ import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Hash } from "lu
 import { Badge } from "../../../components/ui/badge";
 import { usfmImporter } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 // Use the real parser functions from the USFM importer
@@ -74,6 +75,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const handleImport = async () => {
         if (!files || files.length === 0) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -180,11 +182,13 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         await handleImportCompletion(notebooks, props);
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
+                        notifyImportEnded();
                     }
                 }, 2000);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
@@ -214,6 +218,9 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const handleCancel = () => {
         if (isDirty && !window.confirm("Cancel import? Any unsaved changes will be lost.")) {
             return;
+        }
+        if (isProcessing) {
+            notifyImportEnded();
         }
         onCancel();
     };

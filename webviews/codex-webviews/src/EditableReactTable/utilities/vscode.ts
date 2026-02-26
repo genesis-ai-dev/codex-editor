@@ -16,7 +16,7 @@ class VSCodeAPIWrapper {
         // Check if the acquireVsCodeApi function exists in the current development
         // context (i.e. VS Code development window or web browser)
         if (typeof acquireVsCodeApi === "function") {
-            this.vsCodeApi = acquireVsCodeApi();
+            this.vsCodeApi = acquireVsCodeApi() as WebviewApi<unknown>;
         }
     }
 
@@ -66,7 +66,8 @@ class VSCodeAPIWrapper {
      */
     public setState<T extends unknown | undefined>(newState: T): T {
         if (this.vsCodeApi) {
-            return this.vsCodeApi.setState(newState);
+            this.vsCodeApi.setState(newState);
+            return newState;
         } else {
             localStorage.setItem("vscodeState", JSON.stringify(newState));
             return newState;
