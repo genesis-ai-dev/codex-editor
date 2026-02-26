@@ -11,7 +11,8 @@ export class WhisperTranscriptionClient {
 
     async transcribe(
         audioBlob: Blob,
-        timeoutMs: number = 60000
+        timeoutMs: number = 60000,
+        language?: string
     ): Promise<{ text: string; }> {
         try {
             // Create FormData with audio file
@@ -24,6 +25,9 @@ export class WhisperTranscriptionClient {
             url.searchParams.set("source", "codex");
             if (this.authToken) {
                 url.searchParams.set("token", this.authToken);
+            }
+            if (language) {
+                url.searchParams.set("lang", language);
             }
 
             // Prepare headers

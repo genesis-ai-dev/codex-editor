@@ -134,6 +134,10 @@ export class FileSyncManager {
             const fileMap = new Map(allFiles.map(f => [f.uri.fsPath, f]));
             const filesToProcess = filesToSync.map(path => fileMap.get(path)).filter(Boolean) as FileData[];
 
+            // Disable FTS triggers during bulk sync to avoid expensive per-row
+            // DELETE+INSERT on the FTS5 table. We rebuild FTS in one pass at the end.
+            this.sqliteIndex.disableFTSTriggers();
+
             // Process files in optimized batches
             const BATCH_SIZE = 10; // Process 10 files at a time
             const batches = [];
@@ -182,6 +186,18 @@ export class FileSyncManager {
                 processedCount += batch.length;
             }
 
+            // Rebuild the FTS index in one pass from the cells table, then re-enable triggers.
+            // This is O(n) total instead of O(n) expensive per-row deletes during sync.
+            if (syncedFiles > 0) {
+                progressCallback?.("Rebuilding search index...", 83);
+                try {
+                    this.sqliteIndex.rebuildFTSFromCells();
+                } catch (error) {
+                    console.warn("[FileSyncManager] Error rebuilding FTS index:", error);
+                }
+            }
+            this.sqliteIndex.enableFTSTriggers();
+
             // Cleanup sync metadata for files that no longer exist
             progressCallback?.("Cleaning up obsolete metadata...", 85);
             const removedCount = await this.sqliteIndex.cleanupSyncMetadata(filePaths);
@@ -221,6 +237,8 @@ export class FileSyncManager {
             };
 
         } catch (error) {
+            // Re-enable FTS triggers even on failure to avoid leaving DB in broken state
+            try { this.sqliteIndex.enableFTSTriggers(); } catch { /* best effort */ }
             console.error("[FileSyncManager] Error during optimized file sync:", error);
             throw error;
         }
@@ -482,6 +500,9 @@ export class FileSyncManager {
             const fileMap = new Map(requestedFiles.map(f => [f.uri.fsPath, f]));
             const filesToProcess = filesToSync.map(path => fileMap.get(path)).filter(Boolean) as FileData[];
 
+            // Disable FTS triggers during bulk sync — rebuild once at the end
+            this.sqliteIndex.disableFTSTriggers();
+
             // Process files with progress tracking
             for (let i = 0; i < filesToProcess.length; i++) {
                 const fileData = filesToProcess[i];
@@ -498,6 +519,17 @@ export class FileSyncManager {
                     console.error(`[FileSyncManager] Error syncing targeted file ${fileData.id}:`, error);
                 }
             }
+
+            // Rebuild FTS in one pass and re-enable triggers
+            if (syncedFiles > 0) {
+                progressCallback?.("Rebuilding search index...", 90);
+                try {
+                    this.sqliteIndex.rebuildFTSFromCells();
+                } catch (error) {
+                    console.warn("[FileSyncManager] Error rebuilding FTS index:", error);
+                }
+            }
+            this.sqliteIndex.enableFTSTriggers();
 
             // Cleanup and finalize
             progressCallback?.("Finalizing targeted sync...", 95);
@@ -519,6 +551,8 @@ export class FileSyncManager {
             };
 
         } catch (error) {
+            // Re-enable FTS triggers even on failure
+            try { this.sqliteIndex.enableFTSTriggers(); } catch { /* best effort */ }
             console.error("[FileSyncManager] Error during targeted file sync:", error);
             throw error;
         }

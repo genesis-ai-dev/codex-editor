@@ -33,6 +33,7 @@ interface AudioWaveformWithTranscriptionProps {
     isTranscribing: boolean;
     transcriptionProgress: number;
     onTranscribe: () => void;
+    onTranscribeAll?: () => void;
     onInsertTranscription: () => void;
     disabled?: boolean;
     onRequestRemove?: () => void;
@@ -50,6 +51,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     isTranscribing,
     transcriptionProgress,
     onTranscribe,
+    onTranscribeAll,
     onInsertTranscription,
     disabled = false,
     onRequestRemove,
@@ -341,16 +343,30 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             {/* Action buttons at bottom */}
             <div className="flex flex-wrap items-center justify-center gap-2 px-2">
                 {!transcription && !isTranscribing && (
-                    <Button
-                        onClick={onTranscribe}
-                        disabled={disabled || (!audioUrl && !audioBlob)}
-                        variant="outline"
-                        className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
-                        title="Transcribe Audio"
-                    >
-                        <MessageCircle className="h-3 w-3" />
-                        <span className="ml-1">Transcribe</span>
-                    </Button>
+                    <>
+                        <Button
+                            onClick={onTranscribe}
+                            disabled={disabled || (!audioUrl && !audioBlob)}
+                            variant="outline"
+                            className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
+                            title="Transcribe this cell"
+                        >
+                            <MessageCircle className="h-3 w-3" />
+                            <span className="ml-1">Transcribe</span>
+                        </Button>
+                        {onTranscribeAll && (
+                            <Button
+                                onClick={onTranscribeAll}
+                                disabled={disabled}
+                                variant="outline"
+                                className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
+                                title="Transcribe all untranscribed cells (recommended — avoids repeated cold starts)"
+                            >
+                                <MessageCircle className="h-3 w-3" />
+                                <span className="ml-1">Transcribe All</span>
+                            </Button>
+                        )}
+                    </>
                 )}
                 <Button
                     variant="outline"
