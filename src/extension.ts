@@ -14,6 +14,7 @@ import {
     migration_addMilestoneCells,
     migration_reorderMisplacedParatextCells,
     migration_addGlobalReferences,
+    migration_verseRangeLabelsAndPositions,
     migration_cellIdsToUuid,
     migration_recoverTempFilesAndMergeDuplicates,
 } from "./projectManager/utils/migrationUtils";
@@ -704,6 +705,24 @@ export async function activate(context: vscode.ExtensionContext) {
             "codex-editor-extension.migrateValidationsForUserEdits",
             async () => {
                 await migration_addValidationsForUserEdits();
+            }
+        )
+    );
+
+    // Command: Fix verse range labels and positions (manual migration, not run by default)
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.runVerseRangeLabelsAndPositionsMigration",
+            async () => {
+                try {
+                    await migration_verseRangeLabelsAndPositions();
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Verse range migration failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Verse range migration failed: ${msg}`
+                    );
+                }
             }
         )
     );
