@@ -53,7 +53,9 @@ function Progress({
             zones.push({
                 left: prevEnd,
                 width: segEnd - prevEnd,
-                label: `Level ${origIdx + 1}: ${Math.floor(safeValidationValues[origIdx])}%${isRequired ? " (required)" : ""}`,
+                label: `Validation ${origIdx + 1}: ${Math.floor(safeValidationValues[origIdx])}%${
+                    isRequired ? " (required)" : ""
+                }`,
             });
             prevEnd = segEnd;
         }
@@ -130,7 +132,7 @@ function Progress({
                             <Tooltip key={i}>
                                 <TooltipTrigger asChild>
                                     <div
-                                        className="h-full cursor-default"
+                                        className="h-full cursor-default pointer-events-auto"
                                         style={{
                                             position: "absolute",
                                             left: `${zone.left}%`,
