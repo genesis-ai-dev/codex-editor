@@ -109,9 +109,9 @@ interface MessageHandlerContext {
 
 /**
  * Sends updated milestone index and current cells to the webview so milestone edits appear immediately.
- * Used after updateMilestoneValue and by refreshWebviewAfterMilestoneEdits.
+ * Used after updateMilestoneValue, by refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
  */
-async function sendMilestoneRefreshToWebview(
+export async function sendMilestoneRefreshToWebview(
     document: CodexCellDocument,
     webviewPanel: vscode.WebviewPanel,
     provider: CodexCellEditorProvider
