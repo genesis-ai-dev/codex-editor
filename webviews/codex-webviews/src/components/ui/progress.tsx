@@ -53,7 +53,9 @@ function Progress({
             zones.push({
                 left: prevEnd,
                 width: segEnd - prevEnd,
-                label: `Level ${origIdx + 1}: ${Math.floor(safeValidationValues[origIdx])}%${isRequired ? " (required)" : ""}`,
+                label: `Validation ${origIdx + 1}: ${Math.floor(safeValidationValues[origIdx])}%${
+                    isRequired ? " (required)" : ""
+                }`,
             });
             prevEnd = segEnd;
         }
