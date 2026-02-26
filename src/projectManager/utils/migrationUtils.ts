@@ -3083,6 +3083,12 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                 duplicate.metadata.cellLabel = parsed.cellLabel;
                 duplicate.metadata.chapterNumber = String(parsed.chapter);
                 if (duplicate.metadata.data?.deleted !== undefined) delete duplicate.metadata.data.deleted;
+                // Ensure value and edit history are on the new cell (defensive: survive metadata spread and match editor expectations)
+                duplicate.value = cell.value ?? duplicate.value;
+                duplicate.metadata.edits =
+                    Array.isArray(cell.metadata?.edits) && cell.metadata.edits.length > 0
+                        ? JSON.parse(JSON.stringify(cell.metadata.edits))
+                        : (duplicate.metadata.edits ?? []);
 
                 // Mark original as deleted and collect for insertion at originalIndex
                 if (!cell.metadata.data) cell.metadata.data = {};
