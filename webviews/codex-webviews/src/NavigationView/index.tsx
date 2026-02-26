@@ -830,7 +830,7 @@ function NavigationView() {
                         {/* Row 2: progress bars below label */}
                         {hasProgress && (
                             <div
-                                className="pl-7 flex flex-col gap-2"
+                                className="pl-7 flex flex-col gap-2 pointer-events-none"
                                 onClick={isGroup ? undefined : (e) => e.stopPropagation()}
                             >
                                 {/* Text progress */}
