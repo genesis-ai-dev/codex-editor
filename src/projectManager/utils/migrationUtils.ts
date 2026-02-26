@@ -2979,18 +2979,11 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         const cells: any[] = notebookData.cells || [];
         if (cells.length === 0) return false;
 
-        // Build lastMilestoneChapterBefore for each cell index (for "moved" detection)
-        let lastMilestoneChapter: number | null = null;
-        const lastMilestoneChapterBeforeIndex = new Map<number, number | null>();
-        const chaptersWithMilestones = new Set<number>();
-
-        // Classify cells: milestones (with chapter from value), content with ref, content without ref, paratext, style/other
         const milestones: Array<{ cell: any; chapter: number | null }> = [];
         const contentWithRef: Array<{
             cell: any;
             parsed: ParsedVerseRef;
             sortKey: { book: string; chapter: number; verse: number };
-            originalIndex: number;
         }> = [];
         const contentWithoutRef: any[] = [];
         const paratextByParentId = new Map<string, any[]>();
@@ -3006,8 +2999,6 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                 const milestoneValue = typeof cell?.value === "string" ? cell.value : "";
                 const chapter = extractChapterNumberFromMilestoneValue(milestoneValue);
                 milestones.push({ cell, chapter });
-                if (chapter != null) chaptersWithMilestones.add(chapter);
-                lastMilestoneChapter = chapter;
                 continue;
             }
 
@@ -3030,13 +3021,11 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
                 continue;
             }
 
-            // Content cell (TEXT or similar)
-            lastMilestoneChapterBeforeIndex.set(i, lastMilestoneChapter);
             const ref = md.data?.globalReferences?.[0];
             const parsed = typeof ref === "string" ? parseVerseRef(ref) : null;
             if (parsed) {
                 const sortKey = getSortKeyFromParsedRef(parsed);
-                contentWithRef.push({ cell, parsed, sortKey, originalIndex: i });
+                contentWithRef.push({ cell, parsed, sortKey });
             } else {
                 contentWithoutRef.push(cell);
             }
@@ -3053,54 +3042,13 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
             arr.sort((a, b) => a.sortKey.verse - b.sortKey.verse);
         }
 
-        // Build new cell order: for each milestone, emit milestone then content for that chapter; after each content cell emit its paratext
         const newCells: any[] = [];
         let hasChanges = false;
 
-        // Determine which verse-range cells are "moved" (need soft-delete + duplicate)
-        const isMovedVerseRange = (item: (typeof contentWithRef)[0]): boolean => {
-            if (item.parsed.kind !== "range") return false;
-            const cellId = item.cell.metadata?.id ?? "";
-            if (cellId.endsWith("-duplicated")) return false;
-            if (item.cell.metadata?.data?.deleted === true) return false;
-            const lastChapter = lastMilestoneChapterBeforeIndex.get(item.originalIndex) ?? null;
-            return lastChapter !== item.sortKey.chapter;
-        };
-
-        // Collect (originalIndex, deletedCell, paratextCells) for later insertion
-        const movedItemsToInsert: Array<{ originalIndex: number; deletedCell: any; paratextCells: any[] }> = [];
-
         const emitContentCell = (item: (typeof contentWithRef)[0]) => {
-            const { cell, parsed, originalIndex } = item;
+            const { cell, parsed } = item;
             const md = cell.metadata || {};
             const parentId = md.id;
-
-            if (parsed.kind === "range" && isMovedVerseRange(item)) {
-                // Create duplicate first (before mutating original)
-                const duplicate = JSON.parse(JSON.stringify(cell)) as any;
-                duplicate.metadata = { ...duplicate.metadata, id: `${parentId}-duplicated` };
-                if (!duplicate.metadata.data) duplicate.metadata.data = {};
-                duplicate.metadata.cellLabel = parsed.cellLabel;
-                duplicate.metadata.chapterNumber = String(parsed.chapter);
-                if (duplicate.metadata.data?.deleted !== undefined) delete duplicate.metadata.data.deleted;
-                // Ensure value and edit history are on the new cell (defensive: survive metadata spread and match editor expectations)
-                duplicate.value = cell.value ?? duplicate.value;
-                duplicate.metadata.edits =
-                    Array.isArray(cell.metadata?.edits) && cell.metadata.edits.length > 0
-                        ? JSON.parse(JSON.stringify(cell.metadata.edits))
-                        : (duplicate.metadata.edits ?? []);
-
-                // Mark original as deleted and collect for insertion at originalIndex
-                if (!cell.metadata.data) cell.metadata.data = {};
-                cell.metadata.data.deleted = true;
-                const paratextCells = parentId ? paratextByParentId.get(parentId) ?? [] : [];
-                movedItemsToInsert.push({ originalIndex, deletedCell: cell, paratextCells });
-
-                hasChanges = true;
-                newCells.push(duplicate);
-                // Duplicate has new id; paratext stays with original
-                return;
-            }
 
             if (parsed.kind === "range") {
                 if (md.cellLabel !== parsed.cellLabel) {
@@ -3125,7 +3073,6 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         for (const { cell, chapter } of milestones) {
             newCells.push(cell);
             if (chapter != null) {
-                // Emit all content cells whose sortKey chapter matches this milestone's chapter
                 const keysToDelete: string[] = [];
                 for (const [key, items] of contentByChapter.entries()) {
                     const [, chapStr] = key.split("\t");
@@ -3149,7 +3096,6 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         );
         for (const item of remaining) emitContentCell(item);
 
-        // Emit content without ref in original order, then style/other
         for (const cell of contentWithoutRef) {
             newCells.push(cell);
             const parentId = cell.metadata?.id;
@@ -3162,14 +3108,6 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         }
         for (const cell of styleOrOther) newCells.push(cell);
 
-        // Insert deleted originals at their original indices (ascending so indices remain valid)
-        const sortedInsertions = [...movedItemsToInsert].sort((a, b) => a.originalIndex - b.originalIndex);
-        for (const { originalIndex, deletedCell, paratextCells } of sortedInsertions) {
-            const cellsToInsert = [deletedCell, ...paratextCells];
-            newCells.splice(originalIndex, 0, ...cellsToInsert);
-        }
-
-        // Check if order or content changed
         const oldIds = cells.map((c) => c.metadata?.id ?? "").join(",");
         const newIds = newCells.map((c) => c.metadata?.id ?? "").join(",");
         const orderChanged = oldIds !== newIds;
