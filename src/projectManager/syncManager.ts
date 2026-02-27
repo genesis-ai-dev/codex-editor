@@ -1386,6 +1386,14 @@ export class SyncManager {
                         }
                         return 90;
                     }
+                    if (stage.includes('Uploading media')) {
+                        const pctMatch = stage.match(/(\d+)%/);
+                        if (pctMatch) {
+                            // Map LFS upload to 10-20% range (happens during commit phase)
+                            return 10 + Math.floor((parseInt(pctMatch[1]) / 100) * 10);
+                        }
+                        return 10;
+                    }
 
                     // Static stage mappings
                     const staticProgress: Record<string, number> = {
