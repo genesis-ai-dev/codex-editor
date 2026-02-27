@@ -1,18 +1,17 @@
 /**
  * Original File Utilities
- * 
- * Handles hash-based deduplication of original files stored in .project/attachments/originals/
- * 
+ *
+ * Handles hash-based deduplication of original files stored in .project/attachments/files/originals/
+ * (Under files/ and pointers/ so sync/LFS can properly track them.)
+ *
  * Storage Structure:
- * - .project/attachments/originals/
- *   - file-hashes.json     (registry of all imported files with their hashes)
- *   - sample.idml          (actual original file)
- *   - sample(1).idml       (renamed file if same name but different content)
- *   - other-document.docx  (another original file)
- * 
+ * - .project/attachments/files/originals/   (actual files)
+ * - .project/attachments/pointers/originals/ (mirror for sync)
+ * - metadata.json  (originalFilesHashes section - registry for proper sync/merge)
+ *
  * Features:
  * - Computes SHA-256 hash of file content
- * - Maintains a registry (file-hashes.json) of original files with their hashes
+ * - Maintains registry in metadata.json (originalFilesHashes) for sync and merge
  * - Saves actual original files to the originals folder
  * - Prevents duplicate storage of identical files (same content = reuse existing file)
  * - Handles filename conflicts by renaming (e.g., sample(1).idml, sample(2).idml)
@@ -27,7 +26,7 @@ import * as crypto from 'crypto';
 export interface OriginalFileEntry {
     /** SHA-256 hash of the file content */
     hash: string;
-    /** The filename stored in attachments/originals/ */
+    /** The filename stored in attachments/files/originals/ */
     fileName: string;
     /** Original filename(s) that mapped to this file (for reference) */
     originalNames: string[];
@@ -63,7 +62,7 @@ export interface OriginalFileResult {
     message: string;
 }
 
-const REGISTRY_FILENAME = 'file-hashes.json';
+const ORIGINAL_FILES_HASHES_KEY = 'originalFilesHashes';
 
 /**
  * Compute SHA-256 hash of file data
@@ -78,72 +77,192 @@ export function computeFileHash(data: Uint8Array | ArrayBuffer | Buffer): string
 }
 
 /**
- * Get the path to the originals directory
+ * Get the path to the originals directory in attachments/files.
+ * Uses attachments/files/originals so sync/LFS can properly track these files.
  */
 function getOriginalsDir(workspaceFolder: vscode.WorkspaceFolder): vscode.Uri {
     return vscode.Uri.joinPath(
         workspaceFolder.uri,
         '.project',
         'attachments',
+        'files',
         'originals'
     );
 }
 
 /**
- * Get the path to the registry file
+ * Get the path to the originals directory in attachments/pointers.
+ * Mirrors files/originals for sync - pointers/ is committed to git (files/ is gitignored).
  */
-function getRegistryPath(workspaceFolder: vscode.WorkspaceFolder): vscode.Uri {
-    return vscode.Uri.joinPath(getOriginalsDir(workspaceFolder), REGISTRY_FILENAME);
+function getOriginalsPointersDir(workspaceFolder: vscode.WorkspaceFolder): vscode.Uri {
+    return vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        '.project',
+        'attachments',
+        'pointers',
+        'originals'
+    );
 }
 
 /**
- * Load the original files registry, creating an empty one if it doesn't exist
+ * Resolve the URI for an original file, checking both current and legacy locations.
+ * Preferred: attachments/files/originals/
+ * Legacy: attachments/originals/ (for projects created before the path change)
+ * Returns the URI of the existing file, or the preferred URI if neither exists (caller will fail on read).
  */
-export async function loadOriginalFilesRegistry(
-    workspaceFolder: vscode.WorkspaceFolder
-): Promise<OriginalFilesRegistry> {
-    const registryPath = getRegistryPath(workspaceFolder);
-
+export async function resolveOriginalFileUri(
+    workspaceFolder: vscode.WorkspaceFolder,
+    fileName: string
+): Promise<vscode.Uri> {
+    const preferredUri = vscode.Uri.joinPath(getOriginalsDir(workspaceFolder), fileName);
     try {
-        const data = await vscode.workspace.fs.readFile(registryPath);
-        const registry = JSON.parse(new TextDecoder().decode(data)) as OriginalFilesRegistry;
-
-        // Ensure all required fields exist (migration safety)
-        if (!registry.files) registry.files = {};
-        if (!registry.fileNameToHash) registry.fileNameToHash = {};
-        if (!registry.version) registry.version = 1;
-
-        // Migration: ensure all entries have referencedBy array
-        for (const entry of Object.values(registry.files)) {
-            if (!entry.referencedBy) {
-                entry.referencedBy = [];
-            }
-        }
-
-        return registry;
+        await vscode.workspace.fs.stat(preferredUri);
+        return preferredUri;
     } catch {
-        // Registry doesn't exist, create empty one
-        return {
-            version: 1,
-            files: {},
-            fileNameToHash: {},
-        };
+        const legacyUri = vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            '.project',
+            'attachments',
+            'originals',
+            fileName
+        );
+        try {
+            await vscode.workspace.fs.stat(legacyUri);
+            return legacyUri;
+        } catch {
+            return preferredUri;
+        }
     }
 }
 
 /**
- * Save the original files registry
+ * Find an original file by trying multiple possible filenames.
+ * Returns the first filename that exists in either preferred or legacy location.
+ */
+export async function findOriginalFileByPossibleNames(
+    workspaceFolder: vscode.WorkspaceFolder,
+    possibleFileNames: string[]
+): Promise<{ fileName: string; uri: vscode.Uri } | null> {
+    for (const fileName of possibleFileNames) {
+        const uri = await resolveOriginalFileUri(workspaceFolder, fileName);
+        try {
+            await vscode.workspace.fs.stat(uri);
+            return { fileName, uri };
+        } catch {
+            // File doesn't exist, try next
+        }
+    }
+    return null;
+}
+
+/**
+ * Ensure a copy exists in pointers/originals for sync.
+ * Copies from files/originals if the pointer is missing (e.g. file saved before we wrote to pointers/).
+ */
+async function ensureOriginalPointerExists(
+    workspaceFolder: vscode.WorkspaceFolder,
+    fileName: string
+): Promise<void> {
+    const filesUri = vscode.Uri.joinPath(getOriginalsDir(workspaceFolder), fileName);
+    const pointersUri = vscode.Uri.joinPath(getOriginalsPointersDir(workspaceFolder), fileName);
+    try {
+        await vscode.workspace.fs.stat(pointersUri);
+        return; // Pointer already exists
+    } catch {
+        // Pointer missing - copy from files/
+    }
+    try {
+        const bytes = await vscode.workspace.fs.readFile(filesUri);
+        await vscode.workspace.fs.createDirectory(getOriginalsPointersDir(workspaceFolder));
+        await vscode.workspace.fs.writeFile(pointersUri, bytes);
+    } catch (err) {
+        console.warn(`[OriginalFiles] Could not ensure pointer for ${fileName}:`, err);
+    }
+}
+
+/**
+ * Load the original files registry from metadata.json, creating an empty one if it doesn't exist.
+ * Migrates from legacy file-hashes.json if present.
+ */
+export async function loadOriginalFilesRegistry(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<OriginalFilesRegistry> {
+    // Migration: check for legacy file-hashes.json and migrate to metadata.json
+    await migrateFromLegacyFileHashes(workspaceFolder);
+
+    const { MetadataManager } = await import('../../utils/metadataManager');
+    const result = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
+
+    if (!result.success || !result.metadata) {
+        return createEmptyRegistry();
+    }
+
+    const registry = (result.metadata as Record<string, unknown>)[ORIGINAL_FILES_HASHES_KEY] as OriginalFilesRegistry | undefined;
+    if (!registry || typeof registry !== 'object') {
+        return createEmptyRegistry();
+    }
+
+    // Ensure all required fields exist (migration safety)
+    if (!registry.files) registry.files = {};
+    if (!registry.fileNameToHash) registry.fileNameToHash = {};
+    if (!registry.version) registry.version = 1;
+
+    for (const entry of Object.values(registry.files)) {
+        if (!entry.referencedBy) {
+            entry.referencedBy = [];
+        }
+    }
+
+    return registry;
+}
+
+function createEmptyRegistry(): OriginalFilesRegistry {
+    return {
+        version: 1,
+        files: {},
+        fileNameToHash: {},
+    };
+}
+
+/**
+ * Migrate from legacy file-hashes.json to metadata.json
+ */
+async function migrateFromLegacyFileHashes(workspaceFolder: vscode.WorkspaceFolder): Promise<void> {
+    const legacyPath = vscode.Uri.joinPath(getOriginalsDir(workspaceFolder), 'file-hashes.json');
+    try {
+        const data = await vscode.workspace.fs.readFile(legacyPath);
+        const registry = JSON.parse(new TextDecoder().decode(data)) as OriginalFilesRegistry;
+        if (!registry.files) registry.files = {};
+        if (!registry.fileNameToHash) registry.fileNameToHash = {};
+        if (!registry.version) registry.version = 1;
+
+        const { MetadataManager } = await import('../../utils/metadataManager');
+        await MetadataManager.safeUpdateMetadata(workspaceFolder.uri, (metadata: Record<string, unknown>) => {
+            metadata[ORIGINAL_FILES_HASHES_KEY] = registry;
+            return metadata;
+        });
+        await vscode.workspace.fs.delete(legacyPath);
+        console.log('[OriginalFiles] Migrated file-hashes.json to metadata.json');
+    } catch {
+        // No legacy file or migration already done
+    }
+}
+
+/**
+ * Save the original files registry to metadata.json
  */
 export async function saveOriginalFilesRegistry(
     workspaceFolder: vscode.WorkspaceFolder,
     registry: OriginalFilesRegistry
 ): Promise<void> {
-    const originalsDir = getOriginalsDir(workspaceFolder);
-    await vscode.workspace.fs.createDirectory(originalsDir);
-
-    const registryPath = getRegistryPath(workspaceFolder);
-    const data = new TextEncoder().encode(JSON.stringify(registry, null, 2));
-    await vscode.workspace.fs.writeFile(registryPath, data);
+    const { MetadataManager } = await import('../../utils/metadataManager');
+    const result = await MetadataManager.safeUpdateMetadata(workspaceFolder.uri, (metadata: Record<string, unknown>) => {
+        metadata[ORIGINAL_FILES_HASHES_KEY] = registry;
+        return metadata;
+    });
+    if (!result.success) {
+        throw new Error(result.error || 'Failed to save original files registry');
+    }
 }
 
 /**
@@ -206,6 +325,9 @@ export async function saveOriginalFileWithDeduplication(
         // We already have a file with the same content
         console.log(`[OriginalFiles] File with hash ${hash.slice(0, 8)}... already exists as "${existingEntry.fileName}"`);
 
+        // Ensure pointer exists for sync (in case it was saved before we wrote to pointers/)
+        await ensureOriginalPointerExists(workspaceFolder, existingEntry.fileName);
+
         let registryChanged = false;
 
         // Track this original name if it's new
@@ -246,14 +368,18 @@ export async function saveOriginalFileWithDeduplication(
         console.log(`[OriginalFiles] Filename "${requestedFileName}" exists with different content, saving as "${actualFileName}"`);
     }
 
-    // Save the file
+    // Save the file to both files/ and pointers/ (pointers/ is committed for sync)
     const fileUri = vscode.Uri.joinPath(originalsDir, actualFileName);
+    const pointersDir = getOriginalsPointersDir(workspaceFolder);
+    await vscode.workspace.fs.createDirectory(pointersDir);
+
     const buffer = fileData instanceof ArrayBuffer
         ? new Uint8Array(fileData)
         : fileData instanceof Buffer
             ? new Uint8Array(fileData)
             : fileData;
     await vscode.workspace.fs.writeFile(fileUri, buffer);
+    await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(pointersDir, actualFileName), buffer);
 
     // Update registry
     registry.files[hash] = {
@@ -367,9 +493,9 @@ export async function removeNotebookReference(
     console.log(`[OriginalFiles] Removed reference "${notebookBaseName}" from "${targetEntry.fileName}" (${targetEntry.referencedBy.length} references remaining)`);
 
     if (targetEntry.referencedBy.length === 0) {
-        // No more references - delete the original file and registry entry
-        const originalsDir = getOriginalsDir(workspaceFolder);
-        const fileUri = vscode.Uri.joinPath(originalsDir, targetEntry.fileName);
+        // No more references - delete the original file from both files/ and pointers/, and registry entry
+        const fileUri = vscode.Uri.joinPath(getOriginalsDir(workspaceFolder), targetEntry.fileName);
+        const pointerUri = vscode.Uri.joinPath(getOriginalsPointersDir(workspaceFolder), targetEntry.fileName);
         const deletedFileName = targetEntry.fileName;
 
         try {
@@ -377,6 +503,11 @@ export async function removeNotebookReference(
             console.log(`[OriginalFiles] Deleted unreferenced original file: ${targetEntry.fileName}`);
         } catch (err) {
             console.warn(`[OriginalFiles] Could not delete original file "${targetEntry.fileName}": ${err}`);
+        }
+        try {
+            await vscode.workspace.fs.delete(pointerUri);
+        } catch {
+            // Pointer may not exist (e.g. old files saved before we wrote to pointers/)
         }
 
         // Remove from registry
