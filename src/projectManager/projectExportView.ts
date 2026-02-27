@@ -465,9 +465,9 @@ function getWebviewContent(
                             </div>
                         </div>
                     </div>
-                    <div id="usfmOptions" style="display: none; margin-top: 16px; padding: 8px; border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+                    <div id="usfmOptions" style="display: none; margin-top: 16px; margin-bottom: 16px; padding: 8px; border: 1px solid var(--vscode-input-border); border-radius: 4px;">
                         <h4>USFM Export Options</h4>
-                        <div style="display: flex; align-items: center; margin-top: 8px;">
+                        <div style="display: flex; align-items: center; margin-top: 8px; margin-bottom: 16px;">
                             <input type="checkbox" id="skipValidation">
                             <label for="skipValidation" style="margin-left: 8px;">Skip USFM validation (faster export, but may produce invalid USFM)</label>
                         </div>
