@@ -24,6 +24,7 @@ import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUti
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { SyncManager } from "../../projectManager/syncManager";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
@@ -179,16 +180,40 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             },
                         });
                     }
+                } else if (message.command === "importStarted") {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                } else if (message.command === "importEnded") {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.endImportInProgress();
                 } else if (message.command === "writeNotebooks") {
-                    await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                    try {
+                        await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
+                    } finally {
+                        syncManager.endImportInProgress();
+                    }
                 } else if (message.command === "writeNotebooksWithAttachments") {
-                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, document, token, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                    try {
+                        await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, document, token, webviewPanel);
+                    } finally {
+                        syncManager.endImportInProgress();
+                    }
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
                     const response = message as OverwriteResponseMessage;
                     if (response.confirmed) {
-                        // User confirmed overwrite, proceed with the original write operation
-                        await this.handleWriteNotebooksForced(response.originalMessage, token, webviewPanel);
+                        const syncManager = SyncManager.getInstance();
+                        syncManager.beginImportInProgress();
+                        try {
+                            // User confirmed overwrite, proceed with the original write operation
+                            await this.handleWriteNotebooksForced(response.originalMessage, token, webviewPanel);
+                        } finally {
+                            syncManager.endImportInProgress();
+                        }
                     } else {
                         // User cancelled, send cancellation message
                         webviewPanel.webview.postMessage({
@@ -198,7 +223,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "writeTranslation") {
-                    await this.handleWriteTranslation(message as WriteTranslationMessage, token);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                    try {
+                        await this.handleWriteTranslation(message as WriteTranslationMessage, token);
+                    } finally {
+                        syncManager.endImportInProgress();
+                    }
 
                     // Send success notification
                     webviewPanel.webview.postMessage({
@@ -704,7 +735,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         token,
                         webviewPanel,
                         async (msg, tok, pan) => {
-                            await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
+                            const syncManager = SyncManager.getInstance();
+                            syncManager.beginImportInProgress();
+                            try {
+                                await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
+                            } finally {
+                                syncManager.endImportInProgress();
+                            }
                         }
                     );
                 } else if (message.command === "saveFile") {

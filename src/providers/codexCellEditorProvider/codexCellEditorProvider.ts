@@ -20,6 +20,7 @@ import {
     handleGlobalMessage,
     handleMessages,
     performLLMCompletion,
+    sendMilestoneRefreshToWebview,
 } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { initializeStateStore } from "../../stateStore";
@@ -720,7 +721,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
 
-            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string } | undefined)?.fileDisplayName;
+            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string; } | undefined)?.fileDisplayName;
             const fallbackName = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
             const namePart = (fileDisplayName ?? fallbackName).replace(/\s+/g, "");
             webviewPanel.title = namePart + (isSourceText ? ".source" : ".codex");
@@ -965,17 +966,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 }
                             }
                         }
-                        // Determine provisional state before version gate.
-                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
                         const selectedId = cell?.metadata?.selectedAudioId;
                         const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                         const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
+                        // Prefer showing available when a valid file exists,
+                        // even if the user's explicit selection points to a missing file.
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (selectedIsMissing) state = "missing";
-                        else if (hasAvailable) state = "available-local";
+                        if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
-                        else if (hasMissing) state = "missing";
+                        else if (selectedIsMissing || hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
                         else state = "none";
 
@@ -1043,28 +1043,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     if (ws && url) {
                                         const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                                         const abs = path.join(ws.uri.fsPath, filesRel);
+                                        await vscode.workspace.fs.stat(vscode.Uri.file(abs));
                                         const { isPointerFile } = await import("../../utils/lfsHelpers");
                                         const isPtr = await isPointerFile(abs).catch(() => false);
                                         if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
                                     } else {
-                                        hasAvailable = true;
+                                        hasMissing = true;
                                     }
-                                } catch { hasAvailable = true; }
+                                } catch { hasMissing = true; }
                             }
                         }
                     }
 
-                    // If the user's selected audio is missing, show missing icon regardless of other attachments.
                     const selectedId = cell?.metadata?.selectedAudioId;
                     const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                     const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
-                    // Determine provisional state, then apply version gate
+                    // Prefer showing available when a valid file exists,
+                    // even if the user's explicit selection points to a missing file.
                     let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                    if (selectedIsMissing) state = "missing";
-                    else if (hasAvailable) state = "available-local";
+                    if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
-                    else if (hasMissing) state = "missing";
+                    else if (selectedIsMissing || hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
                     else state = "none";
 
@@ -4400,11 +4400,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         try {
             const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
             const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+            await vscode.workspace.fs.stat(vscode.Uri.file(abs));
             const { isPointerFile } = await import("../../utils/lfsHelpers");
             const isPtr = await isPointerFile(abs).catch(() => false);
             return isPtr ? "available-pointer" : "available-local";
         } catch {
-            // If file doesn't exist, check for pointer file
+            // File doesn't exist at files/ path, check for pointer
             try {
                 const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                 const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
@@ -4493,8 +4494,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      * This is used after sync to ensure webviews show newly added cells.
      * Forces open, non-dirty documents to reload from disk before refreshing to ensure latest data.
      * @param filePaths Array of file paths (workspace-relative or absolute) to refresh
+     * @param options.sourceFilesOnly When true (e.g. after verse range migration), only refresh .source files, not .codex
      */
-    public async refreshWebviewsForFiles(filePaths: string[]): Promise<void> {
+    public async refreshWebviewsForFiles(
+        filePaths: string[],
+        options?: { isSourceAndCodexFiles?: boolean }
+    ): Promise<void> {
         if (!filePaths || filePaths.length === 0) {
             return;
         }
@@ -4506,14 +4511,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             debug("No workspace folder found; will only refresh absolute file paths");
         }
 
-        // Filter to only .codex files
-        const codexFiles = filePaths.filter(path => path.endsWith('.codex'));
-        if (codexFiles.length === 0) {
-            debug("No .codex files to refresh");
+        // Filter to notebook files: .source only when isSourceAndCodexFiles, otherwise both .codex and .source
+        const notebookFiles = filePaths.filter((p) =>
+            options?.isSourceAndCodexFiles ? p.endsWith(".source") : p.endsWith(".codex") || p.endsWith(".source")
+        );
+        if (notebookFiles.length === 0) {
+            debug(
+                options?.isSourceAndCodexFiles
+                    ? "No .source files to refresh"
+                    : "No notebook files (.codex or .source) to refresh"
+            );
             return;
         }
 
-        debug(`Refreshing webviews for ${codexFiles.length} codex file(s)`);
+        debug(`Refreshing webviews for ${notebookFiles.length} notebook file(s)`);
 
         // Build sets for both URI strings and normalized file paths for flexible matching
         const fileUriStrings = new Set<string>();
@@ -4521,10 +4532,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const normalizeFsPath = (fsPath: string) =>
             path.normalize(fsPath).replace(/\\/g, "/").toLowerCase();
 
-        for (const filePath of codexFiles) {
+        for (const filePath of notebookFiles) {
             try {
                 let uri: vscode.Uri;
-                if (path.isAbsolute(filePath)) {
+                if (filePath.startsWith("file:")) {
+                    // Accept URI strings directly for reliable matching (e.g. document.uri.toString())
+                    uri = vscode.Uri.parse(filePath);
+                } else if (path.isAbsolute(filePath)) {
                     uri = vscode.Uri.file(filePath);
                 } else {
                     if (!workspaceFolder) {
@@ -4580,14 +4594,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
+                        // Send full milestone index and cells so webview has correct structure after migration/sync
+                        await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
                         debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                        safePostMessageToPanel(panel, { type: "refreshCurrentPage" });
                     }
 
-                    debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
-                    safePostMessageToPanel(panel, {
-                        type: "refreshCurrentPage",
-                    });
+                    debug(`Refreshed webview for ${docUri} (URI match)`);
                     refreshedCount++;
                     continue;
                 }
@@ -4617,14 +4631,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
+                        // Send full milestone index and cells so webview has correct structure after migration/sync
+                        await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
                         debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                        safePostMessageToPanel(panel, { type: "refreshCurrentPage" });
                     }
 
-                    debug(`Sending refreshCurrentPage to webview for ${docUri} (path match)`);
-                    safePostMessageToPanel(panel, {
-                        type: "refreshCurrentPage",
-                    });
+                    debug(`Refreshed webview for ${docUri} (path match)`);
                     refreshedCount++;
                 }
             } catch (error) {

@@ -7,6 +7,7 @@ import { Badge } from '../../../components/ui/badge';
 import { FileText, Upload, CheckCircle, AlertCircle, Info, ArrowLeft } from 'lucide-react';
 import { ImporterComponentProps } from '../../types/plugin';
 import { validateFile, parseFile } from './index';
+import { notifyImportStarted, notifyImportEnded } from '../../utils/importProgress';
 import { FileValidationResult, ImportResult } from '../../types/common';
 
 interface ValidationState {
@@ -69,6 +70,7 @@ export const PdfImporterForm: React.FC<ImporterComponentProps> = ({
     const handleImport = useCallback(async () => {
         if (!selectedFile || !validationState.result?.isValid) return;
 
+        notifyImportStarted();
         setImportState({ isImporting: true, progress: 0, stage: 'Starting import...', result: null, error: null });
 
         try {
@@ -107,6 +109,7 @@ export const PdfImporterForm: React.FC<ImporterComponentProps> = ({
                             ...prev,
                             error: `Alignment failed: ${alignError instanceof Error ? alignError.message : 'Unknown error'}`,
                         }));
+                        notifyImportEnded();
                     }
                 } else if (onComplete) {
                     // Handle source import - complete with multiple notebooks (one per book)
@@ -125,6 +128,7 @@ export const PdfImporterForm: React.FC<ImporterComponentProps> = ({
                 isImporting: false,
                 error: error instanceof Error ? error.message : 'Import failed',
             }));
+            notifyImportEnded();
         }
     }, [selectedFile, validationState.result, onComplete, onTranslationComplete, alignContent, isTargetImport, selectedSource?.path, wizardContext?.selectedSourceDetails?.path]);
 

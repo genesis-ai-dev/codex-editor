@@ -285,6 +285,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     // Track the baseline content for dirty checking (updated when LLM content is set)
     const quillInitialContentRef = useRef<string>("");
 
+    // Skip reporting dirty/unsaved until after initial content and focus are applied (avoids false dirty on open).
+    const editorInitializedRef = useRef(false);
+
     // Track whether current content is LLM-generated and needs explicit save to be considered "user content"
     const isLLMContentNeedingApprovalRef = useRef<boolean>(false);
 
@@ -550,7 +553,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                     // Renumber footnotes to ensure proper chronological order on load
                     renumberFootnotes();
+
+                    // Only after this point treat text-change as user edits (avoids false dirty on open).
+                    editorInitializedRef.current = true;
                 }, 100);
+            } else {
+                editorInitializedRef.current = true;
             }
             // Store initial content when editor is mounted (baseline for dirty - never overwrite in handler)
             const mountedHtml = quill.root.innerHTML;
@@ -613,6 +621,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             html: finalContent,
                         });
                     }
+                    return;
+                }
+
+                // Ignore user text-change until editor has finished initializing (avoids false dirty on open with content).
+                if (!editorInitializedRef.current) {
                     return;
                 }
 
