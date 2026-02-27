@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { randomUUID } from "crypto";
-import git from "isomorphic-git";
-import fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
@@ -38,7 +37,7 @@ async function stageAndCommitAllWithMessage(
     try {
         let hasGit = false;
         try {
-            await git.resolveRef({ fs, dir: workspacePath, ref: "HEAD" });
+            await dugiteGit.resolveRef(workspacePath, "HEAD");
             hasGit = true;
         } catch {
             // No git repo or no commits; skip commit step
@@ -48,8 +47,8 @@ async function stageAndCommitAllWithMessage(
             return;
         }
 
-        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
-        const hasChanges = statusMatrix.some(([_, head, workdir, stage]) => {
+        const matrix = await dugiteGit.statusMatrix(workspacePath);
+        const hasChanges = matrix.some(([_, head, workdir, stage]) => {
             return !(head === 1 && workdir === 1 && stage === 1);
         });
 
@@ -57,7 +56,7 @@ async function stageAndCommitAllWithMessage(
             return;
         }
 
-        await git.add({ fs, dir: workspacePath, filepath: "." });
+        await dugiteGit.add(workspacePath, ".");
         const authApi = getAuthApi();
         let userInfo;
         try {
@@ -84,12 +83,7 @@ async function stageAndCommitAllWithMessage(
                 "unknown",
         };
 
-        await git.commit({
-            fs,
-            dir: workspacePath,
-            message,
-            author,
-        });
+        await dugiteGit.commit(workspacePath, message, { name: author.name, email: author.email });
     } catch (error) {
         console.warn("[Cleanup] Unable to stage/commit changes (non-critical):", error);
     }

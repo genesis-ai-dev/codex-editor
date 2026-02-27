@@ -158,6 +158,7 @@ export interface FrontierAPI {
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
         offline?: boolean;
+        blocked?: boolean;
     }>;
     completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
     onSyncStatusChange: (
@@ -169,4 +170,8 @@ export interface FrontierAPI {
         oid: string,
         size: number
     ) => Promise<Buffer>;
+
+    getGitBinaryPath?: () => { localGitDir: string; execPath: string; } | undefined;
+    isGitBinaryAvailable?: () => boolean;
+    retryGitBinaryDownload?: () => Promise<boolean>;
 }

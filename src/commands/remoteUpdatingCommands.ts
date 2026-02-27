@@ -59,9 +59,8 @@ export async function initiateRemoteUpdating(): Promise<void> {
         // Get git origin URL
         let gitOriginUrl: string;
         try {
-            const git = await import("isomorphic-git");
-            const fs = await import("fs");
-            const remotes = await git.listRemotes({ fs, dir: workspacePath });
+            const dugiteGitModule = await import("../utils/dugiteGit");
+            const remotes = await dugiteGitModule.listRemotes(workspacePath);
             const origin = remotes.find((r) => r.remote === "origin");
 
             if (!origin) {
@@ -316,9 +315,8 @@ export async function initiateRemoteUpdating(): Promise<void> {
         }
 
         // Check for other uncommitted changes
-        const git = await import("isomorphic-git");
-        const fs = await import("fs");
-        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
+        const dugiteGitCmd = await import("../utils/dugiteGit");
+        const statusMatrix = await dugiteGitCmd.statusMatrix(workspacePath);
 
         // Filter out metadata.json and count other changes
         // statusMatrix format: [filepath, HEADStatus, WorkdirStatus, StageStatus]
@@ -549,9 +547,8 @@ export async function viewRemoteUpdatingList(): Promise<void> {
 
         // Try to fetch the remote list from remote head; fallback to local on failure/offline
         try {
-            const git = await import("isomorphic-git");
-            const fs = await import("fs");
-            const remotes = await git.listRemotes({ fs, dir: workspaceFolder.uri.fsPath });
+            const dugiteGitView = await import("../utils/dugiteGit");
+            const remotes = await dugiteGitView.listRemotes(workspaceFolder.uri.fsPath);
             const origin = remotes.find((r) => r.remote === "origin");
             if (origin?.url) {
                 const projectId = extractProjectIdFromUrl(origin.url);

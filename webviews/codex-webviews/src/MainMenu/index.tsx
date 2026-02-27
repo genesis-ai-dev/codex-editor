@@ -143,6 +143,7 @@ interface State {
     syncDelayMinutes: number;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
+    isGitAvailable: boolean;
 }
 
 function MainMenu() {
@@ -172,6 +173,7 @@ function MainMenu() {
         syncDelayMinutes: 5,
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
+        isGitAvailable: true,
     });
 
     const network = useNetworkState();
@@ -206,6 +208,7 @@ function MainMenu() {
                             message.data.isFrontierExtensionEnabled ??
                             prevState.isFrontierExtensionEnabled,
                         isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
+                        isGitAvailable: message.data.isGitAvailable ?? prevState.isGitAvailable,
                     }));
                     break;
                 case "updateStateChanged":
@@ -332,6 +335,10 @@ function MainMenu() {
 
     const handleTriggerSync = () => {
         handleProjectAction("triggerSync");
+    };
+
+    const handleDownloadSyncRuntime = () => {
+        handleProjectAction("downloadSyncRuntime");
     };
 
     // Speech-to-text settings controls moved to Copilot Settings panel
@@ -747,10 +754,12 @@ function MainMenu() {
                                     isImportInProgress={projectState.isImportInProgress ?? false}
                                     isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
                                     isAuthenticated={state.isAuthenticated}
+                                    isGitAvailable={state.isGitAvailable}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
                                     onLogin={handleLogin}
+                                    onDownloadSyncRuntime={handleDownloadSyncRuntime}
                                 />
                             )}
 

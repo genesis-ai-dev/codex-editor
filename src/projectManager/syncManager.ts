@@ -5,9 +5,7 @@ import { createIndexWithContext } from "../activationHelpers/contextAware/conten
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import * as path from "path";
 import { updateSplashScreenSync } from "../providers/SplashScreen/register";
-import git from "isomorphic-git";
-import fs from "fs";
-import http from "isomorphic-git/http/web";
+import * as dugiteGit from "../utils/dugiteGit";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
@@ -27,22 +25,11 @@ function debug(message: string, ...args: any[]): void {
  */
 async function hasLocalModifications(workspaceFolder: string, filePath: string): Promise<boolean> {
     try {
-        const status = await git.status({
-            fs,
-            dir: workspaceFolder,
-            filepath: filePath,
-        });
+        const statusOutput = await dugiteGit.status(workspaceFolder, filePath);
 
-        // status can be:
-        // - "*modified" (unstaged changes)
-        // - "*added" (new file, unstaged)
-        // - "*deleted" (deleted, unstaged)
-        // - "modified" (staged changes)
-        // - "added" (new file, staged)
-        // - "deleted" (deleted, staged)
-        // - "unmodified" (no changes)
-
-        const hasChanges = status !== "unmodified";
+        // dugiteGit.status returns undefined for unmodified files,
+        // or porcelain v2 output if there are changes
+        const hasChanges = statusOutput !== undefined;
         return hasChanges;
     } catch (error) {
         console.warn(`[SyncManager] Could not check git status for ${filePath}:`, error);
@@ -819,18 +806,37 @@ export class SyncManager {
         updateSplashScreenSync(30, "Checking files are up to date...");
 
         // Run the actual sync operation in the background (truly async)
-        this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues);
+        this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues, isManualSync);
 
         // Return immediately - don't wait for sync to complete
         debug("🔄 Sync operation started in background, UI is free to continue");
     }
 
-    // Execute the actual sync operation in the background
     private async executeSyncInBackground(
         commitMessage: string,
-        showInfoOnConnectionIssues: boolean
+        showInfoOnConnectionIssues: boolean,
+        isManualSync: boolean = false
     ): Promise<void> {
         try {
+            // Pre-check extension version compatibility with project metadata.
+            // Runs in the background to avoid blocking extension activation
+            // (the frontier command may call back into codex-editor, creating
+            // a circular dependency if awaited during activation).
+            try {
+                const metadataVersionOk = await vscode.commands.executeCommand<boolean>(
+                    "frontier.checkMetadataVersionsForSync",
+                    { isManualSync }
+                );
+                if (metadataVersionOk === false) {
+                    this.currentSyncStage = "Sync blocked";
+                    this.notifySyncStatusListeners();
+                    debug("Sync blocked: extension version requirements not met (metadata pre-check)");
+                    return;
+                }
+            } catch {
+                debug("Could not run metadata version pre-check; will check during sync");
+            }
+
             // Log sync timing for performance analysis
             const syncStartTime = performance.now();
             debug("🔄 Starting background sync operation...");
@@ -892,6 +898,12 @@ export class SyncManager {
                 this.currentSyncStage = "Synchronization skipped! (offline)";
                 this.notifySyncStatusListeners();
                 updateSplashScreenSync(100, "Synchronization skipped (offline)");
+                return;
+            }
+            if (!syncResult.success && syncResult.totalChanges === 0) {
+                this.currentSyncStage = "Sync blocked";
+                this.notifySyncStatusListeners();
+                updateSplashScreenSync(100, "Sync blocked");
                 return;
             }
 
@@ -1381,6 +1393,14 @@ export class SyncManager {
                             return 85 + Math.floor((current / total) * 13);
                         }
                         return 90;
+                    }
+                    if (stage.includes('Uploading media')) {
+                        const pctMatch = stage.match(/(\d+)%/);
+                        if (pctMatch) {
+                            // Map LFS upload to 10-20% range (happens during commit phase)
+                            return 10 + Math.floor((parseInt(pctMatch[1]) / 100) * 10);
+                        }
+                        return 10;
                     }
 
                     // Static stage mappings

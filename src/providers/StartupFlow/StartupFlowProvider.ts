@@ -34,7 +34,7 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
 import * as path from "path";
 import * as fs from "fs";
-import git from "isomorphic-git";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
 import {
@@ -1517,9 +1517,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     const projectName = projectPath.split(/[\\/]/).pop() || "project";
 
                                     // Get git origin URL
-                                    const git = await import("isomorphic-git");
-                                    const fs = await import("fs");
-                                    const remotes = await git.listRemotes({ fs, dir: projectPath });
+                                    const dugiteGitModule = await import("../../utils/dugiteGit");
+                                    const remotes = await dugiteGitModule.listRemotes(projectPath);
                                     const origin = remotes.find((r) => r.remote === "origin");
 
                                     if (!origin) {
@@ -3675,29 +3674,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // 7. Initialize git repository (fresh .git)
                         progress.report({ message: "Initializing git repository..." });
                         try {
-                            const git = await import("isomorphic-git");
-                            const fs = await import("fs");
+                            const dugiteGitSwap = await import("../../utils/dugiteGit");
                             const { ensureGitConfigsAreUpToDate, ensureGitDisabledInSettings } = await import("../../projectManager/utils/projectUtils");
 
-                            await git.init({
-                                fs,
-                                dir: newProjectPath,
-                                defaultBranch: "main",
-                            });
+                            await dugiteGitSwap.init(newProjectPath);
 
                             await ensureGitConfigsAreUpToDate();
                             await ensureGitDisabledInSettings();
 
-                            await git.add({ fs, dir: newProjectPath, filepath: "metadata.json" });
+                            await dugiteGitSwap.add(newProjectPath, "metadata.json");
 
                             const gitignorePath = path.join(newProjectPath, ".gitignore");
                             if (fs.existsSync(gitignorePath)) {
-                                await git.add({ fs, dir: newProjectPath, filepath: ".gitignore" });
+                                await dugiteGitSwap.add(newProjectPath, ".gitignore");
                             }
 
                             const gitattributesPath = path.join(newProjectPath, ".gitattributes");
                             if (fs.existsSync(gitattributesPath)) {
-                                await git.add({ fs, dir: newProjectPath, filepath: ".gitattributes" });
+                                await dugiteGitSwap.add(newProjectPath, ".gitattributes");
                             }
 
                             let authorName = "Codex User";
@@ -3711,15 +3705,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // Best effort
                             }
 
-                            await git.commit({
-                                fs,
-                                dir: newProjectPath,
-                                message: "Initial commit",
-                                author: {
-                                    name: authorName,
-                                    email: authorEmail,
-                                },
-                            });
+                            await dugiteGitSwap.commit(
+                                newProjectPath,
+                                "Initial commit",
+                                { name: authorName, email: authorEmail },
+                            );
                         } catch (e) {
                             console.error("Failed to initialize git during fix & open:", e);
                         }
@@ -3766,9 +3756,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         let oldProjectRemoteMetadata: ProjectMetadata | undefined;
                         try {
                             const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
-                            const gitModule = await import("isomorphic-git");
-                            const fsModule = await import("fs");
-                            const remotes = await gitModule.listRemotes({ fs: fsModule, dir: projectPath });
+                            const dugiteGitVer = await import("../../utils/dugiteGit");
+                            const remotes = await dugiteGitVer.listRemotes(projectPath);
                             const origin = remotes.find((r) => r.remote === "origin");
                             if (origin?.url) {
                                 const projId = extractProjectIdFromUrl(origin.url);
@@ -4394,11 +4383,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             // Find and restore LFS pointer files
             // This will replace the actual files with their pointer versions
-            const gitDir = vscode.Uri.joinPath(projectUri, ".git").fsPath;
             const workDir = projectUri.fsPath;
 
-            // Use isomorphic-git to list all files in the repository
-            const files = await git.listFiles({ fs, dir: workDir, gitdir: gitDir });
+            // Use dugiteGit to list all files in the repository
+            const files = await dugiteGit.listFiles(workDir);
 
             for (const filepath of files) {
                 const fileUri = vscode.Uri.joinPath(projectUri, filepath);
@@ -4418,7 +4406,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (ext && mediaExtensions.includes(ext)) {
                             // Try to get the LFS pointer from git
                             try {
-                                const { blob } = await git.readBlob({ fs, dir: workDir, gitdir: gitDir, oid: 'HEAD', filepath });
+                                const blob = await dugiteGit.readBlobAtRef(workDir, 'HEAD', filepath);
                                 const pointerContent = Buffer.from(blob).toString('utf-8');
 
                                 // If the blob in git is an LFS pointer, restore it
@@ -5357,19 +5345,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             };
 
             // Stage all changes
-            await git.add({
-                fs,
-                dir: projectPath,
-                filepath: "."
-            });
+            await dugiteGit.add(projectPath, ".");
 
             // Commit the updated changes
-            await git.commit({
-                fs,
-                dir: projectPath,
-                message: "Updated project: merged local changes after re-clone",
-                author
-            });
+            await dugiteGit.commit(
+                projectPath,
+                "Updated project: merged local changes after re-clone",
+                { name: author.name, email: author.email },
+            );
 
             debugLog("Committed updated project changes");
         } catch (error) {

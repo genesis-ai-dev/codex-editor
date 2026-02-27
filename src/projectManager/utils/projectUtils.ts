@@ -9,9 +9,7 @@ import semver from "semver";
 import { LocalProject, ProjectMetadata, ProjectOverview, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
-import git from "isomorphic-git";
-import fs from "fs";
-import http from "isomorphic-git/http/web";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
@@ -440,11 +438,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         // Check if git is already initialized
         let isGitInitialized = false;
         try {
-            await git.resolveRef({
-                fs,
-                dir: workspaceFolder,
-                ref: "HEAD",
-            });
+            await dugiteGit.resolveRef(workspaceFolder, "HEAD");
             isGitInitialized = true;
         } catch (error) {
             // Git is not initialized
@@ -453,11 +447,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         if (!isGitInitialized) {
             // Initialize git repository
             try {
-                await git.init({
-                    fs,
-                    dir: workspaceFolder,
-                    defaultBranch: "main",
-                });
+                await dugiteGit.init(workspaceFolder);
 
                 // Ensure git configuration files are present and up-to-date
                 await ensureGitConfigsAreUpToDate();
@@ -466,28 +456,16 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 await ensureGitDisabledInSettings();
 
                 // Add files to git
-                await git.add({
-                    fs,
-                    dir: workspaceFolder,
-                    filepath: "metadata.json",
-                });
+                await dugiteGit.add(workspaceFolder, "metadata.json");
 
                 try {
-                    await git.add({
-                        fs,
-                        dir: workspaceFolder,
-                        filepath: ".gitignore",
-                    });
+                    await dugiteGit.add(workspaceFolder, ".gitignore");
                 } catch (error) {
                     debug("Unable to add .gitignore to git index:", error);
                 }
 
                 try {
-                    await git.add({
-                        fs,
-                        dir: workspaceFolder,
-                        filepath: ".gitattributes",
-                    });
+                    await dugiteGit.add(workspaceFolder, ".gitattributes");
                 } catch (error) {
                     debug("Unable to add .gitattributes to git index:", error);
                 }
@@ -517,12 +495,11 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                         "unknown",
                 };
 
-                await git.commit({
-                    fs,
-                    dir: workspaceFolder,
-                    message: "Initial commit: Add project metadata",
-                    author,
-                });
+                await dugiteGit.commit(
+                    workspaceFolder,
+                    "Initial commit: Add project metadata",
+                    { name: author.name, email: author.email },
+                );
 
                 vscode.window.showInformationMessage("Git repository initialized successfully");
             } catch (error) {
@@ -992,11 +969,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
 
     try {
         // Check git repository
-        await git.resolveRef({
-            fs,
-            dir: workspaceFolder.uri.fsPath,
-            ref: "HEAD",
-        });
+        await dugiteGit.resolveRef(workspaceFolder.uri.fsPath, "HEAD");
         gitExists = true;
 
         // If both metadata and git exist, ensure git configuration files are up-to-date
@@ -1780,11 +1753,8 @@ async function getProjectNameFromMetadata(projectPath: string, fallbackName: str
  */
 async function getGitOriginUrl(projectPath: string): Promise<string | undefined> {
     try {
-        const config = await git.listRemotes({
-            fs,
-            dir: projectPath,
-        });
-        const origin = config.find((remote: any) => remote.remote === "origin");
+        const config = await dugiteGit.listRemotes(projectPath);
+        const origin = config.find((remote) => remote.remote === "origin");
         if (origin?.url) {
             const urlObj = new URL(origin.url);
             return `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;

@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFlow/types";
-import git from "isomorphic-git";
-import * as fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getAuthApi } from "../../extension";
 
 interface AuthState {
@@ -200,15 +199,8 @@ export class PreflightCheck {
                 try {
                     // Use Promise.race with timeout to avoid hanging on slow git operations
                     const gitCheckPromise = Promise.all([
-                        git.resolveRef({
-                            fs,
-                            dir: workspacePath,
-                            ref: "HEAD",
-                        }),
-                        git.listRemotes({
-                            fs,
-                            dir: workspacePath,
-                        })
+                        dugiteGit.resolveRef(workspacePath, "HEAD"),
+                        dugiteGit.listRemotes(workspacePath),
                     ]);
 
                     // Add 2 second timeout for git operations

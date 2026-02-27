@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { getProjectMetadata } from "../utils";
 import { LanguageProjectStatus } from "codex-types";
 import * as path from "path";
-import git from "isomorphic-git";
+import * as dugiteGit from "../utils/dugiteGit";
 import fs from "fs";
 import {
     createProjectCommentFiles,
@@ -171,39 +171,27 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     const workspacePath = workspaceFolder.uri.fsPath;
                     let isGitInitialized = false;
                     try {
-                        await git.resolveRef({
-                            fs,
-                            dir: workspacePath,
-                            ref: "HEAD",
-                        });
+                        await dugiteGit.resolveRef(workspacePath, "HEAD");
                         isGitInitialized = true;
                     } catch {
                         // Not initialized
                     }
 
                     if (!isGitInitialized) {
-                        await git.init({
-                            fs,
-                            dir: workspacePath,
-                            defaultBranch: "main",
-                        });
+                        await dugiteGit.init(workspacePath);
 
                         // Dynamically import to avoid circular dependency
                         const { ensureGitConfigsAreUpToDate, ensureGitDisabledInSettings } = await import("./utils/projectUtils");
                         await ensureGitConfigsAreUpToDate();
                         await ensureGitDisabledInSettings();
 
-                        await git.add({
-                            fs,
-                            dir: workspacePath,
-                            filepath: "metadata.json",
-                        });
+                        await dugiteGit.add(workspacePath, "metadata.json");
 
                         if (fs.existsSync(path.join(workspacePath, ".gitignore"))) {
-                            await git.add({ fs, dir: workspacePath, filepath: ".gitignore" });
+                            await dugiteGit.add(workspacePath, ".gitignore");
                         }
                         if (fs.existsSync(path.join(workspacePath, ".gitattributes"))) {
-                            await git.add({ fs, dir: workspacePath, filepath: ".gitattributes" });
+                            await dugiteGit.add(workspacePath, ".gitattributes");
                         }
 
                         const { getAuthApi } = await import("../extension");
@@ -213,15 +201,14 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                             userInfo = await authApi.getUserInfo();
                         }
 
-                        await git.commit({
-                            fs,
-                            dir: workspacePath,
-                            message: "Initial commit",
-                            author: {
+                        await dugiteGit.commit(
+                            workspacePath,
+                            "Initial commit",
+                            {
                                 name: userInfo?.username || "Codex User",
-                                email: userInfo?.email || "user@example.com"
-                            }
-                        });
+                                email: userInfo?.email || "user@example.com",
+                            },
+                        );
                         console.log("Initialized git repository and created initial commit.");
                     }
                 } catch (error) {

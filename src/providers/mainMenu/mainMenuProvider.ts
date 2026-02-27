@@ -13,9 +13,7 @@ import {
     ProjectManagerState,
 } from "../../../types";
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
-import git from "isomorphic-git";
-// Note: avoid top-level http(s) imports to keep test bundling simple
-import * as fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
@@ -296,10 +294,7 @@ class ProjectManagerStore {
                 return false;
             }
 
-            const remotes = await git.listRemotes({
-                fs,
-                dir: workspacePath,
-            });
+            const remotes = await dugiteGit.listRemotes(workspacePath);
 
             // Send publish status message
             if (this._view) {
@@ -502,13 +497,15 @@ export class MainMenuProvider extends BaseWebviewProvider {
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
 
-        // Check authentication status
+        // Check authentication and git binary status
         let isAuthenticated = false;
+        let isGitAvailable = false;
         try {
             const frontierApi = getAuthApi();
             if (frontierApi) {
                 const authStatus = frontierApi.getAuthStatus();
                 isAuthenticated = authStatus?.isAuthenticated ?? false;
+                isGitAvailable = frontierApi.isGitBinaryAvailable?.() ?? false;
             }
         } catch (error) {
             console.debug("Could not get authentication status:", error);
@@ -522,6 +519,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     syncDelayMinutes,
                     isFrontierExtensionEnabled,
                     isAuthenticated,
+                    isGitAvailable,
                 },
             } as ProjectManagerMessageToWebview, "MainMenu");
         }
@@ -856,8 +854,22 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "triggerSync": {
                 const syncManager = SyncManager.getInstance();
-                // Don't manually set sync status - let SyncManager handle it through listeners
                 await syncManager.executeSync("Manual sync triggered from main menu", true, undefined, true);
+                break;
+            }
+            case "downloadSyncRuntime": {
+                const frontierApi = getAuthApi();
+                if (frontierApi?.retryGitBinaryDownload) {
+                    const success = await frontierApi.retryGitBinaryDownload();
+                    if (success) {
+                        vscode.window.showInformationMessage("Sync runtime downloaded successfully.");
+                    }
+                    await this.sendSyncSettings();
+                } else {
+                    vscode.window.showErrorMessage(
+                        "Cannot download sync runtime — the Frontier Authentication extension is not available."
+                    );
+                }
                 break;
             }
             case "openCellLabelImporter":

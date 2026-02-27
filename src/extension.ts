@@ -364,13 +364,18 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
 
-        // Initialize Frontier API first - needed before startup flow
-        const authStart = globalThis.performance.now();
-        const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
+        // Initialize Frontier API first - needed before startup flow.
+        // This is a realtime step because frontier-auth downloads the Git runtime
+        // on first activation, which can take significant time on slow connections.
+        startRealtimeStep("Downloading Git Runtime");
+        const extension = await waitForExtensionActivation(
+            "frontier-rnd.frontier-authentication",
+            120_000, // 2 minutes — the Git binary download can be slow
+        );
         if (extension?.isActive) {
             authApi = extension.exports;
         }
-        stepStart = trackTiming("Connecting Authentication Service", authStart);
+        stepStart = finishRealtimeStep();
 
         // Update git configuration files after Frontier auth is connected
         // This ensures .gitignore and .gitattributes are current when extension starts
