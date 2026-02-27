@@ -330,7 +330,7 @@ export const parseFile = async (
 
         // Prepare document structure metadata
         const structureMetadata: DocumentStructureMetadata = {
-            originalFileRef: `attachments/originals/${file.name}`,
+            originalFileRef: `attachments/files/originals/${file.name}`,
             originalMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             originalFileHash: fileHash,
             importedAt: new Date().toISOString(),
