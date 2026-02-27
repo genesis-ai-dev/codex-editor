@@ -585,6 +585,160 @@ describe("Cell Line Numbers and Labels", () => {
         });
     });
 
+    describe("Label and line number separation", () => {
+        const makeLabeledCellProps = (translationUnits: QuillCellContent[]) => ({
+            spellCheckResponse: null,
+            translationUnits,
+            fullDocumentTranslationUnits: translationUnits,
+            contentBeingUpdated: {
+                cellMarkers: [],
+                cellContent: "",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            vscode: mockVscode,
+            textDirection: "ltr" as const,
+            isSourceText: false,
+            windowHeight: 800,
+            headerHeight: 100,
+            alertColorCodes: {},
+            highlightedCellId: null,
+            scrollSyncEnabled: true,
+            currentUsername: "test-user",
+            requiredValidations: 1,
+            lineNumbersEnabled: true,
+        });
+
+        it("should show numeric line numbers, not speaker labels, in the line number area", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-1", CodexCellTypes.TEXT, "<p>Heli keteibe</p>", {
+                    cellLabel: "PAWN BROKER",
+                }),
+                createMockCell("cell-2", CodexCellTypes.TEXT, "<p>Nang au kemret kau!</p>", {
+                    cellLabel: "UPSET WOMAN",
+                }),
+                createMockCell("cell-3", CodexCellTypes.TEXT, "<p>Pa au mie zeu da.</p>", {
+                    cellLabel: "PAWN BROKER",
+                }),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).toContain("3");
+
+            // Line numbers must NOT contain speaker labels
+            expect(lineNumberTexts).not.toContain("PAWN BROKER");
+            expect(lineNumberTexts).not.toContain("UPSET WOMAN");
+        });
+
+        it("should render cellLabel as a separate label element, not in the line number area", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-1", CodexCellTypes.TEXT, "<p>Some dialogue</p>", {
+                    cellLabel: "JESUS",
+                }),
+                createMockCell("cell-2", CodexCellTypes.TEXT, "<p>More dialogue</p>", {
+                    cellLabel: "SALOME",
+                }),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            // Labels should appear in label elements
+            const labelElements = container.querySelectorAll(".cell-label-text");
+            const labelTexts = Array.from(labelElements)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(labelTexts).toContain("JESUS");
+            expect(labelTexts).toContain("SALOME");
+
+            // Line numbers should be numeric
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).not.toContain("JESUS");
+            expect(lineNumberTexts).not.toContain("SALOME");
+        });
+
+        it("should show numeric line numbers for cells with cellLabel but no verse-level references", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-a", CodexCellTypes.TEXT, "<p>First line</p>", {
+                    cellLabel: "THE LEPER",
+                }),
+                createMockCell("cell-b", CodexCellTypes.TEXT, "<p>Second line</p>", {
+                    cellLabel: "BIG JAMES",
+                }),
+                createMockCell("cell-c", CodexCellTypes.TEXT, "<p>Third line</p>", {
+                    cellLabel: "ZEBEDEE",
+                }),
+                createMockCell("cell-d", CodexCellTypes.TEXT, "<p>Fourth line</p>", {
+                    cellLabel: "ZEBEDEE",
+                }),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            // Sequential numeric line numbers
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).toContain("3");
+            expect(lineNumberTexts).toContain("4");
+
+            // None of the speaker names should appear as line numbers
+            expect(lineNumberTexts).not.toContain("THE LEPER");
+            expect(lineNumberTexts).not.toContain("BIG JAMES");
+            expect(lineNumberTexts).not.toContain("ZEBEDEE");
+        });
+
+        it("should handle a mix of cells with and without labels", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-1", CodexCellTypes.TEXT, "<p>Unlabeled cell</p>"),
+                createMockCell("cell-2", CodexCellTypes.TEXT, "<p>Labeled cell</p>", {
+                    cellLabel: "NARRATOR",
+                }),
+                createMockCell("cell-3", CodexCellTypes.TEXT, "<p>Another unlabeled</p>"),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).toContain("3");
+            expect(lineNumberTexts).not.toContain("NARRATOR");
+        });
+    });
+
     describe("Child cell identification (post-migration)", () => {
         it("identifies child cells by metadata.parentId (primary); legacy ID format is fallback for labeling", () => {
             // CellList identifies child cells by metadata.parentId (or data.parentId), not by ID format.
