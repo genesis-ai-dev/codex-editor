@@ -595,6 +595,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 Unsynced
                             </Badge>
                         )}
+                        {project.isArchivedButLocallyCloned && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-gray-50 text-gray-500 border-gray-300 whitespace-nowrap">
+                                Archived
+                            </Badge>
+                        )}
                         {effectiveSyncStatus === "orphaned" && (
                             <Badge variant="outline" className="text-xs px-1 py-0 bg-amber-50 text-amber-700 border-amber-300 whitespace-nowrap">
                                 Remote Missing
