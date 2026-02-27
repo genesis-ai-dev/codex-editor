@@ -787,23 +787,6 @@ export class SyncManager {
             }
         }
 
-        // Pre-check extension version compatibility with project metadata before showing notification.
-        // This catches the "To sync, update: - Codex Editor" blocker BEFORE the progress UI appears.
-        try {
-            const metadataVersionOk = await vscode.commands.executeCommand<boolean>(
-                "frontier.checkMetadataVersionsForSync",
-                { isManualSync }
-            );
-            if (metadataVersionOk === false) {
-                this.isSyncInProgress = false;
-                debug("Sync blocked: extension version requirements not met (metadata pre-check)");
-                return;
-            }
-        } catch {
-            // Command may not be registered (frontier not activated yet); continue to in-sync check
-            debug("Could not run metadata version pre-check; will check during sync");
-        }
-
         // Clear any pending scheduled sync (manual sync takes priority)
         this.clearPendingSync();
 
@@ -822,18 +805,37 @@ export class SyncManager {
         updateSplashScreenSync(30, "Checking files are up to date...");
 
         // Run the actual sync operation in the background (truly async)
-        this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues);
+        this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues, isManualSync);
 
         // Return immediately - don't wait for sync to complete
         debug("🔄 Sync operation started in background, UI is free to continue");
     }
 
-    // Execute the actual sync operation in the background
     private async executeSyncInBackground(
         commitMessage: string,
-        showInfoOnConnectionIssues: boolean
+        showInfoOnConnectionIssues: boolean,
+        isManualSync: boolean = false
     ): Promise<void> {
         try {
+            // Pre-check extension version compatibility with project metadata.
+            // Runs in the background to avoid blocking extension activation
+            // (the frontier command may call back into codex-editor, creating
+            // a circular dependency if awaited during activation).
+            try {
+                const metadataVersionOk = await vscode.commands.executeCommand<boolean>(
+                    "frontier.checkMetadataVersionsForSync",
+                    { isManualSync }
+                );
+                if (metadataVersionOk === false) {
+                    this.currentSyncStage = "Sync blocked";
+                    this.notifySyncStatusListeners();
+                    debug("Sync blocked: extension version requirements not met (metadata pre-check)");
+                    return;
+                }
+            } catch {
+                debug("Could not run metadata version pre-check; will check during sync");
+            }
+
             // Log sync timing for performance analysis
             const syncStartTime = performance.now();
             debug("🔄 Starting background sync operation...");
