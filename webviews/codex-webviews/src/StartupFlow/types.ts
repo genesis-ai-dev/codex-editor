@@ -172,4 +172,6 @@ export interface FrontierAPI {
     ) => Promise<Buffer>;
 
     getGitBinaryPath?: () => { localGitDir: string; execPath: string; } | undefined;
+    isGitBinaryAvailable?: () => boolean;
+    retryGitBinaryDownload?: () => Promise<boolean>;
 }

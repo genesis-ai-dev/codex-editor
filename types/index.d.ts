@@ -1602,6 +1602,7 @@ type ProjectManagerMessageFromWebview =
         data: { autoSyncEnabled: boolean; syncDelayMinutes: number; };
     }
     | { command: "triggerSync"; }
+    | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | {
@@ -1668,6 +1669,7 @@ type ProjectManagerMessageToWebview =
             syncDelayMinutes: number;
             isFrontierExtensionEnabled: boolean;
             isAuthenticated: boolean;
+            isGitAvailable: boolean;
         };
     }
     | {
