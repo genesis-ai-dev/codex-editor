@@ -29,6 +29,7 @@ const execAsync = promisify(exec);
 import { CodexNotebookAsJSONData } from "../../types";
 import { readCodexNotebookFromUri, getActiveCells } from "./exportHandlerUtils";
 import { resolveOriginalFileUri, findOriginalFileByPossibleNames } from "../providers/NewSourceUploader/originalFileUtils";
+import { isLfsPointerContent, resolveLfsPointerFile } from "../utils/lfsHelpers";
 import { exportCodexContentAsPlaintext } from "./plaintextExporter";
 import { exportCodexContentAsXliff } from "./xliffExporter";
 import { exportCodexContentAsUsfm } from "./usfmExporter";
@@ -279,7 +280,56 @@ async function exportCodexContentAsIdmlRoundtrip(
                     const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
 
                     // Load original IDML
-                    const idmlData = await vscode.workspace.fs.readFile(originalFileUri);
+                    let idmlData: Uint8Array;
+                    try {
+                        idmlData = await vscode.workspace.fs.readFile(originalFileUri);
+                    } catch (readErr) {
+                        throw new Error(
+                            `Original IDML file not found at "${originalFileUri.fsPath}". ` +
+                            `The file may have been deleted or moved. ` +
+                            `Try re-importing the source file. (originalFileName: "${originalFileName}")`
+                        );
+                    }
+
+                    // Check if the file is a Git LFS pointer and resolve it if so
+                    if (isLfsPointerContent(idmlData)) {
+                        console.log(`[IDML Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - attempting to resolve...`);
+                        progress.report({ message: `Downloading original IDML from LFS for ${fileName}...` });
+                        const projectRoot = workspaceFolders[0].uri.fsPath;
+                        const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
+                        if (lfsResult.error || !lfsResult.data) {
+                            throw new Error(
+                                `Original IDML file "${originalFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                (lfsResult.error ?? 'Unknown error')
+                            );
+                        }
+                        idmlData = lfsResult.data;
+                        console.log(`[IDML Export] LFS pointer resolved: ${idmlData.length} bytes`);
+                    }
+
+                    // Validate the file is a valid ZIP/IDML before processing
+                    if (idmlData.length < 4) {
+                        throw new Error(
+                            `Original IDML file at "${originalFileUri.fsPath}" is too small (${idmlData.length} bytes) ` +
+                            `to be a valid IDML/ZIP archive. The file may be corrupted or empty. ` +
+                            `Try re-importing the source file.`
+                        );
+                    }
+                    if (idmlData[0] !== 0x50 || idmlData[1] !== 0x4B) {
+                        const firstBytes = Array.from(idmlData.slice(0, 16))
+                            .map(b => b.toString(16).padStart(2, '0'))
+                            .join(' ');
+                        const firstChars = new TextDecoder('utf-8', { fatal: false })
+                            .decode(idmlData.slice(0, 64))
+                            .replace(/[^\x20-\x7E]/g, '.');
+                        throw new Error(
+                            `File "${originalFileUri.fsPath}" (${idmlData.length} bytes) ` +
+                            `is not a valid IDML/ZIP archive. Expected ZIP signature "PK" but found: [${firstBytes}]. ` +
+                            `Preview: "${firstChars}". ` +
+                            `The original file may have been corrupted during import. Try re-importing.`
+                        );
+                    }
+                    console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
 
                     // Use the appropriate exporter based on file type
                     let updatedIdmlData: Uint8Array;
@@ -364,7 +414,23 @@ async function exportCodexContentAsDocxRoundtrip(
                     const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
 
                     // Load original DOCX
-                    const docxData = await vscode.workspace.fs.readFile(originalFileUri);
+                    let docxData = await vscode.workspace.fs.readFile(originalFileUri);
+
+                    // Check if the file is a Git LFS pointer and resolve it
+                    if (isLfsPointerContent(docxData)) {
+                        console.log(`[DOCX Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - resolving...`);
+                        progress.report({ message: `Downloading original DOCX from LFS for ${fileName}...` });
+                        const projectRoot = workspaceFolders[0].uri.fsPath;
+                        const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
+                        if (lfsResult.error || !lfsResult.data) {
+                            throw new Error(
+                                `Original DOCX file "${originalFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                (lfsResult.error ?? 'Unknown error')
+                            );
+                        }
+                        docxData = lfsResult.data;
+                        console.log(`[DOCX Export] LFS pointer resolved: ${docxData.length} bytes`);
+                    }
 
                     // Export with translations
                     const updatedDocxData = await exportDocxWithTranslations(
@@ -458,7 +524,24 @@ async function exportCodexContentAsPdfRoundtrip(
                     }
 
                     // Read converted DOCX
-                    const docxBytes = await vscode.workspace.fs.readFile(docxUri);
+                    let docxBytes = await vscode.workspace.fs.readFile(docxUri);
+
+                    // Check if the file is a Git LFS pointer and resolve it
+                    if (isLfsPointerContent(docxBytes)) {
+                        console.log(`[PDF Export] File "${docxUri.fsPath}" is a Git LFS pointer - resolving...`);
+                        progress.report({ message: `Downloading original DOCX from LFS for ${fileName}...` });
+                        const projectRoot = workspaceFolders[0].uri.fsPath;
+                        const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
+                        if (lfsResult.error || !lfsResult.data) {
+                            throw new Error(
+                                `Converted DOCX file "${convertedDocxFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                (lfsResult.error ?? 'Unknown error')
+                            );
+                        }
+                        docxBytes = lfsResult.data;
+                        console.log(`[PDF Export] LFS pointer resolved: ${docxBytes.length} bytes`);
+                    }
+
                     const docxData = docxBytes.buffer.slice(docxBytes.byteOffset, docxBytes.byteOffset + docxBytes.byteLength) as ArrayBuffer;
                     console.log(`[PDF Export] Using converted DOCX: ${docxUri.fsPath}`);
 

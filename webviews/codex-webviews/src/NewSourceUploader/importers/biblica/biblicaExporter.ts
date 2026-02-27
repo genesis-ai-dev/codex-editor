@@ -549,6 +549,24 @@ export async function exportIdmlRoundtrip(
         metadata: any;
     }>
 ): Promise<Uint8Array> {
+    // Validate input before attempting to parse as ZIP
+    if (!originalIdmlData || originalIdmlData.length < 4) {
+        throw new Error(
+            `Invalid IDML data: ${originalIdmlData ? originalIdmlData.length : 0} bytes. ` +
+            `The original IDML file may be empty or corrupted.`
+        );
+    }
+    if (originalIdmlData[0] !== 0x50 || originalIdmlData[1] !== 0x4B) {
+        const preview = new TextDecoder('utf-8', { fatal: false })
+            .decode(originalIdmlData.slice(0, 64))
+            .replace(/[^\x20-\x7E]/g, '.');
+        throw new Error(
+            `Data is not a valid IDML/ZIP file (${originalIdmlData.length} bytes). ` +
+            `Expected ZIP signature "PK" but got: "${preview}...". ` +
+            `The original file may have been corrupted during import.`
+        );
+    }
+
     // Load original IDML (ZIP file)
     const zip = await JSZip.loadAsync(originalIdmlData);
 

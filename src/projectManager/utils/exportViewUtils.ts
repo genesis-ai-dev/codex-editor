@@ -44,10 +44,10 @@ export const EXPORT_OPTIONS_BY_FILE_TYPE: Record<string, string[]> = {
         "usfm",
         "spreadsheet",
     ],
-    // USFM and HTML generation should be limited to eBible, USFM, and Macula Bible groups
-    usfm: ["ebible", "usfm", "maculabible"],
-    html: ["ebible", "usfm", "maculabible"],
-    subtitles: ["subtitles"],
+    // USFM and HTML generation for eBible, USFM, Macula Bible, and unknown (older projects without importer type)
+    usfm: ["ebible", "usfm", "maculabible", "unknown"],
+    html: ["ebible", "usfm", "maculabible", "unknown"],
+    subtitles: ["subtitles", "unknown"],
 };
 
 async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
