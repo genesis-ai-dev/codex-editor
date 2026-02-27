@@ -787,6 +787,23 @@ export class SyncManager {
             }
         }
 
+        // Pre-check extension version compatibility with project metadata before showing notification.
+        // This catches the "To sync, update: - Codex Editor" blocker BEFORE the progress UI appears.
+        try {
+            const metadataVersionOk = await vscode.commands.executeCommand<boolean>(
+                "frontier.checkMetadataVersionsForSync",
+                { isManualSync }
+            );
+            if (metadataVersionOk === false) {
+                this.isSyncInProgress = false;
+                debug("Sync blocked: extension version requirements not met (metadata pre-check)");
+                return;
+            }
+        } catch {
+            // Command may not be registered (frontier not activated yet); continue to in-sync check
+            debug("Could not run metadata version pre-check; will check during sync");
+        }
+
         // Clear any pending scheduled sync (manual sync takes priority)
         this.clearPendingSync();
 
@@ -878,6 +895,12 @@ export class SyncManager {
                 this.currentSyncStage = "Synchronization skipped! (offline)";
                 this.notifySyncStatusListeners();
                 updateSplashScreenSync(100, "Synchronization skipped (offline)");
+                return;
+            }
+            if (!syncResult.success && syncResult.totalChanges === 0) {
+                this.currentSyncStage = "Sync blocked";
+                this.notifySyncStatusListeners();
+                updateSplashScreenSync(100, "Sync blocked");
                 return;
             }
 

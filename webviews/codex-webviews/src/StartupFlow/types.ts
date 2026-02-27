@@ -158,6 +158,7 @@ export interface FrontierAPI {
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
         offline?: boolean;
+        blocked?: boolean;
     }>;
     completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
     onSyncStatusChange: (
