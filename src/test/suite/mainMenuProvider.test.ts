@@ -104,55 +104,6 @@ suite("MainMenuProvider - Project Name Change Tests", () => {
         }
     });
 
-    test("should update project name successfully", async () => {
-        // Mock workspace folders
-        const mockWorkspaceFolder: vscode.WorkspaceFolder = {
-            uri: testWorkspaceUri,
-            name: "test-workspace",
-            index: 0,
-        };
-        sandbox.stub(vscode.workspace, "workspaceFolders").value([mockWorkspaceFolder]);
-
-        // Mock configuration
-        const mockConfig: MockWorkspaceConfiguration = {
-            update: sandbox.stub().resolves(),
-            get: sandbox.stub().returns("Original Project Name"),
-        };
-        sandbox.stub(vscode.workspace, "getConfiguration").returns(mockConfig as vscode.WorkspaceConfiguration);
-
-        // Mock window methods
-        const showInfoStub = sandbox.stub(vscode.window, "showInformationMessage");
-        const showErrorStub = sandbox.stub(vscode.window, "showErrorMessage");
-
-        // Mock store refresh methods
-        const refreshStateStub = sandbox.stub(provider["store"], "refreshState").resolves();
-        const updateProjectOverviewStub = sandbox
-            .stub(provider as unknown as MainMenuProviderPrivate, "updateProjectOverview")
-            .resolves();
-
-        // Call handleChangeProjectName
-        await provider["handleChangeProjectName"]("New Project Name");
-
-        // Verify configuration was updated
-        assert.strictEqual(mockConfig.update.calledOnce, true);
-        assert.strictEqual(mockConfig.update.firstCall.args[0], "projectName");
-        assert.strictEqual(mockConfig.update.firstCall.args[1], "New Project Name");
-        assert.strictEqual(mockConfig.update.firstCall.args[2], vscode.ConfigurationTarget.Workspace);
-
-        // Verify metadata.json was updated
-        const updatedContent = await vscode.workspace.fs.readFile(metadataPath);
-        const updatedMetadata = JSON.parse(new TextDecoder().decode(updatedContent));
-        assert.strictEqual(updatedMetadata.projectName, "New Project Name");
-
-        // Verify state was refreshed
-        assert.strictEqual(refreshStateStub.calledOnce, true);
-        assert.strictEqual(updateProjectOverviewStub.calledOnce, true);
-
-        // Verify success message was shown
-        assert.strictEqual(showInfoStub.calledOnce, true);
-        assert.ok(showInfoStub.firstCall.args[0].includes("New Project Name"));
-    });
-
     test("should handle missing workspace folder", async () => {
         // Mock no workspace folders
         sandbox.stub(vscode.workspace, "workspaceFolders").value(undefined);

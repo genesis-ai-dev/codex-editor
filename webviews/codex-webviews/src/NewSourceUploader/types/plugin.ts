@@ -417,6 +417,22 @@ export interface ImportBookNamesMessage {
     nameType?: 'long' | 'short' | 'abbr';
 }
 
+/**
+ * Notifies the provider that an importer has started processing (e.g. user clicked Import).
+ * Disables the sync button until importEnded is received. Must be paired with importEnded.
+ */
+export interface ImportStartedMessage {
+    command: 'importStarted';
+}
+
+/**
+ * Notifies the provider that an importer has finished processing (success, error, or cancel).
+ * Re-enables the sync button if no other imports are in progress.
+ */
+export interface ImportEndedMessage {
+    command: 'importEnded';
+}
+
 export interface OverwriteConfirmationMessage {
     command: 'overwriteConfirmation';
     conflictingFiles: Array<{
@@ -565,4 +581,4 @@ export interface AudioUriResponseMessage {
     error?: string;
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage; 
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage; 
