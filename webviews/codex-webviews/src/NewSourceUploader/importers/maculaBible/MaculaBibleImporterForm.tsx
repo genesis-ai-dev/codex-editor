@@ -33,6 +33,7 @@ import {
 import { notebookToImportedContent } from "../common/translationHelper";
 import { getCorpusMarkerForBook, isNewTestamentBook } from "../../utils/corpusUtils";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { createMaculaVerseCellMetadata } from "./cellMetadata";
 
 /**
@@ -317,6 +318,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
             return;
         }
 
+        notifyImportStarted();
         setIsDownloading(true);
         setError(null);
         setProgress({ stage: "downloading", message: "Initializing download...", progress: 0 });
@@ -340,6 +342,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
             console.error("Download failed:", err);
             setError(err instanceof Error ? err.message : "Unknown error occurred");
             setIsDownloading(false);
+            notifyImportEnded();
         }
     }, [downloadResource]);
 

@@ -109,9 +109,9 @@ interface MessageHandlerContext {
 
 /**
  * Sends updated milestone index and current cells to the webview so milestone edits appear immediately.
- * Used after updateMilestoneValue and by refreshWebviewAfterMilestoneEdits.
+ * Used after updateMilestoneValue, by refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
  */
-async function sendMilestoneRefreshToWebview(
+export async function sendMilestoneRefreshToWebview(
     document: CodexCellDocument,
     webviewPanel: vscode.WebviewPanel,
     provider: CodexCellEditorProvider
@@ -493,8 +493,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             }
                         }
 
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -2389,11 +2395,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         }
                     }
                 }
-                // Provisional state
+                const selectedId = cell?.metadata?.selectedAudioId;
+                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
+                // Provisional state — prefer showing available when a valid file exists,
+                // even if the user's explicit selection points to a missing file.
                 let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
                 if (hasAvailable) state = "available-local";
                 else if (hasAvailablePointer) state = "available-pointer";
-                else if (hasMissing) state = "missing";
+                else if (selectedIsMissing || hasMissing) state = "missing";
                 else if (hasDeleted) state = "deletedOnly";
                 else state = "none";
 
@@ -2620,15 +2631,24 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         validatedByArray = [...validatedBy];
                     }
                 }
-                availability[cellId] = hasAvailable
-                    ? "available-local"
-                    : hasAvailablePointer
-                        ? "available-pointer"
-                        : hasMissing
-                            ? "missing"
-                            : hasDeleted
-                                ? "deletedOnly"
-                                : "none";
+                // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                const selectedId = cell?.metadata?.selectedAudioId;
+                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
+                if (selectedIsMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasAvailable) {
+                    availability[cellId] = "available-local";
+                } else if (hasAvailablePointer) {
+                    availability[cellId] = "available-pointer";
+                } else if (hasMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasDeleted) {
+                    availability[cellId] = "deletedOnly";
+                } else {
+                    availability[cellId] = "none";
+                }
             }
 
             provider.postMessageToWebview(webviewPanel, {
@@ -3289,9 +3309,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 }
                             }
                         }
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         // Provisional state
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";

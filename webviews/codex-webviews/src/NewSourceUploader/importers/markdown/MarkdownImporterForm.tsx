@@ -16,6 +16,7 @@ import { FileDropzone } from "../../components/FileDropzone";
 import { Badge } from "../../../components/ui/badge";
 import { markdownImporter } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 import { AlignedCell, CellAligner, sequentialCellAligner } from "../../types/plugin";
 
@@ -68,6 +69,7 @@ export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) =>
     const handleImport = async () => {
         if (selectedFiles.length === 0) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -151,11 +153,13 @@ export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) =>
                         await handleImportCompletion(finalResult, props);
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
+                        notifyImportEnded();
                     }
                 }, 1500);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

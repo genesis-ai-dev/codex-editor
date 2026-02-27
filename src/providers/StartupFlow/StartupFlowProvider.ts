@@ -1278,6 +1278,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             "Open Deprecated Project"
                         );
                         if (firstPrompt !== "Open Deprecated Project") {
+                            this.safeSendMessage({
+                                command: "project.openingInProgress",
+                                projectPath,
+                                opening: false,
+                            } as any);
                             return;
                         }
                     } else if (!activeEntry && swapInfo?.swapEntries?.length) {
@@ -1395,6 +1400,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                                 if (warningAction !== "Open Anyway") {
                                     debugLog("User cancelled open of previously deprecated project");
+                                    this.safeSendMessage({
+                                        command: "project.openingInProgress",
+                                        projectPath,
+                                        opening: false,
+                                    } as any);
                                     return;
                                 }
                             }
@@ -5370,8 +5380,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             const projectList: ProjectWithSyncStatus[] = [];
 
+            // Build a set of normalized URLs for archived remote projects so locally-cloned
+            // copies can be flagged with isArchivedButLocallyCloned without appearing as clone-able.
+            const archivedRemoteUrls = new Set<string>();
+
             // Process remote projects (only if server was reachable)
             for (const project of remoteProjects) {
+                // Archived projects that are not locally cloned should not be shown — users cannot
+                // meaningfully clone or sync them and sync will fail.  We handle the case where a
+                // user already has one cloned after the normalizeUrl helper is defined below.
+                if (project.isArchived) {
+                    // Record the URL so we can flag any locally-cloned copy later.
+                    // We must defer normalization until after normalizeUrl is defined, so we
+                    // store the raw URL and normalize it in a second pass below.
+                    archivedRemoteUrls.add(project.url);
+                    continue;
+                }
                 projectList.push({
                     name: project.name,
                     path: "",
@@ -5423,6 +5447,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             };
 
+            // Normalize archived remote URLs now that normalizeUrl is defined.
+            const normalizedArchivedUrls = new Set(
+                [...archivedRemoteUrls].map(normalizeUrl).filter(Boolean)
+            );
+
             // Process local projects and check for matches
             for (const project of localProjects) {
                 if (!project.gitOriginUrl) {
@@ -5434,6 +5463,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
 
                 const localNormalized = normalizeUrl(project.gitOriginUrl);
+
+                // Check if this local project matches an archived remote project.
+                // Show it as synced but flag it so the UI can display an "Archived" badge
+                // and users understand why syncing will fail.
+                if (normalizedArchivedUrls.has(localNormalized)) {
+                    projectList.push({
+                        ...project,
+                        syncStatus: "downloadedAndSynced",
+                        isArchivedButLocallyCloned: true,
+                    });
+                    continue;
+                }
+
                 const matchInRemoteIndex = projectList.findIndex(
                     (p) => normalizeUrl(p.gitOriginUrl) === localNormalized
                 );
@@ -5748,7 +5790,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             }
                         }
 
-                        if (userAlreadySwappedOnClone) {
+                        if (userAlreadySwappedOnClone && !skipDeprecatedPrompt) {
                             // User already swapped - show informational modal
                             const swapTargetLabel = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                             const alreadySwappedChoice = await vscode.window.showWarningMessage(
@@ -5756,14 +5798,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 `You have already swapped to ${swapTargetLabel}.\n\n` +
                                 `This project is deprecated. You can still clone it if needed.`,
                                 { modal: true },
-                                "Clone Anyway",
-                                "Cancel"
+                                "Clone Anyway"
                             );
                             if (alreadySwappedChoice !== "Clone Anyway") {
+                                this.safeSendMessage({
+                                    command: "project.cloningInProgress",
+                                    projectPath: "",
+                                    gitOriginUrl: repoUrl,
+                                    cloning: false,
+                                } as any);
                                 return;
                             }
-                            // User chose to clone anyway - skip the deprecation banner prompt
-                            skipDeprecatedPrompt = true;
                         }
 
                         // ACTIVE swap - this project is currently deprecated
@@ -5780,6 +5825,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // If user has not explicitly confirmed (via banner button), stop here.
                         if (!skipDeprecatedPrompt) {
                             debugLog("Deprecated project clone blocked until user confirms via banner button");
+                            this.safeSendMessage({
+                                command: "project.cloningInProgress",
+                                projectPath: "",
+                                gitOriginUrl: repoUrl,
+                                cloning: false,
+                            } as any);
                             return;
                         }
                     } else if (!activeEntry && normalizedSwapInfo?.swapEntries?.length) {
@@ -5877,6 +5928,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                                 if (warningAction !== "Clone Anyway") {
                                     debugLog("User cancelled clone of previously deprecated project");
+                                    this.safeSendMessage({
+                                        command: "project.cloningInProgress",
+                                        projectPath: "",
+                                        gitOriginUrl: repoUrl,
+                                        cloning: false,
+                                    } as any);
                                     return;
                                 }
                             }
@@ -6010,6 +6067,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 undefined,
                 mediaStrategy
             );
+        }
+
+        // Clear the deprecated project warning banner after clone completes (success or failure)
+        if (skipDeprecatedPrompt) {
+            try {
+                this.safeSendMessage({
+                    command: "project.swapCloneWarning",
+                    repoUrl,
+                    isOldProject: false,
+                    message: "",
+                } as any);
+            } catch {
+                // non-fatal
+            }
         }
 
         // Refresh list after clone attempt
