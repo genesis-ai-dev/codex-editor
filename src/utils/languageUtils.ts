@@ -3,6 +3,24 @@
 import { LanguageMetadata } from "codex-types";
 
 const isoLanguageData = [
+    { //This first one is NOT ACTUALLY A PART OF THE ISO 639-3 STANDARD, but it's pretty useful for us.
+        Id: "blg", //"Biblical Languages". All the other relevant abbreviations I checked were taken.
+        Scope: "S", //"Special" scope. Not an indivdual language or a language family.
+        Language_Type: "S", //"Special" language type. See the "multiple languages" object.
+        Ref_Name: "BiblicalHebrewAramaicGreek", //could just be "Biblical-Languages"?
+        Comment: null, //No entry uses this except for one depricated language code.
+        ScriptDirection: "ltr", //Strictly speaking, not true. But all of the other special entries do it this way. I'm not sure if this is a problem.
+    },  //I left this on the top, so it shows up there if the user has not typed anything. But it goes away once the user types.
+    {
+        Id: "eng", //I put english up here for a similar reason; it also goes away once the user types. Seemed fair, for the moment, since our app is built in English.
+        Part2b: "eng",
+        Part2t: "eng",
+        Part1: "en",
+        Scope: "I",
+        Language_Type: "L",
+        Ref_Name: "English",
+        Comment: null,
+    },
     {
         Id: "aaa",
         Scope: "I",
@@ -14754,16 +14772,16 @@ const isoLanguageData = [
         Comment: null,
         ScriptDirection: "ltr",
     },
-    {
-        Id: "eng",
-        Part2b: "eng",
-        Part2t: "eng",
-        Part1: "en",
-        Scope: "I",
-        Language_Type: "L",
-        Ref_Name: "English",
-        Comment: null,
-    },
+    //    {
+    //        Id: "eng",
+    //        Part2b: "eng",
+    //        Part2t: "eng",
+    //        Part1: "en",
+    //        Scope: "I",
+    //        Language_Type: "L",
+    //        Ref_Name: "English",
+    //        Comment: null,
+    //    },
     {
         Id: "enh",
         Scope: "I",
