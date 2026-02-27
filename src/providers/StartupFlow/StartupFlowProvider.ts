@@ -5385,14 +5385,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const archivedRemoteUrls = new Set<string>();
 
             // Process remote projects (only if server was reachable)
-            console.log(`[sendList] Total remote projects received: ${remoteProjects.length}`);
-            console.log(`[sendList] Remote projects with isArchived field:`, remoteProjects.map(p => ({ name: p.name, isArchived: p.isArchived })));
             for (const project of remoteProjects) {
                 // Archived projects that are not locally cloned should not be shown — users cannot
                 // meaningfully clone or sync them and sync will fail.  We handle the case where a
                 // user already has one cloned after the normalizeUrl helper is defined below.
                 if (project.isArchived) {
-                    console.log(`[sendList] Filtering out archived project: ${project.name} (${project.url})`);
                     // Record the URL so we can flag any locally-cloned copy later.
                     // We must defer normalization until after normalizeUrl is defined, so we
                     // store the raw URL and normalize it in a second pass below.
