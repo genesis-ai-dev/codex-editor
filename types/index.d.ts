@@ -1196,6 +1196,12 @@ type ProjectMetadata = {
     projectName?: string;
     projectId?: string;
     format: string;
+    /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
+    originalFilesHashes?: {
+        version: number;
+        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string } };
+        fileNameToHash: { [fileName: string]: string };
+    };
     edits?: ProjectEditHistory[];
     meta: {
         version: string;
