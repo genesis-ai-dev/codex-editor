@@ -71,6 +71,8 @@ export interface CellListProps {
     currentMilestoneIndex?: number;
     currentSubsectionIndex?: number;
     cellsPerPage?: number;
+    alertColorCodes?: Record<string, string>;
+    spellCheckResponse?: any;
 }
 
 const DEBUG_ENABLED = false;
@@ -119,6 +121,8 @@ const CellList: React.FC<CellListProps> = ({
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
+    alertColorCodes = {},
+    spellCheckResponse = null,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -561,9 +565,8 @@ const CellList: React.FC<CellListProps> = ({
         ]
     );
 
-    const generateCellLabel = useCallback(
+    const generateLineNumber = useCallback(
         (cell: QuillCellContent, currentCellsArray: QuillCellContent[]): string => {
-            // If cell already has a label, use it
             if (cell.merged) {
                 return "❌";
             }
@@ -620,16 +623,14 @@ const CellList: React.FC<CellListProps> = ({
                     );
 
                     if (parentCell) {
-                        // Get parent's label using chapter-based verse numbers (with fallback for sync issues)
                         const parentLabel =
-                            parentCell.cellLabel ||
-                            (parentCell.cellType !== CodexCellTypes.PARATEXT
+                            parentCell.cellType !== CodexCellTypes.PARATEXT
                                 ? getChapterBasedVerseNumber(
                                       parentCell,
                                       fullDocumentTranslationUnits,
                                       currentCellsArray
                                   )
-                                : "");
+                                : "";
 
                         // Find all siblings (cells with the same parent)
                         const siblings = fullDocumentTranslationUnits.filter(
@@ -656,28 +657,14 @@ const CellList: React.FC<CellListProps> = ({
                                     getCellIdentifier(sibling) === cellIdentifier
                             ) + 1;
 
-                        // Return label in format "parentLabel.childIndex"
                         return `${parentLabel}.${childIndex}`;
                     }
                 }
             }
 
-            // For cells with cellLabel but no verse-level global references (e.g., Biblica importer cells before verses),
-            // use the cellLabel instead of chapter-based verse number
-            // Biblica cells before verses have globalReferences like ["GEN"] (book only), while cells with verses have ["GEN 1:34"] (book chapter:verse)
-            const globalRefs = cell.data?.globalReferences;
-            const hasGlobalRefs = globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0;
-            const hasVerseLevelRefs = hasGlobalRefs && globalRefs.some((ref: string) => {
-                // Check if reference contains chapter:verse format (e.g., "GEN 1:34" or "GEN 1:1")
-                return typeof ref === 'string' && /\d+:\d+/.test(ref);
-            });
-
-            // If cell has a label but no verse-level references, use the label (for Biblica cells before verses)
-            if (cell.cellLabel && !hasVerseLevelRefs) {
-                return cell.cellLabel;
-            }
-
             // Get chapter-based verse number (skipping paratext cells).
+            // cellLabel is displayed separately via the `label` prop, so the line number
+            // should always be numeric.
             // Pass currentCellsArray as fallback so line numbers stay correct when fullDocumentTranslationUnits
             // is temporarily out of sync (e.g. after clicking a cell before prev/next refreshes state).
             return getChapterBasedVerseNumber(
@@ -805,8 +792,7 @@ const CellList: React.FC<CellListProps> = ({
                 {group.map((cell, index) => {
                     const cellId = cell.cellMarkers.join(" ");
                     const hasDuplicateId = duplicateCellIds.has(cellId);
-                    // Use the current translationUnits array for context, but generate global labels
-                    const generatedCellLabel = generateCellLabel(cell, workingTranslationUnits);
+                    const generatedLineNumber = generateLineNumber(cell, workingTranslationUnits);
                     const cellMarkers = cell.cellMarkers;
                     const cellIdForTranslation = cellMarkers[0];
                     const translationState = getCellTranslationState(cellIdForTranslation);
@@ -823,7 +809,7 @@ const CellList: React.FC<CellListProps> = ({
                         >
                             <CellContentDisplay
                                 cell={cell}
-                                lineNumber={generatedCellLabel}
+                                lineNumber={generatedLineNumber}
                                 label={cell.cellLabel}
                                 lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}`}
@@ -866,7 +852,8 @@ const CellList: React.FC<CellListProps> = ({
             duplicateCellIds,
             highlightedCellId,
             scrollSyncEnabled,
-            generateCellLabel,
+            alertColorCodes,
+            generateLineNumber,
             isCellInTranslationProcess,
             getCellTranslationState,
             successfulCompletions,
@@ -914,7 +901,7 @@ const CellList: React.FC<CellListProps> = ({
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
                 // Use global line numbering
-                const generatedCellLabel = generateCellLabel(
+                const generatedLineNumber = generateLineNumber(
                     workingTranslationUnits[i],
                     workingTranslationUnits
                 );
@@ -932,7 +919,7 @@ const CellList: React.FC<CellListProps> = ({
                             cellContent={sanitizeQuillHtml(cellContent)}
                             cellIndex={i}
                             cellType={cellType}
-                            cellLabel={cellLabel ?? generatedCellLabel}
+                            cellLabel={cellLabel}
                             cellTimestamps={timestamps}
                             prevEndTime={workingTranslationUnits[i - 1]?.timestamps?.endTime}
                             nextStartTime={workingTranslationUnits[i + 1]?.timestamps?.startTime}
@@ -971,7 +958,7 @@ const CellList: React.FC<CellListProps> = ({
                     i === 0
                 ) {
                     // Use global line numbering
-                    const generatedCellLabel = generateCellLabel(
+                    const generatedLineNumber = generateLineNumber(
                         workingTranslationUnits[i],
                         workingTranslationUnits
                     );
@@ -989,7 +976,7 @@ const CellList: React.FC<CellListProps> = ({
                         >
                             <CellContentDisplay
                                 cell={workingTranslationUnits[i]}
-                                lineNumber={generatedCellLabel}
+                                lineNumber={generatedLineNumber}
                                 label={cellLabel}
                                 lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}:empty`}
@@ -1038,7 +1025,8 @@ const CellList: React.FC<CellListProps> = ({
         isSourceText,
         isCorrectionEditorMode,
         contentBeingUpdated,
-        generateCellLabel,
+        generateLineNumber,
+        spellCheckResponse,
         setContentBeingUpdated,
         handleCloseEditor,
         handleSaveHtml,
