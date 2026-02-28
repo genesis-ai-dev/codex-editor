@@ -181,6 +181,13 @@ export class SQLiteIndexManager {
     private static readonly INTEGRITY_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
     /**
+     * Fires after nukeDatabaseAndRecreate() successfully creates a fresh, empty DB.
+     * Subscribers (e.g. createIndexWithContext) should trigger data repopulation.
+     */
+    private _onDatabaseRecreated = new vscode.EventEmitter<string>();
+    readonly onDatabaseRecreated = this._onDatabaseRecreated.event;
+
+    /**
      * Guard that checks both closed and db state. Call at the top of every
      * public method that accesses the database. After this call returns,
      * `this.db` is guaranteed non-null (use `this.db!` to assert).
@@ -848,6 +855,11 @@ export class SQLiteIndexManager {
             }
 
             debug(`[SQLiteIndex] Database recreated successfully: ${reason}`);
+
+            // Notify subscribers so they can trigger data repopulation.
+            // The handler runs asynchronously (fire-and-forget) — it will
+            // await the transaction lock which is released in the finally block.
+            this._onDatabaseRecreated.fire(reason);
         } finally {
             releaseLock();
         }
@@ -2772,6 +2784,7 @@ export class SQLiteIndexManager {
         this.currentProgressStartTime = null;
         this.progressTimings = [];
         this._nonCriticalErrorCounts.clear();
+        this._onDatabaseRecreated.dispose();
 
         // Wait for any in-flight transaction to complete before closing.
         // We acquire the transaction lock so checkpoint + close cannot

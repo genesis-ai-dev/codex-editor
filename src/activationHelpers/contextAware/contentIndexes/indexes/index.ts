@@ -482,6 +482,20 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     // Only register commands and event listeners once
     if (!isIndexContextInitialized) {
+        // Auto-rebuild when the DB is recreated at runtime (e.g. periodic
+        // integrity check detects corruption and nukes the database).
+        // Registered after the initial rebuild so startup nukes don't
+        // trigger a redundant rebuild.
+        const dbRecreatedListener = indexManager.onDatabaseRecreated(async (reason) => {
+            console.log(`[Index] Database was recreated (${reason}) — triggering auto-rebuild`);
+            try {
+                await smartRebuildIndexes(`auto-rebuild after db recreation: ${reason}`, true);
+            } catch (error) {
+                console.error("[Index] Error during auto-rebuild after recreation:", error);
+            }
+        });
+        context.subscriptions.push(dbRecreatedListener);
+
         // NOTE: File change watchers removed in favor of startup-time content checking
         // The new robust system checks for changes when the extension starts up,
         // which is more reliable than real-time file watching and prevents excessive rebuilds
