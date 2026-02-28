@@ -571,7 +571,6 @@ describe("Cell Line Numbers and Labels", () => {
 
     describe("Label and line number separation", () => {
         const makeLabeledCellProps = (translationUnits: QuillCellContent[]) => ({
-            spellCheckResponse: null,
             translationUnits,
             fullDocumentTranslationUnits: translationUnits,
             contentBeingUpdated: {
@@ -587,7 +586,6 @@ describe("Cell Line Numbers and Labels", () => {
             isSourceText: false,
             windowHeight: 800,
             headerHeight: 100,
-            alertColorCodes: {},
             highlightedCellId: null,
             scrollSyncEnabled: true,
             currentUsername: "test-user",
