@@ -277,8 +277,12 @@ export class FileSyncManager {
                 }
             }
 
+            // Rebuild FTS index in a single bulk pass (faster than per-row triggers)
+            progressCallback?.("Building search index...", 93);
+            await this.sqliteIndex.rebuildFTSFromCells();
+
             // Force save to ensure all changes are persisted
-            progressCallback?.("Finalizing AI learning...", 95);
+            progressCallback?.("Finalizing AI learning...", 97);
             await this.sqliteIndex.forceSave();
 
             const duration = performance.now() - syncStart;
@@ -569,8 +573,12 @@ export class FileSyncManager {
                 }
             }
 
+            // Rebuild FTS index in a single bulk pass
+            progressCallback?.("Building search index...", 93);
+            await this.sqliteIndex.rebuildFTSFromCells();
+
             // Finalize
-            progressCallback?.("Finalizing targeted sync...", 95);
+            progressCallback?.("Finalizing targeted sync...", 97);
             await this.sqliteIndex.forceSave();
 
             const duration = performance.now() - syncStart;
