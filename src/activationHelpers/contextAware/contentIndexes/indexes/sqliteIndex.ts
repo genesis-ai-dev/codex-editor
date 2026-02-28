@@ -2571,23 +2571,94 @@ export class SQLiteIndexManager {
         await this.walCheckpoint();
     }
 
-    // Force FTS index to rebuild/refresh for immediate search visibility
-    async refreshFTSIndex(): Promise<void> {
+    /**
+     * Update FTS entries for a specific set of cell IDs.
+     *
+     * For each cell, removes any existing FTS rows and re-inserts from the
+     * cells table. This is efficient for small-to-medium change sets where
+     * a full FTS rebuild would be overkill.
+     *
+     * @param changedCellIds  The cell IDs whose FTS entries need refreshing.
+     * @param threshold       If changedCellIds.length exceeds this, falls back
+     *                        to a full rebuild (default: 500).
+     */
+    async updateFTSForChangedCells(
+        changedCellIds: Set<string>,
+        threshold = 500
+    ): Promise<void> {
         this.ensureOpen();
 
-        try {
-            // Force FTS5 to rebuild its index
-            await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
-            this.resetNonCriticalErrorCount("refreshFTSIndex");
-        } catch (rebuildError) {
-            // If rebuild fails, try optimize instead
-            try {
-                await this.db!.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
-                this.resetNonCriticalErrorCount("refreshFTSIndex");
-            } catch (optimizeError) {
-                // Both rebuild and optimize failed — track for visibility
-                this.logNonCriticalError("refreshFTSIndex", optimizeError);
+        if (changedCellIds.size === 0) return;
+
+        if (changedCellIds.size > threshold) {
+            debug(`[SQLiteIndex] ${changedCellIds.size} cells changed (> ${threshold}) — full FTS rebuild`);
+            return this.rebuildFTSFromCells();
+        }
+
+        const start = globalThis.performance.now();
+        const ids = [...changedCellIds];
+
+        await this.runInTransaction(async () => {
+            const CHUNK = 200;
+            for (let i = 0; i < ids.length; i += CHUNK) {
+                const chunk = ids.slice(i, i + CHUNK);
+                const placeholders = chunk.map(() => "?").join(",");
+
+                await this.db!.run(
+                    `DELETE FROM cells_fts WHERE cell_id IN (${placeholders})`,
+                    chunk
+                );
+                await this.db!.run(`
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+                    SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
+                    FROM cells WHERE s_content IS NOT NULL AND cell_id IN (${placeholders})
+                    UNION ALL
+                    SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
+                    FROM cells WHERE t_content IS NOT NULL AND cell_id IN (${placeholders})
+                `, [...chunk, ...chunk]);
             }
+        });
+
+        const elapsed = globalThis.performance.now() - start;
+        debug(`[SQLiteIndex] FTS updated for ${ids.length} cells in ${elapsed.toFixed(0)}ms`);
+    }
+
+    /**
+     * Rebuild the FTS index from the cells table in a single bulk operation.
+     * This is much faster than per-row trigger operations and produces a
+     * clean, duplicate-free FTS table.
+     *
+     * Should be called after bulk sync operations instead of relying on triggers.
+     */
+    async rebuildFTSFromCells(): Promise<void> {
+        this.ensureOpen();
+
+        const start = globalThis.performance.now();
+        await this.runInTransaction(async () => {
+            await this.db!.run("DELETE FROM cells_fts");
+            await this.db!.run(`
+                INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+                SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
+                FROM cells WHERE s_content IS NOT NULL
+                UNION ALL
+                SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
+                FROM cells WHERE t_content IS NOT NULL
+            `);
+        });
+        const elapsed = globalThis.performance.now() - start;
+        debug(`[SQLiteIndex] FTS rebuilt from cells in ${elapsed.toFixed(0)}ms`);
+    }
+
+    /**
+     * Rebuild/refresh the FTS index for immediate search visibility.
+     * Delegates to rebuildFTSFromCells() which produces a clean, duplicate-free index.
+     */
+    async refreshFTSIndex(): Promise<void> {
+        try {
+            await this.rebuildFTSFromCells();
+            this.resetNonCriticalErrorCount("refreshFTSIndex");
+        } catch (error) {
+            this.logNonCriticalError("refreshFTSIndex", error);
         }
     }
 
@@ -2599,7 +2670,18 @@ export class SQLiteIndexManager {
         await this.walCheckpoint();
     }
 
-    // Immediate cell update with FTS synchronization
+    /**
+     * Immediate cell update with FTS synchronization for interactive edits.
+     *
+     * Since FTS triggers are removed (see schema.ts), this method explicitly
+     * maintains cells_fts so the edit is searchable immediately.
+     *
+     * Performs DELETE + INSERT (not just INSERT) to avoid accumulating
+     * duplicate FTS rows between rebuilds. The DELETE scans the FTS table
+     * (FTS5 has no B-tree indexes) which is fine for a single interactive
+     * edit — the cost is only problematic when done N times during bulk sync,
+     * which is why rebuildFTSFromCells() uses a different strategy.
+     */
     async upsertCellWithFTSSync(
         cellId: string,
         fileId: number,
@@ -2611,18 +2693,17 @@ export class SQLiteIndexManager {
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         const result = await this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent);
 
-        // Force FTS synchronization for immediate search visibility.
-        // Errors are NOT caught here — callers wrap this in runInTransaction(),
-        // so an FTS failure will roll back both the cell upsert and the FTS insert
-        // atomically, preventing cells/cells_fts divergence.
         if (result.contentChanged) {
             const sanitizedContent = this.sanitizeContent(content);
             const actualRawContent = rawContent || content;
-
-            await this.db!.run(`
-                INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
-                VALUES (?, ?, ?, ?)
-            `, [cellId, sanitizedContent, actualRawContent, cellType]);
+            await this.db!.run(
+                `DELETE FROM cells_fts WHERE cell_id = ? AND content_type = ?`,
+                [cellId, cellType]
+            );
+            await this.db!.run(
+                `INSERT INTO cells_fts(cell_id, content, raw_content, content_type) VALUES (?, ?, ?, ?)`,
+                [cellId, sanitizedContent, actualRawContent, cellType]
+            );
         }
 
         return result;
@@ -2806,10 +2887,7 @@ export class SQLiteIndexManager {
      * instead of hitting "cannot start a transaction within a transaction".
      */
     async runInTransaction<T>(callback: () => T | Promise<T>): Promise<T> {
-        // Force a file-existence check before every transaction to fail fast
-        // if the DB was deleted (e.g. git clean) instead of getting a cryptic
-        // "disk I/O error" mid-transaction.
-        this.ensureOpen(/* forceFileCheck */ true);
+        this.ensureOpen();
 
         // Queue behind any already-running transaction
         let releaseLock!: () => void;

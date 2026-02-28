@@ -281,6 +281,23 @@ async function insertCell(
     );
 }
 
+/**
+ * Rebuild FTS from the cells table (mirrors rebuildFTSFromCells in production).
+ * Since FTS triggers are removed, tests must call this after inserting/updating
+ * cells before querying cells_fts.
+ */
+async function rebuildFTS(db: AsyncDatabase): Promise<void> {
+    await db.run("DELETE FROM cells_fts");
+    await db.run(`
+        INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
+        SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
+        FROM cells WHERE s_content IS NOT NULL
+        UNION ALL
+        SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
+        FROM cells WHERE t_content IS NOT NULL
+    `);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Test Suites
 // ═══════════════════════════════════════════════════════════════════════════
@@ -433,28 +450,24 @@ suite("Native SQLite Database Tests", function () {
             }
         });
 
-        test("creates all triggers (timestamp + FTS)", async () => {
+        test("creates all triggers (timestamp only, FTS managed in application code)", async () => {
             const triggers = await db.all<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='trigger'"
             );
             const triggerNames = triggers.map((t) => t.name);
 
             const expected = [
-                // Timestamp auto-update triggers
                 "update_sync_metadata_timestamp",
                 "update_files_timestamp",
                 "update_cells_s_timestamp",
-                // FTS sync triggers
-                "cells_fts_source_insert",
-                "cells_fts_target_insert",
-                "cells_fts_source_update",
-                "cells_fts_target_update",
-                "cells_fts_delete",
             ];
 
             for (const trig of expected) {
                 assert.ok(triggerNames.includes(trig), `Missing trigger: ${trig}`);
             }
+
+            const ftsTriggers = triggerNames.filter((n) => n.startsWith("cells_fts"));
+            assert.strictEqual(ftsTriggers.length, 0, "FTS triggers should not exist (managed in application code)");
         });
 
         test("FTS5 virtual table is queryable", async () => {
@@ -723,28 +736,30 @@ suite("Native SQLite Database Tests", function () {
             if (db) { await db.close(); }
         });
 
-        test("trigger auto-indexes source content into FTS on INSERT", async () => {
+        test("rebuildFTS indexes source content into FTS", async () => {
             await insertCell(db, "GEN 1:1", {
                 sFileId: sourceFileId,
                 sContent: "In the beginning God created the heavens and the earth.",
             });
+            await rebuildFTS(db);
 
             const ftsRows = await db.all<{ cell_id: string; content_type: string }>(
                 "SELECT cell_id, content_type FROM cells_fts WHERE cell_id = ?",
                 ["GEN 1:1"]
             );
-            assert.ok(ftsRows.length >= 1, "FTS should have an entry after insert");
+            assert.ok(ftsRows.length >= 1, "FTS should have an entry after rebuild");
             assert.ok(
                 ftsRows.some((r) => r.content_type === "source"),
                 "Should have a 'source' FTS entry"
             );
         });
 
-        test("trigger auto-indexes target content into FTS on INSERT", async () => {
+        test("rebuildFTS indexes target content into FTS", async () => {
             await insertCell(db, "GEN 1:1", {
                 tFileId: targetFileId,
                 tContent: "En el principio Dios creó los cielos y la tierra.",
             });
+            await rebuildFTS(db);
 
             const ftsRows = await db.all<{ content_type: string }>(
                 "SELECT content_type FROM cells_fts WHERE cell_id = ?",
@@ -765,6 +780,7 @@ suite("Native SQLite Database Tests", function () {
                 sFileId: sourceFileId,
                 sContent: "And the earth was without form, and void.",
             });
+            await rebuildFTS(db);
 
             const results = await db.all<{ cell_id: string; content: string }>(
                 `SELECT cell_id, content FROM cells_fts WHERE cells_fts MATCH ? ORDER BY rank`,
@@ -790,6 +806,7 @@ suite("Native SQLite Database Tests", function () {
                 sFileId: sourceFileId,
                 sContent: "And God said, Let there be light: and there was light.",
             });
+            await rebuildFTS(db);
 
             const results = await db.all<{ cell_id: string; score: number }>(
                 `SELECT cell_id, bm25(cells_fts) as score FROM cells_fts 
@@ -804,6 +821,7 @@ suite("Native SQLite Database Tests", function () {
                 sFileId: sourceFileId,
                 sContent: "In the beginning God created the heavens and the earth.",
             });
+            await rebuildFTS(db);
 
             const results = await db.all<{ cell_id: string }>(
                 `SELECT cell_id FROM cells_fts WHERE cells_fts MATCH ?`,
@@ -817,6 +835,7 @@ suite("Native SQLite Database Tests", function () {
                 sFileId: sourceFileId,
                 sContent: "In the beginning God created the heavens and the earth.",
             });
+            await rebuildFTS(db);
 
             const results = await db.all<{ cell_id: string }>(
                 `SELECT cell_id FROM cells_fts WHERE cells_fts MATCH ?`,
@@ -825,28 +844,27 @@ suite("Native SQLite Database Tests", function () {
             assert.ok(results.length >= 1, "Column-scoped search should work");
         });
 
-        test("FTS trigger removes entry on DELETE", async () => {
+        test("rebuildFTS excludes deleted cells", async () => {
             await insertCell(db, "GEN 1:1", {
                 sFileId: sourceFileId,
                 sContent: "Delete me from FTS",
             });
+            await rebuildFTS(db);
 
-            // Verify FTS has the entry
             let ftsCount = await db.get<{ count: number }>(
                 "SELECT COUNT(*) as count FROM cells_fts WHERE cell_id = ?",
                 ["GEN 1:1"]
             );
             assert.ok((ftsCount?.count ?? 0) > 0, "FTS should have entry before delete");
 
-            // Delete the cell
             await db.run("DELETE FROM cells WHERE cell_id = ?", ["GEN 1:1"]);
+            await rebuildFTS(db);
 
-            // Verify FTS entry is removed
             ftsCount = await db.get<{ count: number }>(
                 "SELECT COUNT(*) as count FROM cells_fts WHERE cell_id = ?",
                 ["GEN 1:1"]
             );
-            assert.strictEqual(ftsCount?.count, 0, "FTS entry should be removed after delete");
+            assert.strictEqual(ftsCount?.count, 0, "FTS entry should be gone after rebuild");
         });
 
         test("FTS rebuild command works", async () => {
@@ -854,11 +872,11 @@ suite("Native SQLite Database Tests", function () {
                 sFileId: sourceFileId,
                 sContent: "Content for FTS rebuild test",
             });
+            await rebuildFTS(db);
 
-            // Force FTS rebuild
+            // Force FTS5 internal rebuild on top of populated data
             await db.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
 
-            // Verify it still works after rebuild
             const results = await db.all<{ cell_id: string }>(
                 "SELECT cell_id FROM cells_fts WHERE cells_fts MATCH ?",
                 ["rebuild"]
@@ -1089,7 +1107,6 @@ suite("Native SQLite Database Tests", function () {
         test("FTS rebuild after full re-population", async () => {
             const fileId = await insertFile(db, "/project/GEN.source", "source");
 
-            // Populate
             for (let i = 1; i <= 10; i++) {
                 await insertCell(db, `GEN 1:${i}`, {
                     sFileId: fileId,
@@ -1097,10 +1114,8 @@ suite("Native SQLite Database Tests", function () {
                 });
             }
 
-            // Rebuild FTS
-            await db.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
+            await rebuildFTS(db);
 
-            // Verify FTS works after rebuild
             const results = await db.all<{ cell_id: string }>(
                 "SELECT cell_id FROM cells_fts WHERE cells_fts MATCH ?",
                 ["verse5text"]
@@ -1311,8 +1326,8 @@ suite("Native SQLite Database Tests", function () {
                 sFileId: fileId,
                 sContent: "φωνὴ βοῶντος ἐν τῇ ἐρήμῳ",
             });
+            await rebuildFTS(db);
 
-            // The unicode61 tokenizer should handle Greek
             const results = await db.all<{ cell_id: string }>(
                 "SELECT cell_id FROM cells_fts WHERE cells_fts MATCH ?",
                 ["φωνὴ"]
@@ -1624,17 +1639,7 @@ suite("Native SQLite Database Tests", function () {
                 [targetFileId, "Y la tierra estaba desordenada", "Y la tierra estaba desordenada", 2, 5, "GEN 1:2"]
             );
 
-            // Manually sync to FTS (since UPDATE triggers handle source/target separately)
-            await db.run(
-                `INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type)
-                 VALUES (?, ?, ?, ?)`,
-                ["GEN 1:1", "En el principio Dios creo", "En el principio Dios creo", "target"]
-            );
-            await db.run(
-                `INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type)
-                 VALUES (?, ?, ?, ?)`,
-                ["GEN 1:2", "Y la tierra estaba desordenada", "Y la tierra estaba desordenada", "target"]
-            );
+            await rebuildFTS(db);
         });
 
         teardown(async () => {
@@ -2339,25 +2344,21 @@ suite("Native SQLite Database Tests", function () {
             const db = await openTestDatabase();
             const fileId = await insertFile(db, "/fts/cleanup.source", "source");
 
-            // Insert cells that will have FTS entries via triggers
             await insertCell(db, "FTS_KEEP_001", { sFileId: fileId, sContent: "keep this cell" });
             await insertCell(db, "FTS_ORPHAN_001", { sFileId: fileId, sContent: "orphan cell one" });
             await insertCell(db, "FTS_ORPHAN_002", { sFileId: fileId, sContent: "orphan cell two" });
+            await rebuildFTS(db);
 
-            // Verify FTS has entries for all three
             const ftsBefore = await db.get<{ count: number }>(
                 "SELECT COUNT(DISTINCT cell_id) as count FROM cells_fts"
             );
             assert.strictEqual(ftsBefore?.count, 3);
 
-            // Delete cells directly (bypassing normal flow) to create orphans.
-            // First delete the FTS entries via the trigger by deleting the cells.
-            // Actually, the trigger should handle this. Let's delete cells manually
-            // and then re-insert orphaned FTS entries to simulate the edge case.
+            // Delete cells directly to create orphaned FTS entries
             await db.run("DELETE FROM cells WHERE cell_id IN ('FTS_ORPHAN_001', 'FTS_ORPHAN_002')");
 
-            // After deletion, FTS should have been cleaned by the trigger.
-            // Manually insert orphan FTS entries to simulate a partial-failure edge case.
+            // Without FTS triggers, deleted cells leave orphaned FTS entries.
+            // Add extra manual orphans to simulate accumulated stale entries.
             await db.run(
                 "INSERT INTO cells_fts(cell_id, content, raw_content, content_type) VALUES (?, ?, ?, ?)",
                 ["ORPHAN_MANUAL_001", "stale content", "stale content", "source"]
@@ -2368,13 +2369,14 @@ suite("Native SQLite Database Tests", function () {
             );
 
             // Batched cleanup: find orphans and delete in chunks
+            // Should find: FTS_ORPHAN_001, FTS_ORPHAN_002 (cells deleted), ORPHAN_MANUAL_001, ORPHAN_MANUAL_002
             const orphans = await db.all<{ cell_id: string }>(
                 `SELECT DISTINCT fts.cell_id
                  FROM cells_fts fts
                  LEFT JOIN cells c ON fts.cell_id = c.cell_id
                  WHERE c.cell_id IS NULL`
             );
-            assert.ok(orphans.length >= 2, `Expected at least 2 orphans, got ${orphans.length}`);
+            assert.ok(orphans.length >= 4, `Expected at least 4 orphans, got ${orphans.length}`);
 
             const CHUNK_SIZE = 500;
             await db.run("BEGIN TRANSACTION");
@@ -2394,8 +2396,10 @@ suite("Native SQLite Database Tests", function () {
             );
             const remainingIds = ftsAfter.map(r => r.cell_id);
             assert.ok(remainingIds.includes("FTS_KEEP_001"), "Kept cell should remain in FTS");
-            assert.ok(!remainingIds.includes("ORPHAN_MANUAL_001"), "Orphan 1 should be cleaned up");
-            assert.ok(!remainingIds.includes("ORPHAN_MANUAL_002"), "Orphan 2 should be cleaned up");
+            assert.ok(!remainingIds.includes("FTS_ORPHAN_001"), "Deleted cell orphan 1 should be cleaned up");
+            assert.ok(!remainingIds.includes("FTS_ORPHAN_002"), "Deleted cell orphan 2 should be cleaned up");
+            assert.ok(!remainingIds.includes("ORPHAN_MANUAL_001"), "Manual orphan 1 should be cleaned up");
+            assert.ok(!remainingIds.includes("ORPHAN_MANUAL_002"), "Manual orphan 2 should be cleaned up");
 
             await db.close();
         });

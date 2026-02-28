@@ -8,7 +8,7 @@
 
 // Schema version — bump this whenever the schema changes.
 // Using a full recreation strategy (no incremental migrations).
-export const CURRENT_SCHEMA_VERSION = 15; // Added cell_label column for semantic display labels (e.g., "GEN 5:12")
+export const CURRENT_SCHEMA_VERSION = 16; // Removed FTS triggers — FTS managed in application code (bulk rebuild after sync)
 
 // ── Tables + FTS virtual table ──────────────────────────────────────────────
 
@@ -154,56 +154,25 @@ export const TIMESTAMP_TRIGGERS = [
     // Target timestamp trigger removed - timestamps now handled in application logic
 ];
 
-/** FTS5 triggers that keep cells_fts in sync with the cells table */
-export const FTS_TRIGGERS = [
-    `CREATE TRIGGER IF NOT EXISTS cells_fts_source_insert 
-     AFTER INSERT ON cells
-     WHEN NEW.s_content IS NOT NULL
-     BEGIN
-         INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
-         VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
-     END`,
-    `CREATE TRIGGER IF NOT EXISTS cells_fts_target_insert 
-     AFTER INSERT ON cells
-     WHEN NEW.t_content IS NOT NULL
-     BEGIN
-         INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
-         VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
-     END`,
-    `CREATE TRIGGER IF NOT EXISTS cells_fts_source_update 
-     AFTER UPDATE OF s_content, s_raw_content ON cells
-     WHEN NEW.s_content IS NOT NULL
-     BEGIN
-         DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'source';
-         INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
-         VALUES (NEW.cell_id, NEW.s_content, COALESCE(NEW.s_raw_content, NEW.s_content), 'source');
-     END`,
-    `CREATE TRIGGER IF NOT EXISTS cells_fts_target_update 
-     AFTER UPDATE OF t_content, t_raw_content ON cells
-     WHEN NEW.t_content IS NOT NULL
-     BEGIN
-         DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'target';
-         INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
-         VALUES (NEW.cell_id, NEW.t_content, COALESCE(NEW.t_raw_content, NEW.t_content), 'target');
-     END`,
-    `CREATE TRIGGER IF NOT EXISTS cells_fts_source_clear 
-     AFTER UPDATE OF s_content ON cells
-     WHEN NEW.s_content IS NULL AND OLD.s_content IS NOT NULL
-     BEGIN
-         DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'source';
-     END`,
-    `CREATE TRIGGER IF NOT EXISTS cells_fts_target_clear 
-     AFTER UPDATE OF t_content ON cells
-     WHEN NEW.t_content IS NULL AND OLD.t_content IS NOT NULL
-     BEGIN
-         DELETE FROM cells_fts WHERE cell_id = NEW.cell_id AND content_type = 'target';
-     END`,
-    `CREATE TRIGGER IF NOT EXISTS cells_fts_delete 
-     AFTER DELETE ON cells
-     BEGIN
-         DELETE FROM cells_fts WHERE cell_id = OLD.cell_id;
-     END`,
-];
+/**
+ * FTS5 triggers — intentionally empty.
+ *
+ * FTS synchronization is managed in application code because per-row triggers
+ * on FTS5 virtual tables are expensive: INSERT OR REPLACE creates duplicates
+ * (FTS5 has no unique constraints) and DELETE requires a full table scan
+ * (no B-tree indexes on FTS5 columns).
+ *
+ * Application-level FTS management uses a tiered strategy:
+ *   - Interactive edits: upsertCellWithFTSSync() does DELETE + INSERT for
+ *     the single edited cell — precise, no duplicates, fast for one-off ops.
+ *   - Sync (few cells changed): updateFTSForChangedCells() does targeted
+ *     DELETE + INSERT only for the cells that actually changed.
+ *   - Sync (many cells changed): automatically falls back to
+ *     rebuildFTSFromCells() which does a full DELETE + INSERT…SELECT from
+ *     the cells table — O(N) total, produces a clean FTS index.
+ *   - removeAll(): already clears cells_fts before cells.
+ */
+export const FTS_TRIGGERS: string[] = [];
 
 /** All triggers combined (timestamp + FTS), for convenience */
 export const ALL_TRIGGERS = [...TIMESTAMP_TRIGGERS, ...FTS_TRIGGERS];
