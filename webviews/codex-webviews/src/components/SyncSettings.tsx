@@ -1,6 +1,8 @@
 import React, { useEffect } from "react";
 import { useNetworkState } from "@uidotdev/usehooks";
-import { vscode } from "../EditableReactTable/utilities/vscode";
+import { getVSCodeAPI } from "../shared/vscodeApi";
+
+const vscode = getVSCodeAPI();
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";

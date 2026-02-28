@@ -9,7 +9,9 @@ import {
     TextDisplaySettingsModal,
     type TextDisplaySettings,
 } from "../components/TextDisplaySettingsModal";
-import { vscode } from "../EditableReactTable/utilities/vscode";
+import { getVSCodeAPI } from "../shared/vscodeApi";
+
+const vscode = getVSCodeAPI();
 import "../tailwind.css";
 
 // Inline editable field component
