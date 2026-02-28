@@ -181,6 +181,13 @@ export class SQLiteIndexManager {
     private static readonly INTEGRITY_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
     /**
+     * Fires after nukeDatabaseAndRecreate() successfully creates a fresh, empty DB.
+     * Subscribers (e.g. createIndexWithContext) should trigger data repopulation.
+     */
+    private _onDatabaseRecreated = new vscode.EventEmitter<string>();
+    readonly onDatabaseRecreated = this._onDatabaseRecreated.event;
+
+    /**
      * Guard that checks both closed and db state. Call at the top of every
      * public method that accesses the database. After this call returns,
      * `this.db` is guaranteed non-null (use `this.db!` to assert).
@@ -790,67 +797,78 @@ export class SQLiteIndexManager {
     private async nukeDatabaseAndRecreate(reason: string): Promise<void> {
         if (this.closed) throw new Error("Database is closing or closed");
 
-        // Acquire the transaction lock so we don't yank the DB out from under
-        // a running transaction.
-        let releaseLock!: () => void;
-        const previousLock = this.transactionLock;
-        this.transactionLock = new Promise<void>((resolve) => { releaseLock = resolve; });
-        await previousLock;
-
-        try {
-            debug(`[SQLiteIndex] Recreating database: ${reason}`);
-
-            if (this.db) {
-                try { await this.db.close(); } catch (closeErr) { debug(`Error during cleanup close in nukeDatabaseAndRecreate: ${closeErr}`); }
-                this.db = null;
-            }
-
-            await this.deleteDatabaseFile();
-
-            if (!this.dbPath) {
-                throw new Error("Database path not set");
-            }
-
-            this.db = await this.openWithRetry(this.dbPath);
-            // Fresh connection is valid — reset state so operations can proceed
-            this.closed = false;
-            this.deferredIndexesCreated = false;
+        // ── Phase 1: Acquire the transaction lock to safely close & delete ──
+        // We must wait for any in-flight transaction to finish before yanking
+        // the DB out from under it.
+        {
+            let releaseLock!: () => void;
+            const previousLock = this.transactionLock;
+            this.transactionLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+            await previousLock;
 
             try {
-                await this.applyProductionPragmas();
-                await this.createSchema();
+                debug(`[SQLiteIndex] Recreating database: ${reason}`);
 
-                if (!(await this.validateSchemaIntegrity())) {
-                    throw new Error(`Schema validation failed after recreation: ${reason}`);
-                }
-
-                await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-
-                // Flush schema to the main file immediately so the .sqlite
-                // file reflects the new schema even before the sync populates data.
-                // Without this, all schema DDL lives in the WAL and the main
-                // file appears as an empty 4KB stub.
-                try {
-                    await this.db!.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-                } catch {
-                    // Non-critical — data is still accessible via WAL
-                }
-            } catch (schemaError) {
-                // Clean up the partially-created DB so the next attempt starts fresh
-                // instead of finding a zombie file with no/broken schema.
-                console.error(`[SQLiteIndex] Schema setup failed during recreation, cleaning up: ${schemaError}`);
                 if (this.db) {
-                    try { await this.db.close(); } catch { /* best-effort */ }
+                    try { await this.db.close(); } catch (closeErr) { debug(`Error during cleanup close in nukeDatabaseAndRecreate: ${closeErr}`); }
                     this.db = null;
                 }
-                try { await this.deleteDatabaseFile(); } catch (cleanupErr) { debug(`Cleanup delete also failed: ${cleanupErr}`); }
-                throw schemaError;
+
+                await this.deleteDatabaseFile();
+            } finally {
+                // Release the lock BEFORE schema creation. createSchema() calls
+                // runInTransaction() which acquires this same lock — holding it
+                // here would deadlock.
+                releaseLock();
+            }
+        }
+
+        // ── Phase 2: Open a fresh DB and create the schema ──
+        // The old file is gone and this.db is null, so no concurrent operation
+        // can interfere. createSchema() will acquire its own transaction lock
+        // via runInTransaction().
+        if (!this.dbPath) {
+            throw new Error("Database path not set");
+        }
+
+        this.db = await this.openWithRetry(this.dbPath);
+        this.closed = false;
+        this.deferredIndexesCreated = false;
+
+        try {
+            await this.applyProductionPragmas();
+            await this.createSchema();
+
+            if (!(await this.validateSchemaIntegrity())) {
+                throw new Error(`Schema validation failed after recreation: ${reason}`);
             }
 
-            debug(`[SQLiteIndex] Database recreated successfully: ${reason}`);
-        } finally {
-            releaseLock();
+            await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+
+            // Flush schema to the main file immediately so the .sqlite
+            // file reflects the new schema even before the sync populates data.
+            // Without this, all schema DDL lives in the WAL and the main
+            // file appears as an empty 4KB stub.
+            try {
+                await this.db!.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+            } catch {
+                // Non-critical — data is still accessible via WAL
+            }
+        } catch (schemaError) {
+            // Clean up the partially-created DB so the next attempt starts fresh
+            // instead of finding a zombie file with no/broken schema.
+            console.error(`[SQLiteIndex] Schema setup failed during recreation, cleaning up: ${schemaError}`);
+            if (this.db) {
+                try { await this.db.close(); } catch { /* best-effort */ }
+                this.db = null;
+            }
+            try { await this.deleteDatabaseFile(); } catch (cleanupErr) { debug(`Cleanup delete also failed: ${cleanupErr}`); }
+            throw schemaError;
         }
+
+        debug(`[SQLiteIndex] Database recreated successfully: ${reason}`);
+
+        this._onDatabaseRecreated.fire(reason);
     }
 
     private async getSchemaVersion(): Promise<number> {
@@ -2772,6 +2790,7 @@ export class SQLiteIndexManager {
         this.currentProgressStartTime = null;
         this.progressTimings = [];
         this._nonCriticalErrorCounts.clear();
+        this._onDatabaseRecreated.dispose();
 
         // Wait for any in-flight transaction to complete before closing.
         // We acquire the transaction lock so checkpoint + close cannot
