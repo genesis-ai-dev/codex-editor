@@ -805,10 +805,6 @@ export class SQLiteIndexManager {
                 this.db = null;
             }
 
-            // Best-effort backup: copy the database file before deletion so we
-            // have a forensic snapshot for diagnosing recurring corruption.
-            await this.backupDatabaseFile();
-
             await this.deleteDatabaseFile();
 
             if (!this.dbPath) {
@@ -829,6 +825,16 @@ export class SQLiteIndexManager {
                 }
 
                 await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+
+                // Flush schema to the main file immediately so the .sqlite
+                // file reflects the new schema even before the sync populates data.
+                // Without this, all schema DDL lives in the WAL and the main
+                // file appears as an empty 4KB stub.
+                try {
+                    await this.db!.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+                } catch {
+                    // Non-critical — data is still accessible via WAL
+                }
             } catch (schemaError) {
                 // Clean up the partially-created DB so the next attempt starts fresh
                 // instead of finding a zombie file with no/broken schema.
@@ -2566,9 +2572,14 @@ export class SQLiteIndexManager {
      * Flush WAL data to the main database file.
      * Called after batch operations (sync, targeted sync) to ensure data
      * is merged into the main file and survives a force-quit.
+     *
+     * Uses TRUNCATE mode (same as close()) to guarantee all WAL pages are
+     * merged into the main file. PASSIVE mode can silently leave data in
+     * the WAL if there are lingering readers, causing the main .sqlite file
+     * to appear empty (e.g. 4KB after a nuke-and-recreate migration).
      */
     async forceSave(): Promise<void> {
-        await this.walCheckpoint();
+        await this.walCheckpoint("TRUNCATE");
     }
 
     /**
@@ -2855,6 +2866,9 @@ export class SQLiteIndexManager {
             this.resetNonCriticalErrorCount("walCheckpoint");
         } catch (error) {
             this.walCheckpointFailureCount++;
+            if (effectiveMode === "TRUNCATE" || effectiveMode === "FULL") {
+                console.warn(`[SQLiteIndex] WAL checkpoint(${effectiveMode}) failed — data may remain in WAL file:`, error);
+            }
             this.logNonCriticalError("walCheckpoint", error);
         }
     }
@@ -3093,25 +3107,6 @@ export class SQLiteIndexManager {
         }
 
         debug("Database file and auxiliary files deleted successfully");
-    }
-
-    /**
-     * Best-effort backup: copy the main database file to a `.bak` sibling.
-     * This gives us a forensic snapshot when we're about to nuke-and-recreate
-     * so corruption patterns can be investigated after the fact.
-     * Failures are swallowed — a failed backup must never prevent recovery.
-     */
-    private async backupDatabaseFile(): Promise<void> {
-        try {
-            if (!this.dbPath) return;
-            const fs = await import("fs/promises");
-            const backupPath = `${this.dbPath}.bak`;
-            await fs.copyFile(this.dbPath, backupPath);
-            debug(`[SQLiteIndex] Database backed up to ${backupPath}`);
-        } catch (backupErr) {
-            // Swallow — the original file may already be gone or inaccessible
-            this.logNonCriticalError("backupDatabaseFile", backupErr);
-        }
     }
 
     // Manual command to delete database and trigger reindex
