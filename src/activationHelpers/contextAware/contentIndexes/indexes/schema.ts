@@ -157,19 +157,20 @@ export const TIMESTAMP_TRIGGERS = [
 /**
  * FTS5 triggers — intentionally empty.
  *
- * FTS synchronization is managed in application code for two reasons:
- *   1. Per-row triggers on FTS5 virtual tables are expensive — INSERT OR REPLACE
- *      creates duplicates (FTS5 has no unique constraints), and DELETE requires
- *      a full table scan (no B-tree indexes on FTS5 columns).
- *   2. A single bulk rebuild after sync (DELETE + INSERT…SELECT from cells) is
- *      O(N) total instead of O(N) trigger invocations with overhead, produces a
- *      clean duplicate-free FTS table, and is faster in practice.
+ * FTS synchronization is managed in application code because per-row triggers
+ * on FTS5 virtual tables are expensive: INSERT OR REPLACE creates duplicates
+ * (FTS5 has no unique constraints) and DELETE requires a full table scan
+ * (no B-tree indexes on FTS5 columns).
  *
- * Application-level FTS management:
- *   - Bulk sync: rebuildFTSFromCells() after all cells are upserted
- *   - Interactive edits: upsertCellWithFTSSync() inserts a single FTS row
- *     for immediate search visibility
- *   - removeAll(): already clears cells_fts before cells
+ * Application-level FTS management uses a tiered strategy:
+ *   - Interactive edits: upsertCellWithFTSSync() does DELETE + INSERT for
+ *     the single edited cell — precise, no duplicates, fast for one-off ops.
+ *   - Sync (few cells changed): updateFTSForChangedCells() does targeted
+ *     DELETE + INSERT only for the cells that actually changed.
+ *   - Sync (many cells changed): automatically falls back to
+ *     rebuildFTSFromCells() which does a full DELETE + INSERT…SELECT from
+ *     the cells table — O(N) total, produces a clean FTS index.
+ *   - removeAll(): already clears cells_fts before cells.
  */
 export const FTS_TRIGGERS: string[] = [];
 

@@ -158,6 +158,7 @@ export class FileSyncManager {
 
             debug(`[FileSyncManager] Processing ${filesToProcess.length} files in ${batches.length} batches of ${BATCH_SIZE}`);
 
+            const allChangedCellIds = new Set<string>();
             let processedCount = 0;
             for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
                 // Check shutdown between batches so a project swap isn't blocked
@@ -217,6 +218,7 @@ export class FileSyncManager {
                 // overwrites it via INSERT OR REPLACE.
                 if (readyFiles.length > 0) {
                     let batchSynced = 0;
+                    const batchChangedCells = new Set<string>();
                     try {
                         // Use runInTransactionWithRetry for batch operations —
                         // if another connection or process holds a lock, we retry
@@ -224,7 +226,8 @@ export class FileSyncManager {
                         await this.sqliteIndex.runInTransactionWithRetry(async () => {
                             for (const { fileData, filePath, fileStat, contentHash } of readyFiles) {
                                 try {
-                                    await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
+                                    const changed = await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
+                                    for (const id of changed) { batchChangedCells.add(id); }
                                     batchSynced++;
                                     debug(`[FileSyncManager] Synced file: ${fileData.id}`);
                                 } catch (error) {
@@ -233,8 +236,9 @@ export class FileSyncManager {
                                 }
                             }
                         });
-                        // Transaction committed — count these files
+                        // Transaction committed — merge changed cells
                         syncedFiles += batchSynced;
+                        for (const id of batchChangedCells) { allChangedCellIds.add(id); }
                     } catch (txError) {
                         // Transaction rolled back — none of these files were committed
                         const errorMsg = txError instanceof Error ? txError.message : String(txError);
@@ -277,9 +281,9 @@ export class FileSyncManager {
                 }
             }
 
-            // Rebuild FTS index in a single bulk pass (faster than per-row triggers)
+            // Update FTS only for cells that actually changed (or full rebuild if many)
             progressCallback?.("Building search index...", 93);
-            await this.sqliteIndex.rebuildFTSFromCells();
+            await this.sqliteIndex.updateFTSForChangedCells(allChangedCellIds);
 
             // Force save to ensure all changes are persisted
             progressCallback?.("Finalizing AI learning...", 97);
@@ -309,13 +313,16 @@ export class FileSyncManager {
     /**
      * Write a single file's data to the database.
      * Must be called within an existing transaction (no BEGIN/COMMIT here).
+     *
+     * @returns The set of cell IDs whose content actually changed (for FTS updates).
      */
     private async writeSingleFileToDB(
         fileData: FileData,
         filePath: string,
         fileStat: vscode.FileStat,
         contentHash: string
-    ): Promise<void> {
+    ): Promise<Set<string>> {
+        const changedCellIds = new Set<string>();
         const fileType = filePath.includes('.source') ? 'source' : 'codex';
 
         // Update/insert the file in the main files table (pass the real content hash)
@@ -377,7 +384,7 @@ export class FileSyncManager {
                 logicalLinePosition++;
             }
 
-            await this.sqliteIndex.upsertCellSync(
+            const result = await this.sqliteIndex.upsertCellSync(
                 cellId,
                 fileId,
                 fileType === 'source' ? 'source' : 'target',
@@ -388,6 +395,9 @@ export class FileSyncManager {
                 null,
                 cellLabel
             );
+            if (result.contentChanged) {
+                changedCellIds.add(cellId);
+            }
         }
 
         // Update sync metadata via the public API (not direct DB access)
@@ -398,6 +408,8 @@ export class FileSyncManager {
             fileStat.size,
             fileStat.mtime
         );
+
+        return changedCellIds;
     }
 
     /**
@@ -525,6 +537,7 @@ export class FileSyncManager {
             const filesToProcess = filesToSync.map(path => fileMap.get(path)).filter(Boolean) as FileData[];
 
             // Process files with progress tracking (sequential — one transaction per file)
+            const allChangedCellIds = new Set<string>();
             for (let i = 0; i < filesToProcess.length; i++) {
                 const fileData = filesToProcess[i];
                 const filePath = fileData.uri.fsPath;
@@ -543,9 +556,11 @@ export class FileSyncManager {
                     const contentHash = createHash("sha256").update(fileContent).digest("hex");
 
                     // Write to DB in a transaction with retry for SQLITE_BUSY resilience
+                    let fileChangedCells = new Set<string>();
                     await this.sqliteIndex.runInTransactionWithRetry(async () => {
-                        await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
+                        fileChangedCells = await this.writeSingleFileToDB(fileData, filePath, fileStat, contentHash);
                     });
+                    for (const id of fileChangedCells) { allChangedCellIds.add(id); }
                     syncedFiles++;
                     debug(`[FileSyncManager] Synced targeted file: ${fileData.id}`);
                 } catch (error) {
@@ -573,9 +588,9 @@ export class FileSyncManager {
                 }
             }
 
-            // Rebuild FTS index in a single bulk pass
+            // Update FTS only for cells that actually changed (or full rebuild if many)
             progressCallback?.("Building search index...", 93);
-            await this.sqliteIndex.rebuildFTSFromCells();
+            await this.sqliteIndex.updateFTSForChangedCells(allChangedCellIds);
 
             // Finalize
             progressCallback?.("Finalizing targeted sync...", 97);
