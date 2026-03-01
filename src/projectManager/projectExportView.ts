@@ -791,7 +791,7 @@ function getWebviewContent(
 
                 });
 
-                const selfManagedFormats = ['html', 'audio', 'rebuild-export'];
+                const selfManagedFormats = ['rebuild-export'];
 
                 function isSelfManagedFormat() {
                     const fmt = selectedFormat || (selectedAudio ? 'audio' : null);

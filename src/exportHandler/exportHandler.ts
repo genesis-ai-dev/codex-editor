@@ -1610,8 +1610,6 @@ export async function exportCodexContent(
     const shouldZip = options?.zipOutput ?? false;
 
     const selfManagedFormats: CodexExportFormat[] = [
-        CodexExportFormat.HTML,
-        CodexExportFormat.AUDIO,
         CodexExportFormat.REBUILD_EXPORT,
     ];
     const isSelfManaged = selfManagedFormats.includes(format);
@@ -1623,8 +1621,14 @@ export async function exportCodexContent(
         const projectName = projectConfig.get<string>("projectName", "") ||
             basename(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "export");
         const dateStamp = new Date().toISOString().slice(0, 10);
-        const subfolderName = `${projectName}-${format}-${dateStamp}`;
-        effectivePath = path.join(userSelectedPath, subfolderName);
+        const baseName = `${projectName}-${format}-${dateStamp}`;
+        let candidate = path.join(userSelectedPath, baseName);
+        let suffix = 1;
+        while (fs.existsSync(candidate) || fs.existsSync(`${candidate}.zip`)) {
+            candidate = path.join(userSelectedPath, `${baseName}-${suffix}`);
+            suffix++;
+        }
+        effectivePath = candidate;
     }
 
     // Check if audio export should also be included alongside the text format export
