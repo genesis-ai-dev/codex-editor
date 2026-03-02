@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import JSZip from "jszip";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import * as path from "path";
@@ -218,6 +217,8 @@ export interface ExportOptions {
     removeIds?: boolean;
     wrapInFolder?: boolean;
     zipOutput?: boolean;
+    includeAudio?: boolean;
+    includeTimestamps?: boolean;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -1632,7 +1633,7 @@ export async function exportCodexContent(
     }
 
     // Check if audio export should also be included alongside the text format export
-    const includeAudio = (options as any)?.includeAudio === true && format !== CodexExportFormat.AUDIO;
+    const includeAudio = options?.includeAudio === true && format !== CodexExportFormat.AUDIO;
 
     // Prepare export promises
     const exportPromises: Promise<void>[] = [];
@@ -1650,7 +1651,7 @@ export async function exportCodexContent(
             break;
         case CodexExportFormat.AUDIO: {
             const { exportAudioAttachments } = await import("./audioExporter");
-            exportPromises.push(exportAudioAttachments(effectivePath, filesToExport, { includeTimestamps: (options as any)?.includeTimestamps }));
+            exportPromises.push(exportAudioAttachments(effectivePath, filesToExport, { includeTimestamps: options?.includeTimestamps }));
             break;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
@@ -1684,7 +1685,7 @@ export async function exportCodexContent(
         const { exportAudioAttachments } = await import("./audioExporter");
         exportPromises.push(
             exportAudioAttachments(effectivePath, filesToExport, {
-                includeTimestamps: (options as any)?.includeTimestamps
+                includeTimestamps: options?.includeTimestamps
             })
         );
     }
