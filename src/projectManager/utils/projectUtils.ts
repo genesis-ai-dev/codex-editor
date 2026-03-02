@@ -1523,86 +1523,78 @@ async function processProjectDirectory(
                 // Check if published (has git remote)
                 const gitOrigin = await getGitOriginUrl(projectPath);
 
-                // If it has NO git origin (local-only), check folder name consistency
-                if (!gitOrigin) {
+                // If it has NO git origin (local-only), check folder name consistency.
+                // Never rename the currently open workspace folder — it would break the active VS Code window.
+                const currentWorkspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const isCurrentWorkspace = currentWorkspaceFolder && path.normalize(projectPath) === path.normalize(currentWorkspaceFolder);
+
+                if (!gitOrigin && !isCurrentWorkspace) {
                     const metadataProjectId = projectMetadata.projectId;
-                    const uuidsInFolder = findAllUuidSegments(currentName);
 
-                    // CRITICAL: Check for multiple UUIDs first (e.g., "project-uuid1-uuid2")
-                    // If found, use metadata.projectId as source of truth and fix the folder name
-                    // NOTE: This only runs for LOCAL-ONLY projects (no git remote)
-                    if (uuidsInFolder.length > 1) {
-                        debug(`MULTIPLE UUIDs detected in folder name: ${uuidsInFolder.join(', ')}`);
+                    // Use metadata as the source of truth: projectName is the user-chosen name,
+                    // projectId is the code-generated ID. The correct folder name is "{projectName}-{projectId}".
+                    const metadataProjectName = projectMetadata.projectName?.trim();
+                    const expectedBaseName = metadataProjectName
+                        ? sanitizeProjectName(metadataProjectName)
+                        : null;
+                    const expectedFolderName = expectedBaseName
+                        ? `${expectedBaseName}-${metadataProjectId}`
+                        : null;
 
-                        // Use metadata.projectId as the single source of truth
-                        // Fallback to FIRST UUID (the original) if metadata has none
-                        const correctId = metadataProjectId || uuidsInFolder[0] || generateProjectId();
-                        if (!metadataProjectId) {
-                            projectMetadata.projectId = correctId;
-                        }
-
-                        // Strip ALL UUIDs and append only the correct one
-                        const baseName = sanitizeProjectName(stripAllUuids(currentName));
-                        const newName = `${baseName}-${correctId}`;
-
-                        if (newName !== currentName) {
-                            const newPath = path.join(folder, newName);
+                    if (expectedFolderName && currentName === expectedFolderName) {
+                        debug(`Folder name matches metadata: ${currentName}`);
+                    } else if (currentName.endsWith(`-${metadataProjectId}`)) {
+                        // Folder ends with the correct projectId but the base name doesn't match metadata.
+                        // This covers duplicate-ID cases like "name-id-id-id" (still ends with "-id")
+                        // and simple base name mismatches.
+                        if (expectedFolderName && expectedFolderName !== currentName) {
+                            const newPath = path.join(folder, expectedFolderName);
                             try {
                                 await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
-                                debug(`Cannot fix duplicate UUIDs: target ${newName} already exists`);
+                                debug(`Cannot rename to ${expectedFolderName}: target already exists`);
                             } catch {
-                                await vscode.workspace.fs.writeFile(
-                                    metadataUri,
-                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
-                                );
                                 await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
-                                debug(`Fixed duplicate UUIDs: renamed ${currentName} to ${newName}`);
-                                currentName = newName;
+                                debug(`Renamed folder to match metadata: ${currentName} -> ${expectedFolderName}`);
+                                currentName = expectedFolderName;
                                 projectPath = newPath;
                             }
                         }
-                    }
-                    // Normal case: single or no UUID
-                    else if (metadataProjectId && currentName.endsWith(`-${metadataProjectId}`)) {
-                        debug(`Folder name already ends with projectId: ${metadataProjectId}`);
-                        // Nothing to do - folder and metadata are in sync
-                    } else if (uuidsInFolder.length === 1) {
-                        // Folder has exactly one UUID but it doesn't match metadata - sync metadata to folder
-                        const folderUuid = uuidsInFolder[0];
-                        if (folderUuid !== metadataProjectId) {
-                            projectMetadata.projectId = folderUuid;
+                    } else {
+                        // Folder doesn't end with metadata's projectId at all.
+                        // Check if it has a different ID suffix — if so, sync metadata to match folder
+                        // (the folder was created with that ID; renaming is more disruptive than syncing metadata).
+                        const folderSuffixId = extractProjectIdFromFolderName(currentName);
+
+                        if (folderSuffixId && folderSuffixId !== metadataProjectId) {
+                            projectMetadata.projectId = folderSuffixId;
                             await vscode.workspace.fs.writeFile(
                                 metadataUri,
                                 Buffer.from(JSON.stringify(projectMetadata, null, 4))
                             );
-                            debug(`Updated metadata projectId to match folder UUID: ${folderUuid}`);
-                        }
-                    } else {
-                        // Folder has NO UUID suffix - need to add one
-                        // Use metadata's projectId if available, otherwise generate new
-                        const idToUse = metadataProjectId || generateProjectId();
-                        if (!metadataProjectId) {
-                            projectMetadata.projectId = idToUse;
-                        }
+                            debug(`Updated metadata projectId to match folder suffix: ${folderSuffixId}`);
+                        } else {
+                            // No recognizable ID suffix — append metadata's projectId
+                            const baseName = expectedBaseName || sanitizeProjectName(currentName) || "untitled-project";
+                            if (!metadataProjectName) {
+                                projectMetadata.projectName = baseName;
+                            }
+                            const newName = `${baseName}-${metadataProjectId}`;
 
-                        // Get base name from folder (it has no UUID since we checked above)
-                        const baseName = sanitizeProjectName(currentName);
-                        const newName = `${baseName}-${idToUse}`;
-
-                        if (newName !== currentName) {
-                            const newPath = path.join(folder, newName);
-                            try {
-                                await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
-                                debug(`Cannot rename ${currentName} to ${newName} because target exists`);
-                            } catch {
-                                await vscode.workspace.fs.writeFile(
-                                    metadataUri,
-                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
-                                );
-                                await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
-                                debug(`Renamed local project folder from ${currentName} to ${newName}`);
-                                currentName = newName;
-                                projectPath = newPath;
+                            if (newName !== currentName) {
+                                const newPath = path.join(folder, newName);
+                                try {
+                                    await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
+                                    debug(`Cannot rename ${currentName} to ${newName}: target already exists`);
+                                } catch {
+                                    await vscode.workspace.fs.writeFile(
+                                        metadataUri,
+                                        Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                                    );
+                                    await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
+                                    debug(`Renamed local project folder: ${currentName} -> ${newName}`);
+                                    currentName = newName;
+                                    projectPath = newPath;
+                                }
                             }
                         }
                     }
