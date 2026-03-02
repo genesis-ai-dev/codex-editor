@@ -749,27 +749,27 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             }
         }
         try {
+            await vscode.workspace.fs.stat(sourceTextsPath);
             const sourceEntries = await vscode.workspace.fs.readDirectory(sourceTextsPath);
             for (const [name] of sourceEntries) {
                 if (name.endsWith("source")) {
                     sourceTexts.push(vscode.Uri.joinPath(sourceTextsPath, name));
                 }
             }
-        } catch (error) {
-            // Directory might not exist for new projects, which is fine
-            // console.error("Error reading source text Bibles:", error);
+        } catch {
+            // Directory doesn't exist for new projects — expected
         }
 
         try {
+            await vscode.workspace.fs.stat(targetTextsPath);
             const targetEntries = await vscode.workspace.fs.readDirectory(targetTextsPath);
             for (const [name] of targetEntries) {
                 if (name.endsWith("target")) {
                     targetTexts.push(vscode.Uri.joinPath(targetTextsPath, name));
                 }
             }
-        } catch (error) {
-            // Directory might not exist for new projects, which is fine
-            // console.error("Error reading target text Bibles:", error);
+        } catch {
+            // Directory doesn't exist for new projects — expected
         }
 
         const currentWorkspaceFolderName = workspaceFolder.name;
