@@ -9,6 +9,8 @@
  * Supports both spreadsheet-csv and spreadsheet-tsv importer types.
  */
 
+import { splitCSVIntoLogicalRows } from './parser';
+
 export interface SpreadsheetCell {
     id: string;
     value: string;
@@ -161,26 +163,26 @@ export function exportSpreadsheetWithTranslations(
             console.log(`[Spreadsheet Export] Removed BOM from content`);
         }
 
-        // Handle both Unix (\n) and Windows (\r\n) line endings
-        const lines = cleanContent.split(/\r?\n/);
+        // Split into logical rows (respect quoted newlines so multi-line fields stay one row)
+        const logicalRows = splitCSVIntoLogicalRows(cleanContent);
         const outputLines: string[] = [];
 
-        console.log(`[Spreadsheet Export] File has ${lines.length} lines`);
+        console.log(`[Spreadsheet Export] File has ${logicalRows.length} logical rows`);
 
-        // First line is ALWAYS the header - keep it EXACTLY as is
-        if (lines.length > 0) {
-            const headerLine = lines[0];
+        // First row is ALWAYS the header - keep it EXACTLY as is
+        if (logicalRows.length > 0) {
+            const headerLine = logicalRows[0];
             // Keep header line unchanged - DO NOT parse or modify it
             outputLines.push(headerLine);
             console.log(`[Spreadsheet Export] Preserved header (${headerLine.length} chars): "${headerLine.substring(0, 100)}${headerLine.length > 100 ? '...' : ''}"`);
         }
 
-        // Process data rows (skip first line which is header)
-        for (let i = 1; i < lines.length; i++) {
-            const line = lines[i];
+        // Process data rows (skip first row which is header)
+        for (let i = 1; i < logicalRows.length; i++) {
+            const line = logicalRows[i];
 
             // Skip empty lines at the end
-            if (!line.trim() && i === lines.length - 1) {
+            if (!line.trim() && i === logicalRows.length - 1) {
                 continue;
             }
 
