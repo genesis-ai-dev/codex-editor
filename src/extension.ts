@@ -473,18 +473,33 @@ export async function activate(context: vscode.ExtensionContext) {
                 const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
                 console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
 
-                // Clear flags
+                // Clear flags immediately to prevent re-triggering on subsequent reloads
                 await context.globalState.update("pendingProjectCreate", undefined);
                 await context.globalState.update("pendingProjectCreateName", undefined);
                 await context.globalState.update("pendingProjectCreateId", undefined);
 
+                // Only create the project if metadata.json doesn't already exist.
+                // A stale pendingProjectCreate flag (e.g. from a failed folder creation or
+                // multi-window race) should NOT re-trigger creation on an existing project.
+                const pendingMetadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+                let pendingMetadataExists = false;
                 try {
-                    // We are in the new folder. Initialize it.
-                    const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
-                    await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
-                } catch (error) {
-                    console.error("Failed to resume project creation:", error);
-                    vscode.window.showErrorMessage("Failed to create project after reload.");
+                    await vscode.workspace.fs.stat(pendingMetadataUri);
+                    pendingMetadataExists = true;
+                } catch {
+                    // metadata.json doesn't exist, safe to create
+                }
+
+                if (pendingMetadataExists) {
+                    console.debug("[Extension] Skipping pending project creation — metadata.json already exists (stale flag)");
+                } else {
+                    try {
+                        const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
+                        await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
+                    } catch (error) {
+                        console.error("Failed to resume project creation:", error);
+                        vscode.window.showErrorMessage("Failed to create project after reload.");
+                    }
                 }
             }
 

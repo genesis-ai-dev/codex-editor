@@ -2448,7 +2448,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // The folder name will still include the UUID via createWorkspaceWithProjectName
                         await this.context.globalState.update("pendingProjectCreateName", sanitized);
                         await this.context.globalState.update("pendingProjectCreateId", projectId);
-                        await createWorkspaceWithProjectName(sanitized, projectId);
+                        try {
+                            await createWorkspaceWithProjectName(sanitized, projectId);
+                        } catch (innerError) {
+                            await this.context.globalState.update("pendingProjectCreate", undefined);
+                            await this.context.globalState.update("pendingProjectCreateName", undefined);
+                            await this.context.globalState.update("pendingProjectCreateId", undefined);
+                            throw innerError;
+                        }
                     }
                 } catch (error) {
                     console.error("Error creating project with name:", error);
@@ -2465,7 +2472,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // The folder name will still include the UUID via createWorkspaceWithProjectName
                     await this.context.globalState.update("pendingProjectCreateName", projectName);
                     await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
-                    await createWorkspaceWithProjectName(projectName, finalProjectId);
+                    try {
+                        await createWorkspaceWithProjectName(projectName, finalProjectId);
+                    } catch (error) {
+                        await this.context.globalState.update("pendingProjectCreate", undefined);
+                        await this.context.globalState.update("pendingProjectCreateName", undefined);
+                        await this.context.globalState.update("pendingProjectCreateId", undefined);
+                        console.error("Error creating workspace with project name:", error);
+                    }
                 }
                 break;
             }
