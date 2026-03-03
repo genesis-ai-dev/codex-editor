@@ -445,6 +445,22 @@ const SYNC_DELAY_MINIMUM = 5;
 async function migrateSyncSettingsFromVSCodeConfig(
     workspaceFolderUri?: vscode.Uri
 ): Promise<{ autoSyncEnabled: boolean; syncDelayMinutes: number }> {
+    const settingsPath = getSettingsFilePath(workspaceFolderUri);
+    if (!settingsPath) {
+        return { autoSyncEnabled: true, syncDelayMinutes: 5 };
+    }
+
+    // Only run migration inside an actual project (one that has a .project directory)
+    const projectDir = vscode.Uri.joinPath(
+        workspaceFolderUri || vscode.workspace.workspaceFolders![0].uri,
+        ".project"
+    );
+    try {
+        await vscode.workspace.fs.stat(projectDir);
+    } catch {
+        return { autoSyncEnabled: true, syncDelayMinutes: 5 };
+    }
+
     const settings = await readLocalProjectSettings(workspaceFolderUri);
 
     if (settings.autoSyncEnabled !== undefined && settings.syncDelayMinutes !== undefined) {
@@ -465,6 +481,19 @@ async function migrateSyncSettingsFromVSCodeConfig(
     settings.syncDelayMinutes = syncDelayMinutes;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
     debug("Migrated sync settings from VS Code config:", { autoSyncEnabled, syncDelayMinutes });
+
+    if (!autoSyncEnabled) {
+        vscode.window
+            .showInformationMessage(
+                "You previously disabled auto-sync. If you'd like to re-enable it, click here to go to the settings page.",
+                "Open Sync Settings"
+            )
+            .then((selection) => {
+                if (selection === "Open Sync Settings") {
+                    vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                }
+            });
+    }
 
     return { autoSyncEnabled, syncDelayMinutes };
 }
