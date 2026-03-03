@@ -551,7 +551,7 @@ export class SyncManager {
     }
 
     // Schedule a sync operation to occur after the configured delay
-    public scheduleSyncOperation(commitMessage: string = "Auto-sync changes"): void {
+    public async scheduleSyncOperation(commitMessage: string = "Auto-sync changes"): Promise<void> {
         debug(`scheduleSyncOperation called with message: "${commitMessage}"`);
 
         // Don't schedule sync while NewSourceUploader is importing files
@@ -576,16 +576,9 @@ export class SyncManager {
             return;
         }
 
-        // Get current configuration
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
-
-        // Ensure minimum sync delay is 5 minutes
-        if (syncDelayMinutes < 5) {
-            syncDelayMinutes = 5;
-            debug("Sync delay was less than 5 minutes, adjusting to 5 minutes");
-        }
+        // Get current configuration from local project settings
+        const { getSyncSettings } = await import("../utils/localProjectSettings");
+        const { autoSyncEnabled, syncDelayMinutes } = await getSyncSettings();
 
         // Clear any pending sync operation
         this.clearPendingSync();
@@ -1286,28 +1279,19 @@ export class SyncManager {
     }
 
     // Update the manager settings from configuration
-    public updateFromConfiguration(): void {
-        // This method will be called when configuration changes
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        let autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+    public async updateFromConfiguration(): Promise<void> {
+        const { getSyncSettings } = await import("../utils/localProjectSettings");
+        const syncSettings = await getSyncSettings();
+        let autoSyncEnabled = syncSettings.autoSyncEnabled;
+        const syncDelayMinutes = syncSettings.syncDelayMinutes;
 
         // Check if there's a workspace folder open
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
 
         if (!hasWorkspace) {
-            // Disable autosync when no workspace is open
             autoSyncEnabled = false;
             debug("SyncManager: No workspace open, disabling autosync and clearing pending operations");
-
-            // Clear any pending sync operations
             this.clearPendingSync();
-        }
-
-        // Ensure minimum sync delay is 5 minutes
-        if (syncDelayMinutes < 5) {
-            syncDelayMinutes = 5;
-            debug("Sync delay was less than 5 minutes, adjusting to 5 minutes");
         }
 
         debug(
@@ -1478,18 +1462,6 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
             debug("manualCommit called, scheduling sync operation");
             syncManager.scheduleSyncOperation(message);
-        })
-    );
-
-    // Listen for configuration changes
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (
-                event.affectsConfiguration("codex-project-manager.autoSyncEnabled") ||
-                event.affectsConfiguration("codex-project-manager.syncDelayMinutes")
-            ) {
-                syncManager.updateFromConfiguration();
-            }
         })
     );
 

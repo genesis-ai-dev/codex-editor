@@ -1,5 +1,4 @@
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import { SyncManager } from '../../../projectManager/syncManager';
 
 suite('E2E: Timer Management Tests', () => {
@@ -308,11 +307,10 @@ suite('E2E: Timer Management Tests', () => {
         test('Respects user-configured sync delay', async function () {
             this.timeout(5000);
 
-            const config = vscode.workspace.getConfiguration('codex-project-manager');
-            const syncDelayMinutes = config.get<number>('syncDelayMinutes', 5);
+            const { getSyncSettings } = await import('../../../utils/localProjectSettings');
+            const { syncDelayMinutes } = await getSyncSettings();
 
-            // Verify minimum is respected
-            assert.ok(syncDelayMinutes >= 1, 'Sync delay should be at least 1 minute');
+            assert.ok(syncDelayMinutes >= 5, 'Sync delay should be at least 5 minutes');
             assert.ok(syncDelayMinutes <= 60, 'Sync delay should be at most 60 minutes');
         });
     });

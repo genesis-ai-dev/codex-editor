@@ -43,13 +43,11 @@ suite('SyncManager Lock Detection Tests', () => {
     });
 
     suite('Configuration', () => {
-        test('Should respect minimum sync delay of 5 minutes', () => {
-            // This is a behavioral test - we're verifying the manager
-            // handles configuration correctly
-            const config = vscode.workspace.getConfiguration('codex-project-manager');
-            const syncDelay = config.get<number>('syncDelayMinutes', 5);
+        test('Should respect minimum sync delay of 5 minutes', async () => {
+            const { getSyncSettings } = await import('../../utils/localProjectSettings');
+            const { syncDelayMinutes } = await getSyncSettings();
 
-            assert.ok(syncDelay >= 5, 'Sync delay should be at least 5 minutes');
+            assert.ok(syncDelayMinutes >= 5, 'Sync delay should be at least 5 minutes');
         });
     });
 });
