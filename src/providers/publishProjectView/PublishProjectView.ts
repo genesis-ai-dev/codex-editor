@@ -101,6 +101,7 @@ export class PublishProjectView {
                                     });
 
                                     safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
+                                    this.notifyMainMenuPublishStatus(true, "Creating...");
 
                                     // Check and populate user info if missing before publishing
                                     try {
@@ -214,6 +215,7 @@ export class PublishProjectView {
                                 } finally {
                                     // If the panel has been disposed (e.g., after success), this will safely no-op
                                     safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
+                                    this.notifyMainMenuPublishStatus(false);
                                 }
                             }
                         );
@@ -265,10 +267,23 @@ export class PublishProjectView {
 
     public dispose() {
         PublishProjectView.currentPanel = undefined;
+        this.notifyMainMenuPublishStatus(false);
         this._panel.dispose();
         while (this._disposables.length) {
             const d = this._disposables.pop();
             if (d) d.dispose();
+        }
+    }
+
+    private notifyMainMenuPublishStatus(isPublishingInProgress: boolean, publishingStage: string = "") {
+        try {
+            const mainMenuProvider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu");
+            (mainMenuProvider as any)?.receiveMessage({
+                command: "publishStatusUpdate",
+                data: { isPublishingInProgress, publishingStage },
+            });
+        } catch {
+            // Main menu may not be available
         }
     }
 
