@@ -418,51 +418,46 @@ export class SyncManager {
                         break;
                     case 'completed':
                         debug('[Sync] ✅ Sync completed successfully');
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                            // Let executeSyncInBackground own the final state
+                            break;
+                        }
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync complete';
                         this.notifySyncStatusListeners();
-                        // Resolve the progress notification to complete it (if it exists)
                         if (this.frontierSyncProgressResolver) {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
-                        // Decrement counter if we have Codex-initiated syncs
-                        if (this.codexInitiatedSyncCount > 0) {
-                            this.codexInitiatedSyncCount--;
-                        }
-                        // Post-sync swap check: after sync completes, check if a swap is required
-                        // This handles the case where the admin just initiated a swap and synced with bypass,
-                        // or when another user pushes swap info that gets pulled during sync
                         this.checkProjectSwapAfterSync();
                         break;
                     case 'error':
                         console.error(`[Sync] ❌ Sync failed: ${status.message || 'Unknown error'}`);
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                            break;
+                        }
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync failed';
                         this.notifySyncStatusListeners();
-                        // Resolve the progress notification to complete it (if it exists)
                         if (this.frontierSyncProgressResolver) {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
-                        }
-                        // Decrement counter if we have Codex-initiated syncs
-                        if (this.codexInitiatedSyncCount > 0) {
-                            this.codexInitiatedSyncCount--;
                         }
                         break;
                     case 'skipped':
                         console.warn(`[Sync] ⏭️  Sync skipped: ${status.message || 'Another sync in progress'}`);
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                            break;
+                        }
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync skipped';
                         this.notifySyncStatusListeners();
-                        // Resolve the progress notification to complete it (if it exists)
                         if (this.frontierSyncProgressResolver) {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
-                        }
-                        // Decrement counter if we have Codex-initiated syncs
-                        if (this.codexInitiatedSyncCount > 0) {
-                            this.codexInitiatedSyncCount--;
                         }
                         break;
                 }
@@ -1006,6 +1001,9 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             updateSplashScreenSync(100, "Synchronization complete");
 
+            // Post-sync swap check (handled here instead of Frontier callback for Codex-initiated syncs)
+            this.checkProjectSwapAfterSync();
+
             // Clear local update completion flag now that sync has pushed changes to remote
             try {
                 const { clearUpdateCompletedLocally } = await import("../utils/localProjectSettings");
@@ -1066,7 +1064,9 @@ export class SyncManager {
                 vscode.window.showErrorMessage(`Sync failed: ${errorMessage}`);
             }
         } finally {
-            this.currentSyncStage = "";
+            // Don't clear currentSyncStage here — let the progress poller read
+            // the value set by the try ("Synchronization complete!") or catch ("Sync failed") block.
+            // The next sync cycle will overwrite it when it starts.
             this.isSyncInProgress = false;
             this.notifySyncStatusListeners();
 
