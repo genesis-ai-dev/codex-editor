@@ -580,8 +580,8 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "publishStatusUpdate":
                 this.sendPublishStatusUpdate(
-                    (message as any).data?.isPublishingInProgress ?? false,
-                    (message as any).data?.publishingStage ?? "",
+                    message.data?.isPublishingInProgress ?? false,
+                    message.data?.publishingStage ?? "",
                 );
                 break;
             case "webviewReady":
