@@ -3,7 +3,7 @@ import { callLLM } from "./llmUtils";
 import type * as vscode from "vscode";
 import type { TranslationPair } from "../../types";
 import type { CompletionConfig } from "./llmUtils";
-import { buildFewShotExamplesText, buildMessages } from "../providers/translationSuggestions/shared";
+import { buildFewShotExamplesText, buildMessages, parseFinalAnswer } from "../providers/translationSuggestions/shared";
 
 // Helper function to fetch translation pairs using SBS algorithm
 async function fetchTranslationPairs(
@@ -36,16 +36,17 @@ async function generateCompletionFromPairs(
 
   const msgs = buildMessages(
     ctx.targetLanguage,
-    ctx.systemMessage,
-    ctx.userMessageInstructions.split("\n"),
+    ctx.chatSystemMessage,
     examplesText,
     ctx.precedingTranslationPairs,
     ctx.currentCellSourceContent,
     ctx.allowHtmlPredictions,
-    "source-and-target"
+    "source-and-target",
+    ctx.sourceLanguage
   );
 
-  return await callLLM(msgs, ctx.completionConfig, ctx.token);
+  const raw = await callLLM(msgs, ctx.completionConfig, ctx.token);
+  return parseFinalAnswer(raw);
 }
 
 export function initializeABTesting() {
@@ -117,8 +118,8 @@ interface ABTestContext {
   allowHtmlPredictions: boolean;
   fewShotExampleFormat: string;
   targetLanguage: string | null;
-  systemMessage: string;
-  userMessageInstructions: string;
+  chatSystemMessage: string;
+  sourceLanguage: string | null;
   precedingTranslationPairs: any[];
   completionConfig: CompletionConfig;
   token?: vscode.CancellationToken;

@@ -188,7 +188,8 @@ function preserveInlineMarkupChanges(
 }
 
 /**
- * Gets the original content from attachments
+ * Gets the original content from attachments.
+ * Tries originalFileRef first, then the alternate path (files/originals vs originals) for backward compatibility.
  */
 async function getOriginalContent(
     structureMetadata: DocumentStructureMetadata
@@ -198,25 +199,36 @@ async function getOriginalContent(
         throw new Error('No workspace folder found');
     }
 
-    const originalFileUri = vscode.Uri.joinPath(
-        workspaceFolders[0].uri,
-        '.project',
-        structureMetadata.originalFileRef
-    );
+    const tryRead = async (ref: string): Promise<Uint8Array | null> => {
+        try {
+            const uri = vscode.Uri.joinPath(workspaceFolders![0].uri, '.project', ref);
+            return await vscode.workspace.fs.readFile(uri);
+        } catch {
+            return null;
+        }
+    };
 
-    try {
-        const fileData = await vscode.workspace.fs.readFile(originalFileUri);
+    let fileData = await tryRead(structureMetadata.originalFileRef);
+    if (!fileData && structureMetadata.originalFileRef.includes('attachments/files/originals/')) {
+        const legacyRef = structureMetadata.originalFileRef.replace('attachments/files/originals/', 'attachments/originals/');
+        fileData = await tryRead(legacyRef);
+    } else if (!fileData && structureMetadata.originalFileRef.includes('attachments/originals/')) {
+        const preferredRef = structureMetadata.originalFileRef.replace('attachments/originals/', 'attachments/files/originals/');
+        fileData = await tryRead(preferredRef);
+    }
+
+    if (fileData) {
         // For DOCX files, we'd need to extract the HTML from the binary
         // For now, reconstruct from segments
         return Array.from(structureMetadata.segments.values())
             .map(segment => segment.originalContent)
             .join('');
-    } catch (error) {
-        console.warn('Could not read original file, using segment data', error);
-        return Array.from(structureMetadata.segments.values())
-            .map(segment => segment.originalContent)
-            .join('');
     }
+
+    console.warn('Could not read original file, using segment data');
+    return Array.from(structureMetadata.segments.values())
+        .map(segment => segment.originalContent)
+        .join('');
 }
 
 /**

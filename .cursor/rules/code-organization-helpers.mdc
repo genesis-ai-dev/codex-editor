@@ -150,6 +150,24 @@ import { formatCellId } from "./utils/cellUtils";
 const cellId = formatCellId(book, chapter, verse);
 ```
 
+### 9. Avoid Nested Ternaries
+
+When using ternaries avoid ones that go more than one level deep:
+
+```typescript
+<span className="hidden sm:inline">
+    {!isOnline
+        ? "Offline"
+        : isImportInProgress
+        ? "Importing..."
+        : isSyncInProgress
+        ? syncStage || "Syncing..."
+        : !isAuthenticated
+        ? "Log in to sync"
+        : "Sync Now"}
+</span>
+```
+
 ## Type Safety: Always Use Proper Types
 
 ### 1. Never Use `any` Type

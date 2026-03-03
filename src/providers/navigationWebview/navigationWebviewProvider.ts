@@ -202,13 +202,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 break;
             case "deleteFile":
                 try {
-                    const confirmed = await vscode.window.showWarningMessage(
-                        `Are you sure you want to delete "${message.label}"? This will delete both the codex file and its corresponding source file.`,
-                        { modal: true },
-                        "Delete"
-                    );
-
-                    if (confirmed === "Delete") {
+                    // Confirmation is handled by the webview's delete modal
+                    {
                         const deletedFiles: string[] = [];
                         const errors: string[] = [];
 
@@ -316,7 +311,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             }
                         }
 
-                        // Clean up original file in attachments/originals (if applicable)
+                        // Clean up original file in attachments/files/originals (if applicable)
                         // Remove this notebook's reference; delete the original file only if no other notebooks use it
                         if (notebookBaseName) {
                             try {
@@ -444,17 +439,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             }
             case "deleteCorpusMarker": {
                 try {
+                    // Confirmation is handled by the webview's delete modal
                     const content = message.content ?? {};
                     const { corpusLabel, displayName, children } = content;
 
-                    const fileCount = children?.length ?? 0;
-                    const confirmed = await vscode.window.showWarningMessage(
-                        `Are you sure you want to delete the folder "${displayName}"? This will permanently delete ${fileCount} file(s) and cannot be undone.`,
-                        { modal: true },
-                        "Delete"
-                    );
-
-                    if (confirmed === "Delete" && children?.length > 0) {
+                    if (children?.length > 0) {
                         await this.deleteCorpusMarker(corpusLabel, displayName, children);
                     }
                 } catch (error) {

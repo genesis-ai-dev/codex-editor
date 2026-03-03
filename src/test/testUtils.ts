@@ -55,6 +55,12 @@ export async function createTempCodexFile(fileName: string, jsonObject: unknown)
     return createTempFileWithContent(fileName, content);
 }
 
+/** Creates a .codex or .source file inside the workspace .test folder. Use for tests that need workspace-relative paths. */
+export async function createWorkspaceNotebookFile(fileName: string, jsonObject: unknown): Promise<vscode.Uri> {
+    const content = JSON.stringify(jsonObject, null, 2);
+    return createTestFile(fileName, content);
+}
+
 export async function deleteIfExists(uri: vscode.Uri): Promise<void> {
     try {
         await vscode.workspace.fs.delete(uri);
