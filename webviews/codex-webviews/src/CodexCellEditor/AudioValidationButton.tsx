@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import { QuillCellContent, ValidationEntry } from "../../../../types";
-import { getCellValueData } from "@sharedUtils";
+import { QuillCellContent } from "../../../../types";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
-import { computeAudioValidationUpdate } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import { audioPopoverTracker } from "./validationUtils";
@@ -22,6 +20,16 @@ interface AudioValidationButtonProps {
     setShowSparkleButton?: Dispatch<SetStateAction<boolean>>;
 }
 
+/**
+ * AudioValidationButton - Provider is the source of truth
+ *
+ * This component relies entirely on:
+ * 1. The `cell` prop (updated by provider)
+ * 2. The `useAudioValidationStatus` hook (derives state from `cell`)
+ * 3. Provider messages for validation progress
+ *
+ * Local state is only used for UI-specific concerns (popover, keyboard focus, pending state).
+ */
 const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     cellId,
     cell,
@@ -33,156 +41,97 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     disabledReason,
     setShowSparkleButton,
 }) => {
-    const [isValidated, setIsValidated] = useState(false);
-    const [username, setUsername] = useState<string | null>(currentUsername ?? null);
-    const [requiredAudioValidations, setRequiredAudioValidations] = useState(
-        requiredAudioValidationsProp ?? 1
-    );
-    const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
+    // UI-specific local state only
     const [showPopover, setShowPopover] = useState(false);
     const [isPendingValidation, setIsPendingValidation] = useState(false);
-    const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
+
     const buttonRef = useRef<HTMLDivElement>(null);
     const closeTimerRef = useRef<number | null>(null);
     const ignoreHoverRef = useRef(false);
     const wasKeyboardNavigationRef = useRef(false);
+    const uniqueId = useRef(
+        `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
+    );
+
+    // Use currentUsername prop directly - no local state duplication
+    const username = currentUsername ?? null;
+
+    // Provider-derived state via hook - this is the source of truth
+    const { iconProps: baseIconProps, validators: uniqueValidationUsers } =
+        useAudioValidationStatus({
+            cell,
+            currentUsername: username,
+            requiredAudioValidations: requiredAudioValidationsProp ?? null,
+            isSourceText,
+            disabled: Boolean(externallyDisabled) || isSourceText,
+            displayValidationText: false,
+        });
+
+    // Derive from hook - no local state needed
+    const currentValidations = uniqueValidationUsers.length;
+    const isValidatedByCurrentUser = baseIconProps.isValidatedByCurrentUser;
+
+    // Use prop directly with fallback - no local state needed
+    const requiredAudioValidations = requiredAudioValidationsProp ?? 1;
+
     const clearCloseTimer = () => {
         if (closeTimerRef.current != null) {
             clearTimeout(closeTimerRef.current);
             closeTimerRef.current = null;
         }
     };
+
     const scheduleCloseTimer = (callback: () => void, delay = 100) => {
         clearCloseTimer();
         closeTimerRef.current = window.setTimeout(callback, delay);
     };
-    const uniqueId = useRef(
-        `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
-    );
 
-    const { iconProps: baseIconProps, validators: baseValidators } = useAudioValidationStatus({
-        cell,
-        currentUsername: username,
-        requiredAudioValidations: requiredAudioValidationsProp ?? null,
-        isSourceText,
-        disabled: Boolean(externallyDisabled) || isSourceText,
-        displayValidationText: false,
-    });
-
-    // Create a deduplicated list of validation users
-    const uniqueValidationUsers = baseValidators;
-    const currentValidations = baseValidators.length;
-
-    // Update validation state when attachments or hook-derived validators change
-    useEffect(() => {
-        if (!cell.attachments) {
-            return;
-        }
-
-        const effectiveSelectedAudioId = cell.metadata?.selectedAudioId ?? "";
-
-        const cellValueData = getCellValueData({
-            ...cell,
-            metadata: {
-                ...(cell.metadata || {}),
-                selectedAudioId: effectiveSelectedAudioId,
-            },
-        } as any);
-
-        setUserCreatedLatestEdit(
-            cellValueData.author === username && cellValueData.editType === "user-edit"
-        );
-
-        setIsValidated(Boolean(baseIconProps.isValidatedByCurrentUser));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cell, username, baseValidators, baseIconProps.isValidatedByCurrentUser]);
-
-    // Get the current username when component mounts and listen for configuration changes
-    useEffect(() => {
-        if (currentUsername) {
-            setUsername(currentUsername);
-        }
-    }, [currentUsername]);
-
-    useEffect(() => {
-        if (requiredAudioValidationsProp !== undefined && requiredAudioValidationsProp !== null) {
-            setRequiredAudioValidations(requiredAudioValidationsProp);
-        }
-    }, [requiredAudioValidationsProp]);
-
-    const applyValidatedByUpdate = (validatedBy: ValidationEntry[] | undefined) => {
-        const { isValidated: validated } = computeAudioValidationUpdate(validatedBy, username);
-        setIsValidated(validated);
-        setIsPendingValidation(false);
-        setIsValidationInProgress(false);
-    };
-
+    // Listen for provider messages to clear pending state
     useMessageHandler(
         `audioValidationButton-${cellId}-${uniqueId.current}`,
         (event: MessageEvent) => {
             const message = event.data as any;
-            if (!currentUsername && message.type === "currentUsername") {
-                setUsername(message.content.username);
-            } else if (
-                requiredAudioValidationsProp == null &&
-                message.type === "validationCountAudio"
-            ) {
-                setRequiredAudioValidations(message.content);
 
-                // The component will re-render with the new requiredAudioValidations value
-                // which will recalculate isFullyValidated in the render function
-            } else if (message.type === "providerUpdatesAudioValidationState") {
-                // Handle audio validation state updates from the backend
+            if (message.type === "providerUpdatesAudioValidationState") {
+                // Provider has confirmed the validation state - clear pending
                 if (message.content.cellId === cellId) {
-                    applyValidatedByUpdate(message.content.validatedBy);
+                    setIsPendingValidation(false);
                 }
-            } else if (message.type === "configurationChanged") {
-                // Configuration changes now send validationCountAudio directly, no need to refetch
-                console.log("Configuration changed - audio validation count will be sent directly");
-            } else if (message.command === "updateAudioValidationCount") {
-                if (requiredAudioValidationsProp == null) {
-                    setRequiredAudioValidations(message.content.requiredAudioValidations || 1);
-                }
-                setIsValidated(message.content.isValidated);
-                setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
             } else if (message.type === "audioValidationInProgress") {
-                // Handle audio validation in progress message
-                if (message.content.cellId === cellId) {
-                    setIsValidationInProgress(message.content.inProgress);
-                    if (!message.content.inProgress) {
-                        // If validation is complete, clear pending state as well
-                        setIsPendingValidation(false);
-                    }
+                if (message.content.cellId === cellId && !message.content.inProgress) {
+                    setIsPendingValidation(false);
                 }
             } else if (message.type === "pendingAudioValidationCleared") {
                 if (message.content.cellIds.includes(cellId)) {
                     setIsPendingValidation(false);
                 }
             } else if (message.type === "audioHistorySelectionChanged") {
-                applyValidatedByUpdate(message.content.validatedBy);
+                // Audio selection changed - clear pending as we'll re-render with new data
+                if (message.content.cellId === cellId) {
+                    setIsPendingValidation(false);
+                }
             }
         },
-        [cellId, username, currentUsername, requiredAudioValidationsProp]
+        [cellId]
     );
 
+    // Close popover when another becomes active
     useEffect(() => {
         if (showPopover && audioPopoverTracker.getActivePopover() !== uniqueId.current) {
             setShowPopover(false);
         }
     }, [showPopover]);
 
-    // Track keyboard navigation globally to detect when focus is achieved via keyboard
+    // Track keyboard navigation for accessibility
     useEffect(() => {
         const handleDocumentKeyDown = (e: KeyboardEvent) => {
-            // Track Tab, Arrow keys, and Enter as keyboard navigation
             if (e.key === "Tab" || e.key.startsWith("Arrow") || e.key === "Enter") {
                 wasKeyboardNavigationRef.current = true;
             }
         };
 
         const handleDocumentMouseDown = () => {
-            // Reset keyboard navigation flag when mouse is used
             wasKeyboardNavigationRef.current = false;
         };
 
@@ -197,8 +146,9 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsPendingValidation(true);
-        // Add to audio validation queue for sequential processing
-        enqueueValidation(cellId, !isValidated, true)
+
+        // Send to provider - it will update the cell, which will update the hook
+        enqueueValidation(cellId, !isValidatedByCurrentUser, true)
             .then(() => {})
             .catch((error) => {
                 console.error("Audio validation queue error:", error);
@@ -214,21 +164,16 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         e.stopPropagation();
         if (isDisabled) return;
 
-        // briefly ignore hover so the popover can't re-open immediately
         ignoreHoverRef.current = true;
         window.setTimeout(() => {
             ignoreHoverRef.current = false;
         }, 200);
 
-        // Mark that this was a mouse click, not keyboard navigation
         wasKeyboardNavigationRef.current = false;
         setIsKeyboardFocused(false);
 
-        // Blur the button after mouse click to remove focus (prevents pulse from continuing)
-        // Use setTimeout to ensure blur happens after the click event completes
         window.setTimeout(() => {
             if (buttonRef.current) {
-                // Find the actual button element within the VSCodeButton component
                 const buttonElement = buttonRef.current.querySelector(
                     "button"
                 ) as HTMLButtonElement;
@@ -238,7 +183,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             }
         }, 0);
 
-        if (!isValidated) {
+        if (!isValidatedByCurrentUser) {
             handleValidate(e);
             handleRequestClose();
         }
@@ -248,7 +193,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         e.stopPropagation();
 
         if (isDisabled) return;
-
         if (ignoreHoverRef.current) return;
 
         clearCloseTimer();
@@ -258,7 +202,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        // Mark that keyboard navigation is being used
         wasKeyboardNavigationRef.current = true;
 
         if (e.key === "Enter") {
@@ -274,7 +217,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     };
 
     const handleFocus = () => {
-        // If focus was achieved via keyboard, add the class for pulse animation
         if (wasKeyboardNavigationRef.current) {
             setIsKeyboardFocused(true);
         }
@@ -314,8 +256,11 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         justifyContent: "center",
     } as const;
 
+    // Show as in-progress when pending (waiting for provider response)
+    const isValidationInProgress = isPendingValidation;
     const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
 
+    // Don't show validation button for source text or if no username is available
     if (isSourceText || !username) {
         return null;
     }
@@ -334,7 +279,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 appearance="icon"
                 style={{
                     ...buttonStyle,
-                    // Add orange border for pending validations - use a consistent orange color
+                    // Add orange border for pending validations
                     ...(isPendingValidation && {
                         border: "2px solid #f5a623",
                         borderRadius: "50%",
@@ -345,18 +290,24 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 onFocus={handleFocus}
                 onBlur={handleBlur}
                 disabled={isDisabled}
-                title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
+                title={
+                    isPendingValidation
+                        ? "Validating audio..."
+                        : isDisabled
+                        ? disabledReason || "Audio validation requires audio"
+                        : undefined
+                }
             >
                 <ValidationStatusIcon
                     isValidationInProgress={isValidationInProgress}
                     isDisabled={isDisabled}
                     currentValidations={currentValidations}
                     requiredValidations={requiredAudioValidations}
-                    isValidatedByCurrentUser={isValidated}
+                    isValidatedByCurrentUser={isValidatedByCurrentUser}
                 />
             </VSCodeButton>
 
-            {/* Popover for validation users */}
+            {/* Popover for validation users - uses hook data directly */}
             {showPopover && uniqueValidationUsers.length > 0 && (
                 <ValidatorPopover
                     anchorRef={buttonRef as any}
@@ -369,20 +320,22 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     cancelCloseTimer={clearCloseTimer}
                     scheduleCloseTimer={scheduleCloseTimer}
                     onRemoveSelf={() => {
+                        setIsPendingValidation(true);
                         enqueueValidation(cellId, false, true)
                             .then(() => {})
-                            .catch((error) =>
-                                console.error("Audio validation queue error:", error)
-                            );
-                        processValidationQueue(vscode, true).catch((error) =>
-                            console.error("Audio validation queue processing error:", error)
-                        );
+                            .catch((error) => {
+                                console.error("Audio validation queue error:", error);
+                                setIsPendingValidation(false);
+                            });
+                        processValidationQueue(vscode, true).catch((error) => {
+                            console.error("Audio validation queue processing error:", error);
+                            setIsPendingValidation(false);
+                        });
                         handleRequestClose();
                     }}
                 />
             )}
 
-            {/* Add style for spinner animation */}
             <style>
                 {`
                 @keyframes spin {

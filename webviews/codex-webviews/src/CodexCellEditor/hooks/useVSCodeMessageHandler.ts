@@ -106,6 +106,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
     setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; }>>;
+    setShowHealthIndicators?: Dispatch<SetStateAction<boolean>>;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
@@ -158,6 +159,7 @@ export const useVSCodeMessageHandler = ({
     singleCellTranslationFailed,
     setChapterNumber,
     setAudioAttachments,
+    setShowHealthIndicators,
     showABTestVariants,
     setContentPaginated,
     handleCellPage,
@@ -334,6 +336,13 @@ export const useVSCodeMessageHandler = ({
                     }
                     break;
 
+                case "updateShowHealthIndicators":
+                    // Update health indicators setting
+                    if (setShowHealthIndicators && typeof message.showHealthIndicators === 'boolean') {
+                        setShowHealthIndicators(message.showHealthIndicators);
+                    }
+                    break;
+
                 case "providerSendsInitialContentPaginated":
                     if (typeof (message as any).rev === "number") {
                         const msgRev = (message as any).rev as number;
@@ -352,6 +361,11 @@ export const useVSCodeMessageHandler = ({
                             message.sourceCellMap
                         );
                     }
+                    // Update health indicators setting if provided
+                    if (setShowHealthIndicators && typeof message.showHealthIndicators === 'boolean') {
+                        setShowHealthIndicators(message.showHealthIndicators);
+                    }
+                    // Bootstrap audio availability from initial cells
                     try {
                         const units = (message.cells || []) as QuillCellContent[];
                         const availability: Record<string, AudioAvailability> = {};

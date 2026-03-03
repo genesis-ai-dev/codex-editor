@@ -12,7 +12,7 @@ import {
 } from "../components/ui/dropdown-menu";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Languages, Mic } from "lucide-react";
+import { Languages, Heart, Mic } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
 import {
     Dialog,
@@ -46,6 +46,7 @@ interface State {
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     hasReceivedInitialData: boolean;
+    showHealthIndicators: boolean;
     renameModal: {
         isOpen: boolean;
         item: CodexItem | null;
@@ -196,8 +197,8 @@ function NavigationView() {
         previousExpandedGroups: null,
         searchQuery: "",
         bibleBookMap: undefined,
-
         hasReceivedInitialData: false,
+        showHealthIndicators: false,
         renameModal: {
             isOpen: false,
             item: null,
@@ -297,6 +298,7 @@ function NavigationView() {
                             codexItems: processedCodexItems,
                             dictionaryItems: message.dictionaryItems || [],
                             hasReceivedInitialData: true,
+                            showHealthIndicators: message.showHealthIndicators ?? false,
                         };
                     });
                     break;
@@ -690,6 +692,7 @@ function NavigationView() {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        averageHealth?: number;
     }) => {
         if (typeof progress !== "object") {
             return {
@@ -701,6 +704,7 @@ function NavigationView() {
                 audioValidationLevels: [] as number[],
                 requiredTextValidations: undefined as number | undefined,
                 requiredAudioValidations: undefined as number | undefined,
+                averageHealth: undefined as number | undefined,
             };
         }
         const textValidation = Math.max(
@@ -728,6 +732,7 @@ function NavigationView() {
             audioValidationLevels: progress.audioValidationLevels ?? [audioValidation],
             requiredTextValidations: progress.requiredTextValidations,
             requiredAudioValidations: progress.requiredAudioValidations,
+            averageHealth: progress.averageHealth,
         };
     };
 
@@ -911,6 +916,35 @@ function NavigationView() {
                                 className="pl-7 flex flex-col gap-2 pointer-events-none"
                                 onClick={isGroup ? undefined : (e) => e.stopPropagation()}
                             >
+                                {/* Health indicator */}
+                                {typeof progressValues.averageHealth === "number" &&
+                                    state.showHealthIndicators && (() => {
+                                        const healthPercent = Math.round(progressValues.averageHealth! * 100);
+                                        return (
+                                            <div className="flex items-start gap-2">
+                                                <Heart className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
+                                                <div className="w-full">
+                                                    <div className="bg-primary/20 relative w-full overflow-hidden rounded-full h-[8px]">
+                                                        <div
+                                                            className="h-full transition-all"
+                                                            style={{
+                                                                width: `${healthPercent}%`,
+                                                                backgroundColor:
+                                                                    healthPercent >= 70
+                                                                        ? "var(--vscode-charts-green, #22c55e)"
+                                                                        : healthPercent >= 30
+                                                                            ? "var(--vscode-charts-yellow, #eab308)"
+                                                                            : "var(--vscode-charts-red, #ef4444)",
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <span className="text-[10px] font-medium text-primary">
+                                                        {healthPercent}%
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 {/* Text progress */}
                                 <div className="flex items-start gap-2">
                                     <Languages className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
