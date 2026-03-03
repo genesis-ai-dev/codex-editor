@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Info } from "lucide-react";
 import { validateFile, parseFile } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 import { AlignedCell, CellAligner, sequentialCellAligner } from "../../types/plugin";
 
@@ -56,6 +57,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const handleImport = async () => {
         if (selectedFiles.length === 0) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -144,11 +146,13 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         }
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
+                        notifyImportEnded();
                     }
                 }, 1500);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
