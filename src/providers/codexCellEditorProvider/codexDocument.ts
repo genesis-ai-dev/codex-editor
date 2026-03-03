@@ -15,8 +15,10 @@ import {
     MilestoneIndex,
     MilestoneInfo,
     CustomCellMetaData,
+    CellValueOnDisk,
 } from "../../../types";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
+import { resolveCellValue, isCellValueObject } from "../../utils/cellValueResolver";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
@@ -121,6 +123,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 "Constructed CodexCellDocument from json document, cells count: ",
                 this._documentData.cells.length
             );
+
+            // Resolve CellValueOnDisk objects to strings at load time
+            for (const cell of this._documentData.cells) {
+                if (isCellValueObject(cell.value)) {
+                    const objValue = cell.value as unknown as CellValueOnDisk;
+                    if (cell.metadata) {
+                        cell.metadata.activeEditId = objValue.selectedEdit;
+                    }
+                    (cell as any).value = resolveCellValue(cell as any);
+                }
+            }
 
             // Initialize validatedBy arrays to ensure proper format
             this.initializeValidatedByArrays();

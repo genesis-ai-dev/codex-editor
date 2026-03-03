@@ -53,8 +53,8 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
                 }
             }
             return raw as CodexNotebookAsJSONData;
-        } catch {
-            debug("Failed to parse notebook contents, creating empty notebook");
+        } catch (e) {
+            console.error("[CodexSerializer] Failed to parse/resolve notebook contents:", e);
             raw = { cells: [], metadata: {} };
         }
         // Create array of Notebook cells for the VS Code API from file contents
