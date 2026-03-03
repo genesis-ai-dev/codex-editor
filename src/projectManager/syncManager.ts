@@ -328,7 +328,7 @@ export class SyncManager {
         });
     }
 
-    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean } {
+    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean; } {
         return {
             isSyncInProgress: this.isSyncInProgress,
             syncStage: this.currentSyncStage,
