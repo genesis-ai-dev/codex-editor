@@ -1,8 +1,6 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useNetworkState } from "@uidotdev/usehooks";
-import { getVSCodeAPI } from "../shared/vscodeApi";
 
-const vscode = getVSCodeAPI();
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -41,44 +39,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     onDownloadSyncRuntime,
 }) => {
     const network = useNetworkState();
-    const isOnline = network?.online ?? true; // Default to true if network state is unavailable
-
-    // UI Polling Fallback: Verify sync state every 5 seconds when sync is in progress
-    // This prevents UI from getting stuck if backend state changes (crash, completion, etc.)
-    useEffect(() => {
-        if (!isSyncInProgress) {
-            return; // No need to poll when not syncing
-        }
-
-        const pollInterval = setInterval(() => {
-            // Request lock status check from backend
-            if (typeof vscode !== "undefined") {
-                vscode.postMessage({ type: "checkSyncLock" });
-            }
-        }, 5000); // Poll every 5 seconds
-
-        return () => clearInterval(pollInterval);
-    }, [isSyncInProgress]);
-
-    // Listen for lock status responses
-    useEffect(() => {
-        const handler = (event: MessageEvent) => {
-            if (event.data.type === "syncLockStatus") {
-                // If lock doesn't exist but UI thinks sync is in progress, request refresh
-                if (!event.data.exists && isSyncInProgress) {
-                    console.log(
-                        "[SyncSettings] Lock released but UI still shows syncing, requesting state refresh"
-                    );
-                    if (typeof vscode !== "undefined") {
-                        vscode.postMessage({ type: "refreshSyncState" });
-                    }
-                }
-            }
-        };
-
-        window.addEventListener("message", handler);
-        return () => window.removeEventListener("message", handler);
-    }, [isSyncInProgress]);
+    const isOnline = network?.online ?? true;
 
     return (
         <Card

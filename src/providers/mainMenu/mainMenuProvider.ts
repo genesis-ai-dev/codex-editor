@@ -465,6 +465,17 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         // Get app version
         this.updateAppVersion();
+
+        // Re-push current state when webview becomes visible again
+        // (catches sync status changes that occurred while hidden)
+        this.disposables.push(
+            webviewView.onDidChangeVisibility(() => {
+                if (webviewView.visible) {
+                    this.sendProjectStateToWebview();
+                    this.sendSyncSettings();
+                }
+            })
+        );
     }
 
     protected onWebviewReady(): void {
