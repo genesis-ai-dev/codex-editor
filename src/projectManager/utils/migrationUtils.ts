@@ -1125,13 +1125,17 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
         const allNotebookFiles = [...codexFiles, ...sourceFiles];
 
         if (allNotebookFiles.length === 0) {
-            debug("No codex or source files found, skipping migration");
+            debug("No codex or source files found, marking line numbers migration as done");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
         let processedFiles = 0;
 
-        // Process files with progress
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -1619,14 +1623,18 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            debug("No codex or source files found, skipping importerType migration");
+            debug("No codex or source files found, marking importerType migration as done");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
         let processedFiles = 0;
         let migratedFiles = 0;
 
-        // Process files with progress
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
