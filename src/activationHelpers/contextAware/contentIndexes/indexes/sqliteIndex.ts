@@ -4577,7 +4577,8 @@ export class SQLiteIndexManager {
                 SUM(CASE WHEN (c.t_content IS NOT NULL AND c.t_content != '') AND c.t_created_at IS NULL THEN 1 ELSE 0 END) as target_cells_with_content_but_no_created_at,
                 SUM(CASE WHEN (c.t_content IS NULL OR c.t_content = '') AND c.t_created_at IS NOT NULL THEN 1 ELSE 0 END) as target_cells_without_content_but_with_created_at
             FROM cells c
-            WHERE c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL
+            WHERE (c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL)
+                AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
         `);
 
         const stats = {
@@ -4602,7 +4603,8 @@ export class SQLiteIndexManager {
                 c.t_created_at as created_at,
                 c.t_current_edit_timestamp as edit_timestamp
             FROM cells c
-            WHERE c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL
+            WHERE (c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL)
+                AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
             ORDER BY c.t_created_at DESC, c.t_current_edit_timestamp DESC
             LIMIT 10
         `);
@@ -4641,6 +4643,7 @@ export class SQLiteIndexManager {
                 c.t_current_edit_timestamp as edit_timestamp
             FROM cells c
             WHERE (c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL)
+            AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
             AND (
                 -- Issue 1: Has content but no created_at timestamp
                 ((c.t_content IS NOT NULL AND c.t_content != '') AND c.t_created_at IS NULL)
