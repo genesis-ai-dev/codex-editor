@@ -1192,7 +1192,30 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
 // Gently migrate A/B testing probability from older explicit 25% to 5% with user consent
 // (removed) migration_abTestingProbabilityDefault — intentionally deleted for now
 
-async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
+/**
+ * Process newly imported files through line-number and importerType setup.
+ * Called after import (before indexing) so files are ready for sync immediately.
+ * Unlike the one-shot startup migrations, this runs on every import.
+ */
+export async function processNewlyImportedFiles(fileUris: vscode.Uri[]): Promise<void> {
+    for (const fileUri of fileUris) {
+        try {
+            const probablyBible = await isBibleBook(fileUri);
+            if (probablyBible) {
+                await addCellLabelsToBibleBook(fileUri);
+            }
+
+            const shouldShowLineNumbers = await analyzeFileForLineNumbers(fileUri);
+            await updateFileLineNumbers(fileUri, shouldShowLineNumbers);
+
+            await migrateImporterTypeForFile(fileUri);
+        } catch (error) {
+            console.error(`Error processing imported file ${fileUri.fsPath}:`, error);
+        }
+    }
+}
+
+export async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
     try {
         // Read the file content using serializer for proper deserialization
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -1290,7 +1313,7 @@ function getRandomSample<T>(array: T[], sampleSize: number): T[] {
     return sample;
 }
 
-async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean): Promise<boolean> {
+export async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean): Promise<boolean> {
     try {
         // Read the file content
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -1513,7 +1536,7 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
 /**
  * Migrates importerType for a single notebook file
  */
-async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean> {
+export async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean> {
     try {
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
         const serializer = new CodexContentSerializer();

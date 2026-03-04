@@ -25,6 +25,7 @@ import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
+import { processNewlyImportedFiles } from "../../projectManager/utils/migrationUtils";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
@@ -949,6 +950,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: trimmedCorpusMarker,
             textDirection: (processedNotebook.metadata.textDirection as "ltr" | "rtl" | undefined) || "ltr",
+            lineNumbersEnabled: true,
+            lineNumbersEnabledSource: "global",
             ...(fileDisplayName ? { fileDisplayName } : {}),
             ...(processedNotebook.metadata.videoUrl ? { videoUrl: processedNotebook.metadata.videoUrl } : {}),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
@@ -1266,16 +1269,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const metadataManager = getNotebookMetadataManager();
         await metadataManager.loadMetadata();
 
-        // Use incremental indexing for just the newly created files
+        // Process newly imported files (line numbers, importerType) before indexing
         if (createdFiles && createdFiles.length > 0) {
-            // Extract file paths from the created URIs
+            const allCreatedUris = createdFiles.flatMap(f => [f.sourceUri, f.codexUri]);
+            await processNewlyImportedFiles(allCreatedUris);
+
             const filePaths: string[] = [];
             for (const result of createdFiles) {
                 filePaths.push(result.sourceUri.fsPath);
                 filePaths.push(result.codexUri.fsPath);
             }
 
-            // Index only these specific files
             await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", filePaths);
         }
     }
