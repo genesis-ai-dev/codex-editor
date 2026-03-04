@@ -1049,12 +1049,45 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
                     // Save the original file with deduplication
                     const requestedFileName = pair.source.metadata.originalFileName || 'document.docx';
-                    const fileData = pair.source.metadata.originalFileData;
+                    const fileData: unknown = pair.source.metadata.originalFileData;
 
                     // Convert to Uint8Array if needed
-                    const buffer = fileData instanceof ArrayBuffer
-                        ? new Uint8Array(fileData)
-                        : Buffer.from(fileData);
+                    // Handle various data types that may arrive via webview postMessage:
+                    // - ArrayBuffer: from structured clone
+                    // - Uint8Array/Buffer: already typed arrays
+                    // - Object with numeric keys: from JSON-serialized typed array
+                    let buffer: Uint8Array;
+                    if (fileData instanceof ArrayBuffer) {
+                        buffer = new Uint8Array(fileData);
+                    } else if (fileData instanceof Uint8Array || Buffer.isBuffer(fileData)) {
+                        buffer = fileData instanceof Uint8Array ? fileData : new Uint8Array(fileData);
+                    } else if (typeof fileData === 'object' && fileData !== null && !Array.isArray(fileData)) {
+                        // Handle case where ArrayBuffer was serialized as object with numeric keys
+                        // This can happen when message passing serializes binary data as JSON
+                        const keys = Object.keys(fileData);
+                        if (keys.length > 0 && keys.every(k => !isNaN(Number(k)))) {
+                            const arr = new Uint8Array(keys.length);
+                            for (let i = 0; i < keys.length; i++) {
+                                arr[i] = (fileData as Record<string, number>)[String(i)] ?? 0;
+                            }
+                            buffer = arr;
+                            console.warn(`[NewSourceUploader] originalFileData was serialized as object with numeric keys (${keys.length} entries) - converted to Uint8Array`);
+                        } else {
+                            buffer = Buffer.from(fileData as any);
+                        }
+                    } else if (Array.isArray(fileData)) {
+                        buffer = new Uint8Array(fileData);
+                    } else {
+                        buffer = Buffer.from(fileData as any);
+                    }
+
+                    // Validate the saved buffer looks like a valid file
+                    if (buffer.length < 4) {
+                        console.warn(`[NewSourceUploader] originalFileData is very small (${buffer.length} bytes) for "${requestedFileName}"`);
+                    } else {
+                        const isZip = buffer[0] === 0x50 && buffer[1] === 0x4B;
+                        console.log(`[NewSourceUploader] originalFileData: ${buffer.length} bytes, ${isZip ? 'valid ZIP signature' : 'not a ZIP (first bytes: ' + Array.from(buffer.slice(0, 4)).map(b => '0x' + b.toString(16)).join(' ') + ')'}`);
+                    }
 
                     // Use hash-based deduplication to save the file
                     // This handles:
@@ -1077,7 +1110,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
                     // IMPORTANT: Preserve user's original filename as fileDisplayName before updating originalFileName
                     // This ensures the display name reflects what the user imported, while originalFileName
-                    // points to the actual deduplicated file in attachments/originals
+                    // points to the actual deduplicated file in attachments/files/originals
                     if (result.fileName !== requestedFileName) {
                         // Set fileDisplayName to user's original name (without extension) if not already set
                         if (!pair.source.metadata.fileDisplayName) {
@@ -1099,7 +1132,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     }
 
                     // CRITICAL: Do not persist original binary content into JSON notebooks.
-                    // The original template is stored in `.project/attachments/originals/<actualFileName>`.
+                    // The original template is stored in `.project/attachments/files/originals/<actualFileName>`.
                     delete pair.source.metadata.originalFileData;
                 }
 
