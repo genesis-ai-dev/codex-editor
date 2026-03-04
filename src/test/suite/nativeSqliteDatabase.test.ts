@@ -241,6 +241,19 @@ async function insertCell(
         tRawContent?: string;
         tLineNumber?: number;
         milestoneIndex?: number;
+        cellLabel?: string;
+        parentId?: string;
+        isLocked?: boolean;
+        startTime?: number;
+        endTime?: number;
+        format?: string;
+        book?: string;
+        chapter?: string;
+        verse?: string;
+        isMerged?: boolean;
+        isDeleted?: boolean;
+        originalText?: string;
+        globalReferences?: string;
     } = {}
 ): Promise<RunResult> {
     const sRawContent = opts.sRawContent ?? opts.sContent ?? null;
@@ -259,8 +272,10 @@ async function insertCell(
             cell_id, cell_type,
             s_file_id, s_content, s_raw_content, s_raw_content_hash, s_line_number, s_word_count,
             t_file_id, t_content, t_raw_content, t_raw_content_hash, t_line_number, t_word_count,
-            milestone_index
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            milestone_index, cell_label, parent_id, is_locked,
+            start_time, end_time, format, book, chapter, verse,
+            is_merged, is_deleted, original_text, global_references
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             cellId,
             opts.cellType ?? null,
@@ -277,6 +292,19 @@ async function insertCell(
             opts.tLineNumber ?? null,
             tWordCount,
             opts.milestoneIndex ?? null,
+            opts.cellLabel ?? null,
+            opts.parentId ?? null,
+            opts.isLocked ? 1 : 0,
+            opts.startTime ?? null,
+            opts.endTime ?? null,
+            opts.format ?? null,
+            opts.book ?? null,
+            opts.chapter ?? null,
+            opts.verse ?? null,
+            opts.isMerged ? 1 : 0,
+            opts.isDeleted ? 1 : 0,
+            opts.originalText ?? null,
+            opts.globalReferences ?? null,
         ]
     );
 }

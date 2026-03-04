@@ -103,6 +103,7 @@ interface ExtractedCellMetadata {
     originalText?: string | null;
     globalReferences?: string | null;
     milestoneIndex?: number | null;
+    cellLabel?: string | null;
 }
 
 /** Metadata attached to a cell retrieved by getById() or getCellById(). */
@@ -1138,7 +1139,8 @@ export class SQLiteIndexManager {
         const extractedMetadata = this.extractMetadataFields(metadata, cellType);
         const cellTypeValue = metadata?.type || null;
 
-        const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
+        const hasMetadata = metadata && typeof metadata === "object" && Object.keys(metadata).length > 0;
+        const shouldUpdate = contentChanged || hasMetadata;
 
         if (!shouldUpdate && existingCell) {
             return { id: cellId, isNew: false, contentChanged: false };
@@ -1172,6 +1174,7 @@ export class SQLiteIndexManager {
         ];
 
         const resolvedMilestoneIndex = extractedMetadata.milestoneIndex ?? (milestoneIndex !== undefined ? milestoneIndex : null);
+        const resolvedCellLabel = cellLabel || extractedMetadata.cellLabel || null;
 
         const values: (string | number | boolean | null)[] = [
             cellTypeValue,
@@ -1182,7 +1185,7 @@ export class SQLiteIndexManager {
             wordCount,
             actualRawContent,
             resolvedMilestoneIndex,
-            cellLabel || null,
+            resolvedCellLabel,
             extractedMetadata.parentId ?? null,
             extractedMetadata.isLocked ? 1 : 0,
             extractedMetadata.startTime ?? null,
@@ -1249,6 +1252,7 @@ export class SQLiteIndexManager {
         return { id: cellId, isNew, contentChanged };
     }
 
+    /** Batch-sync variant — delegates to upsertCell (same logic, separate entry point for clarity). */
     async upsertCellSync(
         cellId: string,
         fileId: number,
@@ -1260,135 +1264,7 @@ export class SQLiteIndexManager {
         milestoneIndex?: number | null,
         cellLabel?: string | null
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
-        this.ensureOpen();
-
-        const actualRawContent = rawContent || content;
-        const sanitizedContent = this.sanitizeContent(content);
-        const rawContentHash = this.computeRawContentHash(actualRawContent);
-        const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
-        const currentTimestamp = Date.now();
-
-        const existingCell = await this.db!.get<{ cell_id: string; hash: string | null; }>(`
-            SELECT cell_id, ${cellType === 'source' ? 's_raw_content_hash' : 't_raw_content_hash'} as hash 
-            FROM cells 
-            WHERE cell_id = ?
-        `, [cellId]);
-
-        const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
-        const isNew = !existingCell;
-
-        const extractedMetadata = this.extractMetadataFields(metadata, cellType);
-        const cellTypeValue = metadata?.type || null;
-
-        const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
-
-        if (!shouldUpdate && existingCell) {
-            return { id: cellId, isNew: false, contentChanged: false };
-        }
-
-        const actualEditTimestamp = extractedMetadata.currentEditTimestamp || currentTimestamp;
-
-        const prefix = cellType === 'source' ? 's_' : 't_';
-        const columns = [
-            'cell_type',
-            `${prefix}file_id`,
-            `${prefix}content`,
-            `${prefix}raw_content_hash`,
-            `${prefix}line_number`,
-            `${prefix}word_count`,
-            `${prefix}raw_content`,
-            'milestone_index',
-            'cell_label',
-            'parent_id',
-            'is_locked',
-            'start_time',
-            'end_time',
-            'format',
-            'book',
-            'chapter',
-            'verse',
-            'is_merged',
-            'is_deleted',
-            'original_text',
-            'global_references'
-        ];
-
-        const resolvedMilestoneIndex = extractedMetadata.milestoneIndex ?? (milestoneIndex !== undefined ? milestoneIndex : null);
-
-        const values: (string | number | boolean | null)[] = [
-            cellTypeValue,
-            fileId,
-            sanitizedContent,
-            rawContentHash,
-            lineNumber || null,
-            wordCount,
-            actualRawContent,
-            resolvedMilestoneIndex,
-            cellLabel || null,
-            extractedMetadata.parentId ?? null,
-            extractedMetadata.isLocked ? 1 : 0,
-            extractedMetadata.startTime ?? null,
-            extractedMetadata.endTime ?? null,
-            extractedMetadata.format ?? null,
-            extractedMetadata.book ?? null,
-            extractedMetadata.chapter ?? null,
-            extractedMetadata.verse ?? null,
-            extractedMetadata.isMerged ? 1 : 0,
-            extractedMetadata.isDeleted ? 1 : 0,
-            extractedMetadata.originalText ?? null,
-            extractedMetadata.globalReferences ?? null
-        ];
-
-        if (cellType === 'source') {
-            columns.push('s_updated_at');
-            values.push(actualEditTimestamp);
-        }
-
-        if (cellType === 'target') {
-            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
-                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
-            values.push(
-                actualEditTimestamp,
-                extractedMetadata.validationCount || 0,
-                extractedMetadata.validatedBy || null,
-                extractedMetadata.isFullyValidated ? 1 : 0,
-                extractedMetadata.audioValidationCount || 0,
-                extractedMetadata.audioValidatedBy || null,
-                extractedMetadata.audioIsFullyValidated ? 1 : 0
-            );
-        }
-
-        if (cellType === 'target') {
-            if (isNew) {
-                if (content && content.trim() !== '') {
-                    columns.push('t_created_at');
-                    values.push(actualEditTimestamp);
-                }
-            } else {
-                const createdAtRow = await this.db!.get<{ t_created_at: number | null; }>(`
-                    SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
-                `, [cellId]);
-                const currentCreatedAt = createdAtRow?.t_created_at ?? null;
-                if (currentCreatedAt === null && content && content.trim() !== '') {
-                    columns.push('t_created_at');
-                    values.push(actualEditTimestamp);
-                }
-            }
-        } else if (cellType === 'source') {
-            if (isNew) {
-                columns.push('s_created_at');
-                values.push(actualEditTimestamp);
-            }
-        }
-
-        await this.db!.run(`
-            INSERT INTO cells (cell_id, ${columns.join(', ')})
-            VALUES (?, ${values.map(() => '?').join(', ')})
-            ON CONFLICT(cell_id) DO UPDATE SET
-                ${columns.map(col => `${col} = excluded.${col}`).join(', ')}
-        `, [cellId, ...values]);
-
-        return { id: cellId, isNew, contentChanged };
+        return this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent, milestoneIndex, cellLabel);
     }
 
     // Add a single document (DEPRECATED - use FileSyncManager instead)
@@ -1568,6 +1444,8 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
+              AND COALESCE(c.is_deleted, 0) = 0
+              AND COALESCE(c.is_merged, 0) = 0
             ORDER BY score ASC
             LIMIT ?
         `, [ftsSearchQuery, limit]);
@@ -1767,6 +1645,8 @@ export class SQLiteIndexManager {
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 WHERE c.s_content IS NOT NULL AND c.s_content != ''
+                  AND COALESCE(c.is_deleted, 0) = 0
+                  AND COALESCE(c.is_merged, 0) = 0
             `;
             const params: string[] = [];
 
@@ -2102,6 +1982,8 @@ export class SQLiteIndexManager {
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
                 AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                AND COALESCE(c.is_deleted, 0) = 0
+                AND COALESCE(c.is_merged, 0) = 0
         `;
 
         const params: (string | number)[] = [`content: ${ftsQuery}`];
@@ -2185,6 +2067,8 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE (c.s_content IS NOT NULL OR c.t_content IS NOT NULL)
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
             `;
             params = [];
 
@@ -2284,6 +2168,8 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
             `;
 
             params = [`content: ${ftsQuery}`];
@@ -3675,6 +3561,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
                 ORDER BY c.cell_id DESC
                 LIMIT ?
             `;
@@ -3790,6 +3678,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
 
                 UNION
 
@@ -3813,6 +3703,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
             )
             ORDER BY score ASC
             LIMIT ?
@@ -3930,6 +3822,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
                     ${onlyValidated ? "AND c.t_is_fully_validated = 1" : ""}
                 ORDER BY c.cell_id DESC
                 LIMIT ?
@@ -4053,6 +3947,8 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
                     ${validationFilter}
 
                 UNION
@@ -4076,6 +3972,8 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
+                    AND COALESCE(c.is_deleted, 0) = 0
+                    AND COALESCE(c.is_merged, 0) = 0
                     ${validationFilter}
             )
             ORDER BY score ASC
@@ -4263,6 +4161,7 @@ export class SQLiteIndexManager {
         // ── Structural fields (both source and target) ─────────────────
         result.parentId = metadata.parentId ?? null;
         result.isLocked = Boolean(metadata.isLocked);
+        result.cellLabel = typeof metadata.cellLabel === "string" ? metadata.cellLabel : null;
 
         const data = metadata.data;
         if (data && typeof data === "object") {
