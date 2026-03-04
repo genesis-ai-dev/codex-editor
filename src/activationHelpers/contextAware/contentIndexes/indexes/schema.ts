@@ -8,7 +8,7 @@
 
 // Schema version — bump this whenever the schema changes.
 // Using a full recreation strategy (no incremental migrations).
-export const CURRENT_SCHEMA_VERSION = 17; // Add missing cell metadata columns (parentId, isLocked, timestamps, scripture refs, etc.)
+export const CURRENT_SCHEMA_VERSION = 18; // Optimize: partial index for active cells, remove low-selectivity boolean indexes
 
 // ── Tables + FTS virtual table ──────────────────────────────────────────────
 
@@ -127,8 +127,7 @@ export const CREATE_DEFERRED_INDEXES_SQL = `
     CREATE INDEX IF NOT EXISTS idx_cells_cell_label ON cells(cell_label);
     CREATE INDEX IF NOT EXISTS idx_cells_parent_id ON cells(parent_id);
     CREATE INDEX IF NOT EXISTS idx_cells_book_chapter_verse ON cells(book, chapter, verse);
-    CREATE INDEX IF NOT EXISTS idx_cells_is_deleted ON cells(is_deleted);
-    CREATE INDEX IF NOT EXISTS idx_cells_is_merged ON cells(is_merged);
+    CREATE INDEX IF NOT EXISTS idx_cells_active ON cells(cell_id) WHERE is_deleted = 0 AND is_merged = 0;
 `;
 
 // ── schema_info table (created separately because setSchemaVersion manages it) ─

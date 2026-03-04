@@ -1620,7 +1620,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                 COUNT(CASE WHEN t_current_edit_timestamp IS NULL THEN 1 END) as cells_without_edit_timestamp
                             FROM cells 
                             WHERE t_content IS NOT NULL AND t_content != ''
-                                AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                                AND is_deleted = 0 AND is_merged = 0
                         `);
 
                         const timestampStats = {
@@ -1643,7 +1643,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             WHERE t_content IS NOT NULL 
                                 AND t_content != ''
                                 AND t_current_edit_timestamp IS NOT NULL
-                                AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                                AND is_deleted = 0 AND is_merged = 0
                             ORDER BY t_current_edit_timestamp DESC
                             LIMIT 5
                         `);
@@ -2015,7 +2015,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                         FROM cells 
                                         WHERE t_content IS NOT NULL AND t_content != '' 
                                         AND ((cell_type IS NULL AND (cell_id LIKE '%:%' OR cell_id LIKE '% %')) OR (cell_type IS NOT NULL AND cell_type != 'milestone'))
-                                        AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                                        AND is_deleted = 0 AND is_merged = 0
                                     `);
 
                                     const audioStats = {
@@ -2038,7 +2038,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                         FROM cells 
                                         WHERE t_content IS NOT NULL AND t_content != ''
                                         AND (t_audio_validation_count > 0 OR t_audio_validated_by IS NOT NULL OR t_audio_is_fully_validated = 1)
-                                        AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                                        AND is_deleted = 0 AND is_merged = 0
                                         ORDER BY t_audio_validation_count DESC, t_current_edit_timestamp DESC
                                         LIMIT 10
                                     `);
@@ -2133,7 +2133,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                             MAX(t_validation_count) as max_validation_count
                                         FROM cells 
                                         WHERE t_content IS NOT NULL AND t_content != ''
-                                        AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                                        AND is_deleted = 0 AND is_merged = 0
                                     `);
 
                                     const stats = {
@@ -2156,7 +2156,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                         FROM cells 
                                         WHERE t_content IS NOT NULL AND t_content != ''
                                         AND (t_validation_count > 0 OR t_validated_by IS NOT NULL OR t_is_fully_validated = 1)
-                                        AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                                        AND is_deleted = 0 AND is_merged = 0
                                         ORDER BY t_validation_count DESC, t_current_edit_timestamp DESC
                                         LIMIT 10
                                     `);

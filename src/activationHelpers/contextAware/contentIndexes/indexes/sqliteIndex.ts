@@ -1118,13 +1118,11 @@ export class SQLiteIndexManager {
         rawContent?: string,
         milestoneIndex?: number | null,
         cellLabel?: string | null
-    ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
+    ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; sanitizedContent: string; }> {
         this.ensureOpen();
 
         const actualRawContent = rawContent || content;
-        const sanitizedContent = this.sanitizeContent(content);
         const rawContentHash = this.computeRawContentHash(actualRawContent);
-        const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
         const currentTimestamp = Date.now();
 
         const existingCell = await this.db!.get<{ cell_id: string; hash: string | null; }>(`
@@ -1143,10 +1141,14 @@ export class SQLiteIndexManager {
         const shouldUpdate = contentChanged || hasMetadata;
 
         if (!shouldUpdate && existingCell) {
-            return { id: cellId, isNew: false, contentChanged: false };
+            return { id: cellId, isNew: false, contentChanged: false, sanitizedContent: '' };
         }
 
+        const sanitizedContent = this.sanitizeContent(content);
+        const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
+
         const actualEditTimestamp = extractedMetadata.currentEditTimestamp || currentTimestamp;
+        const hasNonEmptyContent = content && content.trim() !== '';
 
         const prefix = cellType === 'source' ? 's_' : 't_';
         const columns = [
@@ -1220,36 +1222,29 @@ export class SQLiteIndexManager {
         }
 
         if (cellType === 'target') {
-            if (isNew) {
-                if (content && content.trim() !== '') {
-                    columns.push('t_created_at');
-                    values.push(actualEditTimestamp);
-                }
-            } else {
-                const createdAtRow = await this.db!.get<{ t_created_at: number | null; }>(`
-                    SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
-                `, [cellId]);
-                const currentCreatedAt = createdAtRow?.t_created_at ?? null;
-                if (currentCreatedAt === null && content && content.trim() !== '') {
-                    columns.push('t_created_at');
-                    values.push(actualEditTimestamp);
-                }
-            }
+            columns.push('t_created_at');
+            values.push(hasNonEmptyContent ? actualEditTimestamp : null);
         } else if (cellType === 'source') {
-            if (isNew) {
-                columns.push('s_created_at');
-                values.push(actualEditTimestamp);
-            }
+            columns.push('s_created_at');
+            values.push(actualEditTimestamp);
         }
+
+        const createdAtCol = cellType === 'target' ? 't_created_at' : 's_created_at';
+        const updateClauses = columns.map((col) => {
+            if (col === createdAtCol) {
+                return `${col} = CASE WHEN cells.${col} IS NOT NULL THEN cells.${col} ELSE excluded.${col} END`;
+            }
+            return `${col} = excluded.${col}`;
+        });
 
         await this.db!.run(`
             INSERT INTO cells (cell_id, ${columns.join(', ')})
             VALUES (?, ${values.map(() => '?').join(', ')})
             ON CONFLICT(cell_id) DO UPDATE SET
-                ${columns.map(col => `${col} = excluded.${col}`).join(', ')}
+                ${updateClauses.join(', ')}
         `, [cellId, ...values]);
 
-        return { id: cellId, isNew, contentChanged };
+        return { id: cellId, isNew, contentChanged, sanitizedContent };
     }
 
     /** Batch-sync variant — delegates to upsertCell (same logic, separate entry point for clarity). */
@@ -1264,7 +1259,8 @@ export class SQLiteIndexManager {
         milestoneIndex?: number | null,
         cellLabel?: string | null
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
-        return this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent, milestoneIndex, cellLabel);
+        const { sanitizedContent: _, ...rest } = await this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent, milestoneIndex, cellLabel);
+        return rest;
     }
 
     // Add a single document (DEPRECATED - use FileSyncManager instead)
@@ -1319,7 +1315,7 @@ export class SQLiteIndexManager {
         this.ensureOpen();
 
         const row = await this.db!.get<{ count: number; }>(
-            "SELECT COUNT(DISTINCT cell_id) as count FROM cells WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0"
+            "SELECT COUNT(DISTINCT cell_id) as count FROM cells WHERE is_deleted = 0 AND is_merged = 0"
         );
         return (row?.count as number) || 0;
     }
@@ -1446,8 +1442,8 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
-              AND COALESCE(c.is_deleted, 0) = 0
-              AND COALESCE(c.is_merged, 0) = 0
+              AND c.is_deleted = 0
+              AND c.is_merged = 0
             ORDER BY score ASC
             LIMIT ?
         `, [ftsSearchQuery, limit]);
@@ -1647,8 +1643,8 @@ export class SQLiteIndexManager {
                 FROM cells c
                 LEFT JOIN files s_file ON c.s_file_id = s_file.id
                 WHERE c.s_content IS NOT NULL AND c.s_content != ''
-                  AND COALESCE(c.is_deleted, 0) = 0
-                  AND COALESCE(c.is_merged, 0) = 0
+                  AND c.is_deleted = 0
+                  AND c.is_merged = 0
             `;
             const params: string[] = [];
 
@@ -1984,8 +1980,8 @@ export class SQLiteIndexManager {
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
                 AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                AND COALESCE(c.is_deleted, 0) = 0
-                AND COALESCE(c.is_merged, 0) = 0
+                AND c.is_deleted = 0
+                AND c.is_merged = 0
         `;
 
         const params: (string | number)[] = [`content: ${ftsQuery}`];
@@ -2069,8 +2065,8 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE (c.s_content IS NOT NULL OR c.t_content IS NOT NULL)
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
             `;
             params = [];
 
@@ -2170,8 +2166,8 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE cells_fts MATCH ?
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
             `;
 
             params = [`content: ${ftsQuery}`];
@@ -2242,7 +2238,7 @@ export class SQLiteIndexManager {
                 COALESCE(SUM(CASE WHEN c.t_file_id = f.id THEN c.t_word_count END), 0) as total_words
             FROM files f
             LEFT JOIN cells c ON (f.id = c.s_file_id OR f.id = c.t_file_id)
-                AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
+                AND c.is_deleted = 0 AND c.is_merged = 0
             GROUP BY f.id
         `);
 
@@ -2286,7 +2282,7 @@ export class SQLiteIndexManager {
                 -- Only count missing SOURCE raw content as problematic (target cells can be legitimately blank)
                 SUM(CASE WHEN s_raw_content IS NULL OR s_raw_content = '' THEN 1 ELSE 0 END) as cells_with_missing_raw_content
             FROM cells
-            WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+            WHERE is_deleted = 0 AND is_merged = 0
         `);
 
         if (!result) {
@@ -2334,7 +2330,7 @@ export class SQLiteIndexManager {
                 SUM(CASE WHEN (s_content IS NOT NULL AND s_content != '') AND (t_content IS NULL OR t_content = '') THEN 1 ELSE 0 END) as incomplete_pairs
             FROM cells
             WHERE (s_content IS NOT NULL OR t_content IS NOT NULL)
-              AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+              AND is_deleted = 0 AND is_merged = 0
         `);
 
         const totalPairs = pairsResult?.total_pairs || 0;
@@ -2347,7 +2343,7 @@ export class SQLiteIndexManager {
             WHERE c.s_content IS NOT NULL 
             AND c.s_content != ''
             AND (c.t_content IS NULL OR c.t_content = '')
-            AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
+            AND c.is_deleted = 0 AND c.is_merged = 0
         `);
 
         const orphanedSourceCells = orphanedSourceResult?.count || 0;
@@ -2358,7 +2354,7 @@ export class SQLiteIndexManager {
             WHERE c.t_content IS NOT NULL 
             AND c.t_content != ''
             AND (c.s_content IS NULL OR c.s_content = '')
-            AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
+            AND c.is_deleted = 0 AND c.is_merged = 0
         `);
 
         const orphanedTargetCells = orphanedTargetResult?.count || 0;
@@ -2632,11 +2628,11 @@ export class SQLiteIndexManager {
                     INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
                     FROM cells WHERE s_content IS NOT NULL AND cell_id IN (${placeholders})
-                      AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                      AND is_deleted = 0 AND is_merged = 0
                     UNION ALL
                     SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
                     FROM cells WHERE t_content IS NOT NULL AND cell_id IN (${placeholders})
-                      AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                      AND is_deleted = 0 AND is_merged = 0
                 `, [...chunk, ...chunk]);
             }
         });
@@ -2662,11 +2658,11 @@ export class SQLiteIndexManager {
                 INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                 SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
                 FROM cells WHERE s_content IS NOT NULL
-                  AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                  AND is_deleted = 0 AND is_merged = 0
                 UNION ALL
                 SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
                 FROM cells WHERE t_content IS NOT NULL
-                  AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+                  AND is_deleted = 0 AND is_merged = 0
             `);
         });
         const elapsed = globalThis.performance.now() - start;
@@ -2718,7 +2714,6 @@ export class SQLiteIndexManager {
         const result = await this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent);
 
         if (result.contentChanged) {
-            const sanitizedContent = this.sanitizeContent(content);
             const actualRawContent = rawContent || content;
             await this.db!.run(
                 `DELETE FROM cells_fts WHERE cell_id = ? AND content_type = ?`,
@@ -2726,11 +2721,12 @@ export class SQLiteIndexManager {
             );
             await this.db!.run(
                 `INSERT INTO cells_fts(cell_id, content, raw_content, content_type) VALUES (?, ?, ?, ?)`,
-                [cellId, sanitizedContent, actualRawContent, cellType]
+                [cellId, result.sanitizedContent, actualRawContent, cellType]
             );
         }
 
-        return result;
+        const { sanitizedContent: _, ...rest } = result;
+        return rest;
     }
 
     /**
@@ -3570,8 +3566,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
                 ORDER BY c.cell_id DESC
                 LIMIT ?
             `;
@@ -3687,8 +3683,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
 
                 UNION
 
@@ -3712,8 +3708,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
             )
             ORDER BY score ASC
             LIMIT ?
@@ -3831,8 +3827,8 @@ export class SQLiteIndexManager {
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
                     ${onlyValidated ? "AND c.t_is_fully_validated = 1" : ""}
                 ORDER BY c.cell_id DESC
                 LIMIT ?
@@ -3956,8 +3952,8 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
                     ${validationFilter}
 
                 UNION
@@ -3981,8 +3977,8 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL
                     AND c.t_content != ''
-                    AND COALESCE(c.is_deleted, 0) = 0
-                    AND COALESCE(c.is_merged, 0) = 0
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
                     ${validationFilter}
             )
             ORDER BY score ASC
@@ -4127,7 +4123,7 @@ export class SQLiteIndexManager {
                 ELSE 0 
             END
             WHERE t_content IS NOT NULL AND t_content != ''
-              AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+              AND is_deleted = 0 AND is_merged = 0
         `, [currentThreshold]);
         const updatedCells = result.changes;
 
@@ -4150,7 +4146,7 @@ export class SQLiteIndexManager {
                 WHEN t_audio_validation_count >= ? THEN 1 
                 ELSE 0 
             END
-            WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
+            WHERE is_deleted = 0 AND is_merged = 0
         `, [currentThreshold]);
         const updatedCells = result.changes;
 
@@ -4578,7 +4574,7 @@ export class SQLiteIndexManager {
                 SUM(CASE WHEN (c.t_content IS NULL OR c.t_content = '') AND c.t_created_at IS NOT NULL THEN 1 ELSE 0 END) as target_cells_without_content_but_with_created_at
             FROM cells c
             WHERE (c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL)
-                AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
+                AND c.is_deleted = 0 AND c.is_merged = 0
         `);
 
         const stats = {
@@ -4604,7 +4600,7 @@ export class SQLiteIndexManager {
                 c.t_current_edit_timestamp as edit_timestamp
             FROM cells c
             WHERE (c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL)
-                AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
+                AND c.is_deleted = 0 AND c.is_merged = 0
             ORDER BY c.t_created_at DESC, c.t_current_edit_timestamp DESC
             LIMIT 10
         `);
@@ -4643,7 +4639,7 @@ export class SQLiteIndexManager {
                 c.t_current_edit_timestamp as edit_timestamp
             FROM cells c
             WHERE (c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL)
-            AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
+            AND c.is_deleted = 0 AND c.is_merged = 0
             AND (
                 -- Issue 1: Has content but no created_at timestamp
                 ((c.t_content IS NOT NULL AND c.t_content != '') AND c.t_created_at IS NULL)
