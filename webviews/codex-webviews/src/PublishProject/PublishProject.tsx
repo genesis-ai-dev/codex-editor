@@ -192,7 +192,13 @@ export default function PublishProject() {
                             rows={3}
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+                            disabled={busy}
+                            className={cn(
+                                "w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)]",
+                                busy
+                                    ? "text-[var(--vscode-disabledForeground)] cursor-not-allowed opacity-60"
+                                    : "text-[var(--vscode-input-foreground)]"
+                            )}
                             placeholder="Short description..."
                         />
                     </div>
@@ -219,7 +225,7 @@ export default function PublishProject() {
                                     type="button"
                                     role="combobox"
                                     aria-expanded={comboboxOpen}
-                                    disabled={loadingGroups || groups.length === 0}
+                                    disabled={busy || loadingGroups || groups.length === 0}
                                     className="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] disabled:opacity-60 disabled:cursor-not-allowed"
                                 >
                                     <span className={cn(!selectedGroup && "text-[var(--vscode-descriptionForeground)]")}>
