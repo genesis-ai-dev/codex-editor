@@ -632,6 +632,25 @@ export class SyncManager {
 
         const projectPath = hasWorkspace ? vscode.workspace.workspaceFolders![0].uri.fsPath : undefined;
 
+        // Skip sync if the project has no git remote (not published yet)
+        if (projectPath) {
+            try {
+                const remotes = await dugiteGit.listRemotes(projectPath);
+                if (remotes.length === 0) {
+                    debug("Project has no git remote (not published), skipping sync");
+                    if (isManualSync) {
+                        vscode.window.showInformationMessage(
+                            "This project hasn't been published yet. Please publish your project before syncing."
+                        );
+                    }
+                    return;
+                }
+            } catch {
+                debug("Could not check git remotes, skipping sync");
+                return;
+            }
+        }
+
         // Check for updating requirement before proceeding (unless explicitly bypassed)
         if (projectPath && !bypassUpdatingCheck) {
             const isUpdatingRequired = await this.checkUpdating(projectPath);
