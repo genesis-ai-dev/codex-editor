@@ -4,6 +4,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "../../extension";
 import { updateProjectSettings, updateMetadataFile } from "../../projectManager/utils/projectUtils";
+import { MetadataManager } from "../../utils/metadataManager";
 
 export interface GroupList {
     id: number;
@@ -43,14 +44,15 @@ export class PublishProjectView {
                         const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || "";
                         let projectId: string | undefined;
 
-                        // Try to read projectId from metadata.json
+                        // Try to read projectId from metadata.json (use MetadataManager to avoid race with concurrent writes)
                         try {
                             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                             if (workspaceFolder) {
-                                const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-                                const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
-                                const metadata = JSON.parse(Buffer.from(metadataContent).toString());
-                                projectId = metadata.projectId || metadata.id;
+                                const result = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
+                                if (result.success && result.metadata) {
+                                    const metadata = result.metadata as Record<string, unknown>;
+                                    projectId = (metadata.projectId || metadata.id) as string | undefined;
+                                }
                             }
                         } catch (error) {
                             console.debug("[PublishProject] Could not read projectId from metadata.json:", error);
@@ -154,10 +156,12 @@ export class PublishProjectView {
                                         throw new Error("No workspace folder found");
                                     }
 
-                                    const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-                                    const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
-                                    const metadata = JSON.parse(Buffer.from(metadataContent).toString());
-                                    const projectId = metadata.projectId || metadata.id;
+                                    const metadataResult = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
+                                    if (!metadataResult.success || !metadataResult.metadata) {
+                                        throw new Error("Could not read metadata.json. Please try again.");
+                                    }
+                                    const metadata = metadataResult.metadata as Record<string, unknown>;
+                                    const projectId = (metadata.projectId || metadata.id) as string | undefined;
 
                                     if (!projectId) {
                                         throw new Error("Project ID not found in metadata.json. Cannot publish project without project ID.");
