@@ -355,6 +355,23 @@ export class SyncManager {
         });
     }
 
+    /**
+     * Schedule any queued pending changes for sync.
+     * Called when an external sync (e.g. publish) completes so that
+     * changes made during that sync are eventually synced.
+     */
+    private drainPendingChanges(): void {
+        if (this.pendingChanges.length === 0) {
+            return;
+        }
+        debug(`Draining ${this.pendingChanges.length} pending change(s) after external sync`);
+        const message = this.pendingChanges.length === 1
+            ? this.pendingChanges[0]
+            : `changes to ${this.pendingChanges.length} files`;
+        this.pendingChanges = [];
+        this.scheduleSyncOperation(message);
+    }
+
     // Subscribe to Frontier sync events to keep UI in sync
     private subscribeFrontierSyncEvents(): void {
         try {
@@ -432,6 +449,7 @@ export class SyncManager {
                             this.frontierSyncProgressResolver = undefined;
                         }
                         this.checkProjectSwapAfterSync();
+                        this.drainPendingChanges();
                         break;
                     case 'error':
                         console.error(`[Sync] ❌ Sync failed: ${status.message || 'Unknown error'}`);
@@ -446,6 +464,7 @@ export class SyncManager {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
+                        this.drainPendingChanges();
                         break;
                     case 'skipped':
                         console.warn(`[Sync] ⏭️  Sync skipped: ${status.message || 'Another sync in progress'}`);
@@ -460,6 +479,7 @@ export class SyncManager {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
+                        this.drainPendingChanges();
                         break;
                 }
             });
@@ -678,22 +698,19 @@ export class SyncManager {
                         const ageMinutes = Math.floor((lockStatus.age || 0) / 60000);
                         debug(`Filesystem lock exists (${ageMinutes}m old, PID: ${lockStatus.pid}), releasing claim and queuing`);
 
-                        // Release our in-memory claim
-                        this.isSyncInProgress = false;
-
                         // Track as pending
                         if (!this.pendingChanges.includes(commitMessage)) {
                             this.pendingChanges.push(commitMessage);
                         }
 
-                        if (showInfoOnConnectionIssues) {
-                            const progressInfo = lockStatus.progress
-                                ? ` - ${lockStatus.progress.description || `${lockStatus.phase} in progress`}`
-                                : '';
-                            vscode.window.showInformationMessage(
-                                `Sync in progress (started ${ageMinutes} minute${ageMinutes !== 1 ? 's' : ''} ago${progressInfo}). Your changes will sync after completion.`
-                            );
-                        }
+                        // Show syncing state in the UI (greyed button, spinning icon).
+                        // The onSyncStatusChange subscription will push progress updates
+                        // and clear this state when the external sync completes.
+                        const initialStage = lockStatus.progress?.description
+                            || (lockStatus.phase ? `${lockStatus.phase} in progress` : 'Syncing...');
+                        this.currentSyncStage = initialStage;
+                        this.notifySyncStatusListeners();
+
                         return;
                     }
 
