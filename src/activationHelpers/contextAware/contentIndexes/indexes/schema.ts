@@ -107,7 +107,6 @@ export const CREATE_INDEXES_SQL = `
     CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path);
     CREATE INDEX IF NOT EXISTS idx_cells_s_file_id ON cells(s_file_id);
     CREATE INDEX IF NOT EXISTS idx_cells_t_file_id ON cells(t_file_id);
-    CREATE INDEX IF NOT EXISTS idx_cells_milestone_index ON cells(milestone_index);
 `;
 
 // ── Deferred indexes (created after initial data load for performance) ──────
@@ -115,13 +114,8 @@ export const CREATE_INDEXES_SQL = `
 export const CREATE_DEFERRED_INDEXES_SQL = `
     CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash);
     CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms);
-    CREATE INDEX IF NOT EXISTS idx_cells_s_content_hash ON cells(s_raw_content_hash);
-    CREATE INDEX IF NOT EXISTS idx_cells_t_content_hash ON cells(t_raw_content_hash);
     CREATE INDEX IF NOT EXISTS idx_cells_t_is_fully_validated ON cells(t_is_fully_validated);
     CREATE INDEX IF NOT EXISTS idx_cells_t_current_edit_timestamp ON cells(t_current_edit_timestamp);
-    CREATE INDEX IF NOT EXISTS idx_cells_t_validation_count ON cells(t_validation_count);
-    CREATE INDEX IF NOT EXISTS idx_cells_t_audio_is_fully_validated ON cells(t_audio_is_fully_validated);
-    CREATE INDEX IF NOT EXISTS idx_cells_t_audio_validation_count ON cells(t_audio_validation_count);
     CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);
     CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id);
     CREATE INDEX IF NOT EXISTS idx_cells_cell_label ON cells(cell_label);

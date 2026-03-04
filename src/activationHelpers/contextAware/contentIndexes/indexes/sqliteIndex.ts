@@ -1134,9 +1134,6 @@ export class SQLiteIndexManager {
         const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
         const isNew = !existingCell;
 
-        const extractedMetadata = this.extractMetadataFields(metadata, cellType);
-        const cellTypeValue = metadata?.type || null;
-
         const hasMetadata = metadata && typeof metadata === "object" && Object.keys(metadata).length > 0;
         const shouldUpdate = contentChanged || hasMetadata;
 
@@ -1144,6 +1141,8 @@ export class SQLiteIndexManager {
             return { id: cellId, isNew: false, contentChanged: false, sanitizedContent: '' };
         }
 
+        const extractedMetadata = this.extractMetadataFields(metadata, cellType);
+        const cellTypeValue = metadata?.type || null;
         const sanitizedContent = this.sanitizeContent(content);
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 

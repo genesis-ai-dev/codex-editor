@@ -456,7 +456,6 @@ suite("Native SQLite Database Tests", function () {
                 "idx_files_path",
                 "idx_cells_s_file_id",
                 "idx_cells_t_file_id",
-                "idx_cells_milestone_index",
             ];
 
             for (const idx of expected) {
@@ -475,13 +474,8 @@ suite("Native SQLite Database Tests", function () {
             const deferredIndexes = [
                 "idx_sync_metadata_hash",
                 "idx_sync_metadata_modified",
-                "idx_cells_s_content_hash",
-                "idx_cells_t_content_hash",
                 "idx_cells_t_is_fully_validated",
                 "idx_cells_t_current_edit_timestamp",
-                "idx_cells_t_validation_count",
-                "idx_cells_t_audio_is_fully_validated",
-                "idx_cells_t_audio_validation_count",
                 "idx_words_word",
                 "idx_words_cell_id",
                 "idx_cells_cell_label",
