@@ -81,6 +81,30 @@ export interface CellSearchResult {
     file_type: string;
 }
 
+/** Fields extracted from cell JSON metadata for storage in dedicated DB columns. */
+interface ExtractedCellMetadata {
+    currentEditTimestamp?: number | null;
+    validationCount?: number;
+    validatedBy?: string;
+    isFullyValidated?: boolean;
+    audioValidationCount?: number;
+    audioValidatedBy?: string;
+    audioIsFullyValidated?: boolean;
+    parentId?: string | null;
+    isLocked?: boolean;
+    startTime?: number | null;
+    endTime?: number | null;
+    format?: string | null;
+    book?: string | null;
+    chapter?: string | null;
+    verse?: string | null;
+    isMerged?: boolean;
+    isDeleted?: boolean;
+    originalText?: string | null;
+    globalReferences?: string | null;
+    milestoneIndex?: number | null;
+}
+
 /** Metadata attached to a cell retrieved by getById() or getCellById(). */
 export interface CellValidationMetadata {
     currentEditTimestamp: number | null;
@@ -90,6 +114,23 @@ export interface CellValidationMetadata {
     audioValidationCount: number;
     audioValidatedBy: string[];
     audioIsFullyValidated: boolean;
+}
+
+/** Structural metadata for a cell stored in dedicated DB columns. */
+export interface CellStructuralMetadata {
+    parentId: string | null;
+    isLocked: boolean;
+    startTime: number | null;
+    endTime: number | null;
+    format: string | null;
+    book: string | null;
+    chapter: string | null;
+    verse: string | null;
+    isMerged: boolean;
+    isDeleted: boolean;
+    originalText: string | null;
+    globalReferences: string[];
+    milestoneIndex: number | null;
 }
 
 /** Result from getById(). */
@@ -105,6 +146,7 @@ export interface CellByIdResult {
     target_file_path: string;
     source_metadata: Record<string, never>;
     target_metadata: CellValidationMetadata;
+    structural_metadata: CellStructuralMetadata;
 }
 
 /** Result from getCellById(). */
@@ -118,6 +160,7 @@ export interface CellDetailResult {
     line: number;
     document?: string;
     section?: string;
+    structural_metadata: CellStructuralMetadata;
     [key: string]: unknown;
 }
 
@@ -133,6 +176,7 @@ export interface TranslationPairResult {
     section?: string;
     uri: string | undefined;
     line: number | undefined;
+    structural_metadata: CellStructuralMetadata;
 }
 
 /** A single entry from getFileStats(). */
@@ -1076,17 +1120,12 @@ export class SQLiteIndexManager {
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         this.ensureOpen();
 
-        // Use rawContent if provided, otherwise fall back to content
         const actualRawContent = rawContent || content;
-
-        // Sanitize content for storage - remove HTML tags for clean searching/indexing
         const sanitizedContent = this.sanitizeContent(content);
-
         const rawContentHash = this.computeRawContentHash(actualRawContent);
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
         const currentTimestamp = Date.now();
 
-        // Check if cell exists and if content changed
         const existingCell = await this.db!.get<{ cell_id: string; hash: string | null; }>(`
             SELECT cell_id, ${cellType === 'source' ? 's_raw_content_hash' : 't_raw_content_hash'} as hash 
             FROM cells 
@@ -1096,23 +1135,17 @@ export class SQLiteIndexManager {
         const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
         const isNew = !existingCell;
 
-        // Extract metadata for dedicated columns (always extract for target cells to handle validation changes)
         const extractedMetadata = this.extractMetadataFields(metadata, cellType);
-
-        // Extract cell_type from metadata
         const cellTypeValue = metadata?.type || null;
 
-        // For target cells, always update metadata even if content hasn't changed (validation may have changed)
         const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
 
         if (!shouldUpdate && existingCell) {
             return { id: cellId, isNew: false, contentChanged: false };
         }
 
-        // Use actual edit timestamp from JSON metadata when available
         const actualEditTimestamp = extractedMetadata.currentEditTimestamp || currentTimestamp;
 
-        // Prepare column names and values based on cell type
         const prefix = cellType === 'source' ? 's_' : 't_';
         const columns = [
             'cell_type',
@@ -1123,10 +1156,24 @@ export class SQLiteIndexManager {
             `${prefix}word_count`,
             `${prefix}raw_content`,
             'milestone_index',
-            'cell_label'
+            'cell_label',
+            'parent_id',
+            'is_locked',
+            'start_time',
+            'end_time',
+            'format',
+            'book',
+            'chapter',
+            'verse',
+            'is_merged',
+            'is_deleted',
+            'original_text',
+            'global_references'
         ];
 
-        const values = [
+        const resolvedMilestoneIndex = extractedMetadata.milestoneIndex ?? (milestoneIndex !== undefined ? milestoneIndex : null);
+
+        const values: (string | number | boolean | null)[] = [
             cellTypeValue,
             fileId,
             sanitizedContent,
@@ -1134,24 +1181,32 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            milestoneIndex !== undefined ? milestoneIndex : null,
-            cellLabel || null
+            resolvedMilestoneIndex,
+            cellLabel || null,
+            extractedMetadata.parentId ?? null,
+            extractedMetadata.isLocked ? 1 : 0,
+            extractedMetadata.startTime ?? null,
+            extractedMetadata.endTime ?? null,
+            extractedMetadata.format ?? null,
+            extractedMetadata.book ?? null,
+            extractedMetadata.chapter ?? null,
+            extractedMetadata.verse ?? null,
+            extractedMetadata.isMerged ? 1 : 0,
+            extractedMetadata.isDeleted ? 1 : 0,
+            extractedMetadata.originalText ?? null,
+            extractedMetadata.globalReferences ?? null
         ];
 
-        // Add timestamps based on cell type
         if (cellType === 'source') {
-            // Source cells keep s_updated_at for tracking source content changes
             columns.push('s_updated_at');
             values.push(actualEditTimestamp);
         }
-        // Target cells only use t_current_edit_timestamp (added below with metadata)
 
-        // Add target-specific metadata columns
         if (cellType === 'target') {
             columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
                 't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
             values.push(
-                actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
+                actualEditTimestamp,
                 extractedMetadata.validationCount || 0,
                 extractedMetadata.validatedBy || null,
                 extractedMetadata.isFullyValidated ? 1 : 0,
@@ -1161,41 +1216,29 @@ export class SQLiteIndexManager {
             );
         }
 
-        // Handle t_created_at logic for target cells (more complex than source cells)
         if (cellType === 'target') {
-            // For target cells, t_created_at should only be set when first content is added
             if (isNew) {
-                // New target cell: only set t_created_at if we actually have content
                 if (content && content.trim() !== '') {
                     columns.push('t_created_at');
                     values.push(actualEditTimestamp);
                 }
-                // If no content, t_created_at remains NULL (will be set when first content is added)
             } else {
-                // Existing target cell: check if t_created_at is NULL and we're adding first content
                 const createdAtRow = await this.db!.get<{ t_created_at: number | null; }>(`
                     SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
                 `, [cellId]);
                 const currentCreatedAt = createdAtRow?.t_created_at ?? null;
-
-                // If t_created_at is NULL and we're adding content, set it to current edit timestamp
                 if (currentCreatedAt === null && content && content.trim() !== '') {
                     columns.push('t_created_at');
                     values.push(actualEditTimestamp);
                 }
-                // Otherwise, don't modify t_created_at (preserve existing value)
             }
         } else if (cellType === 'source') {
-            // Source cells: simpler logic, always set created_at for new cells
             if (isNew) {
                 columns.push('s_created_at');
                 values.push(actualEditTimestamp);
             }
         }
 
-        // Created_at logic is handled above based on cell type and content presence
-
-        // Upsert the cell
         await this.db!.run(`
             INSERT INTO cells (cell_id, ${columns.join(', ')})
             VALUES (?, ${values.map(() => '?').join(', ')})
@@ -1206,7 +1249,6 @@ export class SQLiteIndexManager {
         return { id: cellId, isNew, contentChanged };
     }
 
-    // Synchronous version for use within transactions
     async upsertCellSync(
         cellId: string,
         fileId: number,
@@ -1220,17 +1262,12 @@ export class SQLiteIndexManager {
     ): Promise<{ id: string; isNew: boolean; contentChanged: boolean; }> {
         this.ensureOpen();
 
-        // Use rawContent if provided, otherwise fall back to content
         const actualRawContent = rawContent || content;
-
-        // Sanitize content for storage - remove HTML tags for clean searching/indexing
         const sanitizedContent = this.sanitizeContent(content);
-
         const rawContentHash = this.computeRawContentHash(actualRawContent);
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
         const currentTimestamp = Date.now();
 
-        // Check if cell exists and if content changed
         const existingCell = await this.db!.get<{ cell_id: string; hash: string | null; }>(`
             SELECT cell_id, ${cellType === 'source' ? 's_raw_content_hash' : 't_raw_content_hash'} as hash 
             FROM cells 
@@ -1240,23 +1277,17 @@ export class SQLiteIndexManager {
         const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
         const isNew = !existingCell;
 
-        // Extract metadata for dedicated columns (always extract for target cells to handle validation changes)
         const extractedMetadata = this.extractMetadataFields(metadata, cellType);
-
-        // Extract cell_type from metadata
         const cellTypeValue = metadata?.type || null;
 
-        // For target cells, always update metadata even if content hasn't changed (validation may have changed)
         const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
 
         if (!shouldUpdate && existingCell) {
             return { id: cellId, isNew: false, contentChanged: false };
         }
 
-        // Use actual edit timestamp from JSON metadata when available
         const actualEditTimestamp = extractedMetadata.currentEditTimestamp || currentTimestamp;
 
-        // Prepare column names and values based on cell type
         const prefix = cellType === 'source' ? 's_' : 't_';
         const columns = [
             'cell_type',
@@ -1267,10 +1298,24 @@ export class SQLiteIndexManager {
             `${prefix}word_count`,
             `${prefix}raw_content`,
             'milestone_index',
-            'cell_label'
+            'cell_label',
+            'parent_id',
+            'is_locked',
+            'start_time',
+            'end_time',
+            'format',
+            'book',
+            'chapter',
+            'verse',
+            'is_merged',
+            'is_deleted',
+            'original_text',
+            'global_references'
         ];
 
-        const values = [
+        const resolvedMilestoneIndex = extractedMetadata.milestoneIndex ?? (milestoneIndex !== undefined ? milestoneIndex : null);
+
+        const values: (string | number | boolean | null)[] = [
             cellTypeValue,
             fileId,
             sanitizedContent,
@@ -1278,24 +1323,32 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            milestoneIndex !== undefined ? milestoneIndex : null,
-            cellLabel || null
+            resolvedMilestoneIndex,
+            cellLabel || null,
+            extractedMetadata.parentId ?? null,
+            extractedMetadata.isLocked ? 1 : 0,
+            extractedMetadata.startTime ?? null,
+            extractedMetadata.endTime ?? null,
+            extractedMetadata.format ?? null,
+            extractedMetadata.book ?? null,
+            extractedMetadata.chapter ?? null,
+            extractedMetadata.verse ?? null,
+            extractedMetadata.isMerged ? 1 : 0,
+            extractedMetadata.isDeleted ? 1 : 0,
+            extractedMetadata.originalText ?? null,
+            extractedMetadata.globalReferences ?? null
         ];
 
-        // Add timestamps based on cell type
         if (cellType === 'source') {
-            // Source cells keep s_updated_at for tracking source content changes
             columns.push('s_updated_at');
             values.push(actualEditTimestamp);
         }
-        // Target cells only use t_current_edit_timestamp (added below with metadata)
 
-        // Add target-specific metadata columns
         if (cellType === 'target') {
             columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
                 't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
             values.push(
-                actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
+                actualEditTimestamp,
                 extractedMetadata.validationCount || 0,
                 extractedMetadata.validatedBy || null,
                 extractedMetadata.isFullyValidated ? 1 : 0,
@@ -1305,41 +1358,29 @@ export class SQLiteIndexManager {
             );
         }
 
-        // Handle t_created_at logic for target cells (more complex than source cells)
         if (cellType === 'target') {
-            // For target cells, t_created_at should only be set when first content is added
             if (isNew) {
-                // New target cell: only set t_created_at if we actually have content
                 if (content && content.trim() !== '') {
                     columns.push('t_created_at');
                     values.push(actualEditTimestamp);
                 }
-                // If no content, t_created_at remains NULL (will be set when first content is added)
             } else {
-                // Existing target cell: check if t_created_at is NULL and we're adding first content
                 const createdAtRow = await this.db!.get<{ t_created_at: number | null; }>(`
                     SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
                 `, [cellId]);
                 const currentCreatedAt = createdAtRow?.t_created_at ?? null;
-
-                // If t_created_at is NULL and we're adding content, set it to current edit timestamp
                 if (currentCreatedAt === null && content && content.trim() !== '') {
                     columns.push('t_created_at');
                     values.push(actualEditTimestamp);
                 }
-                // Otherwise, don't modify t_created_at (preserve existing value)
             }
         } else if (cellType === 'source') {
-            // Source cells: simpler logic, always set created_at for new cells
             if (isNew) {
                 columns.push('s_created_at');
                 values.push(actualEditTimestamp);
             }
         }
 
-        // Created_at logic is handled above based on cell type and content presence
-
-        // Upsert the cell
         await this.db!.run(`
             INSERT INTO cells (cell_id, ${columns.join(', ')})
             VALUES (?, ${values.map(() => '?').join(', ')})
@@ -1629,14 +1670,25 @@ export class SQLiteIndexManager {
             t_audio_validated_by: string | null;
             t_audio_is_fully_validated: boolean;
             t_file_path: string;
+            parent_id: string | null;
+            is_locked: number;
+            start_time: number | null;
+            end_time: number | null;
+            format: string | null;
+            book: string | null;
+            chapter: string | null;
+            verse: string | null;
+            is_merged: number;
+            is_deleted: number;
+            original_text: string | null;
+            global_references: string | null;
+            milestone_index: number | null;
         }>(`
             SELECT 
                 c.cell_id,
-                -- Source columns
                 c.s_content,
                 c.s_raw_content,
                 s_file.file_path as s_file_path,
-                -- Target columns
                 c.t_content,
                 c.t_raw_content,
                 c.t_current_edit_timestamp,
@@ -1646,7 +1698,20 @@ export class SQLiteIndexManager {
                 c.t_audio_validation_count,
                 c.t_audio_validated_by,
                 c.t_audio_is_fully_validated,
-                t_file.file_path as t_file_path
+                t_file.file_path as t_file_path,
+                c.parent_id,
+                c.is_locked,
+                c.start_time,
+                c.end_time,
+                c.format,
+                c.book,
+                c.chapter,
+                c.verse,
+                c.is_merged,
+                c.is_deleted,
+                c.original_text,
+                c.global_references,
+                c.milestone_index
             FROM cells c
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
@@ -1654,7 +1719,6 @@ export class SQLiteIndexManager {
         `, [cellId]);
 
         if (row) {
-            // Construct metadata from dedicated columns
             const sourceMetadata = {};
             const targetMetadata = {
                 currentEditTimestamp: row.t_current_edit_timestamp || null,
@@ -1665,11 +1729,12 @@ export class SQLiteIndexManager {
                 audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
                 audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
             };
+            const structuralMetadata = this.buildStructuralMetadata(row);
 
             return {
                 cellId: cellId,
-                content: row.s_raw_content || row.s_content || "", // Prefer source raw content
-                versions: [], // Versions now tracked in dedicated columns
+                content: row.s_raw_content || row.s_content || "",
+                versions: [],
                 sourceContent: row.s_content,
                 targetContent: row.t_content,
                 sourceRawContent: row.s_raw_content,
@@ -1678,6 +1743,7 @@ export class SQLiteIndexManager {
                 target_file_path: row.t_file_path,
                 source_metadata: sourceMetadata,
                 target_metadata: targetMetadata,
+                structural_metadata: structuralMetadata,
             };
         }
 
@@ -1768,17 +1834,28 @@ export class SQLiteIndexManager {
             t_audio_is_fully_validated: boolean;
             t_file_path: string;
             t_file_type: string;
+            parent_id: string | null;
+            is_locked: number;
+            start_time: number | null;
+            end_time: number | null;
+            format: string | null;
+            book: string | null;
+            chapter: string | null;
+            verse: string | null;
+            is_merged: number;
+            is_deleted: number;
+            original_text: string | null;
+            global_references: string | null;
+            milestone_index: number | null;
         }>(`
             SELECT
                 c.cell_id,
                 c.cell_label,
-                -- Source columns
                 c.s_content,
                 c.s_raw_content,
                 c.s_line_number,
                 s_file.file_path as s_file_path,
                 s_file.file_type as s_file_type,
-                -- Target columns
                 c.t_content,
                 c.t_raw_content,
                 c.t_line_number,
@@ -1790,7 +1867,20 @@ export class SQLiteIndexManager {
                 c.t_audio_validated_by,
                 c.t_audio_is_fully_validated,
                 t_file.file_path as t_file_path,
-                t_file.file_type as t_file_type
+                t_file.file_type as t_file_type,
+                c.parent_id,
+                c.is_locked,
+                c.start_time,
+                c.end_time,
+                c.format,
+                c.book,
+                c.chapter,
+                c.verse,
+                c.is_merged,
+                c.is_deleted,
+                c.original_text,
+                c.global_references,
+                c.milestone_index
             FROM cells c
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
@@ -1798,7 +1888,6 @@ export class SQLiteIndexManager {
         `, [cellId]);
 
         if (row) {
-            // Construct metadata from dedicated columns
             const sourceMetadata = {};
             const targetMetadata = {
                 currentEditTimestamp: row.t_current_edit_timestamp || null,
@@ -1809,8 +1898,8 @@ export class SQLiteIndexManager {
                 audioValidatedBy: row.t_audio_validated_by ? row.t_audio_validated_by.split(',') : [],
                 audioIsFullyValidated: Boolean(row.t_audio_is_fully_validated)
             };
+            const structuralMetadata = this.buildStructuralMetadata(row);
 
-            // Return data based on requested cell type
             if (cellType === "source" && row.s_content) {
                 return {
                     cellId: row.cell_id,
@@ -1820,6 +1909,7 @@ export class SQLiteIndexManager {
                     cell_type: "source",
                     uri: row.s_file_path,
                     line: row.s_line_number,
+                    structural_metadata: structuralMetadata,
                     ...sourceMetadata,
                 };
             } else if (cellType === "target" && row.t_content) {
@@ -1831,30 +1921,32 @@ export class SQLiteIndexManager {
                     cell_type: "target",
                     uri: row.t_file_path,
                     line: row.t_line_number,
+                    structural_metadata: structuralMetadata,
                     ...targetMetadata,
                 };
             } else if (!cellType) {
-                // Return source if available, otherwise target
                 if (row.s_content) {
                     return {
                         cellId: row.cell_id,
-                        cellLabel: row.cell_label, // NO FALLBACK
+                        cellLabel: row.cell_label,
                         content: row.s_content,
                         rawContent: row.s_raw_content,
                         cell_type: "source",
                         uri: row.s_file_path,
                         line: row.s_line_number,
+                        structural_metadata: structuralMetadata,
                         ...sourceMetadata,
                     };
                 } else if (row.t_content) {
                     return {
                         cellId: row.cell_id,
-                        cellLabel: row.cell_label, // NO FALLBACK
+                        cellLabel: row.cell_label,
                         content: row.t_content,
                         rawContent: row.t_raw_content,
                         cell_type: "target",
                         uri: row.t_file_path,
                         line: row.t_line_number,
+                        structural_metadata: structuralMetadata,
                         ...targetMetadata,
                     };
                 }
@@ -1873,6 +1965,13 @@ export class SQLiteIndexManager {
 
         if (!sourceCell && !targetCell) return null;
 
+        const defaultStructural: CellStructuralMetadata = {
+            parentId: null, isLocked: false, startTime: null, endTime: null,
+            format: null, book: null, chapter: null, verse: null,
+            isMerged: false, isDeleted: false, originalText: null,
+            globalReferences: [], milestoneIndex: null,
+        };
+
         return {
             cellId,
             cellLabel: sourceCell?.cellLabel ?? targetCell?.cellLabel ?? null,
@@ -1884,6 +1983,7 @@ export class SQLiteIndexManager {
             section: sourceCell?.section ?? targetCell?.section,
             uri: sourceCell?.uri ?? targetCell?.uri,
             line: sourceCell?.line ?? targetCell?.line,
+            structural_metadata: (sourceCell?.structural_metadata ?? targetCell?.structural_metadata ?? defaultStructural) as CellStructuralMetadata,
         };
     }
 
@@ -4149,28 +4249,40 @@ export class SQLiteIndexManager {
     }
 
     /**
-     * Extract frequently accessed metadata fields for dedicated columns
+     * Extract frequently accessed metadata fields for dedicated columns.
+     * Validation fields are only extracted for target cells;
+     * structural/cell-identity fields are extracted for all cell types.
      */
-    private extractMetadataFields(metadata: any, cellType: "source" | "target"): {
-        currentEditTimestamp?: number | null;
-        validationCount?: number;
-        validatedBy?: string;
-        isFullyValidated?: boolean;
-        audioValidationCount?: number;
-        audioValidatedBy?: string;
-        audioIsFullyValidated?: boolean;
-    } {
-        const result: {
-            currentEditTimestamp?: number | null;
-            validationCount?: number;
-            validatedBy?: string;
-            isFullyValidated?: boolean;
-            audioValidationCount?: number;
-            audioValidatedBy?: string;
-            audioIsFullyValidated?: boolean;
-        } = {};
+    private extractMetadataFields(metadata: any, cellType: "source" | "target"): ExtractedCellMetadata {
+        const result: ExtractedCellMetadata = {};
 
-        if (!metadata || typeof metadata !== "object" || cellType !== "target") {
+        if (!metadata || typeof metadata !== "object") {
+            return result;
+        }
+
+        // ── Structural fields (both source and target) ─────────────────
+        result.parentId = metadata.parentId ?? null;
+        result.isLocked = Boolean(metadata.isLocked);
+
+        const data = metadata.data;
+        if (data && typeof data === "object") {
+            result.startTime = typeof data.startTime === "number" ? data.startTime : null;
+            result.endTime = typeof data.endTime === "number" ? data.endTime : null;
+            result.format = typeof data.format === "string" ? data.format : null;
+            result.book = typeof data.book === "string" ? data.book : null;
+            result.chapter = typeof data.chapter === "string" ? data.chapter : null;
+            result.verse = typeof data.verse === "string" ? data.verse : null;
+            result.isMerged = Boolean(data.merged);
+            result.isDeleted = Boolean(data.deleted);
+            result.originalText = typeof data.originalText === "string" ? data.originalText : null;
+            result.globalReferences = Array.isArray(data.globalReferences)
+                ? JSON.stringify(data.globalReferences)
+                : null;
+            result.milestoneIndex = typeof data.milestoneIndex === "number" ? data.milestoneIndex : null;
+        }
+
+        // ── Validation fields (target only) ────────────────────────────
+        if (cellType !== "target") {
             return result;
         }
 
@@ -4183,19 +4295,13 @@ export class SQLiteIndexManager {
                 const lastEdit = valueEdits[valueEdits.length - 1];
                 result.currentEditTimestamp = lastEdit.timestamp || null;
 
-                // Note: validatedBy is only present for cell-level edits (EditHistory).
-                // File-level metadata edits (FileEditHistory) do not have validatedBy field.
-                // For file-level metadata edits, validation tracking is not supported.
                 if (lastEdit.validatedBy) {
-                    // Cell-level edit with validation tracking
                     const activeValidations = (lastEdit as any).validatedBy.filter((v: any) => v && typeof v === "object" && !v.isDeleted);
                     result.validationCount = activeValidations.length;
 
-                    // NEW: Check against validation threshold instead of just > 0
                     const requiredValidators = this.getValidationThreshold();
                     result.isFullyValidated = activeValidations.length >= requiredValidators;
 
-                    // Store comma-separated list of usernames
                     const usernames = activeValidations.map((v: any) => v.username).filter((name: any) => typeof name === "string" && name.trim().length > 0);
                     result.validatedBy = usernames.length > 0 ? usernames.join(",") : undefined;
                 }
@@ -4223,6 +4329,42 @@ export class SQLiteIndexManager {
         }
 
         return result;
+    }
+
+    private buildStructuralMetadata(row: {
+        parent_id: string | null;
+        is_locked: number;
+        start_time: number | null;
+        end_time: number | null;
+        format: string | null;
+        book: string | null;
+        chapter: string | null;
+        verse: string | null;
+        is_merged: number;
+        is_deleted: number;
+        original_text: string | null;
+        global_references: string | null;
+        milestone_index: number | null;
+    }): CellStructuralMetadata {
+        let globalRefs: string[] = [];
+        if (row.global_references) {
+            try { globalRefs = JSON.parse(row.global_references); } catch { /* ignore parse errors */ }
+        }
+        return {
+            parentId: row.parent_id ?? null,
+            isLocked: Boolean(row.is_locked),
+            startTime: row.start_time ?? null,
+            endTime: row.end_time ?? null,
+            format: row.format ?? null,
+            book: row.book ?? null,
+            chapter: row.chapter ?? null,
+            verse: row.verse ?? null,
+            isMerged: Boolean(row.is_merged),
+            isDeleted: Boolean(row.is_deleted),
+            originalText: row.original_text ?? null,
+            globalReferences: globalRefs,
+            milestoneIndex: row.milestone_index ?? null,
+        };
     }
 
     private collectAudioValidationDetails(attachments: Record<string, any>, selectedAudioId?: string, selectionTimestamp?: number): {

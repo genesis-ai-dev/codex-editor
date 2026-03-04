@@ -371,7 +371,8 @@ export class FileSyncManager {
             if (!isChildCell) {
                 positionInChapter++;
                 const chapterNum = currentChapter > 0 ? currentChapter : 1;
-                cellLabel = `${bookName} ${chapterNum}:${positionInChapter}`;
+                const computedLabel = `${bookName} ${chapterNum}:${positionInChapter}`;
+                cellLabel = cell.metadata?.cellLabel || computedLabel;
 
                 if (fileType === 'source') {
                     lineNumberForDB = logicalLinePosition;
@@ -382,7 +383,14 @@ export class FileSyncManager {
                 }
 
                 logicalLinePosition++;
+            } else {
+                cellLabel = cell.metadata?.cellLabel || null;
             }
+
+            const milestoneIndex: number | null =
+                typeof cell.metadata?.data?.milestoneIndex === "number"
+                    ? cell.metadata.data.milestoneIndex
+                    : null;
 
             const result = await this.sqliteIndex.upsertCellSync(
                 cellId,
@@ -392,7 +400,7 @@ export class FileSyncManager {
                 lineNumberForDB ?? undefined,
                 cell.metadata,
                 cell.value,
-                null,
+                milestoneIndex,
                 cellLabel
             );
             if (result.contentChanged) {

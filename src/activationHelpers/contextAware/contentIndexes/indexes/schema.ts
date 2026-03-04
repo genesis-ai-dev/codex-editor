@@ -8,7 +8,7 @@
 
 // Schema version — bump this whenever the schema changes.
 // Using a full recreation strategy (no incremental migrations).
-export const CURRENT_SCHEMA_VERSION = 16; // Removed FTS triggers — FTS managed in application code (bulk rebuild after sync)
+export const CURRENT_SCHEMA_VERSION = 17; // Add missing cell metadata columns (parentId, isLocked, timestamps, scripture refs, etc.)
 
 // ── Tables + FTS virtual table ──────────────────────────────────────────────
 
@@ -65,6 +65,18 @@ export const CREATE_TABLES_SQL = `
         t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
         milestone_index INTEGER,
         cell_label TEXT,
+        parent_id TEXT,
+        is_locked BOOLEAN DEFAULT FALSE,
+        start_time REAL,
+        end_time REAL,
+        format TEXT,
+        book TEXT,
+        chapter TEXT,
+        verse TEXT,
+        is_merged BOOLEAN DEFAULT FALSE,
+        is_deleted BOOLEAN DEFAULT FALSE,
+        original_text TEXT,
+        global_references TEXT,
         FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
         FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
     );
@@ -113,6 +125,10 @@ export const CREATE_DEFERRED_INDEXES_SQL = `
     CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);
     CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id);
     CREATE INDEX IF NOT EXISTS idx_cells_cell_label ON cells(cell_label);
+    CREATE INDEX IF NOT EXISTS idx_cells_parent_id ON cells(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_cells_book_chapter_verse ON cells(book, chapter, verse);
+    CREATE INDEX IF NOT EXISTS idx_cells_is_deleted ON cells(is_deleted);
+    CREATE INDEX IF NOT EXISTS idx_cells_is_merged ON cells(is_merged);
 `;
 
 // ── schema_info table (created separately because setSchemaVersion manages it) ─

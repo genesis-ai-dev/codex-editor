@@ -397,6 +397,19 @@ suite("Native SQLite Database Tests", function () {
                 "t_audio_validated_by",
                 "t_audio_is_fully_validated",
                 "milestone_index",
+                "cell_label",
+                "parent_id",
+                "is_locked",
+                "start_time",
+                "end_time",
+                "format",
+                "book",
+                "chapter",
+                "verse",
+                "is_merged",
+                "is_deleted",
+                "original_text",
+                "global_references",
             ];
 
             for (const col of expected) {
@@ -443,6 +456,11 @@ suite("Native SQLite Database Tests", function () {
                 "idx_cells_t_audio_validation_count",
                 "idx_words_word",
                 "idx_words_cell_id",
+                "idx_cells_cell_label",
+                "idx_cells_parent_id",
+                "idx_cells_book_chapter_verse",
+                "idx_cells_is_deleted",
+                "idx_cells_is_merged",
             ];
 
             for (const idx of deferredIndexes) {
