@@ -3160,7 +3160,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     /**
      * Updates milestone progress for a specific document
      */
-    private updateMilestoneProgressForDocument(document: CodexCellDocument) {
+    public updateMilestoneProgressForDocument(document: CodexCellDocument) {
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const validationCount = config.get("validationCount", 1);
         const validationCountAudio = config.get("validationCountAudio", 1);

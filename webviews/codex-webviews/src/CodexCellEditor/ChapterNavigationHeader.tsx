@@ -90,6 +90,8 @@ interface ChapterNavigationHeaderProps {
     subsectionProgress?: Record<number, ProgressPercentages>;
     allSubsectionProgress?: Record<number, Record<number, ProgressPercentages>>;
     requestSubsectionProgress?: (milestoneIdx: number) => void;
+    // Audio state for syncing missing icon with CellContentDisplay
+    audioAttachments?: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none" };
 }
 
 export function ChapterNavigationHeader({
@@ -149,6 +151,7 @@ export function ChapterNavigationHeader({
     subsectionProgress,
     allSubsectionProgress,
     requestSubsectionProgress,
+    audioAttachments,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -482,6 +485,7 @@ ChapterNavigationHeaderProps) {
                 audioValidationLevels: backendProgress.audioValidationLevels,
                 requiredTextValidations: backendProgress.requiredTextValidations,
                 requiredAudioValidations: backendProgress.requiredAudioValidations,
+                cellsWithMissingAudio: backendProgress.cellsWithMissingAudio,
             };
         }
 
@@ -498,6 +502,7 @@ ChapterNavigationHeaderProps) {
             audioValidationLevels: undefined,
             requiredTextValidations: undefined,
             requiredAudioValidations: undefined,
+            cellsWithMissingAudio: 0,
         };
     };
 
@@ -1078,6 +1083,8 @@ ChapterNavigationHeaderProps) {
                 calculateSubsectionProgress={calculateSubsectionProgress}
                 requestSubsectionProgress={requestSubsectionProgress}
                 vscode={vscode}
+                audioAttachments={audioAttachments}
+                translationUnitsForSection={translationUnitsForSection}
             />
         </div>
     );

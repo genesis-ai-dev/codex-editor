@@ -2451,6 +2451,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     } as any);
                 }
             }
+
+            provider.updateMilestoneProgressForDocument(document);
         } catch (error) {
             console.error("Error saving audio attachment:", error);
             provider.postMessageToWebview(webviewPanel, {

@@ -140,6 +140,27 @@ export const shouldDisableValidation = (
     return !hasTextContent(htmlContent);
 };
 
+/**
+ * Returns true if the cell has an audio attachment whose file is missing from disk
+ * (isMissing === true on the selected or any non-deleted audio attachment).
+ */
+export const cellHasMissingAudio = (
+    attachments: Record<string, any> | undefined,
+    selectedAudioId?: string
+): boolean => {
+    const atts = attachments;
+    if (!atts || Object.keys(atts).length === 0) return false;
+
+    if (selectedAudioId && atts[selectedAudioId]) {
+        const att = atts[selectedAudioId];
+        return att && att.type === "audio" && !att.isDeleted && att.isMissing === true;
+    }
+
+    return Object.values(atts).some(
+        (att: any) => att && att.type === "audio" && !att.isDeleted && att.isMissing === true
+    );
+};
+
 // Progress helpers shared across provider and webviews
 export const cellHasAudioUsingAttachments = (
     attachments: Record<string, any> | undefined,

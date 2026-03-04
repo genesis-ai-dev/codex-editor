@@ -55,6 +55,7 @@ export interface ProgressPercentages {
     audioValidationLevels?: number[];
     requiredTextValidations?: number;
     requiredAudioValidations?: number;
+    cellsWithMissingAudio?: number;
 }
 
 export interface Subsection {

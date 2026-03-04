@@ -1128,6 +1128,7 @@ export interface MilestoneIndex {
         percentFullyValidatedTranslations: number;
         percentAudioValidatedTranslations: number;
         percentTextValidatedTranslations: number;
+        cellsWithMissingAudio?: number;
     }>;
 }
 
@@ -2097,6 +2098,7 @@ type EditorReceiveMessages =
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            cellsWithMissingAudio?: number;
         }>;
     }
     | {
@@ -2210,6 +2212,7 @@ type EditorReceiveMessages =
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            cellsWithMissingAudio?: number;
         }>;
     }
     | {

@@ -23,7 +23,7 @@ import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
-import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
+import { getCellValueData, cellHasAudioUsingAttachments, cellHasMissingAudio, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
@@ -1531,6 +1531,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         percentFullyValidatedTranslations: number;
         percentAudioValidatedTranslations: number;
         percentTextValidatedTranslations: number;
+        cellsWithMissingAudio?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1538,6 +1539,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            cellsWithMissingAudio?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1597,6 +1599,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 )
             ).length;
 
+            const missingAudioCount = progressCells.filter((cell) =>
+                cellHasMissingAudio(
+                    cell.attachments,
+                    cell.metadata?.selectedAudioId
+                )
+            ).length;
+
             // Calculate validation data (only from root content cells)
             const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
 
@@ -1618,7 +1627,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             );
 
             // Milestone number is 1-based (i + 1)
-            progress[i + 1] = progressPercentages;
+            progress[i + 1] = {
+                ...progressPercentages,
+                cellsWithMissingAudio: missingAudioCount,
+            };
         }
 
         return progress;
@@ -1649,6 +1661,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        cellsWithMissingAudio?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1660,6 +1673,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            cellsWithMissingAudio?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1763,6 +1777,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 )
             ).length;
 
+            const missingAudioCount = progressCells.filter((cell) =>
+                cellHasMissingAudio(
+                    cell.attachments,
+                    cell.metadata?.selectedAudioId
+                )
+            ).length;
+
             // Calculate validation data (only from root content cells)
             const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
 
@@ -1810,6 +1831,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 audioValidationLevels,
                 requiredTextValidations: minimumValidationsRequired,
                 requiredAudioValidations: minimumAudioValidationsRequired,
+                cellsWithMissingAudio: missingAudioCount,
             };
         }
 
