@@ -308,6 +308,7 @@ export type GitLabProject = {
     lastActivity: string;
     namespace: string;
     owner: string;
+    isArchived?: boolean;
 };
 
 export type ProjectSyncStatus =
@@ -327,6 +328,7 @@ export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     mediaStrategy?: MediaFilesStrategy; // Media files download strategy for this project
     projectSwap?: ProjectSwapInfo;
+    isArchivedButLocallyCloned?: boolean;
 };
 
 export type MessagesFromStartupFlowProvider =
@@ -1194,6 +1196,12 @@ type ProjectMetadata = {
     projectName?: string;
     projectId?: string;
     format: string;
+    /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
+    originalFilesHashes?: {
+        version: number;
+        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string } };
+        fileNameToHash: { [fileName: string]: string };
+    };
     edits?: ProjectEditHistory[];
     meta: {
         version: string;
@@ -1642,6 +1650,7 @@ interface ProjectManagerState {
     isInitializing: boolean;
     isSyncInProgress: boolean;
     syncStage: string;
+    isImportInProgress: boolean;
     isPublishingInProgress: boolean;
     publishingStage: string;
     updateState: 'ready' | 'downloaded' | 'available for download' | 'downloading' | 'updating' | 'checking for updates' | 'idle' | 'disabled' | null;
@@ -1674,6 +1683,7 @@ type ProjectManagerMessageToWebview =
         data: {
             isSyncInProgress: boolean;
             syncStage: string;
+            isImportInProgress?: boolean;
         };
     }
     | {

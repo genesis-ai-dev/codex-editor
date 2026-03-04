@@ -6,6 +6,7 @@ import { Progress } from '../../../components/ui/progress';
 import { Badge } from '../../../components/ui/badge';
 import { FileCode, Upload, CheckCircle, AlertCircle, Info, ArrowLeft } from 'lucide-react';
 import { ImporterComponentProps } from '../../types/plugin';
+import { notifyImportStarted, notifyImportEnded } from '../../utils/importProgress';
 import { validateFile, parseFile } from './index';
 import { FileValidationResult, ImportResult } from '../../types/common';
 
@@ -69,6 +70,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
     const handleImport = useCallback(async () => {
         if (!selectedFile || !validationState.result?.isValid) return;
 
+        notifyImportStarted();
         setImportState({ isImporting: true, progress: 0, stage: 'Starting import...', result: null, error: null });
 
         try {
@@ -108,6 +110,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                             ...prev,
                             error: `Alignment failed: ${alignError instanceof Error ? alignError.message : 'Unknown error'}`,
                         }));
+                        notifyImportEnded();
                     }
                 } else if (onComplete && result.notebookPair) {
                     // Handle source import
@@ -122,6 +125,7 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                 result: null,
                 error: error instanceof Error ? error.message : 'Import failed',
             });
+            notifyImportEnded();
         }
     }, [selectedFile, validationState.result, onComplete, onTranslationComplete, alignContent, isTargetImport, selectedSource?.path, wizardContext?.selectedSourceDetails?.path]);
 
