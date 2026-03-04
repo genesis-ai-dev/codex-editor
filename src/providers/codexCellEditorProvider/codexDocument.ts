@@ -3532,15 +3532,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                             }
                         }
 
-                        // Prepare metadata for database - this will handle validation extraction
-                        const cellMetadata = {
-                            edits: cell.metadata?.edits || [],
-                            attachments: cell.metadata?.attachments || {},
-                            selectedAudioId: cell.metadata?.selectedAudioId,
-                            selectionTimestamp: cell.metadata?.selectionTimestamp,
-                            type: cell.metadata?.type || null,
-                            lastUpdated: Date.now(),
-                        };
+                        const cellMetadata = cell.metadata
+                            ? { ...cell.metadata, lastUpdated: Date.now() }
+                            : { edits: [], type: null, lastUpdated: Date.now() };
 
                         // Check if this cell has text validation data for logging
                         const edits = cell.metadata?.edits;

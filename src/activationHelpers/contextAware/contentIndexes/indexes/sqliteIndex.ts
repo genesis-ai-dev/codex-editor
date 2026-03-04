@@ -1318,7 +1318,9 @@ export class SQLiteIndexManager {
     async getDocumentCount(): Promise<number> {
         this.ensureOpen();
 
-        const row = await this.db!.get<{ count: number; }>("SELECT COUNT(DISTINCT cell_id) as count FROM cells");
+        const row = await this.db!.get<{ count: number; }>(
+            "SELECT COUNT(DISTINCT cell_id) as count FROM cells WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0"
+        );
         return (row?.count as number) || 0;
     }
 
@@ -2240,6 +2242,7 @@ export class SQLiteIndexManager {
                 COALESCE(SUM(CASE WHEN c.t_file_id = f.id THEN c.t_word_count END), 0) as total_words
             FROM files f
             LEFT JOIN cells c ON (f.id = c.s_file_id OR f.id = c.t_file_id)
+                AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
             GROUP BY f.id
         `);
 
@@ -2283,6 +2286,7 @@ export class SQLiteIndexManager {
                 -- Only count missing SOURCE raw content as problematic (target cells can be legitimately blank)
                 SUM(CASE WHEN s_raw_content IS NULL OR s_raw_content = '' THEN 1 ELSE 0 END) as cells_with_missing_raw_content
             FROM cells
+            WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
         `);
 
         if (!result) {
@@ -2329,31 +2333,32 @@ export class SQLiteIndexManager {
                 SUM(CASE WHEN s_content IS NOT NULL AND s_content != '' AND t_content IS NOT NULL AND t_content != '' THEN 1 ELSE 0 END) as complete_pairs,
                 SUM(CASE WHEN (s_content IS NOT NULL AND s_content != '') AND (t_content IS NULL OR t_content = '') THEN 1 ELSE 0 END) as incomplete_pairs
             FROM cells
-            WHERE s_content IS NOT NULL OR t_content IS NOT NULL
+            WHERE (s_content IS NOT NULL OR t_content IS NOT NULL)
+              AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
         `);
 
         const totalPairs = pairsResult?.total_pairs || 0;
         const completePairs = pairsResult?.complete_pairs || 0;
         const incompletePairs = pairsResult?.incomplete_pairs || 0;
 
-        // Count orphaned source cells (source cells with no corresponding target)
         const orphanedSourceResult = await this.db!.get<{ count: number; }>(`
             SELECT COUNT(*) as count
             FROM cells c
             WHERE c.s_content IS NOT NULL 
             AND c.s_content != ''
             AND (c.t_content IS NULL OR c.t_content = '')
+            AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
         `);
 
         const orphanedSourceCells = orphanedSourceResult?.count || 0;
 
-        // Count orphaned target cells (target cells with no corresponding source)
         const orphanedTargetResult = await this.db!.get<{ count: number; }>(`
             SELECT COUNT(*) as count
             FROM cells c
             WHERE c.t_content IS NOT NULL 
             AND c.t_content != ''
             AND (c.s_content IS NULL OR c.s_content = '')
+            AND COALESCE(c.is_deleted, 0) = 0 AND COALESCE(c.is_merged, 0) = 0
         `);
 
         const orphanedTargetCells = orphanedTargetResult?.count || 0;
@@ -2627,9 +2632,11 @@ export class SQLiteIndexManager {
                     INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                     SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
                     FROM cells WHERE s_content IS NOT NULL AND cell_id IN (${placeholders})
+                      AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
                     UNION ALL
                     SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
                     FROM cells WHERE t_content IS NOT NULL AND cell_id IN (${placeholders})
+                      AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
                 `, [...chunk, ...chunk]);
             }
         });
@@ -2655,9 +2662,11 @@ export class SQLiteIndexManager {
                 INSERT INTO cells_fts(cell_id, content, raw_content, content_type)
                 SELECT cell_id, s_content, COALESCE(s_raw_content, s_content), 'source'
                 FROM cells WHERE s_content IS NOT NULL
+                  AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
                 UNION ALL
                 SELECT cell_id, t_content, COALESCE(t_raw_content, t_content), 'target'
                 FROM cells WHERE t_content IS NOT NULL
+                  AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
             `);
         });
         const elapsed = globalThis.performance.now() - start;
@@ -4118,6 +4127,7 @@ export class SQLiteIndexManager {
                 ELSE 0 
             END
             WHERE t_content IS NOT NULL AND t_content != ''
+              AND COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
         `, [currentThreshold]);
         const updatedCells = result.changes;
 
@@ -4140,6 +4150,7 @@ export class SQLiteIndexManager {
                 WHEN t_audio_validation_count >= ? THEN 1 
                 ELSE 0 
             END
+            WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(is_merged, 0) = 0
         `, [currentThreshold]);
         const updatedCells = result.changes;
 
