@@ -103,7 +103,7 @@ export class PublishProjectView {
                                     });
 
                                     safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
-                                    this.notifyMainMenuPublishStatus(true, "Creating...");
+                                    this.notifyMainMenuPublishStatus(true, "Publishing...");
 
                                     // Check and populate user info if missing before publishing
                                     try {

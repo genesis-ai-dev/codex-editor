@@ -308,7 +308,7 @@ export default function PublishProject() {
                                     : "cursor-pointer"
                             }`}
                         >
-                            {busy ? "Creating..." : "Create"}
+                            {busy ? "Publishing..." : "Publish"}
                         </Button>
                     </div>
                 </div>
