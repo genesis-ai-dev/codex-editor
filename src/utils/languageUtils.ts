@@ -14772,16 +14772,6 @@ const isoLanguageData = [
         Comment: null,
         ScriptDirection: "ltr",
     },
-    //    {
-    //        Id: "eng",
-    //        Part2b: "eng",
-    //        Part2t: "eng",
-    //        Part1: "en",
-    //        Scope: "I",
-    //        Language_Type: "L",
-    //        Ref_Name: "English",
-    //        Comment: null,
-    //    },
     {
         Id: "enh",
         Scope: "I",
