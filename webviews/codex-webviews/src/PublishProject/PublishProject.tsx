@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { Button } from "../components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
@@ -44,6 +44,8 @@ export default function PublishProject() {
     const [loadingGroups, setLoadingGroups] = useState(!persistedState?.groups?.length);
     const [groupSearch, setGroupSearch] = useState("");
     const [comboboxOpen, setComboboxOpen] = useState(false);
+    const [highlightedIndex, setHighlightedIndex] = useState(0);
+    const listRef = useRef<HTMLDivElement>(null);
 
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
     
@@ -65,6 +67,45 @@ export default function PublishProject() {
     );
 
     const canCreate = isValidName && !busy;
+
+    // Reset highlighted index when filtered groups change
+    useEffect(() => {
+        setHighlightedIndex(0);
+    }, [groupSearch, filteredGroups.length]);
+
+    const selectGroup = (g: GroupList) => {
+        setSelectedGroupId(g.id);
+        setComboboxOpen(false);
+        setGroupSearch("");
+    };
+
+    const handleGroupKeyDown = (e: React.KeyboardEvent) => {
+        if (filteredGroups.length === 0) return;
+        switch (e.key) {
+            case "ArrowDown": {
+                e.preventDefault();
+                const next = Math.min(highlightedIndex + 1, filteredGroups.length - 1);
+                setHighlightedIndex(next);
+                listRef.current?.children[next]?.scrollIntoView({ block: "nearest" });
+                break;
+            }
+            case "ArrowUp": {
+                e.preventDefault();
+                const next = Math.max(highlightedIndex - 1, 0);
+                setHighlightedIndex(next);
+                listRef.current?.children[next]?.scrollIntoView({ block: "nearest" });
+                break;
+            }
+            case "Enter":
+                e.preventDefault();
+                selectGroup(filteredGroups[highlightedIndex]!);
+                break;
+            case "Escape":
+                e.preventDefault();
+                setComboboxOpen(false);
+                break;
+        }
+    };
     
     // Persist state whenever important values change
     useEffect(() => {
@@ -250,40 +291,44 @@ export default function PublishProject() {
                                         placeholder="Search groups..."
                                         value={groupSearch}
                                         onChange={(e) => setGroupSearch(e.target.value)}
+                                        onKeyDown={handleGroupKeyDown}
                                         className="w-full px-2 py-1 text-sm outline-none border border-[var(--vscode-input-border)] rounded bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
                                         autoFocus
                                     />
                                 </div>
-                                <div className="max-h-60 overflow-y-auto">
+                                <div ref={listRef} className="max-h-60 overflow-y-auto">
                                     {filteredGroups.length === 0 ? (
                                         <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
                                             No groups found
                                         </div>
                                     ) : (
-                                        filteredGroups.map((g) => (
-                                            <div
-                                                key={g.id}
-                                                onClick={() => {
-                                                    setSelectedGroupId(g.id);
-                                                    setComboboxOpen(false);
-                                                    setGroupSearch("");
-                                                }}
-                                                className={cn(
-                                                    "flex items-center px-3 py-1.5 text-sm cursor-pointer transition-colors",
-                                                    selectedGroupId === g.id
-                                                        ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
-                                                        : "hover:bg-[var(--vscode-list-hoverBackground)]"
-                                                )}
-                                            >
-                                                <Check
+                                        filteredGroups.map((g, index) => {
+                                            const isHighlighted = index === highlightedIndex;
+                                            const isSelected = selectedGroupId === g.id;
+                                            return (
+                                                <div
+                                                    key={g.id}
+                                                    role="option"
+                                                    aria-selected={isSelected}
+                                                    onClick={() => selectGroup(g)}
+                                                    onMouseEnter={() => setHighlightedIndex(index)}
                                                     className={cn(
-                                                        "mr-2 h-4 w-4",
-                                                        selectedGroupId === g.id ? "opacity-100" : "opacity-0"
+                                                        "flex items-center px-3 py-1.5 text-sm cursor-pointer transition-colors",
+                                                        isHighlighted
+                                                            ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
+                                                            : "hover:bg-[var(--vscode-list-hoverBackground)]"
                                                     )}
-                                                />
-                                                {g.name}
-                                            </div>
-                                        ))
+                                                >
+                                                    <Check
+                                                        className={cn(
+                                                            "mr-2 h-4 w-4",
+                                                            isSelected ? "opacity-100" : "opacity-0"
+                                                        )}
+                                                    />
+                                                    {g.name}
+                                                </div>
+                                            );
+                                        })
                                     )}
                                 </div>
                             </PopoverContent>
