@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
+import * as crypto from "crypto";
 import { getAuthApi } from "../extension";
 
 const DEBUG = false;
@@ -366,7 +367,18 @@ export async function resolveLfsPointerFile(
             };
         }
 
-        console.log(`[LFS] Successfully resolved "${path.basename(filePath)}" (${data.length} bytes)`);
+        const actualHash = crypto.createHash("sha256").update(data).digest("hex");
+        if (actualHash !== pointer.oid) {
+            return {
+                error:
+                    `LFS content integrity check failed for "${path.basename(filePath)}". ` +
+                    `Expected SHA-256: ${pointer.oid.substring(0, 16)}..., ` +
+                    `got: ${actualHash.substring(0, 16)}.... ` +
+                    `The download may be corrupted. Try syncing again.`,
+            };
+        }
+
+        console.log(`[LFS] Successfully resolved "${path.basename(filePath)}" (${data.length} bytes, hash verified)`);
 
         // Cache the resolved content on disk so future reads don't need a download
         try {

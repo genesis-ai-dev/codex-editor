@@ -106,21 +106,19 @@ async function resolveFromAuth(): Promise<void> {
         GIT_EXEC_PATH: binaryPath.execPath,
     };
 
-    // On Linux, dugite skips setting GIT_SSL_CAINFO when LOCAL_GIT_DIRECTORY
-    // is provided.  The dugite-native archive ships ssl/cacert.pem on Linux,
-    // so we must point to it explicitly — without it, any HTTPS git
-    // operation would fail with a certificate error.
-    // macOS uses Secure Transport; Windows uses schannel — neither needs this.
-    if (process.platform === "linux") {
-        const sslCaBundle = path.join(binaryPath.localGitDir, "ssl", "cacert.pem");
-        try {
-            await fs.promises.access(sslCaBundle, fs.constants.R_OK);
-            gitEnvOverrides.GIT_SSL_CAINFO = sslCaBundle;
-        } catch {
-            console.warn(
-                `[dugiteGit] SSL CA bundle not found at ${sslCaBundle} — HTTPS operations may fail on Linux`,
-            );
-        }
+    // When LOCAL_GIT_DIRECTORY is provided, dugite does not set GIT_SSL_CAINFO
+    // automatically.  The dugite-native archive ships ssl/cacert.pem for
+    // platforms where the bundled git uses OpenSSL.  If present, we point to
+    // it explicitly — without it, HTTPS operations fail with certificate
+    // errors.  On platforms using a native SSL backend (schannel on Windows,
+    // SecureTransport on macOS) the file may be absent, which is fine — the
+    // native backend uses the OS certificate store instead.
+    const sslCaBundle = path.join(binaryPath.localGitDir, "ssl", "cacert.pem");
+    try {
+        await fs.promises.access(sslCaBundle, fs.constants.R_OK);
+        gitEnvOverrides.GIT_SSL_CAINFO = sslCaBundle;
+    } catch {
+        // Not present — platform likely uses a native SSL backend
     }
 }
 
@@ -200,6 +198,11 @@ const CREDENTIAL_OVERRIDE_FLAGS = [
  *                          projects live on external storage, this causes
  *                          unexpected failures for non-developer users.
  *                          Setting to "*" disables the ownership check.
+ * user.useConfigOnly      — Prevents git from guessing user.name and
+ *                          user.email from the hostname/username.  All
+ *                          commits must supply author info explicitly
+ *                          (via GIT_AUTHOR_NAME env vars or -c flags),
+ *                          which we already do.
  */
 const PLATFORM_SAFETY_FLAGS = [
     "-c", "core.longpaths=true",
@@ -214,6 +217,7 @@ const PLATFORM_SAFETY_FLAGS = [
     "-c", "pack.windowMemory=256m",
     "-c", "protocol.version=2",
     "-c", "safe.directory=*",
+    "-c", "user.useConfigOnly=true",
 ];
 
 /**
@@ -232,8 +236,13 @@ const KNOWN_LOCK_FILES = [
     "shallow.lock",
     "config.lock",
     "HEAD.lock",
+    "FETCH_HEAD.lock",
+    "MERGE_HEAD.lock",
+    "packed-refs.lock",
     "refs/heads/main.lock",
     "refs/heads/master.lock",
+    "refs/remotes/origin/main.lock",
+    "refs/remotes/origin/master.lock",
 ];
 
 /**
@@ -525,10 +534,12 @@ export async function statusMatrix(dir: string): Promise<StatusMatrixEntry[]> {
         }
     }
 
-    // Include tracked, unmodified files
-    const lsResult = await gitExec(["ls-files", "--cached"], dir);
+    // Include tracked, unmodified files.
+    // Use -z for NUL-delimited output so filenames containing newlines
+    // (valid on Unix, though unlikely for translation projects) parse correctly.
+    const lsResult = await gitExec(["ls-files", "--cached", "-z"], dir);
     if (lsResult.exitCode === 0) {
-        for (const filepath of stdout(lsResult).split("\n")) {
+        for (const filepath of stdout(lsResult).split("\0")) {
             if (filepath && !entries.has(filepath)) {
                 entries.set(filepath, [filepath, 1, 1, 1]);
             }
@@ -551,9 +562,9 @@ export async function status(dir: string, filepath: string): Promise<string | un
 
 /** List all tracked files in the repository. */
 export async function listFiles(dir: string): Promise<string[]> {
-    const result = await gitExec(["ls-files", "--cached"], dir);
+    const result = await gitExec(["ls-files", "--cached", "-z"], dir);
     assertSuccess("ls-files", result);
-    return stdout(result).split("\n").filter(Boolean);
+    return stdout(result).split("\0").filter(Boolean);
 }
 
 /** Check if a directory is a git repository. */
