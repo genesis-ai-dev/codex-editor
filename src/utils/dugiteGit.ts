@@ -80,17 +80,26 @@ const NON_INTERACTIVE_ENV: Record<string, string> = {
 };
 
 /**
- * Platform-safety flags applied to every git invocation to normalize
- * behavior across Windows, macOS, and Linux.
+ * Platform-safety and performance flags applied to every git invocation to
+ * normalize behavior across Windows, macOS, and Linux.
  *
- * core.longpaths        — Windows: enables paths >260 chars.
- * core.autocrlf         — Prevents LF↔CRLF conversion that corrupts files.
- * core.fsmonitor        — Disables filesystem monitor (prevents hangs).
- * core.pager            — Disables pager (prevents waiting for input).
- * core.quotePath        — Returns raw UTF-8 paths instead of octal-escaped
- *                         non-ASCII characters.  Critical for i18n filenames.
+ * core.longpaths         — Windows: enables paths >260 chars.
+ * core.autocrlf          — Prevents LF↔CRLF conversion that corrupts files.
+ * core.fsmonitor         — Disables filesystem monitor (prevents hangs).
+ * core.pager             — Disables pager (prevents waiting for input).
+ * core.quotePath         — Returns raw UTF-8 paths instead of octal-escaped
+ *                          non-ASCII characters.  Critical for i18n filenames.
  * core.precomposeUnicode — macOS: normalizes NFD paths to NFC.
- * gc.auto               — Disables auto GC that can freeze operations.
+ * core.protectNTFS       — Reject paths invalid on NTFS (CON, AUX, NUL…).
+ *                          Already default on Windows; set everywhere so
+ *                          cross-platform shared repos stay safe.
+ * core.looseCompression  — Fastest compression for loose objects; git
+ *                          re-compresses during pack, so speed > ratio here.
+ * gc.auto                — Disables auto GC that can freeze operations.
+ * pack.windowMemory      — Caps memory for pack operations; prevents OOM
+ *                          on memory-constrained ARM laptops.
+ * protocol.version       — Git protocol v2: more efficient ref advertisement,
+ *                          reduces bandwidth on fetch.  Supported since 2.18.
  */
 const PLATFORM_SAFETY_FLAGS = [
     "-c", "core.longpaths=true",
@@ -99,7 +108,11 @@ const PLATFORM_SAFETY_FLAGS = [
     "-c", "core.pager=",
     "-c", "core.quotePath=false",
     "-c", "core.precomposeUnicode=true",
+    "-c", "core.protectNTFS=true",
+    "-c", "core.looseCompression=1",
     "-c", "gc.auto=0",
+    "-c", "pack.windowMemory=256m",
+    "-c", "protocol.version=2",
 ];
 
 /**
@@ -109,25 +122,46 @@ const PLATFORM_SAFETY_FLAGS = [
  */
 const STALE_LOCK_THRESHOLD_MS = 5 * 60 * 1000;
 
-async function removeStaleIndexLock(dir: string): Promise<boolean> {
-    const lockPath = path.join(dir, ".git", "index.lock");
-    try {
-        const stat = await fs.promises.stat(lockPath);
-        const ageMs = Date.now() - stat.mtimeMs;
-        if (ageMs > STALE_LOCK_THRESHOLD_MS) {
-            await fs.promises.unlink(lockPath);
-            console.warn(
-                `[dugiteGit] Removed stale index.lock (${Math.round(ageMs / 1000)}s old) at ${lockPath}`,
-            );
-            return true;
+/**
+ * Lock files that can be left behind after a crash and block subsequent
+ * git operations. Each is relative to `<repo>/.git/`.
+ */
+const KNOWN_LOCK_FILES = [
+    "index.lock",
+    "shallow.lock",
+    "config.lock",
+    "HEAD.lock",
+    "refs/heads/main.lock",
+    "refs/heads/master.lock",
+];
+
+/**
+ * Try to remove any stale lock file older than the threshold.
+ * Returns true if at least one lock was removed.
+ */
+async function removeStaleLocks(dir: string): Promise<boolean> {
+    let removed = false;
+    for (const lockFile of KNOWN_LOCK_FILES) {
+        const lockPath = path.join(dir, ".git", lockFile);
+        try {
+            const stat = await fs.promises.stat(lockPath);
+            const ageMs = Date.now() - stat.mtimeMs;
+            if (ageMs > STALE_LOCK_THRESHOLD_MS) {
+                await fs.promises.unlink(lockPath);
+                console.warn(
+                    `[dugiteGit] Removed stale ${lockFile} (${Math.round(ageMs / 1000)}s old) at ${lockPath}`,
+                );
+                removed = true;
+            } else {
+                console.warn(
+                    `[dugiteGit] ${lockFile} exists but is only ${Math.round(ageMs / 1000)}s old — not removing`,
+                );
+            }
+        } catch {
+            // Lock file doesn't exist — nothing to do
         }
-        console.warn(
-            `[dugiteGit] index.lock exists but is only ${Math.round(ageMs / 1000)}s old — not removing`,
-        );
-    } catch {
-        // Lock file doesn't exist or can't be accessed
     }
-    return false;
+    return removed;
 }
 
 async function gitExec(
@@ -148,7 +182,7 @@ async function gitExec(
         const errStr = typeof result.stderr === "string"
             ? result.stderr
             : result.stderr.toString("utf8");
-        if (errStr.includes("index.lock") && await removeStaleIndexLock(dir)) {
+        if (errStr.includes(".lock") && await removeStaleLocks(dir)) {
             result = await exec([...PLATFORM_SAFETY_FLAGS, ...args], dir, execOptions);
         }
     }
@@ -499,4 +533,10 @@ export async function readBlobAtRef(
     });
     assertSuccess("show", result);
     return result.stdout as Buffer;
+}
+
+/** Move/rename a file in the git index and working tree. */
+export async function mv(dir: string, oldPath: string, newPath: string): Promise<void> {
+    const result = await gitExec(["mv", "--", oldPath, newPath], dir);
+    assertSuccess("mv", result);
 }

@@ -1,10 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
-import { execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { getAuthApi } from "../extension";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[LFSHelpers]", ...args) : () => { };
@@ -324,11 +321,15 @@ export function isLfsPointerContent(data: Uint8Array): boolean {
 
 /**
  * Resolve a Git LFS pointer file by downloading the actual content.
- * Uses `git lfs smudge` to pipe the pointer content and get the real file.
+ *
+ * Uses the Frontier Authentication extension's `downloadLFSFile` API to
+ * fetch the blob from the remote LFS store. This avoids depending on a
+ * system `git` or `git-lfs` binary being on PATH — we use our own bundled
+ * git binary and custom LFS batch implementation instead.
  *
  * @param filePath - Absolute path to the LFS pointer file
- * @param projectPath - Root path of the git repository (used as cwd for git commands)
- * @returns The resolved file content as Uint8Array, or null if resolution failed
+ * @param projectPath - Root path of the git repository
+ * @returns The resolved file content as Uint8Array, or an error string
  */
 export async function resolveLfsPointerFile(
     filePath: string,
@@ -340,67 +341,47 @@ export async function resolveLfsPointerFile(
             return { error: `File "${filePath}" is not a valid LFS pointer.` };
         }
 
-        console.log(`[LFS] Resolving pointer for "${path.basename(filePath)}" (oid: ${pointer.oid.substring(0, 12)}..., expected size: ${pointer.size} bytes)`);
+        console.log(
+            `[LFS] Resolving pointer for "${path.basename(filePath)}" (oid: ${pointer.oid.substring(0, 12)}..., expected size: ${pointer.size} bytes)`,
+        );
 
-        // Read the pointer content
-        const pointerContent = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
-        const pointerText = Buffer.from(pointerContent).toString('utf-8');
-
-        // Use git lfs smudge to resolve the pointer to actual content
-        // This pipes the pointer text to stdin and gets the real file on stdout
-        const result = await new Promise<{ data: Uint8Array; error?: undefined } | { data?: undefined; error: string }>((resolve) => {
-            const proc = execFile(
-                'git',
-                ['lfs', 'smudge'],
-                {
-                    cwd: projectPath,
-                    maxBuffer: pointer.size + 1024 * 1024, // Expected size + 1MB headroom
-                    encoding: 'buffer' as any,
-                },
-                (err, stdout, _stderr) => {
-                    if (err) {
-                        const stderrText = _stderr ? Buffer.from(_stderr).toString('utf-8') : '';
-                        resolve({
-                            error: `git lfs smudge failed: ${err.message}${stderrText ? ` (${stderrText.trim()})` : ''}. ` +
-                                `Make sure Git LFS is installed and the LFS server is accessible. ` +
-                                `You can also try running "git lfs pull" in the project directory.`
-                        });
-                        return;
-                    }
-                    const data = new Uint8Array(stdout as unknown as Buffer);
-                    if (data.length < 10 || isLfsPointerContent(data)) {
-                        resolve({
-                            error: `git lfs smudge returned a pointer instead of the actual file. ` +
-                                `The file may not be available on the LFS server. ` +
-                                `Try running "git lfs pull" in "${projectPath}".`
-                        });
-                        return;
-                    }
-                    console.log(`[LFS] Successfully resolved "${path.basename(filePath)}" (${data.length} bytes)`);
-                    resolve({ data });
-                }
-            );
-
-            // Write the pointer content to stdin
-            proc.stdin?.write(pointerText);
-            proc.stdin?.end();
-        });
-
-        // If successful, also write the resolved content back to disk to cache it
-        if (result.data) {
-            try {
-                await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), result.data);
-                console.log(`[LFS] Cached resolved file at "${filePath}"`);
-            } catch (writeErr) {
-                console.warn(`[LFS] Could not cache resolved file: ${writeErr}`);
-            }
+        const authApi = getAuthApi();
+        if (!authApi?.downloadLFSFile) {
+            return {
+                error:
+                    `Cannot resolve LFS pointer: the Frontier Authentication extension is not available. ` +
+                    `Please ensure it is installed and active, then try again.`,
+            };
         }
 
-        return result;
+        const buffer = await authApi.downloadLFSFile(projectPath, pointer.oid, pointer.size);
+        const data = new Uint8Array(buffer);
+
+        if (data.length < 10 || isLfsPointerContent(data)) {
+            return {
+                error:
+                    `LFS server returned a pointer instead of the actual file. ` +
+                    `The file may not be available on the LFS server yet. ` +
+                    `Try syncing the project first.`,
+            };
+        }
+
+        console.log(`[LFS] Successfully resolved "${path.basename(filePath)}" (${data.length} bytes)`);
+
+        // Cache the resolved content on disk so future reads don't need a download
+        try {
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), data);
+            console.log(`[LFS] Cached resolved file at "${filePath}"`);
+        } catch (writeErr) {
+            console.warn(`[LFS] Could not cache resolved file: ${writeErr}`);
+        }
+
+        return { data };
     } catch (err) {
         return {
-            error: `Failed to resolve LFS pointer: ${err instanceof Error ? err.message : String(err)}. ` +
-                `Try running "git lfs pull" in the project directory.`
+            error:
+                `Failed to resolve LFS pointer: ${err instanceof Error ? err.message : String(err)}. ` +
+                `Try syncing the project to download all media files.`,
         };
     }
 }

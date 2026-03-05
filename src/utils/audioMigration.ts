@@ -1,9 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import * as dugiteGit from './dugiteGit';
 
 interface MigrationResult {
     renamedFiles: string[];
@@ -174,22 +171,16 @@ export async function migrateXM4aFiles(): Promise<MigrationResult> {
     const workspaceRoot = workspaceFolders[0].uri.fsPath;
     const attachmentsRoot = path.join(workspaceRoot, '.project', 'attachments');
 
-    // Check if this is a git repository with LFS
+    // Check if this is a git repository (uses the bundled dugite binary
+    // rather than whatever `git` is on PATH — which may not exist).
     let isGitRepo = false;
-    let hasLFS = false;
     try {
-        await execAsync('git rev-parse --git-dir', { cwd: workspaceRoot });
-        isGitRepo = true;
-
-        // Check if git-lfs is available
-        try {
-            await execAsync('git lfs version', { cwd: workspaceRoot });
-            hasLFS = true;
-        } catch {
-            console.log('Git LFS not detected, will use regular file rename');
+        isGitRepo = await dugiteGit.hasGitRepository(workspaceRoot);
+        if (!isGitRepo) {
+            console.log('Not a git repository, will use regular file rename');
         }
     } catch {
-        console.log('Not a git repository, will use regular file rename');
+        console.log('Could not determine git status, will use regular file rename');
     }
 
     // Find all .x-m4a files in attachments
@@ -287,18 +278,13 @@ export async function migrateXM4aFiles(): Promise<MigrationResult> {
                     const relativePath = path.relative(workspaceRoot, operation.oldPath);
 
                     try {
-                        if (isGitRepo && hasLFS) {
-                            // Use git mv to preserve LFS tracking
+                        if (isGitRepo) {
                             const relativeOldPath = path.relative(workspaceRoot, operation.oldPath);
                             const relativeNewPath = path.relative(workspaceRoot, operation.newPath);
 
-                            await execAsync(
-                                `git mv "${relativeOldPath}" "${relativeNewPath}"`,
-                                { cwd: workspaceRoot }
-                            );
+                            await dugiteGit.mv(workspaceRoot, relativeOldPath, relativeNewPath);
                             console.log(`Git moved: ${relativeOldPath} -> ${relativeNewPath}`);
                         } else {
-                            // Regular file rename
                             const oldUri = vscode.Uri.file(operation.oldPath);
                             const newUri = vscode.Uri.file(operation.newPath);
                             await vscode.workspace.fs.rename(oldUri, newUri, { overwrite: false });
@@ -314,7 +300,7 @@ export async function migrateXM4aFiles(): Promise<MigrationResult> {
                         result.errors.push(errorMsg);
 
                         // Attempt rollback of completed operations
-                        await attemptRollback(workspaceRoot, completedOperations, isGitRepo, hasLFS);
+                        await attemptRollback(workspaceRoot, completedOperations, isGitRepo);
                         throw new Error(`Migration aborted: ${errorMsg}`);
                     }
                 }
@@ -420,20 +406,16 @@ async function attemptRollback(
     workspaceRoot: string,
     completedOperations: FileRenameOperation[],
     isGitRepo: boolean,
-    hasLFS: boolean
 ): Promise<void> {
     console.error('Migration failed, attempting rollback...');
 
     for (const operation of completedOperations.reverse()) {
         try {
-            if (isGitRepo && hasLFS) {
+            if (isGitRepo) {
                 const relativeNewPath = path.relative(workspaceRoot, operation.newPath);
                 const relativeOldPath = path.relative(workspaceRoot, operation.oldPath);
 
-                await execAsync(
-                    `git mv "${relativeNewPath}" "${relativeOldPath}"`,
-                    { cwd: workspaceRoot }
-                );
+                await dugiteGit.mv(workspaceRoot, relativeNewPath, relativeOldPath);
                 console.log(`Rolled back: ${relativeNewPath} -> ${relativeOldPath}`);
             } else {
                 const newUri = vscode.Uri.file(operation.newPath);
@@ -443,7 +425,6 @@ async function attemptRollback(
             }
         } catch (rollbackError) {
             console.error(`Failed to rollback ${operation.newPath}:`, rollbackError);
-            // Continue trying to rollback other files
         }
     }
 }
