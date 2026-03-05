@@ -30,6 +30,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
 
     const dropdownRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     const availableLanguages = useMemo(() => LanguageCodes, []);
 
@@ -111,6 +112,10 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [isEditing, previousLanguage, languageFilter]);
+
+    useEffect(() => {
+        inputRef.current?.focus();
+    }, []);
 
     const handleLanguageSelect = (code: string, name: string) => {
         const language: LanguageMetadata = {
@@ -218,6 +223,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
             </label>
             <div className="language-picker__container">
                 <input
+                    ref={inputRef}
                     type="text"
                     id="language-select"
                     className="vscode-input"
