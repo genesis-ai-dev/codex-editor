@@ -1200,8 +1200,8 @@ type ProjectMetadata = {
     /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
     originalFilesHashes?: {
         version: number;
-        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string } };
-        fileNameToHash: { [fileName: string]: string };
+        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string; }; };
+        fileNameToHash: { [fileName: string]: string; };
     };
     edits?: ProjectEditHistory[];
     meta: {
@@ -1618,7 +1618,7 @@ type ProjectManagerMessageFromWebview =
         content: {
             corpusLabel: string;
             displayName: string;
-            children: Array<{ uri: string; label: string; type: string }>;
+            children: Array<{ uri: string; label: string; type: string; }>;
         };
     }
     | { command: "openCellLabelImporter"; }
@@ -2026,6 +2026,7 @@ interface CodexItem {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        cellsWithMissingAudio?: number;
     };
     sortOrder?: string;
     isProjectDictionary?: boolean;
@@ -2473,7 +2474,7 @@ type EditorReceiveMessages =
     | {
         type: "searchMatchCounts";
         query: string;
-        milestoneMatchCounts: { [milestoneIdx: number]: number };
+        milestoneMatchCounts: { [milestoneIdx: number]: number; };
         totalMatches: number;
         error?: string;
     };

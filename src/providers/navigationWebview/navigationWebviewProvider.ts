@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as fs from "fs";
 import { CodexContentSerializer } from "../../serializer";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { BaseWebviewProvider } from "../../globalProvider";
@@ -9,6 +8,7 @@ import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
+import { isSelectedAudioMissing } from "../../utils/audioAvailabilityUtils";
 import { addMetadataEdit, addProjectMetadataEdit, EditMapUtils } from "../../utils/editMapUtils";
 import { MetadataManager } from "../../utils/metadataManager";
 import { getAuthApi } from "../../extension";
@@ -592,6 +592,21 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
             ).length;
 
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            let cellsWithMissingAudio = 0;
+            if (workspaceFolder) {
+                const missingChecks = await Promise.all(
+                    progressCells.map((cell) =>
+                        isSelectedAudioMissing(
+                            cell?.metadata?.attachments,
+                            cell?.metadata?.selectedAudioId,
+                            workspaceFolder
+                        )
+                    )
+                );
+                cellsWithMissingAudio = missingChecks.filter(Boolean).length;
+            }
+
             // Use project settings for required validation counts
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             const minimumValidationsRequired = config.get<number>("validationCount", 1);
@@ -660,6 +675,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     audioValidationLevels,
                     requiredTextValidations: minimumValidationsRequired,
                     requiredAudioValidations: minimumAudioValidationsRequired,
+                    cellsWithMissingAudio,
                 },
                 sortOrder,
                 fileDisplayName: metadata?.fileDisplayName,
@@ -736,6 +752,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const averageTextValidationLevels = avgArray('textValidationLevels', textLen);
             const averageAudioValidationLevels = avgArray('audioValidationLevels', audioLen);
 
+            const totalMissingAudio = itemsInGroup.reduce((sum, item) => sum + (item.progress?.cellsWithMissingAudio || 0), 0);
+
             const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {
                     return a.sortOrder.localeCompare(b.sortOrder);
@@ -760,6 +778,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     audioValidationLevels: averageAudioValidationLevels,
                     requiredTextValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCount", 1) || 1,
                     requiredAudioValidations: vscode.workspace.getConfiguration("codex-project-manager").get<number>("validationCountAudio", 1) || 1,
+                    cellsWithMissingAudio: totalMissingAudio,
                 },
             });
         });
@@ -1280,7 +1299,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const author = await this.getCurrentUser();
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
-                (metadata: { edits?: unknown[] }) => {
+                (metadata: { edits?: unknown[]; }) => {
                     if (!metadata.edits) metadata.edits = [];
                     addProjectMetadataEdit(
                         metadata,
@@ -1299,7 +1318,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private async recordCorpusDeletionToEditHistory(
         corpusMarker: string,
-        deletedFiles: Array<{ filePath: string; label: string }>
+        deletedFiles: Array<{ filePath: string; label: string; }>
     ): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) return;
@@ -1308,7 +1327,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const author = await this.getCurrentUser();
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
-                (metadata: { edits?: unknown[] }) => {
+                (metadata: { edits?: unknown[]; }) => {
                     if (!metadata.edits) metadata.edits = [];
                     addProjectMetadataEdit(
                         metadata,
@@ -1338,7 +1357,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private async deleteCorpusMarker(
         corpusLabel: string,
         displayName: string,
-        children: Array<{ uri: string; label: string; type: string }>
+        children: Array<{ uri: string; label: string; type: string; }>
     ): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -1363,7 +1382,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             if (panelToClose) panelToClose.dispose();
         };
 
-        const allDeletedFiles: Array<{ filePath: string; label: string }> = [];
+        const allDeletedFiles: Array<{ filePath: string; label: string; }> = [];
         const errors: string[] = [];
 
         await vscode.window.withProgress(
@@ -1430,7 +1449,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             try {
                                 await vscode.workspace.fs.delete(sourceUri);
                             } catch (deleteError: unknown) {
-                                const err = deleteError as { code?: string };
+                                const err = deleteError as { code?: string; };
                                 if (err.code !== "FileNotFound" && err.code !== "ENOENT") {
                                     errors.push(`Failed to delete source for ${child.label}`);
                                 }
