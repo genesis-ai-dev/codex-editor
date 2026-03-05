@@ -3539,6 +3539,11 @@ export class SQLiteIndexManager {
      * Remove cells that belonged to a previous version of a file but are no longer
      * present after re-import. Must be called within an existing transaction.
      *
+     * Uses a temp table to push stale-detection into SQL, avoiding the round-trip
+     * of fetching all existing IDs to JS and chunking them back. The three core
+     * operations (FTS cleanup, delete, null-out) each run as a single statement
+     * regardless of how many stale cells there are.
+     *
      * For cells that have data on the OTHER side (e.g. target data when cleaning
      * source), only the stale side's columns are nulled out. Cells with no data
      * on either side after cleanup are deleted entirely.
@@ -3556,62 +3561,84 @@ export class SQLiteIndexManager {
         const otherFileCol = `${otherPrefix}file_id`;
         const contentType = fileType === "source" ? "source" : "target";
 
-        const existingRows = await this.db!.all<{ cell_id: string; }>(
-            `SELECT cell_id FROM cells WHERE ${fileCol} = ?`,
+        // Populate a temp table with the live cell IDs so SQLite can do the
+        // set-difference directly, without pulling rows to JS.
+        await this.db!.exec("CREATE TEMP TABLE IF NOT EXISTS _live_cell_ids (cell_id TEXT PRIMARY KEY)");
+        await this.db!.exec("DELETE FROM _live_cell_ids");
+
+        const liveIds = [...liveCellIds];
+        const CHUNK = 500;
+        for (let i = 0; i < liveIds.length; i += CHUNK) {
+            const slice = liveIds.slice(i, i + CHUNK);
+            const placeholders = slice.map(() => "(?)").join(",");
+            await this.db!.run(
+                `INSERT OR IGNORE INTO _live_cell_ids (cell_id) VALUES ${placeholders}`,
+                slice
+            );
+        }
+
+        // Stale = belongs to this file but not in the live set
+        const staleFilter = `${fileCol} = ? AND cell_id NOT IN (SELECT cell_id FROM _live_cell_ids)`;
+
+        // Quick check: any stale cells at all?
+        const countRow = await this.db!.get<{ cnt: number; }>(
+            `SELECT COUNT(*) AS cnt FROM cells WHERE ${staleFilter}`,
             [fileId]
         );
-
-        const staleCellIds = existingRows
-            .map((r) => r.cell_id)
-            .filter((id) => !liveCellIds.has(id));
-
-        if (staleCellIds.length === 0) {
+        if (!countRow || countRow.cnt === 0) {
+            await this.db!.exec("DROP TABLE IF EXISTS _live_cell_ids");
             return { nulled: 0, deleted: 0 };
         }
 
-        let nulled = 0;
-        let deleted = 0;
+        // Clean ALL FTS entries for cells that will be fully deleted (no other-side data).
+        // Using no content_type filter ensures we don't leave orphaned FTS rows.
+        await this.db!.run(
+            `DELETE FROM cells_fts WHERE cell_id IN (
+                SELECT cell_id FROM cells
+                WHERE ${staleFilter}
+                  AND ${otherFileCol} IS NULL AND ${otherPrefix}content IS NULL
+            )`,
+            [fileId]
+        );
 
-        const CHUNK = 400;
-        for (let i = 0; i < staleCellIds.length; i += CHUNK) {
-            const chunk = staleCellIds.slice(i, i + CHUNK);
-            const placeholders = chunk.map(() => "?").join(",");
+        // Clean the stale side's FTS entries for cells that will be nulled (kept for other side)
+        await this.db!.run(
+            `DELETE FROM cells_fts WHERE content_type = ? AND cell_id IN (
+                SELECT cell_id FROM cells
+                WHERE ${staleFilter}
+                  AND (${otherFileCol} IS NOT NULL OR ${otherPrefix}content IS NOT NULL)
+            )`,
+            [contentType, fileId]
+        );
 
-            // Clean FTS entries for the stale side
-            await this.db!.run(
-                `DELETE FROM cells_fts WHERE cell_id IN (${placeholders}) AND content_type = ?`,
-                [...chunk, contentType]
-            );
+        // Delete cells that have no data on the other side
+        const deleteResult = await this.db!.run(
+            `DELETE FROM cells
+             WHERE ${staleFilter}
+               AND ${otherFileCol} IS NULL AND ${otherPrefix}content IS NULL`,
+            [fileId]
+        );
 
-            // Delete cells that have no data on the other side
-            const deleteResult = await this.db!.run(
-                `DELETE FROM cells
-                 WHERE cell_id IN (${placeholders})
-                   AND ${fileCol} = ?
-                   AND (${otherFileCol} IS NULL AND ${otherPrefix}content IS NULL)`,
-                [...chunk, fileId]
-            );
-            deleted += deleteResult.changes;
+        // Null out the stale side for cells that still have data on the other side
+        const nullCols = fileType === "source"
+            ? `s_file_id = NULL, s_content = NULL, s_raw_content = NULL,
+               s_raw_content_hash = NULL, s_line_number = NULL, s_word_count = NULL,
+               s_created_at = NULL, s_updated_at = NULL`
+            : `t_file_id = NULL, t_content = NULL, t_raw_content = NULL,
+               t_raw_content_hash = NULL, t_line_number = NULL, t_word_count = NULL,
+               t_created_at = NULL, t_current_edit_timestamp = NULL,
+               t_validation_count = 0, t_validated_by = NULL, t_is_fully_validated = 0,
+               t_audio_validation_count = 0, t_audio_validated_by = NULL, t_audio_is_fully_validated = 0`;
 
-            // Null out the stale side for cells that still have data on the other side
-            const nullCols = fileType === "source"
-                ? `s_file_id = NULL, s_content = NULL, s_raw_content = NULL,
-                   s_raw_content_hash = NULL, s_line_number = NULL, s_word_count = NULL,
-                   s_created_at = NULL, s_updated_at = NULL`
-                : `t_file_id = NULL, t_content = NULL, t_raw_content = NULL,
-                   t_raw_content_hash = NULL, t_line_number = NULL, t_word_count = NULL,
-                   t_created_at = NULL, t_current_edit_timestamp = NULL,
-                   t_validation_count = 0, t_validated_by = NULL, t_is_fully_validated = 0,
-                   t_audio_validation_count = 0, t_audio_validated_by = NULL, t_audio_is_fully_validated = 0`;
+        const updateResult = await this.db!.run(
+            `UPDATE cells SET ${nullCols} WHERE ${staleFilter}`,
+            [fileId]
+        );
 
-            const updateResult = await this.db!.run(
-                `UPDATE cells SET ${nullCols}
-                 WHERE cell_id IN (${placeholders})
-                   AND ${fileCol} = ?`,
-                [...chunk, fileId]
-            );
-            nulled += updateResult.changes;
-        }
+        await this.db!.exec("DROP TABLE IF EXISTS _live_cell_ids");
+
+        const deleted = deleteResult.changes;
+        const nulled = updateResult.changes;
 
         if (nulled > 0 || deleted > 0) {
             debug(`[SQLiteIndex] Removed stale cells for file ${fileId} (${fileType}): ${deleted} deleted, ${nulled} nulled`);
