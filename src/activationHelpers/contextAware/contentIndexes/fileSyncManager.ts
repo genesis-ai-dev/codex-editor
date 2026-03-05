@@ -344,6 +344,10 @@ export class FileSyncManager {
         let currentChapter = 0;
         let positionInChapter = 0;
 
+        // Track which cell IDs are in the current version of the file so we
+        // can remove stale cells from a previous import afterwards.
+        const liveCellIds = new Set<string>();
+
         // Process all cells in the file
         for (let cellIndex = 0; cellIndex < fileData.cells.length; cellIndex++) {
             const cell = fileData.cells[cellIndex];
@@ -392,6 +396,8 @@ export class FileSyncManager {
                     ? cell.metadata.data.milestoneIndex
                     : null;
 
+            liveCellIds.add(cellId);
+
             const result = await this.sqliteIndex.upsertCellSync(
                 cellId,
                 fileId,
@@ -406,6 +412,13 @@ export class FileSyncManager {
             if (result.contentChanged) {
                 changedCellIds.add(cellId);
             }
+        }
+
+        // Remove cells that belonged to the previous version of this file but
+        // are no longer present (e.g. after importing a new source book).
+        const staleResult = await this.sqliteIndex.removeStaleCellsForFile(fileId, fileType, liveCellIds);
+        if (staleResult.deleted > 0 || staleResult.nulled > 0) {
+            debug(`[FileSyncManager] Cleaned up stale cells for ${fileData.id}: ${staleResult.deleted} deleted, ${staleResult.nulled} nulled`);
         }
 
         // Update sync metadata via the public API (not direct DB access)

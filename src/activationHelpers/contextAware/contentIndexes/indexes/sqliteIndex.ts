@@ -3535,6 +3535,91 @@ export class SQLiteIndexManager {
         };
     }
 
+    /**
+     * Remove cells that belonged to a previous version of a file but are no longer
+     * present after re-import. Must be called within an existing transaction.
+     *
+     * For cells that have data on the OTHER side (e.g. target data when cleaning
+     * source), only the stale side's columns are nulled out. Cells with no data
+     * on either side after cleanup are deleted entirely.
+     */
+    async removeStaleCellsForFile(
+        fileId: number,
+        fileType: "source" | "codex",
+        liveCellIds: Set<string>
+    ): Promise<{ nulled: number; deleted: number; }> {
+        this.ensureOpen();
+
+        const prefix = fileType === "source" ? "s_" : "t_";
+        const otherPrefix = fileType === "source" ? "t_" : "s_";
+        const fileCol = `${prefix}file_id`;
+        const otherFileCol = `${otherPrefix}file_id`;
+        const contentType = fileType === "source" ? "source" : "target";
+
+        const existingRows = await this.db!.all<{ cell_id: string; }>(
+            `SELECT cell_id FROM cells WHERE ${fileCol} = ?`,
+            [fileId]
+        );
+
+        const staleCellIds = existingRows
+            .map((r) => r.cell_id)
+            .filter((id) => !liveCellIds.has(id));
+
+        if (staleCellIds.length === 0) {
+            return { nulled: 0, deleted: 0 };
+        }
+
+        let nulled = 0;
+        let deleted = 0;
+
+        const CHUNK = 400;
+        for (let i = 0; i < staleCellIds.length; i += CHUNK) {
+            const chunk = staleCellIds.slice(i, i + CHUNK);
+            const placeholders = chunk.map(() => "?").join(",");
+
+            // Clean FTS entries for the stale side
+            await this.db!.run(
+                `DELETE FROM cells_fts WHERE cell_id IN (${placeholders}) AND content_type = ?`,
+                [...chunk, contentType]
+            );
+
+            // Delete cells that have no data on the other side
+            const deleteResult = await this.db!.run(
+                `DELETE FROM cells
+                 WHERE cell_id IN (${placeholders})
+                   AND ${fileCol} = ?
+                   AND (${otherFileCol} IS NULL AND ${otherPrefix}content IS NULL)`,
+                [...chunk, fileId]
+            );
+            deleted += deleteResult.changes;
+
+            // Null out the stale side for cells that still have data on the other side
+            const nullCols = fileType === "source"
+                ? `s_file_id = NULL, s_content = NULL, s_raw_content = NULL,
+                   s_raw_content_hash = NULL, s_line_number = NULL, s_word_count = NULL,
+                   s_created_at = NULL, s_updated_at = NULL`
+                : `t_file_id = NULL, t_content = NULL, t_raw_content = NULL,
+                   t_raw_content_hash = NULL, t_line_number = NULL, t_word_count = NULL,
+                   t_created_at = NULL, t_current_edit_timestamp = NULL,
+                   t_validation_count = 0, t_validated_by = NULL, t_is_fully_validated = 0,
+                   t_audio_validation_count = 0, t_audio_validated_by = NULL, t_audio_is_fully_validated = 0`;
+
+            const updateResult = await this.db!.run(
+                `UPDATE cells SET ${nullCols}
+                 WHERE cell_id IN (${placeholders})
+                   AND ${fileCol} = ?`,
+                [...chunk, fileId]
+            );
+            nulled += updateResult.changes;
+        }
+
+        if (nulled > 0 || deleted > 0) {
+            debug(`[SQLiteIndex] Removed stale cells for file ${fileId} (${fileType}): ${deleted} deleted, ${nulled} nulled`);
+        }
+
+        return { nulled, deleted };
+    }
+
     // Search for complete translation pairs only (cells with both source AND target content)
     async searchCompleteTranslationPairs(
         query: string,
