@@ -142,6 +142,43 @@ export function setAttachmentAvailability(att: any, availability: AttachmentAvai
 }
 
 /**
+ * Revalidates audioAvailability for ALL audio attachments across every cell in a document.
+ * Performs filesystem checks and persists updated metadata.
+ * Returns true if any flag changed.
+ */
+export async function revalidateDocumentAudioFlags(
+    document: CodexCellDocument,
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<boolean> {
+    try {
+        const cells = (document as any)._documentData?.cells || [];
+        let anyChanged = false;
+
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (!cellId || !cell?.metadata?.attachments) continue;
+
+            const hasAudio = Object.values(cell.metadata.attachments).some(
+                (att: any) => att?.type === "audio"
+            );
+            if (!hasAudio) continue;
+
+            const changed = await revalidateCellMissingFlags(document, workspaceFolder, cellId);
+            if (changed) anyChanged = true;
+        }
+
+        if (anyChanged) {
+            await document.save(new vscode.CancellationTokenSource().token);
+        }
+
+        return anyChanged;
+    } catch (err) {
+        console.error("Failed to revalidate document audio flags", err);
+        return false;
+    }
+}
+
+/**
  * @deprecated Use setAttachmentAvailability instead.
  * Kept for backward compatibility during migration window.
  */
