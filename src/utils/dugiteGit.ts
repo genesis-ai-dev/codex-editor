@@ -9,6 +9,8 @@
  */
 
 import { exec, type IGitExecutionOptions, type IGitResult } from "dugite";
+import * as fs from "fs";
+import * as path from "path";
 import { getAuthApi } from "../extension";
 
 // ---------------------------------------------------------------------------
@@ -81,17 +83,52 @@ const NON_INTERACTIVE_ENV: Record<string, string> = {
  * Platform-safety flags applied to every git invocation to normalize
  * behavior across Windows, macOS, and Linux.
  *
- * core.longpaths   — Windows: enables paths >260 chars.
- * core.autocrlf    — Prevents LF↔CRLF conversion that corrupts files.
- * core.fsmonitor   — Disables filesystem monitor (prevents hangs).
- * core.pager       — Disables pager (prevents waiting for input).
+ * core.longpaths        — Windows: enables paths >260 chars.
+ * core.autocrlf         — Prevents LF↔CRLF conversion that corrupts files.
+ * core.fsmonitor        — Disables filesystem monitor (prevents hangs).
+ * core.pager            — Disables pager (prevents waiting for input).
+ * core.quotePath        — Returns raw UTF-8 paths instead of octal-escaped
+ *                         non-ASCII characters.  Critical for i18n filenames.
+ * core.precomposeUnicode — macOS: normalizes NFD paths to NFC.
+ * gc.auto               — Disables auto GC that can freeze operations.
  */
 const PLATFORM_SAFETY_FLAGS = [
     "-c", "core.longpaths=true",
     "-c", "core.autocrlf=false",
     "-c", "core.fsmonitor=false",
     "-c", "core.pager=",
+    "-c", "core.quotePath=false",
+    "-c", "core.precomposeUnicode=true",
+    "-c", "gc.auto=0",
 ];
+
+/**
+ * Auto-remove stale index.lock files left behind by crashed git operations.
+ * Only removes locks older than the threshold to avoid racing with
+ * legitimately running git processes.
+ */
+const STALE_LOCK_THRESHOLD_MS = 5 * 60 * 1000;
+
+async function removeStaleIndexLock(dir: string): Promise<boolean> {
+    const lockPath = path.join(dir, ".git", "index.lock");
+    try {
+        const stat = await fs.promises.stat(lockPath);
+        const ageMs = Date.now() - stat.mtimeMs;
+        if (ageMs > STALE_LOCK_THRESHOLD_MS) {
+            await fs.promises.unlink(lockPath);
+            console.warn(
+                `[dugiteGit] Removed stale index.lock (${Math.round(ageMs / 1000)}s old) at ${lockPath}`,
+            );
+            return true;
+        }
+        console.warn(
+            `[dugiteGit] index.lock exists but is only ${Math.round(ageMs / 1000)}s old — not removing`,
+        );
+    } catch {
+        // Lock file doesn't exist or can't be accessed
+    }
+    return false;
+}
 
 async function gitExec(
     args: string[],
@@ -99,10 +136,24 @@ async function gitExec(
     options?: IGitExecutionOptions,
 ): Promise<IGitResult> {
     await ensureBinaryPath();
-    return exec([...PLATFORM_SAFETY_FLAGS, ...args], dir, {
+
+    const execOptions: IGitExecutionOptions = {
         ...options,
         env: { ...NON_INTERACTIVE_ENV, ...gitEnvOverrides, ...options?.env },
-    });
+    };
+
+    let result = await exec([...PLATFORM_SAFETY_FLAGS, ...args], dir, execOptions);
+
+    if (result.exitCode !== 0) {
+        const errStr = typeof result.stderr === "string"
+            ? result.stderr
+            : result.stderr.toString("utf8");
+        if (errStr.includes("index.lock") && await removeStaleIndexLock(dir)) {
+            result = await exec([...PLATFORM_SAFETY_FLAGS, ...args], dir, execOptions);
+        }
+    }
+
+    return result;
 }
 
 class GitOperationError extends Error {
