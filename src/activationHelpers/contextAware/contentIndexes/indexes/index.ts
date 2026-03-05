@@ -951,22 +951,35 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         );
 
                         // Convert to TranslationPair format
-                        let translationPairs: TranslationPair[] = searchResults.map((result) => ({
-                            cellId: result.cellId || result.cell_id,
-                            cellLabel: result.cellLabel,
-                            sourceCell: {
+                        let translationPairs: TranslationPair[] = searchResults.map((result) => {
+                            let label = result.cellLabel;
+                            if (result.globalReferences) {
+                                try {
+                                    const refs = JSON.parse(result.globalReferences);
+                                    if (Array.isArray(refs) && refs.length > 0 && typeof refs[0] === "string") {
+                                        label = refs[0];
+                                    }
+                                } catch {
+                                    // keep existing cellLabel
+                                }
+                            }
+                            return {
                                 cellId: result.cellId || result.cell_id,
-                                content: result.sourceContent || result.content || "",
-                                uri: result.uri || "",
-                                line: result.line || 0,
-                            },
-                            targetCell: {
-                                cellId: result.cellId || result.cell_id,
-                                content: result.targetContent || "",
-                                uri: result.uri || "",
-                                line: result.line || 0,
-                            },
-                        }));
+                                cellLabel: label,
+                                sourceCell: {
+                                    cellId: result.cellId || result.cell_id,
+                                    content: result.sourceContent || result.content || "",
+                                    uri: result.uri || "",
+                                    line: result.line || 0,
+                                },
+                                targetCell: {
+                                    cellId: result.cellId || result.cell_id,
+                                    content: result.targetContent || "",
+                                    uri: result.uri || "",
+                                    line: result.line || 0,
+                                },
+                            };
+                        });
 
                         // Filter out pairs with empty or minimal content
                         // Strip HTML and check for meaningful content (not just whitespace or very short text)

@@ -3662,6 +3662,7 @@ export class SQLiteIndexManager {
                 SELECT
                     c.cell_id,
                     c.cell_label,
+                    c.global_references,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3686,6 +3687,7 @@ export class SQLiteIndexManager {
             const rows = await this.db!.all<{
                 cell_id: string;
                 cell_label: string | null;
+                global_references: string | null;
                 source_content: string;
                 raw_source_content: string | null;
                 target_content: string;
@@ -3701,6 +3703,7 @@ export class SQLiteIndexManager {
                     cellId: row.cell_id,
                     cell_id: row.cell_id,
                     cellLabel: row.cell_label,
+                    globalReferences: row.global_references,
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -3764,6 +3767,7 @@ export class SQLiteIndexManager {
             SELECT DISTINCT
                 cell_id,
                 cell_label,
+                global_references,
                 source_content,
                 raw_source_content,
                 target_content,
@@ -3776,6 +3780,7 @@ export class SQLiteIndexManager {
                 SELECT DISTINCT
                     c.cell_id,
                     c.cell_label,
+                    c.global_references,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3803,6 +3808,7 @@ export class SQLiteIndexManager {
                 SELECT DISTINCT
                     c.cell_id,
                     c.cell_label,
+                    c.global_references,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3829,11 +3835,10 @@ export class SQLiteIndexManager {
         const results = [];
 
         try {
-            // Use both FTS5 query and LIKE pattern for substring matching
-            // Bind parameters depend on searchSourceOnly
-            let rows: Array<{
+            type SearchRow = {
                 cell_id: string;
                 cell_label: string | null;
+                global_references: string | null;
                 source_content: string;
                 raw_source_content: string | null;
                 target_content: string;
@@ -3841,50 +3846,30 @@ export class SQLiteIndexManager {
                 uri: string | null;
                 line: number | null;
                 score: number;
-            }>;
+            };
+            let rows: SearchRow[];
             if (searchSourceOnly) {
-                rows = await this.db!.all<{
-                    cell_id: string;
-                    cell_label: string | null;
-                    source_content: string;
-                    raw_source_content: string | null;
-                    target_content: string;
-                    raw_target_content: string | null;
-                    uri: string | null;
-                    line: number | null;
-                    score: number;
-                }>(sql, [cleanQuery, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, limit]);
             } else {
-                rows = await this.db!.all<{
-                    cell_id: string;
-                    cell_label: string | null;
-                    source_content: string;
-                    raw_source_content: string | null;
-                    target_content: string;
-                    raw_target_content: string | null;
-                    uri: string | null;
-                    line: number | null;
-                    score: number;
-                }>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {
-                // Target content is now directly available from the main query
                 const targetContent = row.target_content;
                 const rawTargetContent = row.raw_target_content;
 
-                // Both source and target content are guaranteed to exist due to the WHERE clause
                 results.push({
                     cellId: row.cell_id,
                     cell_id: row.cell_id,
-                    cellLabel: row.cell_label, // NO FALLBACK
+                    cellLabel: row.cell_label,
+                    globalReferences: row.global_references,
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     uri: row.uri,
                     line: row.line,
                     score: row.score,
-                    cell_type: 'source' // For compatibility
+                    cell_type: 'source'
                 });
             }
         } catch (error) {
@@ -3923,6 +3908,7 @@ export class SQLiteIndexManager {
                 SELECT
                     c.cell_id,
                     c.cell_label,
+                    c.global_references,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -3948,6 +3934,7 @@ export class SQLiteIndexManager {
             const rows = await this.db!.all<{
                 cell_id: string;
                 cell_label: string | null;
+                global_references: string | null;
                 source_content: string;
                 raw_source_content: string | null;
                 target_content: string;
@@ -3958,13 +3945,12 @@ export class SQLiteIndexManager {
             }>(sql, [limit]);
             const results = [];
 
-            // The SQL already filters with "AND c.t_is_fully_validated = 1" when
-            // onlyValidated is true, so no per-row isTargetCellFullyValidated check is needed.
             for (const row of rows) {
                 results.push({
                     cellId: row.cell_id,
                     cell_id: row.cell_id,
                     cellLabel: row.cell_label,
+                    globalReferences: row.global_references,
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -4034,6 +4020,7 @@ export class SQLiteIndexManager {
             SELECT DISTINCT
                 cell_id,
                 cell_label,
+                global_references,
                 source_content,
                 raw_source_content,
                 target_content,
@@ -4046,6 +4033,7 @@ export class SQLiteIndexManager {
                 SELECT
                     c.cell_id,
                     c.cell_label,
+                    c.global_references,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -4073,6 +4061,7 @@ export class SQLiteIndexManager {
                 SELECT
                     c.cell_id,
                     c.cell_label,
+                    c.global_references,
                     c.s_content as source_content,
                     c.s_raw_content as raw_source_content,
                     c.t_content as target_content,
@@ -4099,12 +4088,10 @@ export class SQLiteIndexManager {
         const results = [];
 
         try {
-            // Use both FTS5 query and LIKE pattern for substring matching
-            // Bind parameters depend on searchSourceOnly
-            // Row type now includes target_content/raw_target_content from the SQL
             type SearchRow = {
                 cell_id: string;
                 cell_label: string | null;
+                global_references: string | null;
                 source_content: string;
                 raw_source_content: string | null;
                 target_content: string | null;
@@ -4120,8 +4107,6 @@ export class SQLiteIndexManager {
                 rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
-            // Validation and target content are now filtered/included at the SQL level —
-            // no per-row isTargetCellFullyValidated or target content lookup needed.
             for (const row of rows) {
                 const targetContent = row.target_content ?? '';
                 const rawTargetContent = row.raw_target_content ?? '';
@@ -4131,6 +4116,7 @@ export class SQLiteIndexManager {
                         cellId: row.cell_id,
                         cell_id: row.cell_id,
                         cellLabel: row.cell_label,
+                        globalReferences: row.global_references,
                         sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                         targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
                         content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
@@ -4296,6 +4282,31 @@ export class SQLiteIndexManager {
                 ? JSON.stringify(data.globalReferences)
                 : null;
             result.milestoneIndex = typeof data.milestoneIndex === "number" ? data.milestoneIndex : null;
+        }
+
+        // Fallback: check top-level metadata for book/chapter/verse
+        // Some importers (e.g. USFM, eBible) store these at the top level rather than in metadata.data
+        if (!result.book) {
+            const topBook = metadata.bookCode ?? metadata.book;
+            if (typeof topBook === "string") {
+                result.book = topBook;
+            }
+        }
+        if (!result.chapter) {
+            const topChapter = metadata.chapter ?? metadata.chapterNumber;
+            if (typeof topChapter === "string") {
+                result.chapter = topChapter;
+            } else if (typeof topChapter === "number") {
+                result.chapter = String(topChapter);
+            }
+        }
+        if (!result.verse) {
+            const topVerse = metadata.verse;
+            if (typeof topVerse === "string") {
+                result.verse = topVerse;
+            } else if (typeof topVerse === "number") {
+                result.verse = String(topVerse);
+            }
         }
 
         // ── Validation fields (target only) ────────────────────────────
