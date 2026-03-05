@@ -33,7 +33,7 @@ async function hasLocalModifications(workspaceFolder: string, filePath: string):
         return hasChanges;
     } catch (error) {
         console.warn(`[SyncManager] Could not check git status for ${filePath}:`, error);
-        return false; // If we can't check, assume no changes to be safe
+        return true; // If we can't check, assume changes exist so repair/sync paths are not skipped
     }
 }
 

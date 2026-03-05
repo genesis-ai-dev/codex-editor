@@ -189,7 +189,27 @@ export async function stageAndCommitAllAndSync(
                 }
             }
 
-            const resolvedFiles = await resolveConflictFiles(conflicts, workspaceFolder);
+            const { resolved: resolvedFiles, failed: failedConflicts } = await resolveConflictFiles(conflicts, workspaceFolder);
+
+            if (failedConflicts.length > 0) {
+                const failedList = failedConflicts
+                    .map((f) => `  - ${f.filepath}: ${f.error}`)
+                    .join("\n");
+                console.error(
+                    `[Merge] ${failedConflicts.length} conflict(s) could not be resolved:\n${failedList}`
+                );
+                vscode.window.showErrorMessage(
+                    `${failedConflicts.length} file conflict(s) could not be resolved. ` +
+                    `The merge was not completed to avoid data loss. ` +
+                    `Failed files: ${failedConflicts.map((f) => f.filepath).join(", ")}`
+                );
+                throw new Error(
+                    `Merge aborted: ${failedConflicts.length} conflict(s) could not be resolved. ` +
+                    `Resolved ${resolvedFiles.length} of ${conflicts.length} total. ` +
+                    `Failed:\n${failedList}`
+                );
+            }
+
             if (resolvedFiles.length > 0) {
                 try {
                     await authApi.completeMerge(resolvedFiles, undefined);

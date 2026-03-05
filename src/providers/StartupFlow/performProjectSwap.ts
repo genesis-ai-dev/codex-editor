@@ -196,7 +196,7 @@ export async function checkSwapPrerequisites(
     } catch (error) {
         debugLog("Error checking swap prerequisites:", error);
         result.error = error instanceof Error ? error.message : String(error);
-        // On error, allow proceed but log warning
+        result.canProceed = false;
         return result;
     }
 }

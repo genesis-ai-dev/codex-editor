@@ -2456,6 +2456,11 @@ export type ResolvedFile = {
     resolution: "deleted" | "created" | "modified";
 };
 
+export type ConflictResolutionResult = {
+    resolved: ResolvedFile[];
+    failed: Array<{ filepath: string; error: string }>;
+};
+
 /**
  * Main function to resolve all conflict files
  */
@@ -2463,21 +2468,22 @@ export async function resolveConflictFiles(
     conflicts: ConflictFile[],
     workspaceDir: string,
     options?: ResolveConflictOptions
-): Promise<ResolvedFile[]> {
+): Promise<ConflictResolutionResult> {
     debugLog("Starting conflict resolution with:", { conflicts, workspaceDir });
 
     // Validate inputs
     if (!Array.isArray(conflicts)) {
         console.error("Expected conflicts to be an array, got:", conflicts);
-        return [];
+        return { resolved: [], failed: [] };
     }
 
     if (conflicts.length === 0) {
         console.warn("No conflicts to resolve");
-        return [];
+        return { resolved: [], failed: [] };
     }
 
     const resolvedFiles: ResolvedFile[] = [];
+    const failedFiles: Array<{ filepath: string; error: string }> = [];
 
     await vscode.window.withProgress(
         {
@@ -2524,9 +2530,15 @@ export async function resolveConflictFiles(
             let nextIndex = 0;
 
             const processOne = async (conflict: ConflictFile): Promise<void> => {
+                const conflictPath = conflict?.filepath ?? "<unknown>";
+
                 // Validate conflict object structure
                 if (!isValidConflict(conflict)) {
                     console.error("Invalid conflict object:", conflict);
+                    failedFiles.push({
+                        filepath: conflictPath,
+                        error: "Invalid conflict object structure",
+                    });
                     return;
                 }
 
@@ -2546,7 +2558,9 @@ export async function resolveConflictFiles(
                             resolution: "deleted",
                         });
                     } catch (e) {
+                        const detail = e instanceof Error ? e.message : String(e);
                         console.error(`Error deleting file ${conflict.filepath}:`, e);
+                        failedFiles.push({ filepath: conflict.filepath, error: `Delete failed: ${detail}` });
                     }
                     return;
                 }
@@ -2584,6 +2598,11 @@ export async function resolveConflictFiles(
                                     filepath: resolvedPath,
                                     resolution: existedOnDisk ? "modified" : "created",
                                 });
+                            } else {
+                                failedFiles.push({
+                                    filepath: conflict.filepath,
+                                    error: "Conflict resolver returned no result for new file with differing sides",
+                                });
                             }
                         } else {
                             // Use non-empty content (prefer ours, fallback to theirs)
@@ -2595,7 +2614,9 @@ export async function resolveConflictFiles(
                             });
                         }
                     } catch (e) {
+                        const detail = e instanceof Error ? e.message : String(e);
                         console.error(`Error creating new file ${conflict.filepath}:`, e);
+                        failedFiles.push({ filepath: conflict.filepath, error: `Create failed: ${detail}` });
                     }
                     return;
                 }
@@ -2605,6 +2626,10 @@ export async function resolveConflictFiles(
                     await vscode.workspace.fs.stat(filePath);
                 } catch {
                     debugLog(`Skipping conflict resolution for missing file: ${conflict.filepath}`);
+                    failedFiles.push({
+                        filepath: conflict.filepath,
+                        error: "File does not exist on disk — cannot resolve conflict",
+                    });
                     return;
                 }
 
@@ -2613,6 +2638,11 @@ export async function resolveConflictFiles(
                     resolvedFiles.push({
                         filepath: resolvedFile,
                         resolution: "modified",
+                    });
+                } else {
+                    failedFiles.push({
+                        filepath: conflict.filepath,
+                        error: "Conflict resolver returned no result",
                     });
                 }
             };
@@ -2636,6 +2666,6 @@ export async function resolveConflictFiles(
         }
     );
 
-    return resolvedFiles;
+    return { resolved: resolvedFiles, failed: failedFiles };
 }
 
