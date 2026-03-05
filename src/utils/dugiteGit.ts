@@ -66,6 +66,15 @@ async function ensureBinaryPath(): Promise<void> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Baseline env vars applied to every git invocation to ensure fully
+ * non-interactive operation — no terminal prompts, no GUI dialogs.
+ */
+const NON_INTERACTIVE_ENV: Record<string, string> = {
+    GIT_TERMINAL_PROMPT: "0",
+    SSH_ASKPASS: "",
+};
+
 async function gitExec(
     args: string[],
     dir: string,
@@ -74,7 +83,7 @@ async function gitExec(
     await ensureBinaryPath();
     return exec(args, dir, {
         ...options,
-        env: { ...gitEnvOverrides, ...options?.env },
+        env: { ...NON_INTERACTIVE_ENV, ...gitEnvOverrides, ...options?.env },
     });
 }
 
@@ -83,9 +92,7 @@ class GitOperationError extends Error {
     public readonly gitStderr: string;
 
     constructor(operation: string, result: IGitResult) {
-        const stderrStr = typeof result.stderr === "string"
-            ? result.stderr
-            : result.stderr.toString("utf8");
+        const stderrStr = stderr(result);
         super(`git ${operation} failed (exit ${result.exitCode}): ${stderrStr.trim()}`);
         this.name = "GitOperationError";
         this.exitCode = result.exitCode;
@@ -99,8 +106,20 @@ function assertSuccess(operation: string, result: IGitResult): void {
     }
 }
 
+/**
+ * Extract stdout as a string with CRLF normalized to LF.
+ * MinGW git on Windows typically outputs LF, but system-level git
+ * config or locale settings can introduce CRLF in edge cases.
+ * Normalizing here keeps all downstream parsers platform-safe.
+ */
 function stdout(result: IGitResult): string {
-    return typeof result.stdout === "string" ? result.stdout : result.stdout.toString("utf8");
+    const raw = typeof result.stdout === "string" ? result.stdout : result.stdout.toString("utf8");
+    return raw.replace(/\r\n/g, "\n");
+}
+
+function stderr(result: IGitResult): string {
+    const raw = typeof result.stderr === "string" ? result.stderr : result.stderr.toString("utf8");
+    return raw.replace(/\r\n/g, "\n");
 }
 
 // ---------------------------------------------------------------------------
