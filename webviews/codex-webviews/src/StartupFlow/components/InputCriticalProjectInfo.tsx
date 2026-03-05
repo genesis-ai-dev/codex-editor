@@ -27,7 +27,7 @@ export const InputCriticalProjectInfo = ({
                 const metadata = event.data.data;
                 setSourceLanguage(metadata.sourceLanguage);
                 setTargetLanguage(metadata.targetLanguage);
-                
+
                 // If source language exists but target doesn't, start with target step
                 if (metadata.sourceLanguage && !metadata.targetLanguage) {
                     setCurrentStep("target");
@@ -39,10 +39,13 @@ export const InputCriticalProjectInfo = ({
                     } as MessagesToStartupFlowProvider);
                     return;
                 }
-                
+
                 // Otherwise start with source step
                 setCurrentStep("source");
-            } else if (event.data.command === "state.update" && event.data.state.value === "promptUserToAddCriticalData") {
+            } else if (
+                event.data.command === "state.update" &&
+                event.data.state.value === "promptUserToAddCriticalData"
+            ) {
                 // When we receive the state update that we're in the critical data state, start checking metadata
                 vscode.postMessage({ command: "metadata.check" });
             }
@@ -54,10 +57,13 @@ export const InputCriticalProjectInfo = ({
 
     const handleLanguageSelect = (language: LanguageMetadata) => {
         vscode.postMessage({
-            command: language.projectStatus === "source" ? "changeSourceLanguage" : "changeTargetLanguage",
+            command:
+                language.projectStatus === "source"
+                    ? "changeSourceLanguage"
+                    : "changeTargetLanguage",
             language,
         });
-        
+
         if (language.projectStatus === "source") {
             setSourceLanguage(language);
             setCurrentStep("target");
@@ -67,7 +73,6 @@ export const InputCriticalProjectInfo = ({
             setCurrentStep("complete");
         }
     };
-    
 
     return (
         <div
@@ -93,13 +98,27 @@ export const InputCriticalProjectInfo = ({
             >
                 {currentStep === "source" && (
                     <>
-                        <i className="codicon codicon-source-control" style={{ fontSize: "72px" }}></i>
+                        <i
+                            className="codicon codicon-source-control"
+                            style={{ fontSize: "72px" }}
+                        ></i>
                         <LanguagePicker
                             onLanguageSelect={handleLanguageSelect}
                             projectStatus="source"
                             label="Select Source Language"
                             initialLanguage={sourceLanguage || undefined}
                         />
+                        <p
+                            style={{
+                                margin: "-12px 0 0",
+                                fontSize: "0.85rem",
+                                color: "var(--vscode-descriptionForeground)",
+                                textAlign: "center",
+                            }}
+                        >
+                            This is used to instruct the AI translation assistant. You can change it
+                            any time in settings.
+                        </p>
                     </>
                 )}
 
@@ -112,12 +131,26 @@ export const InputCriticalProjectInfo = ({
                             label="Select Target Language"
                             initialLanguage={targetLanguage || undefined}
                         />
+                        <p
+                            style={{
+                                margin: "-12px 0 0",
+                                fontSize: "0.85rem",
+                                color: "var(--vscode-descriptionForeground)",
+                                textAlign: "center",
+                            }}
+                        >
+                            This is used to instruct the AI translation assistant. You can change it
+                            any time in settings.
+                        </p>
                     </>
                 )}
 
                 {currentStep === "complete" && (
                     <>
-                        <i className="codicon codicon-symbol-variable" style={{ fontSize: "72px" }}></i>
+                        <i
+                            className="codicon codicon-symbol-variable"
+                            style={{ fontSize: "72px" }}
+                        ></i>
                         <VSCodeButton
                             onClick={() => {
                                 // Start generating system message in the background
