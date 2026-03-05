@@ -11,6 +11,9 @@ type AudioAvailability = "available" | "available-local" | "available-pointer" |
  * When no explicit selection exists, checks whether the implicit current audio
  * (latest non-deleted by updatedAt) is missing—this is the one the provider would serve on play.
  */
+const isAttMissing = (att: any): boolean =>
+    att.audioAvailability === "missing" || (att.audioAvailability === undefined && att.isMissing === true);
+
 const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
     const atts = (unit?.attachments || {}) as Record<string, any>;
     let hasAvailable = false;
@@ -21,18 +24,16 @@ const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
         const att = atts[key];
         if (att?.type === "audio") {
             if (att.isDeleted) hasDeleted = true;
-            else if (att.isMissing) hasMissing = true;
+            else if (isAttMissing(att)) hasMissing = true;
             else hasAvailable = true;
         }
     }
 
-    // Prefer showing available when a valid file exists,
-    // even if the user's explicit selection points to a missing file.
     if (hasAvailable) return "available";
 
     const selectedId = unit?.metadata?.selectedAudioId;
     const selectedAtt = selectedId ? atts[selectedId] : undefined;
-    if (selectedAtt?.type === "audio" && selectedAtt?.isMissing === true) {
+    if (selectedAtt?.type === "audio" && isAttMissing(selectedAtt)) {
         return "missing";
     }
 
@@ -40,7 +41,7 @@ const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
         const nonDeleted = Object.entries(atts)
             .filter(([, att]) => att?.type === "audio" && !att.isDeleted)
             .sort(([, a], [, b]) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        if (nonDeleted.length > 0 && nonDeleted[0][1].isMissing) {
+        if (nonDeleted.length > 0 && isAttMissing(nonDeleted[0][1])) {
             return "missing";
         }
     }

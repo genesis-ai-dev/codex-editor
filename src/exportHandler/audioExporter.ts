@@ -445,13 +445,13 @@ function pickAudioAttachmentForCell(cell: any): { id: string; url: string; start
     if (!attachments || typeof attachments !== "object") return null;
     const selectedId: string | undefined = cell?.metadata?.selectedAudioId;
 
-    const candidates: Array<{ id: string; url: string; updatedAt?: number; start?: number; end?: number; isDeleted?: boolean; isMissing?: boolean; }>
+    const candidates: Array<{ id: string; url: string; updatedAt?: number; start?: number; end?: number; isDeleted?: boolean; audioAvailability?: string; }>
         = [];
     for (const [attId, attVal] of Object.entries<any>(attachments)) {
         if (!attVal || typeof attVal !== "object") continue;
         if (attVal.type !== "audio") continue;
         if (attVal.isDeleted) continue;
-        if (attVal.isMissing) continue;
+        if (attVal.audioAvailability === "missing") continue;
         if (!attVal.url || typeof attVal.url !== "string") continue;
         candidates.push({ id: attId, url: attVal.url, updatedAt: attVal.updatedAt, start: attVal.startTime, end: attVal.endTime });
     }
@@ -563,7 +563,7 @@ export async function exportAudioAttachments(
                                     id: k,
                                     type: attachments[k]?.type,
                                     isDeleted: attachments[k]?.isDeleted,
-                                    isMissing: attachments[k]?.isMissing,
+                                    audioAvailability: attachments[k]?.audioAvailability,
                                     hasUrl: !!attachments[k]?.url
                                 }))
                             );

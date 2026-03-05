@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import path from "path";
 import { toPosixPath, normalizeAttachmentUrl } from "./pathUtils";
 import type { CodexCellDocument } from "../providers/codexCellEditorProvider/codexDocument";
+import type { AttachmentAvailability } from "../../types";
+import { determineAttachmentAvailability } from "./audioAvailabilityUtils";
 
 /**
  * Checks whether a pointer file exists for a given attachment URL.
@@ -48,7 +50,6 @@ async function ensurePointerFromFiles(
         ...pointersPosix.split("/").filter(Boolean)
     );
 
-    // Check files exists
     let fileExists = false;
     try {
         await vscode.workspace.fs.stat(fileUri);
@@ -58,7 +59,6 @@ async function ensurePointerFromFiles(
     }
     if (!fileExists) return false;
 
-    // If pointer already exists, done
     try {
         await vscode.workspace.fs.stat(pointerUri);
         return true;
@@ -66,7 +66,6 @@ async function ensurePointerFromFiles(
 
     try {
         const bytes = await vscode.workspace.fs.readFile(fileUri);
-        // Ensure parent directory exists
         const pointerDir = vscode.Uri.file(path.posix.dirname(pointerUri.fsPath));
         try { await vscode.workspace.fs.createDirectory(pointerDir); } catch { /* ignore */ }
         await vscode.workspace.fs.writeFile(pointerUri, bytes);
@@ -77,7 +76,8 @@ async function ensurePointerFromFiles(
 }
 
 /**
- * Revalidates and updates isMissing flags for all audio attachments on a specific cell.
+ * Revalidates and updates audioAvailability for all audio attachments on a specific cell.
+ * Performs filesystem checks at revalidation time and persists the result.
  * Returns true if any flag changed.
  */
 export async function revalidateCellMissingFlags(
@@ -103,30 +103,35 @@ export async function revalidateCellMissingFlags(
             if (!existsInPointers) {
                 existsInPointers = await ensurePointerFromFiles(workspaceFolder, url);
             }
-            const desiredMissing = !existsInPointers;
-            // Use shared util to set flag and bump updatedAt only when changed
+
+            const availability = existsInPointers
+                ? await determineAttachmentAvailability(workspaceFolder, url)
+                : "missing" as AttachmentAvailability;
+
             const updated = { ...attVal };
-            if (setMissingFlagOnAttachmentObject(updated, desiredMissing)) {
+            if (setAttachmentAvailability(updated, availability)) {
                 document.updateCellAttachment(cellId, attId, updated);
                 changed = true;
             }
         }
         return changed;
     } catch (err) {
-        console.error("Failed to revalidate missing flags for cell", { cellId, err });
+        console.error("Failed to revalidate availability for cell", { cellId, err });
         return false;
     }
 }
 
 /**
- * Sets the isMissing flag on an attachment object and updates updatedAt when changed.
+ * Sets the audioAvailability field on an attachment object and updates updatedAt when changed.
+ * Also sets the deprecated isMissing field for backward compatibility.
  * Returns true if the object was modified.
  */
-export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boolean): boolean {
+export function setAttachmentAvailability(att: any, availability: AttachmentAvailability): boolean {
     try {
-        const current = att?.isMissing ?? false;
-        if (current !== desiredMissing) {
-            att.isMissing = desiredMissing;
+        const current = att?.audioAvailability;
+        if (current !== availability) {
+            att.audioAvailability = availability;
+            att.isMissing = availability === "missing";
             att.updatedAt = Date.now();
             return true;
         }
@@ -136,4 +141,11 @@ export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boole
     }
 }
 
-
+/**
+ * @deprecated Use setAttachmentAvailability instead.
+ * Kept for backward compatibility during migration window.
+ */
+export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boolean): boolean {
+    const availability: AttachmentAvailability = desiredMissing ? "missing" : "available-local";
+    return setAttachmentAvailability(att, availability);
+}

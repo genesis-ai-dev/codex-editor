@@ -2868,7 +2868,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public updateCellAttachment(
         cellId: string,
         attachmentId: string,
-        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; metadata?: Record<string, any>; createdBy?: string; }
+        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; audioAvailability?: import("../../../types").AttachmentAvailability; metadata?: Record<string, any>; createdBy?: string; }
     ): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
@@ -2997,7 +2997,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             if (selectedAttachment &&
                 selectedAttachment.type === attachmentType &&
                 !selectedAttachment.isDeleted &&
-                !selectedAttachment.isMissing) {
+                selectedAttachment.audioAvailability !== "missing") {
                 return {
                     attachmentId: cell.metadata.selectedAudioId,
                     attachment: selectedAttachment
@@ -3015,8 +3015,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 !attachment.isDeleted
             )
             .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
-                const aMissing = a.isMissing ? 1 : 0;
-                const bMissing = b.isMissing ? 1 : 0;
+                const aMissing = a.audioAvailability === "missing" ? 1 : 0;
+                const bMissing = b.audioAvailability === "missing" ? 1 : 0;
                 if (aMissing !== bMissing) return aMissing - bMissing;
                 return (b.updatedAt || 0) - (a.updatedAt || 0);
             });
@@ -3223,13 +3223,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     selectedAttachment.type !== "audio" ||
                     selectedAttachment.isDeleted;
 
-                const isMissing = !isInvalid && selectedAttachment.isMissing === true;
+                const isMissingAudio = !isInvalid && selectedAttachment.audioAvailability === "missing";
 
-                if (isInvalid || isMissing) {
-                    // Look for a valid non-missing audio attachment to auto-select
+                if (isInvalid || isMissingAudio) {
                     const validAlternative = Object.entries(cell.metadata.attachments)
                         .filter(([_, att]: [string, any]) =>
-                            att?.type === "audio" && !att.isDeleted && !att.isMissing
+                            att?.type === "audio" && !att.isDeleted && att.audioAvailability !== "missing"
                         )
                         .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
                             (b.updatedAt || 0) - (a.updatedAt || 0)

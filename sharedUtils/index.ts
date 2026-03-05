@@ -142,7 +142,7 @@ export const shouldDisableValidation = (
 
 /**
  * Returns true if the cell has an audio attachment whose file is missing from disk
- * (isMissing === true on the selected or any non-deleted audio attachment).
+ * (audioAvailability === "missing" on the selected or any non-deleted audio attachment).
  */
 export const cellHasMissingAudio = (
     attachments: Record<string, any> | undefined,
@@ -151,17 +151,19 @@ export const cellHasMissingAudio = (
     const atts = attachments;
     if (!atts || Object.keys(atts).length === 0) return false;
 
+    const isAttMissing = (att: any): boolean =>
+        att.audioAvailability === "missing" || (att.audioAvailability === undefined && att.isMissing === true);
+
     if (selectedAudioId && atts[selectedAudioId]) {
         const att = atts[selectedAudioId];
-        return att && att.type === "audio" && !att.isDeleted && att.isMissing === true;
+        return att && att.type === "audio" && !att.isDeleted && isAttMissing(att);
     }
 
     return Object.values(atts).some(
-        (att: any) => att && att.type === "audio" && !att.isDeleted && att.isMissing === true
+        (att: any) => att && att.type === "audio" && !att.isDeleted && isAttMissing(att)
     );
 };
 
-// Progress helpers shared across provider and webviews
 export const cellHasAudioUsingAttachments = (
     attachments: Record<string, any> | undefined,
     selectedAudioId?: string
@@ -169,13 +171,16 @@ export const cellHasAudioUsingAttachments = (
     const atts = attachments;
     if (!atts || Object.keys(atts).length === 0) return false;
 
+    const isAttAvailable = (att: any): boolean =>
+        att.audioAvailability !== "missing" && (att.audioAvailability !== undefined || att.isMissing !== true);
+
     if (selectedAudioId && atts[selectedAudioId]) {
         const att = atts[selectedAudioId];
-        return att && att.type === "audio" && !att.isDeleted && att.isMissing !== true;
+        return att && att.type === "audio" && !att.isDeleted && isAttAvailable(att);
     }
 
     return Object.values(atts).some(
-        (att: any) => att && att.type === "audio" && !att.isDeleted && att.isMissing !== true
+        (att: any) => att && att.type === "audio" && !att.isDeleted && isAttAvailable(att)
     );
 };
 

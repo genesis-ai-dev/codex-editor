@@ -915,7 +915,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         availability[cellId] = await computeCellAudioStateWithVersionGate(
                             cell?.metadata?.attachments,
                             cell?.metadata?.selectedAudioId,
-                            ws
                         );
                     }
                     if (Object.keys(availability).length > 0) {
@@ -946,14 +945,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 const cell = cells.find((c: any) => c?.metadata?.id === cellId);
                 if (cell) {
-                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                    if (ws) {
-                        availability[cellId] = await computeCellAudioStateWithVersionGate(
-                            cell?.metadata?.attachments,
-                            cell?.metadata?.selectedAudioId,
-                            ws
-                        );
-                    }
+                    availability[cellId] = await computeCellAudioStateWithVersionGate(
+                        cell?.metadata?.attachments,
+                        cell?.metadata?.selectedAudioId,
+                    );
 
                     safePostMessageToPanel(webviewPanel, {
                         type: "providerSendsAudioAttachments",
@@ -4224,7 +4219,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     availability[cellId] = await computeCellAudioStateWithVersionGate(
                         { [currentAttachment.attachmentId]: currentAttachment.attachment },
                         currentAttachment.attachmentId,
-                        ws
                     );
                 }
 

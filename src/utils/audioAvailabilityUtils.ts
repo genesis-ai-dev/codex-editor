@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import path from "path";
 import { toPosixPath } from "./pathUtils";
+import type { AttachmentAvailability } from "../../types";
 
 export type AudioAvailabilityState =
     | "available-local"
@@ -9,35 +10,65 @@ export type AudioAvailabilityState =
     | "deletedOnly"
     | "none";
 
-interface AttachmentLike {
+export interface AttachmentLike {
     url?: string;
     type?: string;
     isDeleted?: boolean;
+    audioAvailability?: AttachmentAvailability;
+    /** @deprecated Use audioAvailability instead */
     isMissing?: boolean;
 }
 
 /**
- * Check the on-disk availability of a single audio attachment.
+ * Read the persisted availability state of a single audio attachment.
+ * Pure metadata read — no filesystem I/O.
  *
  * Resolution order:
  *  1. isDeleted flag -> "deletedOnly"
- *  2. isMissing flag (set when editor opens) -> "missing"
- *  3. stat the files/ path; if it exists, inspect whether it's an LFS pointer
- *  4. stat the pointers/ path as a fallback -> "available-pointer"
- *  5. Otherwise -> "missing"
+ *  2. audioAvailability field (set at write time) -> that value
+ *  3. Legacy isMissing fallback -> "missing" if true, "available-local" if false
+ *  4. No field set and no URL -> "missing"
+ *  5. No field set but URL present -> "available-local" (optimistic default)
  */
-export async function checkAttachmentAvailability(
+export function checkAttachmentAvailability(
     attachment: AttachmentLike,
-    workspaceFolder: vscode.WorkspaceFolder
-): Promise<Exclude<AudioAvailabilityState, "none">> {
+): Exclude<AudioAvailabilityState, "none"> {
     if (attachment.isDeleted) {
         return "deletedOnly";
     }
-    if (attachment.isMissing) {
+
+    if (attachment.audioAvailability) {
+        return attachment.audioAvailability;
+    }
+
+    // Legacy fallback: isMissing boolean
+    if (attachment.isMissing === true) {
+        return "missing";
+    }
+    if (attachment.isMissing === false) {
+        return "available-local";
+    }
+
+    // No availability metadata at all
+    const url = String(attachment.url || "");
+    if (!url) {
         return "missing";
     }
 
-    const url = String(attachment.url || "");
+    return "available-local";
+}
+
+/**
+ * Determine the on-disk availability of an attachment by performing filesystem
+ * stat calls and LFS pointer detection. Intended for **write-time** use only —
+ * call this when recording, importing, migrating, or revalidating, then persist
+ * the result as `audioAvailability` on the attachment.
+ */
+export async function determineAttachmentAvailability(
+    workspaceFolder: vscode.WorkspaceFolder,
+    attachmentUrl: string
+): Promise<Exclude<AttachmentAvailability, never>> {
+    const url = String(attachmentUrl || "");
     if (!url) {
         return "missing";
     }
@@ -78,15 +109,14 @@ export async function checkAttachmentAvailability(
  * Compute the overall audio availability state for a cell by inspecting
  * all of its audio attachments and the selectedAudioId.
  *
+ * Pure metadata read — no filesystem I/O.
+ *
  * Priority: available-local > available-pointer > missing > deletedOnly > none
- * This means if *any* attachment is locally available the cell reports as such,
- * even if the user's explicit selection points to a missing file.
  */
-export async function computeCellAudioState(
+export function computeCellAudioState(
     attachments: Record<string, AttachmentLike> | undefined,
     selectedAudioId: string | undefined,
-    workspaceFolder: vscode.WorkspaceFolder
-): Promise<AudioAvailabilityState> {
+): AudioAvailabilityState {
     if (!attachments || Object.keys(attachments).length === 0) {
         return "none";
     }
@@ -99,7 +129,7 @@ export async function computeCellAudioState(
     for (const att of Object.values(attachments)) {
         if (!att || att.type !== "audio") continue;
 
-        const state = await checkAttachmentAvailability(att, workspaceFolder);
+        const state = checkAttachmentAvailability(att);
         switch (state) {
             case "available-local":
                 hasAvailable = true;
@@ -118,7 +148,8 @@ export async function computeCellAudioState(
 
     const selectedAtt = selectedAudioId ? attachments[selectedAudioId] : undefined;
     const selectedIsMissing =
-        selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+        selectedAtt?.type === "audio" &&
+        (selectedAtt?.audioAvailability === "missing" || selectedAtt?.isMissing === true);
 
     if (hasAvailable) return "available-local";
     if (hasAvailablePointer) return "available-pointer";
@@ -162,27 +193,24 @@ export async function applyFrontierVersionGate(
 export async function computeCellAudioStateWithVersionGate(
     attachments: Record<string, AttachmentLike> | undefined,
     selectedAudioId: string | undefined,
-    workspaceFolder: vscode.WorkspaceFolder
 ): Promise<AudioAvailabilityState> {
-    const state = await computeCellAudioState(attachments, selectedAudioId, workspaceFolder);
+    const state = computeCellAudioState(attachments, selectedAudioId);
     return applyFrontierVersionGate(state);
 }
 
 /**
- * Check whether a cell's selected audio is missing from disk.
- * Lighter-weight helper for progress tracking where we only need a boolean
- * (e.g. the navigation sidebar).
+ * Check whether a cell's selected audio is missing.
+ * Pure metadata read — no filesystem I/O.
  */
-export async function isSelectedAudioMissing(
+export function isSelectedAudioMissing(
     attachments: Record<string, AttachmentLike> | undefined,
     selectedAudioId: string | undefined,
-    workspaceFolder: vscode.WorkspaceFolder
-): Promise<boolean> {
+): boolean {
     if (!selectedAudioId || !attachments) return false;
 
     const att = attachments[selectedAudioId];
     if (!att || att.type !== "audio" || att.isDeleted) return false;
 
-    const state = await checkAttachmentAvailability(att, workspaceFolder);
+    const state = checkAttachmentAvailability(att);
     return state === "missing";
 }

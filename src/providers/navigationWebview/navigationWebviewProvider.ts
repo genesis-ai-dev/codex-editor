@@ -8,7 +8,7 @@ import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
-import { isSelectedAudioMissing } from "../../utils/audioAvailabilityUtils";
+import { computeCellAudioState } from "../../utils/audioAvailabilityUtils";
 import { addMetadataEdit, addProjectMetadataEdit, EditMapUtils } from "../../utils/editMapUtils";
 import { MetadataManager } from "../../utils/metadataManager";
 import { getAuthApi } from "../../extension";
@@ -592,20 +592,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
             ).length;
 
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            let cellsWithMissingAudio = 0;
-            if (workspaceFolder) {
-                const missingChecks = await Promise.all(
-                    progressCells.map((cell) =>
-                        isSelectedAudioMissing(
-                            cell?.metadata?.attachments,
-                            cell?.metadata?.selectedAudioId,
-                            workspaceFolder
-                        )
-                    )
-                );
-                cellsWithMissingAudio = missingChecks.filter(Boolean).length;
-            }
+            const cellsWithMissingAudio = progressCells.filter((cell) =>
+                computeCellAudioState(
+                    cell?.metadata?.attachments,
+                    cell?.metadata?.selectedAudioId,
+                ) === "missing"
+            ).length;
 
             // Use project settings for required validation counts
             const config = vscode.workspace.getConfiguration("codex-project-manager");

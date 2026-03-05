@@ -447,14 +447,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const notebookData = JSON.parse(document.getText());
                 const availability: Record<string, AudioAvailabilityState> = {};
-                if (Array.isArray(notebookData?.cells) && workspaceFolder) {
+                if (Array.isArray(notebookData?.cells)) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
                         if (!id) continue;
                         availability[id] = await computeCellAudioStateWithVersionGate(
                             cell?.metadata?.attachments,
                             cell?.metadata?.selectedAudioId,
-                            workspaceFolder
                         );
                     }
                 }
@@ -1875,7 +1874,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
                                     debug("Saved streamed file to disk (stream-and-save mode)");
-                                    // Immediately inform webview this cell now has a local file
+                                    // Update the attachment's availability in the document
+                                    try {
+                                        const currentAtt = document.getCurrentAttachment(cellId, "audio");
+                                        if (currentAtt) {
+                                            document.updateCellAttachment(cellId, currentAtt.attachmentId, {
+                                                ...currentAtt.attachment,
+                                                audioAvailability: "available-local",
+                                            } as any);
+                                        }
+                                    } catch { /* non-fatal */ }
                                     try {
                                         safePostMessageToPanel(webviewPanel, {
                                             type: "providerSendsAudioAttachments",
@@ -1884,7 +1892,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     } catch { /* non-fatal */ }
                                 } catch (saveError) {
                                     console.warn("Failed to save streamed file:", saveError);
-                                    // Don't fail the whole operation if save fails
                                 }
                             }
                         } else {
@@ -1997,7 +2004,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
-                                    // Targeted availability update for this cell
+                                    // Update the attachment's availability in the document
+                                    try {
+                                        const currentAtt = document.getCurrentAttachment(cellId, "audio");
+                                        if (currentAtt) {
+                                            document.updateCellAttachment(cellId, currentAtt.attachmentId, {
+                                                ...currentAtt.attachment,
+                                                audioAvailability: "available-local",
+                                            } as any);
+                                        }
+                                    } catch { /* non-fatal */ }
                                     try {
                                         safePostMessageToPanel(webviewPanel, {
                                             type: "providerSendsAudioAttachments",
@@ -2254,8 +2270,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
+                audioAvailability: "available-local",
                 createdBy: createdBy,
-                // Persist optional metadata if provided by client
                 ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
             } as any);
 
@@ -2293,7 +2309,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 availability[cellId] = await computeCellAudioStateWithVersionGate(
                     cell?.metadata?.attachments,
                     cell?.metadata?.selectedAudioId,
-                    workspaceFolder
                 );
             }
 
@@ -2472,13 +2487,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 if (!cellId) continue;
                 const atts = cell?.metadata?.attachments || {};
 
-                if (ws) {
-                    availability[cellId] = await computeCellAudioStateWithVersionGate(
-                        atts,
-                        cell?.metadata?.selectedAudioId,
-                        ws
-                    );
-                }
+                availability[cellId] = await computeCellAudioStateWithVersionGate(
+                    atts,
+                    cell?.metadata?.selectedAudioId,
+                );
 
                 // Extract validatedBy for the target cell's selected audio
                 if (cellId === typedEvent.content.cellId && cell?.metadata?.selectedAudioId) {
@@ -2987,7 +2999,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 type: "audio",
                                 url: relativePathPosix,
                                 updatedAt: timestamp,
-                                isDeleted: false
+                                isDeleted: false,
+                                audioAvailability: "available-local",
                             };
 
                             // Calculate duration: startTime from previous cell, endTime from current cell
@@ -3128,7 +3141,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         const state = await computeCellAudioStateWithVersionGate(
                             cell?.metadata?.attachments,
                             cell?.metadata?.selectedAudioId,
-                            workspaceFolder
                         );
                         safePostMessageToPanel(webviewPanel, {
                             type: "providerSendsAudioAttachments",

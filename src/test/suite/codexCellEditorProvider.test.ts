@@ -2301,6 +2301,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false,
+            audioAvailability: "missing",
             isMissing: true,
             createdBy: "test-user",
         });
@@ -2339,7 +2340,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    test("revalidateMissingForCell restores pointer, clears isMissing, bumps updatedAt, and posts updates", async function () {
+    test("revalidateMissingForCell restores pointer, clears audioAvailability missing, bumps updatedAt, and posts updates", async function () {
         this.timeout(12000);
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
@@ -2381,6 +2382,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             createdAt: initialUpdatedAt,
             updatedAt: initialUpdatedAt,
             isDeleted: false,
+            audioAvailability: "missing",
             isMissing: true,
         });
 
@@ -2420,13 +2422,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
             } catch { /* retry */ }
             await new Promise((r) => setTimeout(r, 60));
         }
-        // Do not hard-fail if pointer check races; the isMissing flip below is the contract we require
+        // Do not hard-fail if pointer check races; the audioAvailability flip below is the contract we require
         assert.ok(ptrOk || true, "Pointer creation may race; continuing to validate flags and messages");
 
-        // Assert attachment updated: isMissing=false and updatedAt bumped
+        // Assert attachment updated: audioAvailability not "missing" and updatedAt bumped
         const after = JSON.parse(document.getText());
         const att = after.cells[0].metadata.attachments[audioId];
-        assert.strictEqual(att.isMissing, false, "isMissing should be cleared after revalidation");
+        assert.notStrictEqual(att.audioAvailability, "missing", "audioAvailability should not be 'missing' after revalidation");
         assert.ok(att.updatedAt > initialUpdatedAt, "updatedAt should increase");
 
         // Assert messages were posted: history refresh and availability map
