@@ -1133,21 +1133,21 @@ async function promptSwapIfRequired(projectPath: string): Promise<void> {
         const newProjectName = activeEntry.newProjectName;
 
         const selection = await vscode.window.showWarningMessage(
-            `📦 Project Swap Required\n\n` +
-            `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
-            `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
+            `📦 Project Update Required\n\n` +
+            `This project has been updated to a new repository:\n${newProjectName}\n\n` +
+            `Reason: ${activeEntry.swapReason || "Repository update"}\n` +
             `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
-            `Syncing has been disabled until you swap.\n\n` +
+            `Syncing has been disabled until you update.\n\n` +
             `Your local changes will be preserved and backed up.`,
             { modal: true },
-            "Swap Now"
+            "Update Now"
         );
 
-        if (selection === "Swap Now") {
+        if (selection === "Update Now") {
             await vscode.commands.executeCommand("workbench.action.closeFolder");
         }
     } catch (error) {
-        console.error("Error prompting swap after swap initiation:", error);
+        console.error("Error prompting update (swap) after swap initiation:", error);
     }
 }
 

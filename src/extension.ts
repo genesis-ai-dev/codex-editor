@@ -439,10 +439,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
 
-        // Check for pending swap downloads (after workspace is ready)
+        // Check for pending update (swap) downloads (after workspace is ready)
         if (workspaceFolders && workspaceFolders.length > 0) {
             checkPendingSwapDownloads(workspaceFolders[0].uri).catch(err => {
-                console.error("[Extension] Error checking pending swap downloads:", err);
+                console.error("[Extension] Error checking pending update (swap) downloads:", err);
             });
         }
 
@@ -761,7 +761,7 @@ export async function activate(context: vscode.ExtensionContext) {
             // The webview will receive the message when it's ready via onWebviewReady hook
             const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
             if (provider && "setPendingEnableReplace" in provider) {
-                (provider as { setPendingEnableReplace: () => void }).setPendingEnableReplace();
+                (provider as { setPendingEnableReplace: () => void; }).setPendingEnableReplace();
             }
             await vscode.commands.executeCommand("search-passages-sidebar.focus");
         })
@@ -996,7 +996,7 @@ async function executeCommandsAfter(
 }
 
 /**
- * Check if there are pending swap downloads and automatically download files
+ * Check if there are pending update (swap) downloads and automatically download files
  * This runs when a project opens that was previously paused for downloads
  */
 async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> {
@@ -1007,10 +1007,10 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
         const pendingState = await getSwapPendingState(projectUri.fsPath);
 
         if (!pendingState || pendingState.swapState !== "pending_downloads") {
-            return; // No pending swap downloads
+            return; // No pending update (swap) downloads
         }
 
-        console.log("[Extension] Found pending swap downloads, starting automatic download...");
+        console.log("[Extension] Found pending update (swap) downloads, starting automatic download...");
 
         // Check if downloads are already complete
         const { complete: alreadyComplete, remaining } = await checkPendingDownloadsComplete(projectUri.fsPath);
@@ -1026,7 +1026,7 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "Downloading media for swap...",
+            title: "Downloading media for project update...",
             cancellable: true
         }, async (progress, token) => {
             // Show initial count in message
@@ -1051,17 +1051,17 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
             if (result.failed.length > 0) {
                 // Some downloads failed - show warning and let user decide
                 const action = await vscode.window.showWarningMessage(
-                    `Downloaded ${result.downloaded}/${result.total} files. ${result.failed.length} file(s) failed to download. Continue with swap anyway?`,
+                    `Downloaded ${result.downloaded}/${result.total} files. ${result.failed.length} file(s) failed to download. Continue with update anyway?`,
                     { modal: true },
-                    "Continue Swap",
+                    "Continue Update",
                     "Retry",
-                    "Cancel Swap"
+                    "Cancel Update"
                 );
 
                 if (action === "Retry") {
                     // Reopen to retry
                     vscode.commands.executeCommand("workbench.action.reloadWindow");
-                } else if (action === "Continue Swap") {
+                } else if (action === "Continue Update") {
                     await promptContinueSwap(projectUri, pendingState);
                 } else {
                     await cancelSwap(projectUri, pendingState);
@@ -1073,12 +1073,12 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
         });
 
     } catch (error) {
-        console.error("[Extension] Error checking pending swap downloads:", error);
+        console.error("[Extension] Error checking pending update (swap) downloads:", error);
     }
 }
 
 /**
- * Show modal to continue or cancel swap after downloads complete
+ * Show modal to continue or cancel update (swap) after downloads complete
  */
 async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
     const { saveSwapPendingState, performProjectSwap, clearSwapPendingState } =
@@ -1087,37 +1087,37 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
     const newProjectName = pendingState.newProjectUrl.split('/').pop()?.replace('.git', '') || 'new project';
 
     const action = await vscode.window.showInformationMessage(
-        `All required media files have been downloaded. Ready to continue the project swap to "${newProjectName}".`,
+        `All required media files have been downloaded. Ready to continue the project update to "${newProjectName}".`,
         { modal: true },
-        "Continue Swap"
+        "Continue Update"
     );
 
-    if (action === "Continue Swap") {
-        // Re-validate swap is still active before executing
+    if (action === "Continue Update") {
+        // Re-validate update (swap) is still active before executing
         try {
             const { checkProjectSwapRequired } = await import("./utils/projectSwapManager");
             const recheck = await checkProjectSwapRequired(projectUri.fsPath, undefined, true);
             if (recheck.remoteUnreachable) {
                 await vscode.window.showWarningMessage(
                     "Server Unreachable\n\n" +
-                    "The swap cannot be completed because the server is not reachable. " +
+                    "The update cannot be completed because the server is not reachable. " +
                     "Please check your internet connection or try again later.\n\n" +
-                    "The pending swap state has been preserved and will resume when connectivity is restored.",
+                    "The pending update state has been preserved and will resume when connectivity is restored.",
                     { modal: true },
                     "OK"
                 );
                 return; // Don't clear pending state - preserve for when connectivity returns
             }
             if (recheck.userAlreadySwapped && recheck.activeEntry) {
-                // User already completed this swap - clear pending state and inform
+                // User already completed this update (swap) - clear pending state and inform
                 const { clearSwapPendingState: clearPending } = await import("./providers/StartupFlow/performProjectSwap");
                 await clearPending(projectUri.fsPath);
 
                 const swapTargetLabel =
                     recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
                 await vscode.window.showWarningMessage(
-                    `Already Swapped\n\n` +
-                    `You have already swapped to ${swapTargetLabel}.\n\n` +
+                    `Already Updated\n\n` +
+                    `You have already updated to ${swapTargetLabel}.\n\n` +
                     `This project is deprecated but can still be opened.`,
                     { modal: true },
                     "OK"
@@ -1151,29 +1151,29 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
                 await clearSwapPendingState(projectUri.fsPath);
 
                 await vscode.window.showWarningMessage(
-                    "Swap Cancelled\n\n" +
-                    "The project swap has been cancelled or is no longer required.",
+                    "Update Cancelled\n\n" +
+                    "The project update has been cancelled or is no longer required.",
                     { modal: true },
                     "OK"
                 );
                 return;
             }
         } catch {
-            // Non-fatal - proceed with swap if re-check fails
+            // Non-fatal - proceed with update (swap) if re-check fails
         }
 
-        // Mark as ready and trigger swap
+        // Mark as ready and trigger update (swap)
         await saveSwapPendingState(projectUri.fsPath, {
             ...pendingState,
             swapState: "ready_to_swap"
         });
 
-        // Perform the swap
+        // Perform the update (swap)
         const projectName = projectUri.fsPath.split(/[\\/]/).pop() || "project";
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "Completing project swap...",
+            title: "Completing project update...",
             cancellable: false
         }, async (progress) => {
             const newPath = await performProjectSwap(
@@ -1187,7 +1187,7 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
                 pendingState.swapReason
             );
 
-            progress.report({ message: "Opening swapped project..." });
+            progress.report({ message: "Opening updated project..." });
             const { MetadataManager } = await import("./utils/metadataManager");
             await MetadataManager.safeOpenFolder(
                 vscode.Uri.file(newPath),
@@ -1201,13 +1201,13 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
 }
 
 /**
- * Cancel a pending swap.
- * Since we no longer change media strategy during swap, just clear the pending state.
+ * Cancel a pending update (swap).
+ * Since we no longer change media strategy during update (swap), just clear the pending state.
  */
 async function cancelSwap(projectUri: vscode.Uri, _pendingState: any): Promise<void> {
     const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
     await clearSwapPendingState(projectUri.fsPath);
-    vscode.window.showInformationMessage("Project swap cancelled.");
+    vscode.window.showInformationMessage("Project update cancelled.");
 }
 
 export async function deactivate() {

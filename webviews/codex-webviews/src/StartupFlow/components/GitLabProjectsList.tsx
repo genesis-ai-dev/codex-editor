@@ -433,7 +433,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         [sortProjectsForDisplay]
     );
 
-    // Always pin all pending swaps, ignore search/filter
+    // Always pin all pending updates (swaps), ignore search/filter
     const filteredPendingSwaps = React.useMemo(
         () => sortProjectsForDisplay(pendingSwaps || []),
         [pendingSwaps, sortProjectsForDisplay]
@@ -483,13 +483,13 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 </div>
             ) : (
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-2">
-                    {/* Pending Swaps pinned to top */}
+                    {/* Pending Updates (swaps) pinned to top */}
                     {filteredPendingSwaps.length > 0 && (
                         <Card className="overflow-hidden border-l-4 border-l-purple-500">
                             <CardHeader className="py-2 px-3 bg-purple-50/70 border-b border-purple-100">
                                 <div className="flex items-center gap-2">
                                     <i className="codicon codicon-arrow-swap text-sm text-purple-700" />
-                                    <h3 className="font-medium text-sm text-purple-800">Project Swap Required</h3>
+                                    <h3 className="font-medium text-sm text-purple-800">Project Update Required</h3>
                                     <Badge
                                         variant="outline"
                                         className="ml-auto text-xs px-1.5 py-0.5 bg-purple-100 text-purple-800 border-purple-300"
