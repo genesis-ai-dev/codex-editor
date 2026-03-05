@@ -962,6 +962,9 @@ export class SyncManager {
             const syncDuration = syncEndTime - syncStartTime;
             debug(`✅ Background sync completed in ${syncDuration.toFixed(2)}ms`);
 
+            this.currentSyncStage = "Finishing up...";
+            this.notifySyncStatusListeners();
+
             // Check if comments.json was affected by the sync - if so, run targeted repair
             const commentsWasChanged = syncResult.changedFiles.includes('.project/comments.json') ||
                 syncResult.newFiles.includes('.project/comments.json') ||
@@ -1474,7 +1477,11 @@ export class SyncManager {
                         'Merge complete': 72,
                         'Already up to date': 75,
                         'Uploading changes': 75,
-                        'Upload complete': 98,
+                        'Finishing upload': 92,
+                        'Upload complete': 93,
+                        'Finishing up': 95,
+                        'Cleaning up legacy files': 96,
+                        'Synchronization complete': 100,
                     };
 
                     for (const [key, value] of Object.entries(staticProgress)) {
