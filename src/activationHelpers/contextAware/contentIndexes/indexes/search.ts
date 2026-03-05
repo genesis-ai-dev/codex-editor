@@ -88,9 +88,15 @@ export async function getTranslationPairFromProject(
                 ? translationPair.rawTargetContent
                 : translationPair.targetContent;
 
+            let cellLabel = translationPair.cellLabel;
+            const globalRefs = translationPair.structural_metadata?.globalReferences;
+            if (Array.isArray(globalRefs) && globalRefs.length > 0 && typeof globalRefs[0] === "string") {
+                cellLabel = globalRefs[0];
+            }
+
             return {
                 cellId,
-                cellLabel: translationPair.cellLabel, // NO FALLBACK
+                cellLabel,
                 sourceCell: {
                     cellId: translationPair.cellId,
                     content: sourceContent,
@@ -474,22 +480,35 @@ export async function searchAllCells(
         );
 
         // Convert to TranslationPair format
-        results = searchResults.map((result) => ({
-            cellId: result.cellId || result.cell_id,
-            cellLabel: result.cellLabel ?? result.cell_label ?? null,
-            sourceCell: {
+        results = searchResults.map((result) => {
+            let label = result.cellLabel ?? result.cell_label ?? null;
+            if (result.globalReferences) {
+                try {
+                    const refs = JSON.parse(result.globalReferences);
+                    if (Array.isArray(refs) && refs.length > 0 && typeof refs[0] === "string") {
+                        label = refs[0];
+                    }
+                } catch {
+                    // keep existing cellLabel
+                }
+            }
+            return {
                 cellId: result.cellId || result.cell_id,
-                content: result.sourceContent || result.content || "",
-                uri: result.uri || "",
-                line: result.line || 0,
-            },
-            targetCell: {
-                cellId: result.cellId || result.cell_id,
-                content: result.targetContent || "",
-                uri: result.uri || "",
-                line: result.line || 0,
-            },
-        }));
+                cellLabel: label,
+                sourceCell: {
+                    cellId: result.cellId || result.cell_id,
+                    content: result.sourceContent || result.content || "",
+                    uri: result.uri || "",
+                    line: result.line || 0,
+                },
+                targetCell: {
+                    cellId: result.cellId || result.cell_id,
+                    content: result.targetContent || "",
+                    uri: result.uri || "",
+                    line: result.line || 0,
+                },
+            };
+        });
     }
 
     if (includeIncomplete) {
@@ -502,24 +521,37 @@ export async function searchAllCells(
             ...options
         });
         const sourceOnlyCells = sourceSearchResults
-            .map((result: any) => ({
-                cellId: result.cellId,
-                cellLabel: result.cellLabel,
-                sourceCell: {
+            .map((result: any) => {
+                let label = result.cellLabel;
+                if (result.globalReferences) {
+                    try {
+                        const refs = JSON.parse(result.globalReferences);
+                        if (Array.isArray(refs) && refs.length > 0 && typeof refs[0] === "string") {
+                            label = refs[0];
+                        }
+                    } catch {
+                        // keep existing cellLabel
+                    }
+                }
+                return {
                     cellId: result.cellId,
-                    content: result.content,
-                    versions: result.versions,
-                    notebookId: result.notebookId,
-                    uri: result.uri || "",
-                },
-                targetCell: {
-                    cellId: result.cellId,
-                    content: "",
-                    versions: [],
-                    notebookId: "",
-                },
-                score: result.score,
-            }))
+                    cellLabel: label,
+                    sourceCell: {
+                        cellId: result.cellId,
+                        content: result.content,
+                        versions: result.versions,
+                        notebookId: result.notebookId,
+                        uri: result.uri || "",
+                    },
+                    targetCell: {
+                        cellId: result.cellId,
+                        content: "",
+                        versions: [],
+                        notebookId: "",
+                    },
+                    score: result.score,
+                };
+            })
             .filter((pair: TranslationPair) => matchesSelectedFiles(pair))
             .filter((sourcePair: TranslationPair) =>
                 !results.some(result => result.cellId === sourcePair.cellId)

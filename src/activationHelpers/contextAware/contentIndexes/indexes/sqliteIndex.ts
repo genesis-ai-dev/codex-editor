@@ -51,6 +51,7 @@ export interface SearchResult {
     id: string;
     cellId: string;
     cellLabel?: string | null;
+    globalReferences?: string | null;
     score: number;
     /** MiniSearch compatibility stub — always `{}`. */
     match: Record<string, never>;
@@ -1412,6 +1413,7 @@ export class SQLiteIndexManager {
             content: string;
             content_type: string;
             cell_label: string | null;
+            global_references: string | null;
             s_content: string;
             s_raw_content: string;
             s_line_number: number;
@@ -1427,6 +1429,7 @@ export class SQLiteIndexManager {
                 cells_fts.content,
                 cells_fts.content_type,
                 c.cell_label,
+                c.global_references,
                 c.s_content,
                 c.s_raw_content,
                 c.s_line_number,
@@ -1482,11 +1485,11 @@ export class SQLiteIndexManager {
             // Choose which content to return based on use case
             const contentToReturn = returnRawContent ? rawContent : content;
 
-            // Format result to match MiniSearch output (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
             const result: SearchResult = {
                 id: row.cell_id,
                 cellId: row.cell_id,
                 cellLabel: row.cell_label,
+                globalReferences: row.global_references,
                 score: row.score,
                 match: {},
                 uri: uri,
