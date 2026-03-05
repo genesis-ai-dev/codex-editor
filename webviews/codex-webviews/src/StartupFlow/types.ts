@@ -160,11 +160,28 @@ export interface FrontierAPI {
         conflicts?: Array<ConflictFile>;
         offline?: boolean;
         blocked?: boolean;
+        allChangedFilePaths?: string[];
+        remoteChangedFilePaths?: string[];
+        uploadedLfsFiles?: string[];
     }>;
     completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
     onSyncStatusChange: (
         callback: (status: { status: 'started' | 'completed' | 'error' | 'skipped', message?: string; }) => void
     ) => vscode.Disposable;
+
+    checkSyncLock?: () => Promise<{
+        exists: boolean;
+        isDead: boolean;
+        isStuck: boolean;
+        age: number;
+        progressAge: number;
+        pid?: number;
+        ownedByUs: boolean;
+        phase?: string;
+        progress?: { current: number; total: number; description?: string; };
+        status: "active" | "stuck" | "dead";
+    }>;
+    cleanupStaleLock?: () => Promise<void>;
 
     downloadLFSFile: (
         projectPath: string,

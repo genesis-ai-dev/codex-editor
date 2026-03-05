@@ -208,7 +208,7 @@ export class PreflightCheck {
                         setTimeout(() => reject(new Error("Git operation timeout")), 2000)
                     );
 
-                    const [headRef, remotes] = await Promise.race([gitCheckPromise, timeoutPromise]) as [any, any[]];
+                    const [, remotes] = await Promise.race([gitCheckPromise, timeoutPromise]) as [string, Array<{ remote: string; url: string; }>];
 
                     state.gitState.isGitRepo = true;
                     state.gitState.hasRemote = remotes.length > 0;

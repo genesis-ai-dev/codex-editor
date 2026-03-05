@@ -877,6 +877,8 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "downloadSyncRuntime": {
                 const frontierApi = getAuthApi();
                 if (frontierApi?.retryGitBinaryDownload) {
+                    const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    resetGitBinaryPath();
                     const success = await frontierApi.retryGitBinaryDownload();
                     if (success) {
                         vscode.window.showInformationMessage("Sync runtime downloaded successfully.");

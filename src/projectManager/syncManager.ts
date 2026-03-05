@@ -709,9 +709,9 @@ export class SyncManager {
         try {
             // Check filesystem lock (for crash/restart/multi-window scenarios)
 
-            if (authApi && 'checkSyncLock' in authApi) {
+            if (authApi?.checkSyncLock) {
                 try {
-                    const lockStatus = await (authApi as any).checkSyncLock();
+                    const lockStatus = await authApi.checkSyncLock();
 
                     if (lockStatus.exists && !lockStatus.isDead && !lockStatus.isStuck) {
                         const ageMinutes = Math.floor((lockStatus.age || 0) / 60000);

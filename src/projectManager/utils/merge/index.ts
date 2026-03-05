@@ -118,28 +118,28 @@ export async function stageAndCommitAllAndSync(
         // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
         // which handles authentication properly
         const conflictsResponse = await authApi.syncChanges({ commitMessage });
-        if ((conflictsResponse as any)?.blocked) {
+        if (conflictsResponse?.blocked) {
             debug("Sync was blocked by Frontier (e.g., extension version requirements)");
             return syncResult;
         }
         if (conflictsResponse?.offline) {
             syncResult.offline = true;
-            syncResult.uploadedLfsFiles = (conflictsResponse as any).uploadedLfsFiles;
+            syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
             return syncResult;
         }
 
         // Optional diagnostics from Frontier to help detect “remote changes not applied” scenarios.
         // This is intentionally non-destructive: we only warn/log so issues can be triaged.
         try {
-            const conflictsArr = Array.isArray((conflictsResponse as any)?.conflicts)
-                ? ((conflictsResponse as any).conflicts as Array<{ filepath?: string; }>)
+            const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
+                ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
                 : [];
             const conflictPaths = new Set(
                 conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
             );
 
-            const remoteChanged = (conflictsResponse as any)?.remoteChangedFilePaths;
-            const allChanged = (conflictsResponse as any)?.allChangedFilePaths;
+            const remoteChanged = conflictsResponse?.remoteChangedFilePaths;
+            const allChanged = conflictsResponse?.allChangedFilePaths;
             const changedList: unknown =
                 Array.isArray(remoteChanged) ? remoteChanged : Array.isArray(allChanged) ? allChanged : [];
 
@@ -168,8 +168,8 @@ export async function stageAndCommitAllAndSync(
         }
 
         // Capture uploaded LFS files from the sync operation
-        if ((conflictsResponse as any)?.uploadedLfsFiles) {
-            syncResult.uploadedLfsFiles = (conflictsResponse as any).uploadedLfsFiles;
+        if (conflictsResponse?.uploadedLfsFiles) {
+            syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
         }
 
         if (conflictsResponse?.hasConflicts) {

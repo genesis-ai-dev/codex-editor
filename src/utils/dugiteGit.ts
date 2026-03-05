@@ -17,8 +17,15 @@ import { getAuthApi } from "../extension";
 // Binary path resolution (from frontier-auth)
 // ---------------------------------------------------------------------------
 
-let gitBinaryResolved = false;
 let gitEnvOverrides: Record<string, string> = {};
+
+/**
+ * In-flight resolution promise — prevents concurrent calls from racing.
+ * Once resolved, all subsequent calls return immediately via the cached
+ * gitEnvOverrides (non-empty after successful resolution, or the special
+ * "embedded" sentinel when useEmbeddedGitBinary() was called).
+ */
+let resolutionPromise: Promise<void> | undefined;
 
 /**
  * Directly set the binary path (for testing or when path is already known).
@@ -28,7 +35,7 @@ export function setGitBinaryPath(localGitDir: string, execPath: string): void {
         LOCAL_GIT_DIRECTORY: localGitDir,
         GIT_EXEC_PATH: execPath,
     };
-    gitBinaryResolved = true;
+    resolutionPromise = Promise.resolve();
 }
 
 /**
@@ -36,32 +43,85 @@ export function setGitBinaryPath(localGitDir: string, execPath: string): void {
  * Useful in test environments where the auth extension is unavailable.
  */
 export function useEmbeddedGitBinary(): void {
-    gitBinaryResolved = true;
     gitEnvOverrides = {};
+    resolutionPromise = Promise.resolve();
+}
+
+/**
+ * Clear cached binary path so the next git operation re-resolves from
+ * frontier-auth.  Call this when the auth extension restarts or updates
+ * its binary (e.g. after a retry download).
+ */
+export function resetGitBinaryPath(): void {
+    gitEnvOverrides = {};
+    resolutionPromise = undefined;
 }
 
 /**
  * Ensure the binary path has been resolved from frontier-auth.
- * Caches after first successful resolution.
+ * Uses a promise-based singleton so concurrent callers share one
+ * resolution attempt instead of racing.
  */
 async function ensureBinaryPath(): Promise<void> {
-    if (gitBinaryResolved) {
-        return;
+    if (resolutionPromise) {
+        return resolutionPromise;
     }
 
+    resolutionPromise = resolveFromAuth();
+
+    try {
+        await resolutionPromise;
+    } catch (err) {
+        resolutionPromise = undefined;
+        throw err;
+    }
+}
+
+/**
+ * Resolve the git binary path from the frontier-auth extension API.
+ * Validates that the reported execPath actually exists on disk, and
+ * on Linux sets GIT_SSL_CAINFO to the dugite-native CA bundle so
+ * HTTPS operations don't fail with certificate errors.
+ */
+async function resolveFromAuth(): Promise<void> {
     const authApi = getAuthApi();
     const binaryPath = authApi?.getGitBinaryPath?.();
-    if (binaryPath) {
-        gitEnvOverrides = {
-            LOCAL_GIT_DIRECTORY: binaryPath.localGitDir,
-            GIT_EXEC_PATH: binaryPath.execPath,
-        };
-    } else {
+    if (!binaryPath) {
         throw new Error(
             "Git binary not available. Ensure the Frontier Authentication extension is active.",
         );
     }
-    gitBinaryResolved = true;
+
+    try {
+        await fs.promises.access(binaryPath.execPath, fs.constants.F_OK);
+    } catch {
+        throw new Error(
+            `Git binary exec path does not exist: ${binaryPath.execPath}. ` +
+            `The Frontier Authentication extension may need to re-download it.`,
+        );
+    }
+
+    gitEnvOverrides = {
+        LOCAL_GIT_DIRECTORY: binaryPath.localGitDir,
+        GIT_EXEC_PATH: binaryPath.execPath,
+    };
+
+    // On Linux, dugite skips setting GIT_SSL_CAINFO when LOCAL_GIT_DIRECTORY
+    // is provided.  The dugite-native archive ships ssl/cacert.pem on Linux,
+    // so we must point to it explicitly — without it, any HTTPS git
+    // operation would fail with a certificate error.
+    // macOS uses Secure Transport; Windows uses schannel — neither needs this.
+    if (process.platform === "linux") {
+        const sslCaBundle = path.join(binaryPath.localGitDir, "ssl", "cacert.pem");
+        try {
+            await fs.promises.access(sslCaBundle, fs.constants.R_OK);
+            gitEnvOverrides.GIT_SSL_CAINFO = sslCaBundle;
+        } catch {
+            console.warn(
+                `[dugiteGit] SSL CA bundle not found at ${sslCaBundle} — HTTPS operations may fail on Linux`,
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +138,40 @@ const NON_INTERACTIVE_ENV: Record<string, string> = {
     SSH_ASKPASS: "",
     GIT_CONFIG_NOSYSTEM: "1",
 };
+
+/**
+ * Config flags prepended to every git invocation to prevent native git from
+ * invoking git-lfs filter processes.  We handle all LFS operations manually
+ * (upload, download, pointer creation) via the Frontier Authentication
+ * extension, so the built-in filter must stay out of the way — especially
+ * because dugite's bundled git binary does not ship with git-lfs.
+ *
+ * Without these flags, a system-installed git-lfs (from Homebrew, apt, etc.)
+ * would intercept `git add` / `git commit` / `git status` through the
+ * filter.lfs hooks declared in .gitattributes and either hang (looking for
+ * its own binary) or corrupt pointer files.
+ */
+const LFS_OVERRIDE_FLAGS = [
+    "-c", "filter.lfs.process=",
+    "-c", "filter.lfs.clean=cat",
+    "-c", "filter.lfs.smudge=cat",
+    "-c", "filter.lfs.required=false",
+];
+
+/**
+ * Disable all credential helpers and system askpass programs so that no
+ * interactive GUI prompt or background credential manager is invoked.
+ *
+ * Even for local-only operations (add, commit, status), a misconfigured
+ * credential.helper in the user's ~/.gitconfig or system gitconfig can
+ * spawn processes that hang or pop up dialogs (e.g. GCM on Windows,
+ * osxkeychain on macOS).  Blanking them here ensures codex-editor's
+ * local git operations are fully non-interactive.
+ */
+const CREDENTIAL_OVERRIDE_FLAGS = [
+    "-c", "credential.helper=",
+    "-c", "core.askPass=",
+];
 
 /**
  * Platform-safety and performance flags applied to every git invocation to
@@ -100,6 +194,12 @@ const NON_INTERACTIVE_ENV: Record<string, string> = {
  *                          on memory-constrained ARM laptops.
  * protocol.version       — Git protocol v2: more efficient ref advertisement,
  *                          reduces bandwidth on fetch.  Supported since 2.18.
+ * safe.directory          — Git 2.35.2+ rejects operations in directories
+ *                          owned by a different user ("dubious ownership").
+ *                          On shared systems, network drives, or when
+ *                          projects live on external storage, this causes
+ *                          unexpected failures for non-developer users.
+ *                          Setting to "*" disables the ownership check.
  */
 const PLATFORM_SAFETY_FLAGS = [
     "-c", "core.longpaths=true",
@@ -113,6 +213,7 @@ const PLATFORM_SAFETY_FLAGS = [
     "-c", "gc.auto=0",
     "-c", "pack.windowMemory=256m",
     "-c", "protocol.version=2",
+    "-c", "safe.directory=*",
 ];
 
 /**
@@ -171,19 +272,20 @@ async function gitExec(
 ): Promise<IGitResult> {
     await ensureBinaryPath();
 
+    const flags = [...LFS_OVERRIDE_FLAGS, ...CREDENTIAL_OVERRIDE_FLAGS, ...PLATFORM_SAFETY_FLAGS];
     const execOptions: IGitExecutionOptions = {
         ...options,
         env: { ...NON_INTERACTIVE_ENV, ...gitEnvOverrides, ...options?.env },
     };
 
-    let result = await exec([...PLATFORM_SAFETY_FLAGS, ...args], dir, execOptions);
+    let result = await exec([...flags, ...args], dir, execOptions);
 
     if (result.exitCode !== 0) {
         const errStr = typeof result.stderr === "string"
             ? result.stderr
             : result.stderr.toString("utf8");
         if (errStr.includes(".lock") && await removeStaleLocks(dir)) {
-            result = await exec([...PLATFORM_SAFETY_FLAGS, ...args], dir, execOptions);
+            result = await exec([...flags, ...args], dir, execOptions);
         }
     }
 
@@ -485,9 +587,12 @@ export async function log(
     dir: string,
     options?: { depth?: number; ref?: string; },
 ): Promise<LogEntry[]> {
+    // Use NUL (%x00) as the record separator — git commit messages cannot
+    // contain NUL bytes, so this delimiter is collision-proof unlike text
+    // sentinels like "---END---" which could appear in subject lines.
     const args = [
         "log",
-        "--format=%H%n%an%n%ae%n%at%n%s%n---END---",
+        "--format=%H%n%an%n%ae%n%at%n%s%x00",
     ];
     if (options?.depth) {
         args.push(`-${options.depth}`);
@@ -502,7 +607,7 @@ export async function log(
     }
 
     const logEntries: LogEntry[] = [];
-    const blocks = stdout(result).split("---END---\n");
+    const blocks = stdout(result).split("\0");
 
     for (const block of blocks) {
         const lines = block.trim().split("\n");

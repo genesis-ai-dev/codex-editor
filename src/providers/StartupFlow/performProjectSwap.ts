@@ -1090,11 +1090,13 @@ async function reconcileAndCopyAttachments(
 
                 await Promise.all(batch.map(async ({ relPath, pointer }) => {
                     try {
-                        // Download TO OLD project's directories (not new)
+                        // Download TO OLD project's directories (not new).
+                        // Pass oldPath (local filesystem path) — downloadLFSFile
+                        // expects a local repo path and discovers the remote internally.
                         const success = await downloadFromOldLfs(
                             relPath,
                             pointer,
-                            oldProjectRemoteUrl,
+                            oldPath,
                             oldFilesDir,  // Download TO old project
                             oldPointersDir,
                             frontierApi,
@@ -1256,12 +1258,16 @@ async function reconcileAndCopyAttachments(
 }
 
 /**
- * Download a file from the old project's LFS and save to new project
+ * Download a file from the old project's LFS and save to the target directories.
+ *
+ * @param oldProjectPath Local filesystem path to the old project's git repo.
+ *   downloadLFSFile expects a local path and discovers the remote URL internally
+ *   via `git remote -v`.
  */
 async function downloadFromOldLfs(
     relPath: string,
     pointer: { oid: string; size: number; },
-    oldProjectRemoteUrl: string,
+    oldProjectPath: string,
     newFilesDir: string,
     newPointersDir: string,
     frontierApi: any,
@@ -1286,8 +1292,8 @@ async function downloadFromOldLfs(
     }
 
     try {
-        // Download from old project's LFS
-        const content = await frontierApi.downloadLFSFile(oldProjectRemoteUrl, pointer.oid, pointer.size);
+        // Download from old project's LFS (pass local path, not URL)
+        const content = await frontierApi.downloadLFSFile(oldProjectPath, pointer.oid, pointer.size);
 
         if (!content) {
             debugLog(`Failed to download LFS content for ${relPath} - empty response`);
