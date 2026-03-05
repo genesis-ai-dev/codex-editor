@@ -36,9 +36,11 @@ export const NameProjectModal: React.FC<NameProjectModalProps> = ({
     }, [open, defaultValue]);
 
     const validationError = useMemo(() => {
-        // Only show empty error if user has interacted with the field
         if (hasInteracted && !name.trim()) return "Project name cannot be empty";
         if (name.length > 256) return "Project name is too long (max 256 characters)";
+        if (name.trim() && !/^[\w\s.-]+$/.test(name)) {
+            return "Project name can only contain letters, numbers, spaces, hyphens (-), underscores (_), and dots (.)";
+        }
         return "";
     }, [name, hasInteracted]);
 

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
-import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
+import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails, sanitizeProjectName, extractProjectIdFromFolderName, validateProjectNameCharacters } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
@@ -43,7 +43,7 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
             if (value.length > 100) {
                 return "Project name is too long (max 100 characters)";
             }
-            return null;
+            return validateProjectNameCharacters(value);
         },
         ignoreFocusOut: true,
     });

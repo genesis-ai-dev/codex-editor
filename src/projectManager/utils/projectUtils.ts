@@ -2013,25 +2013,42 @@ export async function ensureGitDisabledInSettings(): Promise<void> {
 }
 
 /**
+ * Regex for characters allowed in project names during user input.
+ * Allows word chars, spaces, hyphens, and dots. Spaces/dots get
+ * sanitized to hyphens later, but are acceptable input.
+ */
+export const PROJECT_NAME_INPUT_PATTERN = /^[\w\s.-]+$/;
+
+/**
+ * Returns a validation error string if the project name contains forbidden
+ * characters, or null if the name is valid. Intended for use in input
+ * validation callbacks (VS Code showInputBox, React forms, etc.).
+ */
+export const validateProjectNameCharacters = (value: string): string | null => {
+    if (!PROJECT_NAME_INPUT_PATTERN.test(value)) {
+        return "Project name can only contain letters, numbers, spaces, hyphens (-), underscores (_), and dots (.)";
+    }
+    return null;
+};
+
+/**
  * Sanitizes a project name to be used as a folder name.
  * Ensure name is safe for:
- * - Windows
- * - Mac
- * - Linux
+ * - Windows / Mac / Linux filesystems
  * - Git
+ * - GitLab project names
  */
 export function sanitizeProjectName(name: string): string {
-    // Replace invalid characters with hyphens
-    // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
     return (
         name
-            .trim() // Remove leading/trailing whitespace first
-            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$|^git$/i, "-") // Invalid/reserved chars and names
-            .replace(/\s+/g, "-") // Replace spaces with hyphens
-            .replace(/\.+/g, "-") // Replace periods with hyphens
-            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
-            .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
-        "new-project" // Fallback if name becomes empty after sanitization
+            .trim()
+            .replace(/[^\w\s.-]/g, "-") // Replace any character not allowed in project names
+            .replace(/\.lock$|^git$/i, "-") // Reserved names
+            .replace(/\s+/g, "-") // Spaces → hyphens
+            .replace(/\.+/g, "-") // Dots → hyphens
+            .replace(/-+/g, "-") // Collapse multiple hyphens
+            .replace(/^-|-$/g, "") || // Strip leading/trailing hyphens
+        "new-project"
     );
 }
 
