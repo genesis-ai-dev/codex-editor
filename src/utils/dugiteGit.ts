@@ -68,12 +68,30 @@ async function ensureBinaryPath(): Promise<void> {
 
 /**
  * Baseline env vars applied to every git invocation to ensure fully
- * non-interactive operation — no terminal prompts, no GUI dialogs.
+ * non-interactive operation — no terminal prompts, no GUI dialogs,
+ * and no interference from system-level git configuration.
  */
 const NON_INTERACTIVE_ENV: Record<string, string> = {
     GIT_TERMINAL_PROMPT: "0",
     SSH_ASKPASS: "",
+    GIT_CONFIG_NOSYSTEM: "1",
 };
+
+/**
+ * Platform-safety flags applied to every git invocation to normalize
+ * behavior across Windows, macOS, and Linux.
+ *
+ * core.longpaths   — Windows: enables paths >260 chars.
+ * core.autocrlf    — Prevents LF↔CRLF conversion that corrupts files.
+ * core.fsmonitor   — Disables filesystem monitor (prevents hangs).
+ * core.pager       — Disables pager (prevents waiting for input).
+ */
+const PLATFORM_SAFETY_FLAGS = [
+    "-c", "core.longpaths=true",
+    "-c", "core.autocrlf=false",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.pager=",
+];
 
 async function gitExec(
     args: string[],
@@ -81,7 +99,7 @@ async function gitExec(
     options?: IGitExecutionOptions,
 ): Promise<IGitResult> {
     await ensureBinaryPath();
-    return exec(args, dir, {
+    return exec([...PLATFORM_SAFETY_FLAGS, ...args], dir, {
         ...options,
         env: { ...NON_INTERACTIVE_ENV, ...gitEnvOverrides, ...options?.env },
     });
@@ -311,8 +329,10 @@ export async function statusMatrix(dir: string): Promise<StatusMatrixEntry[]> {
         }
 
         if (line.startsWith("u")) {
+            // Unmerged entry: u XY sub m1 m2 m3 mW h1 h2 h3 <path>
+            // 10 fixed space-separated fields (indices 0-9), path may contain spaces.
             const fields = line.split(" ");
-            const filepath = fields[fields.length - 1];
+            const filepath = fields.slice(10).join(" ");
             entries.set(filepath, [filepath, 1, 2, 2]);
             continue;
         }
