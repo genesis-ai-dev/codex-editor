@@ -11,6 +11,7 @@ import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
 import { markPendingUpdateRequired } from "../utils/localProjectSettings";
 import { isNativeSqliteReady } from "../utils/nativeSqlite";
+import { isOnline } from "../utils/connectivityChecker";
 
 const DEBUG_SYNC_MANAGER = false;
 
@@ -619,8 +620,15 @@ export class SyncManager {
         const delayMs = syncDelayMinutes * 60 * 1000;
         debug(`Scheduling sync operation in ${syncDelayMinutes} minutes`);
 
-        // Schedule the new sync
-        this.pendingSyncTimeout = setTimeout(() => {
+        // Schedule the new sync (check connectivity before firing)
+        this.pendingSyncTimeout = setTimeout(async () => {
+            if (!(await isOnline())) {
+                debug("Auto-sync timer fired but device is offline, rescheduling in 60s");
+                this.pendingSyncTimeout = setTimeout(() => {
+                    this.scheduleSyncOperation(commitMessage);
+                }, 60_000);
+                return;
+            }
             this.executeSync(commitMessage, true, undefined, false); // Auto-sync
         }, delayMs);
     }
@@ -665,6 +673,17 @@ export class SyncManager {
                 debug("Could not check git remotes, skipping sync");
                 return;
             }
+        }
+
+        // Fast-fail if offline to avoid unnecessary local work
+        if (!(await isOnline())) {
+            debug("Device is offline, skipping sync");
+            if (showInfoOnConnectionIssues) {
+                this.showConnectionIssueMessage(
+                    "Sync skipped: No internet connection. Will retry when back online."
+                );
+            }
+            return;
         }
 
         // Check for updating requirement before proceeding (unless explicitly bypassed)
