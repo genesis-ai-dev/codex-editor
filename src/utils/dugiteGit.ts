@@ -484,12 +484,15 @@ export async function statusMatrix(dir: string): Promise<StatusMatrixEntry[]> {
             // Type 2: "2 XY sub mH mI mW hH hI X<score> <path>\t<origPath>"
             const parts = line.split("\t");
             const fields = parts[0].split(" ");
+            const minFields = line.startsWith("2") ? 10 : 9;
+            if (fields.length < minFields || !fields[1] || fields[1].length < 2) {
+                console.warn(`[statusMatrix] Skipping malformed porcelain line: ${line}`);
+                continue;
+            }
             const xy = fields[1];
 
             let filepath: string;
             if (line.startsWith("2")) {
-                // Type 2 has 9 fixed fields before <path>; the new/current path
-                // is in the pre-tab portion. parts[1] is the original/old path.
                 filepath = fields.slice(9).join(" ");
             } else {
                 filepath = fields.slice(8).join(" ");

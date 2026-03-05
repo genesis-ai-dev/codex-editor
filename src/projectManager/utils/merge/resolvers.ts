@@ -518,7 +518,12 @@ export async function resolveConflictFile(
     options?: ResolveConflictOptions
 ): Promise<string | undefined> {
     try {
-        // No need to read files, we already have the content
+        // Guard against path-traversal: resolved path must stay inside the workspace
+        const resolvedTarget = path.resolve(workspaceDir, conflict.filepath);
+        if (!resolvedTarget.startsWith(path.resolve(workspaceDir) + path.sep) && resolvedTarget !== path.resolve(workspaceDir)) {
+            throw new Error(`Path traversal rejected: "${conflict.filepath}" escapes workspace`);
+        }
+
         const strategy = determineStrategy(conflict.filepath);
         debugLog("Strategy:", strategy);
         let resolvedContent: string;
@@ -591,8 +596,7 @@ export async function resolveConflictFile(
                 resolvedContent = conflict.ours; // Default to our version
         }
 
-        // Write resolved content back to the actual file
-        const targetPath = vscode.Uri.file(path.join(workspaceDir, conflict.filepath));
+        const targetPath = vscode.Uri.file(resolvedTarget);
         debugLog("Writing resolved content to:", targetPath.fsPath);
         await vscode.workspace.fs.writeFile(targetPath, Buffer.from(resolvedContent));
         debugLog("Successfully wrote content for:", conflict.filepath);

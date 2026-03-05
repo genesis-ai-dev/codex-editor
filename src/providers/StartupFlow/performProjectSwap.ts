@@ -668,6 +668,7 @@ async function backupOldProject(projectPath: string, projectName: string): Promi
             });
 
             archive.on("error", (err: Error) => {
+                output.close();
                 reject(err);
             });
 
@@ -1626,7 +1627,7 @@ async function archiveExistingTarget(targetPath: string): Promise<void> {
             const zip = archiver("zip", { zlib: { level: 9 } });
 
             output.on("close", () => resolve());
-            zip.on("error", (err: any) => reject(err));
+            zip.on("error", (err: any) => { output.close(); reject(err); });
 
             zip.pipe(output);
             zip.directory(targetPath, false);

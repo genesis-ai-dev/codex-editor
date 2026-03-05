@@ -115,14 +115,15 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
-        // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
-        // which handles authentication properly
         const conflictsResponse = await authApi.syncChanges({ commitMessage });
-        if (conflictsResponse?.blocked) {
+        if (!conflictsResponse) {
+            throw new Error("syncChanges returned an empty response — sync may not have completed");
+        }
+        if (conflictsResponse.blocked) {
             debug("Sync was blocked by Frontier (e.g., extension version requirements)");
             return syncResult;
         }
-        if (conflictsResponse?.offline) {
+        if (conflictsResponse.offline) {
             syncResult.offline = true;
             syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
             return syncResult;
