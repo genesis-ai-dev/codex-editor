@@ -31,6 +31,7 @@ import { IntentSelection } from "./components/IntentSelection";
 import { SourceFileSelection } from "./components/SourceFileSelection";
 import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
+import { ImportProgressView } from "./components/ImportProgressView";
 import { SystemMessageStep } from "../StartupFlow/components/SystemMessageStep";
 import { createDownloadHelper } from "./utils/downloadHelper";
 import { notifyImportEnded } from "./utils/importProgress";
@@ -61,6 +62,7 @@ const NewSourceUploader: React.FC = () => {
     const [isDirty, setIsDirty] = useState(false);
     const [systemMessage, setSystemMessage] = useState<string>("");
     const [isWaitingForMessage, setIsWaitingForMessage] = useState(false);
+    const [importComplete, setImportComplete] = useState(false);
 
     // State for managing alignment requests
     const [alignmentRequests, setAlignmentRequests] = useState<
@@ -125,18 +127,48 @@ const NewSourceUploader: React.FC = () => {
         const handleGlobalMessage = (event: MessageEvent) => {
             const message = event.data;
 
-            if (message.command === "notification") {
-                // Handle notifications from the provider
+            if (message.command === "importProgress") {
+                setWizardState((prev) => {
+                    if (prev.currentStep !== "importing") return prev;
+                    return {
+                        ...prev,
+                        importProgress: {
+                            ...prev.importProgress!,
+                            stage: message.stage,
+                            detail: message.detail,
+                        },
+                    };
+                });
+            } else if (message.command === "importComplete") {
+                setImportComplete(true);
+                setWizardState((prev) => {
+                    if (prev.currentStep !== "importing") return prev;
+                    return {
+                        ...prev,
+                        importProgress: {
+                            ...prev.importProgress!,
+                            stage: "complete",
+                        },
+                    };
+                });
+            } else if (message.command === "importCancelled") {
+                setImportComplete(false);
+                setWizardState((prev) => ({
+                    ...prev,
+                    currentStep: "intent-selection",
+                    selectedIntent: null,
+                    selectedSourceForTarget: undefined,
+                    selectedSourceDetails: undefined,
+                    selectedPlugin: undefined,
+                    importProgress: undefined,
+                }));
+            } else if (message.command === "notification") {
                 const { type, message: notificationMessage } = message;
-
-                // You can implement a toast notification system here
-                // For now, using console and alert as fallback
                 console.log(`${type.toUpperCase()}: ${notificationMessage}`);
 
                 if (type === "error") {
                     alert(`Error: ${notificationMessage}`);
                 } else if (type === "success") {
-                    // Could show a success toast instead of alert
                     console.log(`Success: ${notificationMessage}`);
                 } else if (type === "warning") {
                     console.warn(`Warning: ${notificationMessage}`);
@@ -331,10 +363,24 @@ const NewSourceUploader: React.FC = () => {
 
     const handleComplete = useCallback(
         (notebooks: NotebookPair | NotebookPair[]) => {
-            // Normalize to array format
             const notebookPairs = Array.isArray(notebooks) ? notebooks : [notebooks];
 
-            // Send notebooks to provider for writing
+            const firstNotebookName = notebookPairs[0]?.source.name || "unknown";
+
+            // Switch to importing view before sending the message
+            setImportComplete(false);
+            setWizardState((prev) => ({
+                ...prev,
+                currentStep: "importing",
+                selectedPlugin: undefined,
+                importProgress: {
+                    stage: "preparing",
+                    count: notebookPairs.length,
+                    importName: firstNotebookName,
+                },
+            }));
+            setIsDirty(false);
+
             const message: ProviderMessage = {
                 command: "writeNotebooks",
                 notebookPairs,
@@ -350,18 +396,6 @@ const NewSourceUploader: React.FC = () => {
 
             vscode.postMessage(message);
             notifyImportEnded();
-
-            // Reset wizard
-            setWizardState((prev) => ({
-                ...prev,
-                currentStep: "intent-selection",
-                selectedIntent: null,
-                selectedSourceForTarget: undefined,
-                selectedPlugin: undefined,
-            }));
-            setIsDirty(false);
-
-            // No need to manually refresh inventory - provider will send updated inventory
         },
         [wizardState]
     );
@@ -631,6 +665,31 @@ const NewSourceUploader: React.FC = () => {
                     existingSourceCount={wizardState.projectInventory.sourceFiles.length}
                     onSelectPlugin={handleSelectPlugin}
                     onBack={handleBack}
+                />
+            );
+
+        case "importing":
+            return (
+                <ImportProgressView
+                    stage={wizardState.importProgress?.stage ?? "preparing"}
+                    detail={wizardState.importProgress?.detail}
+                    count={wizardState.importProgress?.count ?? 0}
+                    importName={wizardState.importProgress?.importName ?? ""}
+                    isComplete={importComplete}
+                    onStartTranslating={handleStartTranslating}
+                    onImportMore={() => {
+                        setImportComplete(false);
+                        setWizardState((prev) => ({
+                            ...prev,
+                            currentStep: "intent-selection",
+                            selectedIntent: null,
+                            selectedSourceForTarget: undefined,
+                            selectedSourceDetails: undefined,
+                            selectedPlugin: undefined,
+                            importProgress: undefined,
+                        }));
+                    }}
+                    sourceFileCount={wizardState.projectInventory.sourceFiles.length}
                 />
             );
 

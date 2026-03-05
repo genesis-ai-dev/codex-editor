@@ -1531,10 +1531,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
-        // Add command to index specific files incrementally
+        // Add command to index specific files incrementally.
+        // Accepts an optional second argument: { externalProgressCallback?: (message: string) => void }
+        // When provided, the system notification is suppressed and progress is forwarded to the callback.
         const incrementalIndexCommand = vscode.commands.registerCommand(
             "codex-editor-extension.indexSpecificFiles",
-            async (filePaths?: string[]) => {
+            async (filePaths?: string[], options?: { externalProgressCallback?: (message: string) => void }) => {
                 if (!filePaths || filePaths.length === 0) {
                     debug("[Index] No files specified for incremental indexing");
                     return;
@@ -1548,49 +1550,61 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 debug(`[Index] Incremental indexing requested for ${filePaths.length} files`);
 
-                try {
-                    // Show progress notification for incremental update
-                    await vscode.window.withProgress(
-                        {
-                            location: vscode.ProgressLocation.Notification,
-                            title: `AI learning from ${filePaths.length / 2} new file pair${filePaths.length > 1 ? 's' : ''}...`,
-                            cancellable: false
-                        },
-                        async (progress) => {
-                            statusBarHandler.setIndexingActive();
+                const externalCb = options?.externalProgressCallback;
 
-                            const fileSyncManager = new FileSyncManager(translationPairsIndex);
+                const runIndexing = async (progress?: vscode.Progress<{ message?: string; increment?: number }>) => {
+                    statusBarHandler.setIndexingActive();
+                    externalCb?.("Syncing files...");
 
-                            // Sync only the specified files
-                            const syncResult = await fileSyncManager.syncSpecificFiles(filePaths, {
-                                progressCallback: (message, percent) => {
-                                    progress.report({ message, increment: percent });
-                                }
-                            });
+                    const fileSyncManager = new FileSyncManager(translationPairsIndex);
 
-                            // Update complementary indexes for the new files only
-                            const { targetFiles } = await readSourceAndTargetFiles();
-                            const relevantTargetFiles = targetFiles.filter(f =>
-                                filePaths.some(fp => f.uri.fsPath.includes(fp))
-                            );
-
-                            if (relevantTargetFiles.length > 0) {
-                                await updateCompleteDrafts(relevantTargetFiles);
-                            }
-
-                            debug(`[Index] Incremental sync completed: ${syncResult.syncedFiles} files processed`);
-
-                            const translationDocCount = await translationPairsIndex.getDocumentCount();
-                            const sourceDocCount = await sourceTextIndex.getDocumentCount();
-                            statusBarHandler.updateIndexCounts(
-                                translationDocCount,
-                                sourceDocCount
-                            );
-
-                            progress.report({ message: "AI learning complete!" });
-                            await new Promise(res => setTimeout(res, 1000));
+                    const syncResult = await fileSyncManager.syncSpecificFiles(filePaths, {
+                        progressCallback: (message, percent) => {
+                            progress?.report({ message, increment: percent });
+                            externalCb?.(message);
                         }
+                    });
+
+                    externalCb?.("Updating indexes...");
+
+                    const { targetFiles } = await readSourceAndTargetFiles();
+                    const relevantTargetFiles = targetFiles.filter(f =>
+                        filePaths.some(fp => f.uri.fsPath.includes(fp))
                     );
+
+                    if (relevantTargetFiles.length > 0) {
+                        await updateCompleteDrafts(relevantTargetFiles);
+                    }
+
+                    debug(`[Index] Incremental sync completed: ${syncResult.syncedFiles} files processed`);
+
+                    const translationDocCount = await translationPairsIndex.getDocumentCount();
+                    const sourceDocCount = await sourceTextIndex.getDocumentCount();
+                    statusBarHandler.updateIndexCounts(
+                        translationDocCount,
+                        sourceDocCount
+                    );
+
+                    progress?.report({ message: "AI learning complete!" });
+                    externalCb?.("AI learning complete!");
+                    if (progress) {
+                        await new Promise(res => setTimeout(res, 1000));
+                    }
+                };
+
+                try {
+                    if (externalCb) {
+                        await runIndexing();
+                    } else {
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: `AI learning from ${filePaths.length / 2} new file pair${filePaths.length > 1 ? 's' : ''}...`,
+                                cancellable: false
+                            },
+                            async (progress) => runIndexing(progress)
+                        );
+                    }
                 } catch (error) {
                     console.error("[Index] Error during incremental indexing:", error);
                     vscode.window.showErrorMessage(`Failed to index files: ${error instanceof Error ? error.message : 'Unknown error'}`);

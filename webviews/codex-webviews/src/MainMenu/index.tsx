@@ -893,6 +893,7 @@ function MainMenu() {
                                                 }}
                                                 disabled={
                                                     projectState.isPublishingInProgress ||
+                                                    projectState.isImportInProgress ||
                                                     !isOnline ||
                                                     !state.isFrontierExtensionEnabled
                                                 }
@@ -904,6 +905,11 @@ function MainMenu() {
                                                         <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
                                                         {projectState.publishingStage ||
                                                             "Publishing..."}
+                                                    </>
+                                                ) : projectState.isImportInProgress ? (
+                                                    <>
+                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                                        Importing...
                                                     </>
                                                 ) : !isOnline ? (
                                                     "Offline"

@@ -216,12 +216,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             syncManager.endImportInProgress();
                         }
                     } else {
-                        // User cancelled, send cancellation message
-                        webviewPanel.webview.postMessage({
-                            command: "notification",
-                            type: "info",
-                            message: "Import cancelled by user"
-                        });
+                        webviewPanel.webview.postMessage({ command: "importCancelled" });
                     }
                 } else if (message.command === "writeTranslation") {
                     const syncManager = SyncManager.getInstance();
@@ -1023,11 +1018,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             if (conflicts.length > 0) {
                 const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
                 if (!confirmed) {
-                    webviewPanel.webview.postMessage({
-                        command: "notification",
-                        type: "info",
-                        message: "Import cancelled by user"
-                    });
+                    webviewPanel.webview.postMessage({ command: "importCancelled" });
                     return;
                 }
             }
@@ -1042,6 +1033,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
+        const reportProgress = (stage: string) => {
+            webviewPanel.webview.postMessage({ command: "importProgress", stage });
+        };
+
+        reportProgress("preparing");
+
         // Import the original file utilities
         const { saveOriginalFileWithDeduplication } = await import('./originalFileUtils');
 
@@ -1187,6 +1184,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        reportProgress("creating");
+
         // Convert ProcessedNotebooks to NotebookPreview format
         const sourceNotebooks = await Promise.all(
             message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
@@ -1232,6 +1231,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        reportProgress("metadata");
+
         // Migrate localized-books.json to codex metadata before deleting the file
         // Pass the newly created codex URIs directly to avoid search issues
         const createdCodexUris = createdFiles.map(f => f.codexUri);
@@ -1239,24 +1240,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Remove any localized book overrides to ensure fresh defaults after new source import
         await this.removeLocalizedBooksJsonIfPresent();
-
-        // Show success message
-        const count = message.notebookPairs.length;
-        const notebooksText = count === 1 ? "notebook" : "notebooks";
-        const firstNotebookName = message.notebookPairs[0]?.source.name || "unknown";
-
-        vscode.window.showInformationMessage(
-            count === 1
-                ? `Successfully imported "${firstNotebookName}"!`
-                : `Successfully imported ${count} ${notebooksText}!`
-        );
-
-        // Send success notification to webview
-        webviewPanel.webview.postMessage({
-            command: "notification",
-            type: "success",
-            message: "Notebooks created successfully!"
-        });
 
         // Send updated inventory after successful import
         const inventory = await this.fetchProjectInventory();
@@ -1271,6 +1254,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Process newly imported files (line numbers, importerType) before indexing
         if (createdFiles && createdFiles.length > 0) {
+            reportProgress("processing");
+
             const allCreatedUris = createdFiles.flatMap(f => [f.sourceUri, f.codexUri]);
             await processNewlyImportedFiles(allCreatedUris);
 
@@ -1280,8 +1265,23 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 filePaths.push(result.codexUri.fsPath);
             }
 
-            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", filePaths);
+            reportProgress("indexing");
+            await vscode.commands.executeCommand(
+                "codex-editor-extension.indexSpecificFiles",
+                filePaths,
+                {
+                    externalProgressCallback: (message: string) => {
+                        webviewPanel.webview.postMessage({
+                            command: "importProgress",
+                            stage: "indexing",
+                            detail: message,
+                        });
+                    },
+                }
+            );
         }
+
+        webviewPanel.webview.postMessage({ command: "importComplete" });
     }
 
     /**
@@ -2386,36 +2386,18 @@ async function confirmOverwriteWithDetails(
         return `• ${c.displayName ? `${c.displayName} [${c.name}]` : c.name} (${parts.join(", ")})`;
     };
 
-    const fullList = items.map(makeLine).join("\n");
     const truncatedList = items.slice(0, maxItems).map(makeLine).join("\n");
     const hasMore = items.length > maxItems;
 
-    const baseMessage = hasMore
+    const message = hasMore
         ? `The following files already exist and will be overwritten (showing first ${maxItems} of ${items.length}):\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`
         : `The following files already exist and will be overwritten:\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`;
 
-    const choices = hasMore ? ["Overwrite Files", "View Details", "Abort Import"] : ["Overwrite Files", "Abort Import"];
     const action = await vscode.window.showWarningMessage<string>(
-        baseMessage,
+        message,
         { modal: true },
-        ...choices
+        "Overwrite Files"
     );
-
-    if (action === "View Details") {
-        const channel = vscode.window.createOutputChannel("Codex Import Conflicts");
-        channel.clear();
-        channel.appendLine("The following files already exist and will be overwritten:\n");
-        channel.appendLine(fullList);
-        channel.show(true);
-
-        const confirmAfterView = await vscode.window.showWarningMessage<string>(
-            "Proceed with overwriting the files listed in the 'Codex Import Conflicts' output?",
-            { modal: true },
-            "Overwrite Files",
-            "Abort Import"
-        );
-        return confirmAfterView === "Overwrite Files";
-    }
 
     return action === "Overwrite Files";
 }
