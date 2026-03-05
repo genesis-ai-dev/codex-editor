@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useRef } from "react";
+import { useNetworkState } from "@uidotdev/usehooks";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { Button } from "../components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -47,6 +49,32 @@ export default function PublishProject() {
     const [highlightedIndex, setHighlightedIndex] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
 
+    const network = useNetworkState();
+    const isOnline = network?.online ?? true;
+    const wasOnlineRef = useRef<boolean | undefined>(undefined);
+
+    // Detect offline→online transition: auto-refresh groups, close combobox, clear errors
+    useEffect(() => {
+        if (wasOnlineRef.current === undefined) {
+            wasOnlineRef.current = isOnline;
+            return;
+        }
+
+        if (!isOnline) {
+            setComboboxOpen(false);
+        }
+
+        if (isOnline && wasOnlineRef.current === false) {
+            setError(undefined);
+            if (!busy) {
+                setLoadingGroups(true);
+                vscode.postMessage({ command: "fetchGroups" });
+            }
+        }
+
+        wasOnlineRef.current = isOnline;
+    }, [isOnline, busy]);
+
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
     
     // Filter groups based on search
@@ -66,7 +94,7 @@ export default function PublishProject() {
         [groups, selectedGroupId]
     );
 
-    const canCreate = isValidName && !busy;
+    const canCreate = isValidName && !busy && isOnline;
 
     // Reset highlighted index when filtered groups change
     useEffect(() => {
@@ -194,6 +222,11 @@ export default function PublishProject() {
                 showBorderShadow={false}
             />
             <div className="max-w-3xl mx-auto p-6">
+                {!isOnline && (
+                    <div className="mb-4 text-[var(--vscode-editorWarning-foreground)] bg-[var(--vscode-inputValidation-warningBackground)] border border-[var(--vscode-inputValidation-warningBorder)] rounded-md p-3 text-sm">
+                        You are currently offline. Publishing requires an internet connection.
+                    </div>
+                )}
                 {error && (
                     <div className="mb-4 text-[var(--vscode-errorForeground)] bg-[var(--vscode-inputValidation-errorBackground)] border border-[var(--vscode-inputValidation-errorBorder)] rounded-md p-3 text-sm">
                         {error}
@@ -254,7 +287,7 @@ export default function PublishProject() {
                             </label>
                             <Button
                                 onClick={onFetchGroups}
-                                disabled={busy || loadingGroups}
+                                disabled={busy || loadingGroups || !isOnline}
                                 className="whitespace-nowrap rounded-md border text-xs px-2 py-0.5 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
                             >
                                 {loadingGroups ? "Loading..." : "Refresh"}
@@ -343,18 +376,42 @@ export default function PublishProject() {
                         >
                             Cancel
                         </Button>
-                        <Button
-                            variant="default"
-                            onClick={onCreate}
-                            disabled={disableOnCreateButton}
-                            className={`${
-                                disableOnCreateButton
-                                    ? "cursor-not-allowed pointer-events-auto"
-                                    : "cursor-pointer"
-                            }`}
-                        >
-                            {busy ? "Publishing..." : "Publish"}
-                        </Button>
+                        {disableOnCreateButton ? (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span className="inline-block">
+                                        <Button
+                                            variant="default"
+                                            disabled
+                                            className="cursor-not-allowed pointer-events-none"
+                                        >
+                                            {busy
+                                                ? "Publishing..."
+                                                : !isOnline
+                                                    ? "Offline"
+                                                    : "Publish"}
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                    {!isOnline
+                                        ? "You are currently offline. Please reconnect to publish."
+                                        : !hasGroup
+                                            ? "Please select a group first."
+                                            : !isValidName
+                                                ? "Please enter a valid project name."
+                                                : "Please wait..."}
+                                </TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            <Button
+                                variant="default"
+                                onClick={onCreate}
+                                className="cursor-pointer"
+                            >
+                                Publish
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>

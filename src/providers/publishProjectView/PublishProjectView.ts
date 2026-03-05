@@ -5,6 +5,7 @@ import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "../../extension";
 import { updateProjectSettings, updateMetadataFile } from "../../projectManager/utils/projectUtils";
 import { MetadataManager } from "../../utils/metadataManager";
+import { isOnline } from "../../utils/connectivityChecker";
 
 export interface GroupList {
     id: number;
@@ -70,7 +71,6 @@ export class PublishProjectView {
                     }
                     case "fetchGroups": {
                         try {
-                            safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
                             const groups = (await vscode.commands.executeCommand(
                                 "frontier.listGroupsUserIsAtLeastMemberOf"
                             )) as GroupList[];
@@ -81,13 +81,19 @@ export class PublishProjectView {
                                 message:
                                     error instanceof Error ? error.message : String(error),
                             }, "PublishProject");
-                        } finally {
-                            // In case the panel was disposed during the async work, this will no-op safely
-                            safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
                         }
                         break;
                     }
                     case "createProject": {
+                        // Fast-fail if offline to avoid waiting through multiple retry attempts
+                        if (!(await isOnline())) {
+                            safePostMessageToPanel(this._panel, {
+                                type: "error",
+                                message: "You appear to be offline. Please check your internet connection and try again.",
+                            }, "PublishProject");
+                            break;
+                        }
+
                         await vscode.window.withProgress(
                             {
                                 location: vscode.ProgressLocation.Notification,
@@ -96,7 +102,6 @@ export class PublishProjectView {
                             },
                             async (progress) => {
                                 try {
-                                    // Initial progress message
                                     progress.report({
                                         increment: 0,
                                         message: "Publishing in progress. Please wait...",
