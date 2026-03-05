@@ -900,7 +900,9 @@ export class SyncManager {
                         debug("[SyncManager] Pre-sync migration completed");
                     } catch (error) {
                         console.error("[SyncManager] Error during pre-sync migration:", error);
-                        // Don't fail sync due to migration errors
+                        vscode.window.showWarningMessage(
+                            "Comment migration failed before sync. Comments from older format may not appear correctly."
+                        );
                     }
                 }
 
@@ -916,7 +918,9 @@ export class SyncManager {
                         await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
                     } catch (error) {
                         console.error("[SyncManager] Error during pre-sync comment repair:", error);
-                        // Don't fail sync due to repair errors
+                        vscode.window.showWarningMessage(
+                            "Comment data repair failed before sync. Some comments may have formatting issues."
+                        );
                     }
                 }
             }
@@ -953,6 +957,9 @@ export class SyncManager {
                     await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
                 } catch (error) {
                     console.error('[SyncManager] Error during post-sync comment repair:', error);
+                    vscode.window.showWarningMessage(
+                        "Comment data repair failed after sync. Some synced comments may have formatting issues."
+                    );
                 }
             }
 

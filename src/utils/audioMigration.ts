@@ -408,6 +408,7 @@ async function attemptRollback(
     isGitRepo: boolean,
 ): Promise<void> {
     console.error('Migration failed, attempting rollback...');
+    const rollbackFailures: string[] = [];
 
     for (const operation of completedOperations.reverse()) {
         try {
@@ -425,7 +426,16 @@ async function attemptRollback(
             }
         } catch (rollbackError) {
             console.error(`Failed to rollback ${operation.newPath}:`, rollbackError);
+            rollbackFailures.push(path.basename(operation.newPath));
         }
+    }
+
+    if (rollbackFailures.length > 0) {
+        vscode.window.showErrorMessage(
+            `Audio migration rollback partially failed: ${rollbackFailures.length} file(s) could not be reverted ` +
+            `(${rollbackFailures.slice(0, 5).join(", ")}). ` +
+            `Some files may have mixed old/new names. Please check your audio files manually.`
+        );
     }
 }
 

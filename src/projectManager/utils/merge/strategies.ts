@@ -59,10 +59,17 @@ export function determineStrategy(filePath: string): ConflictResolutionStrategy 
         }
     }
 
+    // No explicit pattern matched — pick the safest available strategy.
+    // JSON files get 3-way merge (preserves both sides where possible).
+    // All others get OVERRIDE (newest-by-timestamp), which is a lossy fallback.
+    const isJson = normalizedPath.endsWith(".json");
+    const fallback = isJson
+        ? ConflictResolutionStrategy.JSON_MERGE_3WAY
+        : ConflictResolutionStrategy.OVERRIDE;
+
     console.warn(
-        "No merge strategy found for file:",
-        filePath,
-        "defaulting to OVERRIDE (take the newest version)"
+        `[Merge] No explicit strategy for "${filePath}" — using ${fallback}. ` +
+        `Add a pattern to filePatternsToResolve if a different strategy is needed.`
     );
-    return ConflictResolutionStrategy.OVERRIDE;
+    return fallback;
 }

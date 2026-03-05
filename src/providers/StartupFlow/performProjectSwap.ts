@@ -876,6 +876,16 @@ async function mergeProjectFiles(
     // 3. Copy localProjectSettings.json (preserving media settings, adding forceClose flag)
     const reconcileResult = await reconcileAndCopyAttachments(oldPath, newPath, progress);
 
+    if (reconcileResult.failed > 0) {
+        const failedList = reconcileResult.failedDownloads.slice(0, 5).map((f) => f.relPath).join(", ");
+        vscode.window.showWarningMessage(
+            `${reconcileResult.failed} attachment(s) could not be transferred to the new project` +
+            (failedList ? `: ${failedList}` : "") +
+            (reconcileResult.failedDownloads.length > 5 ? ` (+${reconcileResult.failedDownloads.length - 5} more)` : "") +
+            `. These will be retried on next sync.`
+        );
+    }
+
     // Copy local project settings from old to new (preserving media strategy as-is)
     await copyLocalProjectSettings(oldPath, newPath, reconcileResult.failedDownloads);
 }
@@ -929,8 +939,12 @@ async function copyLocalProjectSettings(
         await clearSwapPendingState(oldPath);
 
     } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
         debugLog("Error copying local project settings:", error);
-        // Non-fatal - continue with swap
+        vscode.window.showWarningMessage(
+            `Could not copy project settings to the new project: ${detail}. ` +
+            `Media strategy and pending downloads may need to be reconfigured.`
+        );
     }
 }
 
