@@ -333,7 +333,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.setupSyncStatusListener();
 
         // Subscribe to state changes to update webview
-        this.store.subscribe((state) => {
+        const unsubscribe = this.store.subscribe((state) => {
             if (this._view) {
                 safePostMessageToView(this._view, {
                     command: "stateUpdate",
@@ -341,6 +341,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 }, "MainMenu");
             }
         });
+        this.disposables.push(new vscode.Disposable(unsubscribe));
     }
 
     protected getWebviewId(): string {
@@ -373,6 +374,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.disposables.push(
             vscode.workspace.onDidChangeWorkspaceFolders(async () => {
                 this.store.refreshState();
+
+                // Re-create the metadata watcher for the new workspace
+                await this.setupMetadataWatcher();
 
                 // Trigger migration when workspace changes
                 if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
@@ -808,20 +812,28 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     baseUrl.search = '';
                     const urlStr = baseUrl.toString();
 
-                    // Prefer global fetch (available in recent VS Code/Node); fallback to http(s)
+                    const ASR_FETCH_TIMEOUT_MS = 10_000;
                     let res: string;
                     if (typeof (globalThis as any).fetch === 'function') {
-                        const r = await (globalThis as any).fetch(urlStr);
-                        res = await r.text();
+                        const controller = new AbortController();
+                        const timer = setTimeout(() => controller.abort(), ASR_FETCH_TIMEOUT_MS);
+                        try {
+                            const r = await (globalThis as any).fetch(urlStr, { signal: controller.signal });
+                            res = await r.text();
+                        } finally {
+                            clearTimeout(timer);
+                        }
                     } else {
-                        // Lazy-require to avoid bundler resolving node: scheme
                         const lib = urlStr.startsWith('https') ? require('https') : require('http');
                         res = await new Promise<string>((resolve, reject) => {
-                            lib.get(urlStr, (resp: any) => {
+                            const req = lib.get(urlStr, (resp: any) => {
                                 let data = '';
                                 resp.on('data', (chunk: any) => (data += chunk));
                                 resp.on('end', () => resolve(data));
                             }).on('error', (err: any) => reject(err));
+                            req.setTimeout(ASR_FETCH_TIMEOUT_MS, () => {
+                                req.destroy(new Error('ASR models request timed out'));
+                            });
                         });
                     }
                     let models: any[] = [];

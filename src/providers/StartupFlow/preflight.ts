@@ -240,6 +240,9 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
     const preflightCheck = new PreflightCheck();
     const disposables: vscode.Disposable[] = [];
 
+    // Ensure auth subscription is cleaned up on deactivation
+    disposables.push(new vscode.Disposable(() => preflightCheck.dispose()));
+
     const preflightCommand = vscode.commands.registerCommand(
         "codex-project-manager.preflight",
         async () => {
