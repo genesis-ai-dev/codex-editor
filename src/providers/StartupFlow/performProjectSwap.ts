@@ -571,14 +571,14 @@ export async function performProjectSwap(
 
             // Step 8b: Promote cloned project to canonical location (new name)
             // This will also attempt to delete the old _tmp folder
-            progress.report({ increment: 15, message: "Swapping project directories..." });
+            progress.report({ increment: 15, message: "Finalizing project directories..." });
             await swapDirectories(tmpPath, newProjectPath, targetProjectPath);
 
             // Step 9: Finalize local settings on the NEW project
             // Clear projectSwap entirely - it tracked the swap execution which is now complete.
             // The NEW project doesn't need the old project's swap execution state (swapUUID, backupPath, etc.)
             // IMPORTANT: Read existing settings first to preserve media strategy that was set by copyLocalProjectSettings
-            progress.report({ increment: 5, message: "Finalizing swap..." });
+            progress.report({ increment: 5, message: "Finalizing update..." });
             const finalProjectUri = vscode.Uri.file(targetProjectPath);
             const existingSettings = await readLocalProjectSettings(finalProjectUri);
             await writeLocalProjectSettings({
@@ -609,7 +609,7 @@ export async function performProjectSwap(
             // Step 10: Cleanup temp directory (the system temp used for cloning)
             await cleanupTempDirectory(tempDir);
 
-            progress.report({ increment: 15, message: "Swap complete!" });
+            progress.report({ increment: 15, message: "Update complete!" });
             debugLog("Project swap completed successfully");
 
             return targetProjectPath;
