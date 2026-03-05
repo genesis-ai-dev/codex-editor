@@ -269,6 +269,22 @@ export class SyncManager {
     }
 
     /**
+     * Clean up all timers and subscriptions. Call on extension deactivation.
+     */
+    public dispose(): void {
+        if (this.updatingCheckInterval) {
+            clearInterval(this.updatingCheckInterval);
+            this.updatingCheckInterval = null;
+        }
+        if (this.pendingSyncTimeout) {
+            clearTimeout(this.pendingSyncTimeout as NodeJS.Timeout);
+            this.pendingSyncTimeout = null;
+        }
+        this.frontierSyncSubscription?.dispose();
+        this.frontierSyncSubscription = undefined;
+    }
+
+    /**
      * Call when NewSourceUploader starts importing files. Sync is disabled until
      * the matching endImportInProgress() is called. Supports nested calls.
      */
@@ -1525,6 +1541,9 @@ export class SyncManager {
 // Register the command to trigger sync
 export function registerSyncCommands(context: vscode.ExtensionContext): void {
     const syncManager = SyncManager.getInstance();
+
+    // Ensure cleanup on extension deactivation
+    context.subscriptions.push(new vscode.Disposable(() => syncManager.dispose()));
 
     // Command to trigger immediate sync
     context.subscriptions.push(
