@@ -12,7 +12,7 @@ import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { addMetadataEdit, addProjectMetadataEdit, EditMapUtils } from "../../utils/editMapUtils";
 import { MetadataManager } from "../../utils/metadataManager";
 import { getAuthApi } from "../../extension";
-import { CustomNotebookMetadata } from "../../../types";
+import { CustomNotebookMetadata, ProjectMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
 
@@ -801,7 +801,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceUri) return;
 
-        const result = await MetadataManager.safeReadMetadata<import("../../types").ProjectMetadata>(workspaceUri);
+        const result = await MetadataManager.safeReadMetadata<ProjectMetadata>(workspaceUri);
         if (result.success && result.metadata?.navigationFileOrder) {
             this.navigationFileOrder = result.metadata.navigationFileOrder;
         }
@@ -813,7 +813,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
         this.navigationFileOrder[corpusLabel] = orderedLabels;
 
-        await MetadataManager.safeUpdateMetadata<import("../../types").ProjectMetadata>(
+        await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
             workspaceUri,
             (metadata) => ({
                 ...metadata,
