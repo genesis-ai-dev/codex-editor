@@ -3,9 +3,9 @@ import { WebviewApi } from "vscode-webview";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import { Timestamps } from "../../../../types";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { AudioControllerEvent, globalAudioController } from "../lib/audioController";
+import { type AudioControllerEvent, globalAudioController } from "../lib/audioController";
 import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
-import { EditorPostMessages } from "../../../../types";
+import type { EditorPostMessages } from "../../../../types";
 
 /**
  * Waits for a video element to be ready for playback.
@@ -181,9 +181,7 @@ const AudioPlayButton: React.FC<{
             async (event: MessageEvent) => {
                 const message = event.data;
 
-                // Handle audio attachments updates - clear current url and cache; fetch on next click
                 if (message.type === "providerSendsAudioAttachments") {
-                    // Clear cached audio data since selected audio might have changed
                     const { clearCachedAudio } = await import("../lib/audioCache");
                     clearCachedAudio(cellId);
 
@@ -192,6 +190,7 @@ const AudioPlayButton: React.FC<{
                     }
                     setAudioUrl(null);
                     setIsLoading(false);
+                }
                 }
 
                 if (
@@ -659,6 +658,7 @@ const AudioPlayButton: React.FC<{
                 titleSuffix: "(record)",
             } as const;
         })();
+        })();
 
         return (
             <button
@@ -715,4 +715,5 @@ const AudioPlayButton: React.FC<{
     }
 );
 
+export default AudioPlayButton;
 export default AudioPlayButton;
