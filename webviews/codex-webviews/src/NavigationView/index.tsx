@@ -12,8 +12,9 @@ import {
 } from "../components/ui/dropdown-menu";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Languages, Mic, GripVertical } from "lucide-react";
+import { Languages, Mic } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
+import { DraggableWrapper } from "../components/DraggableWrapper";
 import {
     Dialog,
     DialogContent,
@@ -22,7 +23,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "../components/ui/dialog";
-import { Reorder, useDragControls } from "framer-motion";
+import { Reorder } from "framer-motion";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -188,47 +189,6 @@ const formatLabel = (label: string, bibleBookMap: Map<string, BibleBookInfo>): s
     }
 
     return cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
-};
-
-const DraggableWrapper = ({
-    item,
-    children,
-}: {
-    item: CodexItem;
-    children: (dragHandle: React.ReactNode) => React.ReactNode;
-}) => {
-    const controls = useDragControls();
-
-    const handle = (
-        <div
-            className="drag-handle flex-shrink-0 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity touch-none"
-            onPointerDown={(e) => {
-                e.preventDefault();
-                controls.start(e);
-            }}
-        >
-            <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-        </div>
-    );
-
-    return (
-        <Reorder.Item
-            as="div"
-            value={item}
-            dragListener={false}
-            dragControls={controls}
-            className="list-none"
-            whileDrag={{
-                boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
-                scale: 1.02,
-                zIndex: 50,
-                borderRadius: "6px",
-                backgroundColor: "var(--vscode-list-activeSelectionBackground)",
-            }}
-        >
-            {children(handle)}
-        </Reorder.Item>
-    );
 };
 
 function NavigationView() {
@@ -910,7 +870,7 @@ function NavigationView() {
                     <div className="py-2 px-3 flex flex-col gap-3 w-full">
                         {/* Row 1: label + action buttons */}
                         <div className="flex items-center gap-2 min-h-[24px]">
-                            {dragHandle}
+                            {!isGroup && dragHandle}
                             {isGroup && (
                                 <i
                                     className={`codicon ${
@@ -1021,7 +981,9 @@ function NavigationView() {
                         )}
                     </div>
                 </div>
-                {isGroup && isExpanded && item.children &&
+                {isGroup &&
+                    isExpanded &&
+                    item.children &&
                     (() => {
                         const orderedChildren = getOrderedChildren(item);
                         const isDragEnabled = !state.searchQuery;
@@ -1042,9 +1004,7 @@ function NavigationView() {
                                             key={child.label + child.uri}
                                             item={child}
                                         >
-                                            {(dragHandle) =>
-                                                renderItem(child, dragHandle)
-                                            }
+                                            {(dragHandle) => renderItem(child, dragHandle)}
                                         </DraggableWrapper>
                                     ))}
                                 </Reorder.Group>
