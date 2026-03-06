@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessagesToStartupFlowProvider } from "types";
 import { LanguagePicker } from "../../shared/components/LanguagePicker";
 import { LanguageMetadata } from "codex-types";
@@ -19,6 +19,7 @@ export const InputCriticalProjectInfo = ({
     const [currentStep, setCurrentStep] = useState<"source" | "target">("source");
     const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata | null>(null);
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
+    const waitingForTargetSave = useRef(false);
 
     useEffect(() => {
         // Always show Project Manager immediately
@@ -27,7 +28,6 @@ export const InputCriticalProjectInfo = ({
         vscode.postMessage({ command: "metadata.check" });
     }, []);
 
-    // Listen for metadata check response
     useEffect(() => {
         const handleMessage = (event: MessageEvent<any>) => {
             if (event.data.command === "metadata.checkResponse") {
@@ -35,24 +35,23 @@ export const InputCriticalProjectInfo = ({
                 setSourceLanguage(metadata.sourceLanguage);
                 setTargetLanguage(metadata.targetLanguage);
 
-                // If source language exists but target doesn't, start with target step
                 if (metadata.sourceLanguage && !metadata.targetLanguage) {
                     setCurrentStep("target");
                     return;
                 } else if (metadata.sourceLanguage && metadata.targetLanguage) {
-                    // Both languages exist - proceed directly to source upload
                     proceedToSourceUpload(vscode);
                     return;
                 }
 
-                // Otherwise start with source step
                 setCurrentStep("source");
             } else if (
                 event.data.command === "state.update" &&
                 event.data.state.value === "promptUserToAddCriticalData"
             ) {
-                // When we receive the state update that we're in the critical data state, start checking metadata
                 vscode.postMessage({ command: "metadata.check" });
+            } else if (event.data.command === "actionCompleted" && waitingForTargetSave.current) {
+                waitingForTargetSave.current = false;
+                proceedToSourceUpload(vscode);
             }
         };
 
@@ -74,7 +73,9 @@ export const InputCriticalProjectInfo = ({
             setCurrentStep("target");
         } else {
             setTargetLanguage(language);
-            proceedToSourceUpload(vscode);
+            // Wait for the provider to confirm the language was saved before
+            // triggering systemMessage.generate (which reads metadata.json)
+            waitingForTargetSave.current = true;
         }
     };
 
