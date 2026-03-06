@@ -1,15 +1,22 @@
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { useEffect, useState } from "react";
 import { MessagesToStartupFlowProvider } from "types";
 import { LanguagePicker } from "../../shared/components/LanguagePicker";
 import { LanguageMetadata } from "codex-types";
+
+const proceedToSourceUpload = (
+    vscode: { postMessage: (message: unknown) => void },
+) => {
+    vscode.postMessage({ command: "systemMessage.generate" } as MessagesToStartupFlowProvider);
+    vscode.postMessage({ command: "openSourceUpload" });
+    vscode.postMessage({ command: "workspace.continue" } as MessagesToStartupFlowProvider);
+};
 
 export const InputCriticalProjectInfo = ({
     vscode,
 }: {
     vscode: { postMessage: (message: any) => void };
 }) => {
-    const [currentStep, setCurrentStep] = useState<"source" | "target" | "complete">("source");
+    const [currentStep, setCurrentStep] = useState<"source" | "target">("source");
     const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata | null>(null);
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
 
@@ -33,10 +40,8 @@ export const InputCriticalProjectInfo = ({
                     setCurrentStep("target");
                     return;
                 } else if (metadata.sourceLanguage && metadata.targetLanguage) {
-                    // Both languages exist - continue to workspace
-                    vscode.postMessage({
-                        command: "workspace.continue",
-                    } as MessagesToStartupFlowProvider);
+                    // Both languages exist - proceed directly to source upload
+                    proceedToSourceUpload(vscode);
                     return;
                 }
 
@@ -69,8 +74,7 @@ export const InputCriticalProjectInfo = ({
             setCurrentStep("target");
         } else {
             setTargetLanguage(language);
-            // After target language is selected, move to complete step
-            setCurrentStep("complete");
+            proceedToSourceUpload(vscode);
         }
     };
 
@@ -142,30 +146,6 @@ export const InputCriticalProjectInfo = ({
                             This is used to instruct the AI translation assistant. You can change it
                             any time in settings.
                         </p>
-                    </>
-                )}
-
-                {currentStep === "complete" && (
-                    <>
-                        <i
-                            className="codicon codicon-symbol-variable"
-                            style={{ fontSize: "72px" }}
-                        ></i>
-                        <VSCodeButton
-                            onClick={() => {
-                                // Start generating system message in the background
-                                // This will be saved to metadata.json automatically by the provider
-                                vscode.postMessage({
-                                    command: "systemMessage.generate",
-                                } as MessagesToStartupFlowProvider);
-                                vscode.postMessage({ command: "openSourceUpload" });
-                                vscode.postMessage({
-                                    command: "workspace.continue",
-                                } as MessagesToStartupFlowProvider);
-                            }}
-                        >
-                            Continue to Source Upload
-                        </VSCodeButton>
                     </>
                 )}
             </div>
