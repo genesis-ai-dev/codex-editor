@@ -17,6 +17,7 @@ import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } fro
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
+import { ORPHANED_PROJECT_FILES } from "../../../utils/fileUtils";
 import {
     buildCellPositionContextMap,
     insertUniqueCellsPreservingRelativePositions,
@@ -2551,6 +2552,25 @@ export async function resolveConflictFiles(
                     vscode.Uri.file(workspaceDir),
                     ...normalizedFilepath.split("/")
                 );
+
+                // Orphaned files from removed features should always resolve as deleted,
+                // even if the remote still has them. The local cleanup already deleted them.
+                const isOrphaned = ORPHANED_PROJECT_FILES.some(
+                    (orphan) => normalizedFilepath === orphan || normalizedFilepath.endsWith("/" + orphan)
+                );
+                if (isOrphaned) {
+                    debugLog(`Resolving orphaned file as deleted: ${conflict.filepath}`);
+                    try {
+                        await vscode.workspace.fs.delete(filePath);
+                    } catch {
+                        // Already deleted locally — expected
+                    }
+                    resolvedFiles.push({
+                        filepath: conflict.filepath,
+                        resolution: "deleted",
+                    });
+                    return;
+                }
 
                 // Handle deleted file
                 if (conflict.isDeleted) {

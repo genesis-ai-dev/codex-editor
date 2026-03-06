@@ -184,7 +184,7 @@ export const projectFileExists = async () => {
  * - chat_history.jsonl: old chat history file, never read or written
  * - ab-test-results.jsonl: documented but never read or written by any code
  */
-const ORPHANED_PROJECT_FILES = [
+export const ORPHANED_PROJECT_FILES = [
     ".project/dictionary.sqlite",
     "files/project.dictionary",
     "files/smart_passages_memories.json",
