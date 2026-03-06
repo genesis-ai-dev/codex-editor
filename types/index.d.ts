@@ -1203,6 +1203,10 @@ type ProjectMetadata = {
         fileNameToHash: { [fileName: string]: string };
     };
     edits?: ProjectEditHistory[];
+    /** Custom file ordering within corpus groups, keyed by normalized corpus label */
+    navigationFileOrder?: {
+        [corpusGroup: string]: string[];
+    };
     meta: {
         version: string;
         category: string;
