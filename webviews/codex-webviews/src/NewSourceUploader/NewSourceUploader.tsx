@@ -230,16 +230,20 @@ const NewSourceUploader: React.FC = () => {
                     return newMap;
                 });
             } else if (message.command === "metadata.checkResponse") {
-                // Load system message from metadata when navigating to system-message step
                 const chatSystemMessage = message.data?.chatSystemMessage;
                 if (chatSystemMessage) {
                     setSystemMessage(chatSystemMessage);
+                    setIsWaitingForMessage(false);
+                } else {
+                    // No system message in metadata yet — auto-trigger generation
+                    // so the user sees a "Generating..." state instead of an empty field
+                    vscode.postMessage({ command: "systemMessage.generate" });
                 }
-                setIsWaitingForMessage(false); // Clear waiting flag when we get response
             } else if (message.command === "systemMessage.generated") {
-                // Handle generated system message
                 setSystemMessage(message.message || "");
-                setIsWaitingForMessage(false); // Clear waiting flag when generation completes
+                setIsWaitingForMessage(false);
+            } else if (message.command === "systemMessage.generateError") {
+                setIsWaitingForMessage(false);
             } else if (message.command === "targetFileError") {
                 // Handle target file error
                 const response = message as TargetFileErrorMessage;

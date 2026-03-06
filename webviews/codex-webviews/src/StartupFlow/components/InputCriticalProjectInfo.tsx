@@ -6,7 +6,6 @@ import { LanguageMetadata } from "codex-types";
 const proceedToSourceUpload = (
     vscode: { postMessage: (message: unknown) => void },
 ) => {
-    vscode.postMessage({ command: "systemMessage.generate" } as MessagesToStartupFlowProvider);
     vscode.postMessage({ command: "openSourceUpload" });
     vscode.postMessage({ command: "workspace.continue" } as MessagesToStartupFlowProvider);
 };

@@ -214,7 +214,11 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                         id="system-message-textarea"
                         value={systemMessage}
                         onInput={(e: any) => setSystemMessage(e.target.value)}
-                        placeholder="Enter or generate translation instructions for the AI..."
+                        placeholder={
+                            isGenerating || isWaitingForMessage
+                                ? "Generating translation instructions..."
+                                : "Enter or generate translation instructions for the AI..."
+                        }
                         rows={12}
                         disabled={isGenerating || isWaitingForMessage}
                         style={{
@@ -240,12 +244,12 @@ export const SystemMessageStep: React.FC<SystemMessageStepProps> = ({
                     <VSCodeButton
                         appearance="secondary"
                         onClick={handleGenerate}
-                        disabled={isGenerating || isSaving}
+                        disabled={isGenerating || isWaitingForMessage || isSaving}
                         style={{
                             minWidth: "180px",
                         }}
                     >
-                        {isGenerating ? (
+                        {(isGenerating || isWaitingForMessage) ? (
                             <span style={{
                                 display: "flex",
                                 alignItems: "center",
