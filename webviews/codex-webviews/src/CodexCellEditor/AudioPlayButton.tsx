@@ -113,16 +113,10 @@ const safelyRevokeOldBlobUrl = (
     }, 5000);
 };
 
-const AudioPlayButton: React.FC<{
+interface AudioPlayButtonProps {
     cellId: string;
     vscode: WebviewApi<unknown>;
-    state?:
-        | "available"
-        | "available-local"
-        | "available-pointer"
-        | "missing"
-        | "deletedOnly"
-        | "none";
+    state?: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
     onOpenCell?: (cellId: string) => void;
     playerRef?: React.RefObject<ReactPlayerRef>;
     cellTimestamps?: Timestamps;
@@ -132,7 +126,9 @@ const AudioPlayButton: React.FC<{
     isSourceText?: boolean;
     isCellLocked?: boolean;
     onLockedClick?: () => void;
-}> = React.memo(
+}
+
+const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
     ({
         cellId,
         vscode,
@@ -190,7 +186,6 @@ const AudioPlayButton: React.FC<{
                     }
                     setAudioUrl(null);
                     setIsLoading(false);
-                }
                 }
 
                 if (
@@ -658,7 +653,6 @@ const AudioPlayButton: React.FC<{
                 titleSuffix: "(record)",
             } as const;
         })();
-        })();
 
         return (
             <button
@@ -715,5 +709,4 @@ const AudioPlayButton: React.FC<{
     }
 );
 
-export default AudioPlayButton;
 export default AudioPlayButton;
