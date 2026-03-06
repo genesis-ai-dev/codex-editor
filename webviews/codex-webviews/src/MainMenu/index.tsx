@@ -81,8 +81,8 @@ function EditableField({
                 {showPrivacyWarning && (
                     <div className="rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2 text-sm text-yellow-800 font-normal">
                         Your project name may appear in publicly available bug reports. Please do
-                        not name your project anything that could pose a security or IP risk to
-                        your team.
+                        not name your project anything that could pose a security or IP risk to your
+                        team.
                     </div>
                 )}
                 {showEmptyError && (
@@ -746,6 +746,68 @@ function MainMenu() {
                                 </CardContent>
                             </Card>
 
+                            {/* Publish Card - only show if project doesn't have remote */}
+                            {!projectState.repoHasRemote && (
+                                <Card className="border shadow-sm bg-muted/20">
+                                    <CardContent className="p-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex-shrink-0">
+                                                <i
+                                                    className="codicon codicon-cloud-upload text-2xl"
+                                                    style={{ color: "var(--ring)" }}
+                                                />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-semibold text-sm">
+                                                    Publish to Cloud
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Enable syncing and collaboration
+                                                </div>
+                                            </div>
+                                            <Button
+                                                onClick={() => {
+                                                    if (!state.isAuthenticated) {
+                                                        handleProjectAction("openLoginFlow");
+                                                    } else {
+                                                        handleProjectAction("publishProject");
+                                                    }
+                                                }}
+                                                disabled={
+                                                    projectState.isPublishingInProgress ||
+                                                    projectState.isImportInProgress ||
+                                                    !isOnline ||
+                                                    !state.isFrontierExtensionEnabled
+                                                }
+                                                size="sm"
+                                                className="flex-shrink-0"
+                                            >
+                                                {projectState.isPublishingInProgress ? (
+                                                    <>
+                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                                        {projectState.publishingStage ||
+                                                            "Publishing..."}
+                                                    </>
+                                                ) : projectState.isImportInProgress ? (
+                                                    <>
+                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                                        Importing...
+                                                    </>
+                                                ) : !isOnline ? (
+                                                    "Offline"
+                                                ) : !state.isFrontierExtensionEnabled ? (
+                                                    "Extension Required"
+                                                ) : !state.isAuthenticated ? (
+                                                    "Log in"
+                                                ) : (
+                                                    "Publish"
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
                             {/* Sync Settings - only show if project has remote */}
                             {projectState.repoHasRemote && (
                                 <SyncSettings
@@ -863,68 +925,6 @@ function MainMenu() {
                                     </div>
                                 </CardContent>
                             </Card>
-
-                            {/* Publish Card - at the bottom, only show if project doesn't have remote */}
-                            {!projectState.repoHasRemote && (
-                                <Card className="border shadow-sm bg-muted/20">
-                                    <CardContent className="p-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-shrink-0">
-                                                <i
-                                                    className="codicon codicon-cloud-upload text-2xl"
-                                                    style={{ color: "var(--ring)" }}
-                                                />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-sm">
-                                                    Publish to Cloud
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Enable syncing and collaboration
-                                                </div>
-                                            </div>
-                                            <Button
-                                                onClick={() => {
-                                                    if (!state.isAuthenticated) {
-                                                        handleProjectAction("openLoginFlow");
-                                                    } else {
-                                                        handleProjectAction("publishProject");
-                                                    }
-                                                }}
-                                                disabled={
-                                                    projectState.isPublishingInProgress ||
-                                                    projectState.isImportInProgress ||
-                                                    !isOnline ||
-                                                    !state.isFrontierExtensionEnabled
-                                                }
-                                                size="sm"
-                                                className="flex-shrink-0"
-                                            >
-                                                {projectState.isPublishingInProgress ? (
-                                                    <>
-                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
-                                                        {projectState.publishingStage ||
-                                                            "Publishing..."}
-                                                    </>
-                                                ) : projectState.isImportInProgress ? (
-                                                    <>
-                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
-                                                        Importing...
-                                                    </>
-                                                ) : !isOnline ? (
-                                                    "Offline"
-                                                ) : !state.isFrontierExtensionEnabled ? (
-                                                    "Extension Required"
-                                                ) : !state.isAuthenticated ? (
-                                                    "Log in"
-                                                ) : (
-                                                    "Publish"
-                                                )}
-                                            </Button>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            )}
                         </div>
                     ) : projectState.canInitializeProject ? (
                         <Card
