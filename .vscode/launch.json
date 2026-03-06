@@ -15,7 +15,7 @@
             "preLaunchTask": "npm: watch"
         },
         {
-            "name": "Run Extension (Debug Webviews)",
+            "name": "Run Extension with child sessions",
             "type": "extensionHost",
             "request": "launch",
             "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
