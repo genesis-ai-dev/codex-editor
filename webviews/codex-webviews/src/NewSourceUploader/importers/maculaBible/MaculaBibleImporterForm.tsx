@@ -227,7 +227,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     const notebookName = `${languagePrefix} ${fullBookName}`;
 
                     const sourceNotebook: ProcessedNotebook = {
-                        name: notebookName,
+                        name: bookCode,
                         cells: bookVerses.map((verse) => {
                             // Create cell metadata with UUID, globalReferences, and chapterNumber
                             const { cellId, metadata } = createMaculaVerseCellMetadata({
@@ -265,7 +265,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
 
                     const codexNotebook: ProcessedNotebook = {
                         ...sourceNotebook,
-                        name: notebookName,
+                        name: bookCode,
                         cells: sourceNotebook.cells.map((cell) => ({
                             ...cell,
                             content: "", // Empty for codex
