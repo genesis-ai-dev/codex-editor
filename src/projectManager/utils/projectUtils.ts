@@ -402,35 +402,36 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             // File doesn't exist, we can proceed with creation
         }
 
-        // Use MetadataManager to safely create the project metadata
-        const createResult = await MetadataManager.safeUpdateMetadata(
-            WORKSPACE_FOLDER.uri,
-            () => {
-                // Add extension version requirements to the new project
-                const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
-                const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
+        // Build the full project metadata object with extension version requirements
+        const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+        const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
 
-                const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
-                if (codexEditorVersion) {
-                    requiredExtensions.codexEditor = codexEditorVersion;
-                }
-                if (frontierAuthVersion) {
-                    requiredExtensions.frontierAuthentication = frontierAuthVersion;
-                }
+        const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
+        if (codexEditorVersion) {
+            requiredExtensions.codexEditor = codexEditorVersion;
+        }
+        if (frontierAuthVersion) {
+            requiredExtensions.frontierAuthentication = frontierAuthVersion;
+        }
 
-                const projectWithVersions = {
-                    ...newProject,
-                    meta: {
-                        ...newProject.meta,
-                        requiredExtensions
-                    }
-                };
-                return projectWithVersions;
+        const projectWithVersions = {
+            ...newProject,
+            meta: {
+                ...newProject.meta,
+                requiredExtensions
             }
-        );
+        };
 
-        if (!createResult.success) {
-            console.error("Failed to create project metadata:", createResult.error);
+        // Write metadata directly — safeUpdateMetadata requires an existing file, which
+        // doesn't exist yet for brand-new projects. A direct write is correct here.
+        try {
+            const jsonContent = JSON.stringify(projectWithVersions, null, 4);
+            await vscode.workspace.fs.writeFile(
+                projectFilePath,
+                new TextEncoder().encode(jsonContent)
+            );
+        } catch (writeError) {
+            console.error("Failed to create project metadata:", writeError);
             vscode.window.showErrorMessage("Failed to create project metadata. Check the output panel for details.");
             return;
         }
@@ -629,8 +630,17 @@ export async function updateMetadataFile() {
             project.meta.generator.userEmail = newUserEmail;
 
             const newLanguages = project.languages || [null, null];
-            newLanguages[0] = projectSettings.get("sourceLanguage", newLanguages[0] || "");
-            newLanguages[1] = projectSettings.get("targetLanguage", newLanguages[1] || "");
+            const configSource = projectSettings.get<any>("sourceLanguage");
+            const configTarget = projectSettings.get<any>("targetLanguage");
+            // Only overwrite from config if the config value has meaningful content
+            // (i.e., has a 'tag' property). The default from package.json is {} which
+            // would otherwise destroy LanguageMetadata objects already in metadata.json.
+            if (configSource && configSource.tag) {
+                newLanguages[0] = configSource;
+            }
+            if (configTarget && configTarget.tag) {
+                newLanguages[1] = configTarget;
+            }
             project.languages = newLanguages;
 
             const newAbbreviation = projectSettings.get("abbreviation", "");
