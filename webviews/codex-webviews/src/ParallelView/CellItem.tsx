@@ -6,6 +6,7 @@ import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { diffWords } from "diff";
 import { stripHtml, escapeRegex, escapeHtml, canReplaceInHtml } from "./utils";
+import { getCellDisplayLabel } from "../utils/cellDisplayUtils";
 
 interface CellItemProps {
     item: TranslationPair;
@@ -171,7 +172,10 @@ const CellItem: React.FC<CellItemProps> = ({
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-3">
                             <h3 className="text-lg font-semibold">
-                                {item.cellLabel ?? `[NO LABEL: ${item.cellId}]`}
+                                {getCellDisplayLabel({
+                                    cellId: item.cellId,
+                                    cellLabel: item.cellLabel,
+                                })}
                             </h3>
                             {isPinned && (
                                 <Badge variant="secondary" className="text-blue-600">

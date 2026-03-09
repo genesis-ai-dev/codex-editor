@@ -35,6 +35,7 @@ import {
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import bibleBooksData from "../assets/bible-books-lookup.json";
+import { getCellDisplayLabel } from "../utils/cellDisplayUtils";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -1069,66 +1070,7 @@ function App() {
     };
 
 
-    /**
-     * Get display name for a cell, using new display fields or calculating fallback
-     * Priority:
-     * 1. Use fileDisplayName + milestoneValue + cellLineNumber if available
-     * 2. Fall back to globalReferences if available
-     * 3. Fall back to shortened cellId
-     *
-     * Note: For stored comments, the display fields may not be present.
-     * The current cell selection will have them, but older saved comments won't.
-     * This is intentional - we want fresh data for the current cell, but we fall back
-     * to simpler display for historical comments to avoid expensive lookups.
-     */
-    const getCellDisplayName = (cellIdState: CellIdGlobalState | string): string => {
-        // Handle legacy string format (shouldn't happen after migration, but just in case)
-        if (typeof cellIdState === "string") {
-            const parts = cellIdState.split(":");
-            const finalPart = parts[parts.length - 1] || cellIdState;
-            return cellIdState.length < 10 ? cellIdState : finalPart;
-        }
-
-        // New format: CellIdGlobalState object
-        // Priority 1: Use the new display fields if all are available
-        if (cellIdState.fileDisplayName && cellIdState.milestoneValue && cellIdState.cellLineNumber) {
-            return `${cellIdState.fileDisplayName} · ${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
-        }
-
-        // Priority 2: Partial display info - show what we have
-        if (cellIdState.milestoneValue && cellIdState.cellLineNumber) {
-            return `${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
-        }
-
-        if (cellIdState.fileDisplayName && cellIdState.cellLineNumber) {
-            return `${cellIdState.fileDisplayName} · Line ${cellIdState.cellLineNumber}`;
-        }
-
-        // Priority 3: Use globalReferences if available (for stored comments)
-        if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
-            // For stored comments with globalReferences, show them nicely
-            // Extract just the reference part (e.g., "GEN 1:1" -> "Gen 1:1" or "NUM 1:7" -> "Num 1:7")
-            const formatted = cellIdState.globalReferences.map((ref) => {
-                // Capitalize first letter, lowercase rest: "NUM 1:7" -> "Num 1:7"
-                const parts = ref.split(" ");
-                if (parts.length >= 2) {
-                    const book = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
-                    return `${book} ${parts.slice(1).join(" ")}`;
-                }
-                return ref;
-            });
-            return formatted.join(", ");
-        }
-
-        // Priority 4: Fall back to shortened cellId
-        const currentCellId = cellIdState.cellId;
-        if (currentCellId.length > 10) {
-            // Show last 8 characters for UUIDs
-            return `...${currentCellId.slice(-8)}`;
-        }
-
-        return currentCellId || "Unknown cell";
-    };
+    const getCellDisplayName = getCellDisplayLabel;
 
     const filteredCommentThreads = useMemo(() => {
         // First, get all non-deleted threads
