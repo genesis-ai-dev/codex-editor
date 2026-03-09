@@ -11,6 +11,14 @@
             "request": "launch",
             "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
             "outFiles": ["${workspaceFolder}/out/**/*.js"],
+            "preLaunchTask": "npm: watch"
+        },
+        {
+            "name": "Run Extension with child sessions",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+            "outFiles": ["${workspaceFolder}/out/**/*.js"],
             "debugWebviews": true,
             "trace": true,
             "preLaunchTask": "npm: watch"
