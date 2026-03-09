@@ -632,13 +632,13 @@ export async function updateMetadataFile() {
             const newLanguages = project.languages || [null, null];
             const configSource = projectSettings.get<any>("sourceLanguage");
             const configTarget = projectSettings.get<any>("targetLanguage");
-            // Only overwrite from config if the config value has meaningful content
-            // (i.e., has a 'tag' property). The default from package.json is {} which
-            // would otherwise destroy LanguageMetadata objects already in metadata.json.
-            if (configSource && configSource.tag) {
+            // Only overwrite from config if the config value has meaningful content.
+            // Accept strings (legacy) and non-empty objects (LanguageMetadata), but
+            // reject empty {} defaults from package.json that would destroy real data.
+            if (configSource && (typeof configSource === "string" || Object.keys(configSource).length > 0)) {
                 newLanguages[0] = configSource;
             }
-            if (configTarget && configTarget.tag) {
+            if (configTarget && (typeof configTarget === "string" || Object.keys(configTarget).length > 0)) {
                 newLanguages[1] = configTarget;
             }
             project.languages = newLanguages;

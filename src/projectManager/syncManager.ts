@@ -1140,7 +1140,7 @@ export class SyncManager {
 
             const sqliteIndex = getSQLiteIndexManager();
             if (!sqliteIndex) {
-                console.error("❌ SQLite index manager not available");
+                console.debug("SQLite index manager not available");
                 return;
             }
 
