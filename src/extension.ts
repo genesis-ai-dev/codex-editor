@@ -474,6 +474,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
         // Initialize extension based on workspace state
+        const pendingOpenSourceUploader = context.globalState.get<boolean>("pendingOpenSourceUploader");
         const workspaceStart = globalThis.performance.now();
         if (workspaceFolders && workspaceFolders.length > 0) {
             if (!vscode.workspace.isTrusted) {
@@ -496,17 +497,33 @@ export async function activate(context: vscode.ExtensionContext) {
             if (pendingCreate) {
                 const pendingName = context.globalState.get<string>("pendingProjectCreateName");
                 const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
+                const pendingSourceLangStr = context.globalState.get<string>("pendingProjectCreateSourceLanguage");
+                const pendingTargetLangStr = context.globalState.get<string>("pendingProjectCreateTargetLanguage");
+                const pendingCategory = context.globalState.get<string>("pendingProjectCreateCategory");
                 console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
 
                 // Clear flags
+                await context.globalState.update("pendingOpenSourceUploader", undefined);
                 await context.globalState.update("pendingProjectCreate", undefined);
                 await context.globalState.update("pendingProjectCreateName", undefined);
                 await context.globalState.update("pendingProjectCreateId", undefined);
+                await context.globalState.update("pendingProjectCreateSourceLanguage", undefined);
+                await context.globalState.update("pendingProjectCreateTargetLanguage", undefined);
+                await context.globalState.update("pendingProjectCreateCategory", undefined);
+                await context.globalState.update("pendingOpenSourceUploader", undefined);
 
                 try {
                     // We are in the new folder. Initialize it.
                     const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
-                    await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
+                    const sourceLanguage = pendingSourceLangStr ? JSON.parse(pendingSourceLangStr) : undefined;
+                    const targetLanguage = pendingTargetLangStr ? JSON.parse(pendingTargetLangStr) : undefined;
+                    await createNewProject({
+                        projectName: pendingName,
+                        projectId: pendingProjectId,
+                        sourceLanguage,
+                        targetLanguage,
+                        projectCategory: pendingCategory,
+                    });
                 } catch (error) {
                     console.error("Failed to resume project creation:", error);
                     vscode.window.showErrorMessage("Failed to create project after reload.");
@@ -577,6 +594,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Initialize A/B testing registry (always-on)
         initializeABTesting();
+
+        // If this activation follows a "create for upload" project creation, open the source uploader
+        if (pendingOpenSourceUploader) {
+            await vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+        }
 
         // Track total time for core components
         stepStart = trackTiming("Loading Core Components", coreComponentsStart);
