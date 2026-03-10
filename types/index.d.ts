@@ -190,6 +190,7 @@ type CommentPostMessages =
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
     | { command: "undoCommentDeletion"; args: { commentId: string; commentThreadId: string; }; }
+    | { command: "updateSingleThread"; thread: NotebookCommentThread; }
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }

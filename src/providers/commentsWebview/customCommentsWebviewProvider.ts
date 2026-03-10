@@ -28,8 +28,11 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     // In-memory comment cache (like .codex files)
     private _inMemoryComments: NotebookCommentThread[] = [];
     private _isDirty: boolean = false;
-    private _pendingChanges: Set<string> = new Set(); // Track which threads have pending changes
+    private _pendingChanges: Set<string> = new Set();
     private _isInitialized: boolean = false;
+
+    // Cache parsed CodexCellDocuments to avoid re-reading .codex files on every enrichment
+    private _documentCache: Map<string, CodexCellDocument> = new Map();
 
     constructor(context: vscode.ExtensionContext) {
         super(context);
@@ -422,7 +425,19 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             }
         });
 
-        this._context.subscriptions.push(commentsWatcher, legacyCommentsWatcher);
+        // Invalidate document cache when .codex files change so enrichment stays fresh
+        const codexFileWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], "**/*.codex")
+        );
+
+        const invalidateDocCache = (uri: vscode.Uri) => {
+            this._documentCache.delete(uri.toString());
+        };
+        codexFileWatcher.onDidChange(invalidateDocCache);
+        codexFileWatcher.onDidDelete(invalidateDocCache);
+        codexFileWatcher.onDidCreate(invalidateDocCache);
+
+        this._context.subscriptions.push(commentsWatcher, legacyCommentsWatcher, codexFileWatcher);
 
         // Clean up state store listener when webview is disposed
         webviewView.onDidDispose(() => {
@@ -501,7 +516,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change (like immediate save, but with merge protection)
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(threadWithRelativePaths.id);
                     break;
                 }
                 case "deleteCommentThread": {
@@ -533,7 +548,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(commentThreadId);
                     break;
                 }
                 case "deleteComment": {
@@ -558,7 +573,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(commentThreadId);
                     break;
                 }
                 case "undoCommentDeletion": {
@@ -583,7 +598,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(commentThreadId);
                     break;
                 }
                 case "fetchComments": {
@@ -844,71 +859,73 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     /**
-     * Enrich comments with display information (fileDisplayName, milestoneValue, cellLineNumber)
-     * calculated at runtime from the documents
+     * Load a CodexCellDocument from the cache, or read from disk and cache it.
+     * Returns undefined if the file cannot be read.
+     */
+    private async getOrLoadDocument(fullUri: vscode.Uri): Promise<CodexCellDocument | undefined> {
+        const key = fullUri.toString();
+        const cached = this._documentCache.get(key);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const fileContent = await workspace.fs.readFile(fullUri);
+            const content = new TextDecoder().decode(fileContent);
+            const doc = new CodexCellDocument(fullUri, content);
+            this._documentCache.set(key, doc);
+            return doc;
+        } catch (error) {
+            debug(`Could not load document for ${key}:`, error);
+            return undefined;
+        }
+    }
+
+    /**
+     * Enrich a single thread with display information using the document cache.
+     */
+    private async enrichSingleThread(thread: NotebookCommentThread): Promise<NotebookCommentThread> {
+        const workspaceFolder = workspace.workspaceFolders?.[0];
+        if (!workspaceFolder || !thread.cellId?.cellId || !thread.cellId?.uri) {
+            return thread;
+        }
+
+        try {
+            const fullUri = vscode.Uri.joinPath(workspaceFolder.uri, thread.cellId.uri);
+            const doc = await this.getOrLoadDocument(fullUri);
+            if (!doc) {
+                return thread;
+            }
+
+            const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(
+                thread.cellId.cellId,
+                doc
+            );
+
+            return {
+                ...thread,
+                cellId: {
+                    ...thread.cellId,
+                    fileDisplayName: displayInfo.fileDisplayName,
+                    milestoneValue: displayInfo.milestoneValue,
+                    cellLineNumber: displayInfo.cellLineNumber,
+                    cellLabel: displayInfo.cellLabel,
+                },
+            };
+        } catch (error) {
+            debug(`Error enriching comment ${thread.id}:`, error);
+            return thread;
+        }
+    }
+
+    /**
+     * Enrich all comments with display information using the document cache.
      */
     private async enrichCommentsWithDisplayInfo(comments: NotebookCommentThread[]): Promise<NotebookCommentThread[]> {
-        const workspaceFolder = workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            return comments;
-        }
-
         const enrichedComments: NotebookCommentThread[] = [];
-
         for (const thread of comments) {
-            try {
-                // Skip if cellId is missing
-                if (!thread.cellId?.cellId || !thread.cellId?.uri) {
-                    enrichedComments.push(thread);
-                    continue;
-                }
-
-                // NOTE: Always calculate display info at runtime to ensure fresh, accurate data
-                // (Commented out caching to avoid using stale values from JSON)
-                // // If already has all display fields, skip calculation
-                // if (thread.cellId.fileDisplayName && thread.cellId.milestoneValue && thread.cellId.cellLineNumber) {
-                //     enrichedComments.push(thread);
-                //     continue;
-                // }
-
-                // Construct full URI from relative path
-                const fullUri = vscode.Uri.joinPath(workspaceFolder.uri, thread.cellId.uri);
-                
-                // Load the document
-                let doc: CodexCellDocument | undefined;
-                try {
-                    const fileContent = await workspace.fs.readFile(fullUri);
-                    const content = new TextDecoder().decode(fileContent);
-                    doc = new CodexCellDocument(fullUri, content);
-                } catch (error) {
-                    debug(`Could not load document for ${thread.cellId.uri}:`, error);
-                    enrichedComments.push(thread);
-                    continue;
-                }
-
-                // Calculate display info
-                const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(
-                    thread.cellId.cellId,
-                    doc
-                );
-
-                // Create enriched thread with display info
-                enrichedComments.push({
-                    ...thread,
-                    cellId: {
-                        ...thread.cellId,
-                        fileDisplayName: displayInfo.fileDisplayName,
-                        milestoneValue: displayInfo.milestoneValue,
-                        cellLineNumber: displayInfo.cellLineNumber,
-                        cellLabel: displayInfo.cellLabel,
-                    },
-                });
-            } catch (error) {
-                debug(`Error enriching comment ${thread.id}:`, error);
-                enrichedComments.push(thread);
-            }
+            enrichedComments.push(await this.enrichSingleThread(thread));
         }
-
         return enrichedComments;
     }
 
@@ -924,7 +941,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             
             // Use JSON.stringify directly to preserve all fields (including ephemeral display info)
             // Note: formatCommentsForStorage is only for disk writes, not webview transmission
-            const content = JSON.stringify(enrichedComments, null, 2);
+            const content = JSON.stringify(enrichedComments);
 
             safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
@@ -944,6 +961,23 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             } as CommentPostMessages);
             this.lastSentComments = "[]";
         }
+    }
+
+    /**
+     * Send a single enriched thread update to the webview instead of the full list.
+     * Used after mutations to avoid re-enriching and re-serializing all threads.
+     */
+    private async sendSingleThreadUpdate(threadId: string): Promise<void> {
+        if (!this._view) return;
+
+        const thread = this._inMemoryComments.find(t => t.id === threadId);
+        if (!thread) return;
+
+        const enriched = await this.enrichSingleThread(thread);
+        safePostMessageToView(this._view, {
+            command: "updateSingleThread",
+            thread: enriched,
+        } as CommentPostMessages);
     }
 
     private async sendCurrentCellId(webviewView: vscode.WebviewView) {

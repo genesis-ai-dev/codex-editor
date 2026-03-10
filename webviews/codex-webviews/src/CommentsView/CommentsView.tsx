@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
     MessageSquare,
     Search,
@@ -35,6 +35,7 @@ import {
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import bibleBooksData from "../assets/bible-books-lookup.json";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -614,55 +615,168 @@ const ThreadCard = ({
     </Card>
 );
 
+type GroupedListItem =
+    | { type: "file-header"; key: string; fileName: string }
+    | { type: "milestone-header"; key: string; milestoneName: string }
+    | { type: "thread"; key: string; thread: NotebookCommentThread };
+
 interface LocationGroupedCommentsProps {
     threads: NotebookCommentThread[];
     getMissingLabel: (type: "file" | "milestone" | "cell") => string;
     threadCardBaseProps: Omit<ThreadCardProps, "thread">;
+    scrollContainerRef: { current: HTMLDivElement | null };
 }
 
 const LocationGroupedComments = ({
     threads,
     getMissingLabel,
     threadCardBaseProps,
+    scrollContainerRef,
 }: LocationGroupedCommentsProps) => {
-    // Group by file, then milestone
-    const grouped = threads.reduce(
-        (acc, thread) => {
-            const file = thread.cellId.fileDisplayName || getMissingLabel("file");
-            const milestone = thread.cellId.milestoneValue || getMissingLabel("milestone");
+    const flatItems = useMemo(() => {
+        const grouped = threads.reduce(
+            (acc, thread) => {
+                const file = thread.cellId.fileDisplayName || getMissingLabel("file");
+                const milestone = thread.cellId.milestoneValue || getMissingLabel("milestone");
 
-            if (!acc[file]) acc[file] = {};
-            if (!acc[file][milestone]) acc[file][milestone] = [];
-            acc[file][milestone].push(thread);
+                if (!acc[file]) acc[file] = {};
+                if (!acc[file][milestone]) acc[file][milestone] = [];
+                acc[file][milestone].push(thread);
 
-            return acc;
+                return acc;
+            },
+            {} as Record<string, Record<string, NotebookCommentThread[]>>
+        );
+
+        const items: GroupedListItem[] = [];
+        Object.entries(grouped).forEach(([fileName, milestones]) => {
+            items.push({ type: "file-header", key: `file-${fileName}`, fileName });
+            Object.entries(milestones).forEach(([milestoneName, threadsInMilestone]) => {
+                items.push({
+                    type: "milestone-header",
+                    key: `milestone-${fileName}-${milestoneName}`,
+                    milestoneName,
+                });
+                threadsInMilestone.forEach((thread) => {
+                    items.push({ type: "thread", key: thread.id, thread });
+                });
+            });
+        });
+        return items;
+    }, [threads, getMissingLabel]);
+
+    const virtualizer = useVirtualizer({
+        count: flatItems.length,
+        getScrollElement: () => scrollContainerRef.current,
+        estimateSize: (index) => {
+            const item = flatItems[index];
+            switch (item.type) {
+                case "file-header":
+                    return 36;
+                case "milestone-header":
+                    return 28;
+                case "thread":
+                    return 120;
+            }
         },
-        {} as Record<string, Record<string, NotebookCommentThread[]>>
-    );
+        overscan: 5,
+        getItemKey: (index) => flatItems[index].key,
+    });
 
     return (
-        <div className="flex flex-col gap-2">
-            {Object.entries(grouped).map(([fileName, milestones]) => (
-                <div key={fileName} className="flex flex-col">
-                    <div className="px-4 py-2 bg-muted/30 font-semibold text-sm sticky top-0 z-10">
-                        {fileName}
-                    </div>
-                    {Object.entries(milestones).map(([milestoneName, threadsInMilestone]) => (
-                        <div key={`${fileName}-${milestoneName}`} className="flex flex-col">
+        <div
+            style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+            }}
+        >
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+                const item = flatItems[virtualItem.index];
+                return (
+                    <div
+                        key={item.key}
+                        data-index={virtualItem.index}
+                        ref={virtualizer.measureElement}
+                        style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            transform: `translateY(${virtualItem.start}px)`,
+                        }}
+                    >
+                        {item.type === "file-header" && (
+                            <div className="px-4 py-2 bg-muted/30 font-semibold text-sm">
+                                {item.fileName}
+                            </div>
+                        )}
+                        {item.type === "milestone-header" && (
                             <div className="px-6 py-1.5 bg-muted/20 font-medium text-xs text-muted-foreground">
-                                {milestoneName}
+                                {item.milestoneName}
                             </div>
-                            <div className="ml-8 flex flex-col gap-2 mb-2">
-                                {threadsInMilestone.map((thread) => (
-                                    <ThreadCard
-                                        key={thread.id}
-                                        thread={thread}
-                                        {...threadCardBaseProps}
-                                    />
-                                ))}
+                        )}
+                        {item.type === "thread" && (
+                            <div className="ml-8 pb-2">
+                                <ThreadCard
+                                    thread={item.thread}
+                                    {...threadCardBaseProps}
+                                />
                             </div>
-                        </div>
-                    ))}
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+interface VirtualizedThreadListProps {
+    threads: NotebookCommentThread[];
+    threadCardBaseProps: Omit<ThreadCardProps, "thread">;
+    scrollContainerRef: { current: HTMLDivElement | null };
+}
+
+const VirtualizedThreadList = ({
+    threads,
+    threadCardBaseProps,
+    scrollContainerRef,
+}: VirtualizedThreadListProps) => {
+    const virtualizer = useVirtualizer({
+        count: threads.length,
+        getScrollElement: () => scrollContainerRef.current,
+        estimateSize: () => 120,
+        overscan: 5,
+        getItemKey: (index) => threads[index].id,
+    });
+
+    return (
+        <div
+            style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+            }}
+        >
+            {virtualizer.getVirtualItems().map((virtualItem) => (
+                <div
+                    key={threads[virtualItem.index].id}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                >
+                    <div className="pb-3">
+                        <ThreadCard
+                            thread={threads[virtualItem.index]}
+                            {...threadCardBaseProps}
+                        />
+                    </div>
                 </div>
             ))}
         </div>
@@ -718,6 +832,8 @@ function App() {
 
     // Sort configuration
     const [sortMode, setSortMode] = useState<SortMode>("location");
+
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
         const resolvedEvents = thread.resolvedEvent || [];
@@ -861,6 +977,21 @@ function App() {
                             uri: message.data.uri || "",
                             globalReferences: message.data.globalReferences || [],
                         });
+                    }
+                    break;
+                }
+                case "updateSingleThread": {
+                    if (message.thread) {
+                        setCommentThread((prev) => {
+                            const idx = prev.findIndex((t) => t.id === message.thread.id);
+                            if (idx !== -1) {
+                                const next = [...prev];
+                                next[idx] = message.thread;
+                                return next;
+                            }
+                            return [...prev, message.thread];
+                        });
+                        setPendingResolveThreads(new Set());
                     }
                     break;
                 }
@@ -1456,23 +1587,20 @@ function App() {
 
                 {/* Comment list */}
                 {filteredCommentThreads.length > 0 && (
-                    <div className="flex-1 overflow-y-auto p-2">
+                    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-2">
                         {sortMode === "location" && viewMode === "all" ? (
                             <LocationGroupedComments
                                 threads={filteredCommentThreads}
                                 getMissingLabel={getMissingLabel}
                                 threadCardBaseProps={threadCardBaseProps}
+                                scrollContainerRef={scrollContainerRef}
                             />
                         ) : (
-                            <div className="flex flex-col gap-3">
-                                {filteredCommentThreads.map((thread) => (
-                                    <ThreadCard
-                                        key={thread.id}
-                                        thread={thread}
-                                        {...threadCardBaseProps}
-                                    />
-                                ))}
-                            </div>
+                            <VirtualizedThreadList
+                                threads={filteredCommentThreads}
+                                threadCardBaseProps={threadCardBaseProps}
+                                scrollContainerRef={scrollContainerRef}
+                            />
                         )}
                     </div>
                 )}
