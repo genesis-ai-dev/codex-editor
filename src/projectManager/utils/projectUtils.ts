@@ -913,7 +913,8 @@ export async function syncMetadataToConfiguration() {
                 );
 
                 // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+                const { getSyncSettings } = await import("../../utils/localProjectSettings");
+                const { autoSyncEnabled } = await getSyncSettings();
 
                 if (autoSyncEnabled) {
                     SyncManager.getInstance().scheduleSyncOperation(
@@ -958,9 +959,10 @@ export async function syncMetadataToConfiguration() {
                 );
 
                 // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+                const { getSyncSettings: getSyncSettings2 } = await import("../../utils/localProjectSettings");
+                const syncSettings = await getSyncSettings2();
 
-                if (autoSyncEnabled) {
+                if (syncSettings.autoSyncEnabled) {
                     SyncManager.getInstance().scheduleSyncOperation(
                         "Update project configuration from metadata"
                     );
