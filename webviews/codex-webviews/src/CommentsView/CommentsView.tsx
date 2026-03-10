@@ -1572,66 +1572,63 @@ function App() {
                     </Card>
                 )}
 
-                {/* Empty states */}
-                {filteredCommentThreads.length === 0 && (
-                    <div className="flex flex-col items-center justify-center p-12 text-muted-foreground text-center gap-4 flex-1">
-                        {viewMode === "cell" && cellId.cellId ? (
-                            <>
-                                <MessageSquare className="h-8 w-8 opacity-60" />
-                                <div>
-                                    <div className="mb-2 text-base">No comments on this cell</div>
-                                    <div className="text-sm">
-                                        Be the first to start a conversation here
+                {/* Scroll container is always mounted so the ref stays stable for the virtualizer */}
+                <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-2">
+                    {filteredCommentThreads.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center min-h-full text-muted-foreground text-center gap-4">
+                            {viewMode === "cell" && cellId.cellId ? (
+                                <>
+                                    <MessageSquare className="h-8 w-8 opacity-60" />
+                                    <div>
+                                        <div className="mb-2 text-base">
+                                            No comments on this cell
+                                        </div>
+                                        <div className="text-sm">
+                                            Be the first to start a conversation here
+                                        </div>
                                     </div>
-                                </div>
-                            </>
-                        ) : searchQuery.length > 0 ? (
-                            <>
-                                <Search className="h-8 w-8 opacity-60" />
-                                <div>
-                                    <div className="mb-2 text-base">No results found</div>
-                                    <div className="text-sm">
-                                        Try a different search or view all comments
+                                </>
+                            ) : searchQuery.length > 0 ? (
+                                <>
+                                    <Search className="h-8 w-8 opacity-60" />
+                                    <div>
+                                        <div className="mb-2 text-base">No results found</div>
+                                        <div className="text-sm">
+                                            Try a different search or view all comments
+                                        </div>
                                     </div>
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <MessageSquare className="h-8 w-8 opacity-60" />
-                                <div>
-                                    <div className="mb-2 text-base">No comments yet</div>
-                                    <div className="text-sm">
-                                        Start the conversation by adding a comment
+                                </>
+                            ) : (
+                                <>
+                                    <MessageSquare className="h-8 w-8 opacity-60" />
+                                    <div>
+                                        <div className="mb-2 text-base">No comments yet</div>
+                                        <div className="text-sm">
+                                            Start the conversation by adding a comment
+                                        </div>
                                     </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                )}
-
-                {/* Comment list */}
-                {filteredCommentThreads.length > 0 && (
-                    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-2">
-                        {sortMode === "location" && viewMode === "all" ? (
-                            <LocationGroupedComments
-                                threads={filteredCommentThreads}
-                                getMissingLabel={getMissingLabel}
-                                threadCardBaseProps={threadCardBaseProps}
-                                replyText={replyText}
-                                collapsedThreads={collapsedThreads}
-                                scrollContainerRef={scrollContainerRef}
-                            />
-                        ) : (
-                            <VirtualizedThreadList
-                                threads={filteredCommentThreads}
-                                threadCardBaseProps={threadCardBaseProps}
-                                replyText={replyText}
-                                collapsedThreads={collapsedThreads}
-                                scrollContainerRef={scrollContainerRef}
-                            />
-                        )}
-                    </div>
-                )}
+                                </>
+                            )}
+                        </div>
+                    ) : sortMode === "location" && viewMode === "all" ? (
+                        <LocationGroupedComments
+                            threads={filteredCommentThreads}
+                            getMissingLabel={getMissingLabel}
+                            threadCardBaseProps={threadCardBaseProps}
+                            replyText={replyText}
+                            collapsedThreads={collapsedThreads}
+                            scrollContainerRef={scrollContainerRef}
+                        />
+                    ) : (
+                        <VirtualizedThreadList
+                            threads={filteredCommentThreads}
+                            threadCardBaseProps={threadCardBaseProps}
+                            replyText={replyText}
+                            collapsedThreads={collapsedThreads}
+                            scrollContainerRef={scrollContainerRef}
+                        />
+                    )}
+                </div>
 
                 {/* Resolved threads banner */}
                 {hiddenResolvedThreadsCount > 0 && (
