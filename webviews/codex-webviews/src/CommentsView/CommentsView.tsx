@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import {
     MessageSquare,
     Search,
@@ -216,7 +216,7 @@ interface CommentCardProps {
     onUndoDeleteComment: (commentId: string, commentThreadId: string) => void;
 }
 
-const CommentCard = ({
+const CommentCard = memo(({
     thread,
     comment,
     currentUser,
@@ -311,14 +311,14 @@ const CommentCard = ({
             )}
         </div>
     );
-};
+});
 
 interface ThreadCardProps {
     thread: NotebookCommentThread;
-    collapsedThreads: Record<string, boolean>;
+    isCollapsed: boolean;
+    threadReplyText: string;
     editingTitle: string | null;
     threadTitleEdit: string;
-    replyText: Record<string, string>;
     replyingTo: { threadId: string; username?: string } | null;
     pendingResolveThreads: Set<string>;
     currentUser: { username: string; email: string; isAuthenticated: boolean };
@@ -329,7 +329,7 @@ interface ThreadCardProps {
     onSetThreadTitleEdit: (title: string) => void;
     onSaveEditTitle: (threadId: string) => void;
     onToggleResolved: (thread: NotebookCommentThread) => void;
-    onSetReplyText: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
+    onSetThreadReplyText: (threadId: string, text: string) => void;
     onSetReplyingTo: (value: { threadId: string; username?: string } | null) => void;
     onSubmitReply: (threadId: string) => void;
     onReplyToComment: (comment: Comment, threadId: string) => void;
@@ -337,12 +337,12 @@ interface ThreadCardProps {
     onUndoDeleteComment: (commentId: string, commentThreadId: string) => void;
 }
 
-const ThreadCard = ({
+const ThreadCard = memo(({
     thread,
-    collapsedThreads,
+    isCollapsed,
+    threadReplyText,
     editingTitle,
     threadTitleEdit,
-    replyText,
     replyingTo,
     pendingResolveThreads,
     currentUser,
@@ -353,7 +353,7 @@ const ThreadCard = ({
     onSetThreadTitleEdit,
     onSaveEditTitle,
     onToggleResolved,
-    onSetReplyText,
+    onSetThreadReplyText,
     onSetReplyingTo,
     onSubmitReply,
     onReplyToComment,
@@ -372,7 +372,7 @@ const ThreadCard = ({
         >
             <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                    {collapsedThreads[thread.id] ? (
+                    {isCollapsed ? (
                         <ChevronRight className="h-4 w-4" />
                     ) : (
                         <ChevronDown className="h-4 w-4" />
@@ -508,7 +508,7 @@ const ThreadCard = ({
         </CardHeader>
 
         {/* Comments section */}
-        {!collapsedThreads[thread.id] && (
+        {!isCollapsed && (
             <CardContent className="p-3">
                 <div className="flex flex-col gap-3">
                     {/* Reply form at top */}
@@ -531,10 +531,7 @@ const ThreadCard = ({
                                             className="h-4 w-4 p-0 ml-auto"
                                             onClick={() => {
                                                 onSetReplyingTo(null);
-                                                onSetReplyText((prev) => ({
-                                                    ...prev,
-                                                    [thread.id]: "",
-                                                }));
+                                                onSetThreadReplyText(thread.id, "");
                                             }}
                                         >
                                             <X className="h-3 w-3" />
@@ -545,12 +542,12 @@ const ThreadCard = ({
                                 <div className="flex gap-2">
                                     <textarea
                                         placeholder="Add a reply..."
-                                        value={replyText[thread.id] || ""}
+                                        value={threadReplyText}
                                         className="flex-1 resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] max-h-32"
                                         rows={
-                                            replyText[thread.id]?.includes("\n")
+                                            threadReplyText.includes("\n")
                                                 ? Math.min(
-                                                      replyText[thread.id].split("\n").length,
+                                                      threadReplyText.split("\n").length,
                                                       5
                                                   )
                                                 : 1
@@ -561,18 +558,11 @@ const ThreadCard = ({
                                                 onSubmitReply(thread.id);
                                             } else if (e.key === "Escape") {
                                                 onSetReplyingTo(null);
-                                                onSetReplyText((prev) => ({
-                                                    ...prev,
-                                                    [thread.id]: "",
-                                                }));
+                                                onSetThreadReplyText(thread.id, "");
                                             }
                                         }}
                                         onChange={(e) => {
-                                            const value = e.target.value;
-                                            onSetReplyText((prev) => ({
-                                                ...prev,
-                                                [thread.id]: value,
-                                            }));
+                                            onSetThreadReplyText(thread.id, e.target.value);
                                         }}
                                     />
 
@@ -582,7 +572,7 @@ const ThreadCard = ({
                                         className="h-8 w-8 p-0 self-end"
                                         onClick={() => onSubmitReply(thread.id)}
                                         title="Send reply"
-                                        disabled={!replyText[thread.id]?.trim()}
+                                        disabled={!threadReplyText.trim()}
                                     >
                                         <Send className="h-4 w-4" />
                                     </Button>
@@ -613,7 +603,7 @@ const ThreadCard = ({
             </CardContent>
         )}
     </Card>
-);
+));
 
 type GroupedListItem =
     | { type: "file-header"; key: string; fileName: string }
@@ -623,7 +613,9 @@ type GroupedListItem =
 interface LocationGroupedCommentsProps {
     threads: NotebookCommentThread[];
     getMissingLabel: (type: "file" | "milestone" | "cell") => string;
-    threadCardBaseProps: Omit<ThreadCardProps, "thread">;
+    threadCardBaseProps: Omit<ThreadCardProps, "thread" | "threadReplyText" | "isCollapsed">;
+    replyText: Record<string, string>;
+    collapsedThreads: Record<string, boolean>;
     scrollContainerRef: { current: HTMLDivElement | null };
 }
 
@@ -631,6 +623,8 @@ const LocationGroupedComments = ({
     threads,
     getMissingLabel,
     threadCardBaseProps,
+    replyText,
+    collapsedThreads,
     scrollContainerRef,
 }: LocationGroupedCommentsProps) => {
     const flatItems = useMemo(() => {
@@ -720,6 +714,8 @@ const LocationGroupedComments = ({
                             <div className="ml-8 pb-2">
                                 <ThreadCard
                                     thread={item.thread}
+                                    threadReplyText={replyText[item.thread.id] || ""}
+                                    isCollapsed={!!collapsedThreads[item.thread.id]}
                                     {...threadCardBaseProps}
                                 />
                             </div>
@@ -733,13 +729,17 @@ const LocationGroupedComments = ({
 
 interface VirtualizedThreadListProps {
     threads: NotebookCommentThread[];
-    threadCardBaseProps: Omit<ThreadCardProps, "thread">;
+    threadCardBaseProps: Omit<ThreadCardProps, "thread" | "threadReplyText" | "isCollapsed">;
+    replyText: Record<string, string>;
+    collapsedThreads: Record<string, boolean>;
     scrollContainerRef: { current: HTMLDivElement | null };
 }
 
 const VirtualizedThreadList = ({
     threads,
     threadCardBaseProps,
+    replyText,
+    collapsedThreads,
     scrollContainerRef,
 }: VirtualizedThreadListProps) => {
     const virtualizer = useVirtualizer({
@@ -774,6 +774,8 @@ const VirtualizedThreadList = ({
                     <div className="pb-3">
                         <ThreadCard
                             thread={threads[virtualItem.index]}
+                            threadReplyText={replyText[threads[virtualItem.index].id] || ""}
+                            isCollapsed={!!collapsedThreads[threads[virtualItem.index].id]}
                             {...threadCardBaseProps}
                         />
                     </div>
@@ -834,6 +836,18 @@ function App() {
     const [sortMode, setSortMode] = useState<SortMode>("location");
 
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // Refs to keep callbacks stable while reading latest values
+    const replyTextRef = useRef(replyText);
+    replyTextRef.current = replyText;
+    const commentThreadArrayRef = useRef(commentThreadArray);
+    commentThreadArrayRef.current = commentThreadArray;
+    const currentUserRef = useRef(currentUser);
+    currentUserRef.current = currentUser;
+    const cellIdRef = useRef(cellId);
+    cellIdRef.current = cellId;
+    const threadTitleEditRef = useRef(threadTitleEdit);
+    threadTitleEditRef.current = threadTitleEdit;
 
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
         const resolvedEvents = thread.resolvedEvent || [];
@@ -1037,19 +1051,21 @@ function App() {
         };
     }, [handleMessage]);
 
-    const handleReply = (threadId: string) => {
-        if (!replyText[threadId]?.trim() || !currentUser.isAuthenticated) return;
+    const handleReply = useCallback((threadId: string) => {
+        const currentReplyText = replyTextRef.current;
+        const user = currentUserRef.current;
+        if (!currentReplyText[threadId]?.trim() || !user.isAuthenticated) return;
 
-        const existingThread = commentThreadArray.find((thread) => thread.id === threadId);
+        const existingThread = commentThreadArrayRef.current.find((thread) => thread.id === threadId);
         const timestamp = Date.now();
         const newCommentId = `${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
         const comment: Comment = {
             id: newCommentId,
             timestamp: timestamp,
-            body: replyText[threadId],
+            body: currentReplyText[threadId],
             mode: 1,
-            author: { name: currentUser.username },
+            author: { name: user.username },
             deleted: false,
         };
 
@@ -1057,7 +1073,7 @@ function App() {
             ...(existingThread || {
                 id: threadId,
                 canReply: true,
-                cellId: cellId,
+                cellId: cellIdRef.current,
                 collapsibleState: 0,
                 threadTitle: "",
                 deleted: false,
@@ -1073,7 +1089,7 @@ function App() {
 
         setReplyText((prev) => ({ ...prev, [threadId]: "" }));
         setReplyingTo(null);
-    };
+    }, []);
 
     const handleThreadDeletion = (commentThreadId: string) => {
         vscode.postMessage({
@@ -1082,19 +1098,19 @@ function App() {
         } as CommentPostMessages);
     };
 
-    const handleCommentDeletion = (commentId: string, commentThreadId: string) => {
+    const handleCommentDeletion = useCallback((commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "deleteComment",
             args: { commentId, commentThreadId },
         } as CommentPostMessages);
-    };
+    }, []);
 
-    const handleUndoCommentDeletion = (commentId: string, commentThreadId: string) => {
+    const handleUndoCommentDeletion = useCallback((commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "undoCommentDeletion",
             args: { commentId, commentThreadId },
         } as CommentPostMessages);
-    };
+    }, []);
 
     const handleNewComment = () => {
         if (!newCommentText.trim() || !cellId.cellId || !currentUser.isAuthenticated) return;
@@ -1134,15 +1150,16 @@ function App() {
         setShowNewCommentForm(false);
     };
 
-    const handleEditThreadTitle = (threadId: string) => {
-        if (!threadTitleEdit.trim()) return;
+    const handleEditThreadTitle = useCallback((threadId: string) => {
+        const title = threadTitleEditRef.current;
+        if (!title.trim()) return;
 
-        const existingThread = commentThreadArray.find((thread) => thread.id === threadId);
+        const existingThread = commentThreadArrayRef.current.find((thread) => thread.id === threadId);
         if (!existingThread) return;
 
         const updatedThread = {
             ...existingThread,
-            threadTitle: threadTitleEdit.trim(),
+            threadTitle: title.trim(),
         };
 
         vscode.postMessage({
@@ -1152,26 +1169,24 @@ function App() {
 
         setEditingTitle(null);
         setThreadTitleEdit("");
-    };
+    }, []);
 
-    const toggleResolved = (thread: NotebookCommentThread) => {
+    const toggleResolved = useCallback((thread: NotebookCommentThread) => {
         setPendingResolveThreads((prev) => {
             const next = new Set(prev);
             next.add(thread.id);
             return next;
         });
 
-        // Determine if thread is currently resolved (latest event determines state)
         const isCurrentlyResolved = isThreadResolved(thread);
 
-        // Add new event with opposite state and current timestamp
         const updatedThread = {
             ...thread,
             resolvedEvent: [
                 ...(thread.resolvedEvent || []),
                 {
                     timestamp: Date.now(),
-                    author: { name: currentUser?.username || "Unknown" },
+                    author: { name: currentUserRef.current?.username || "Unknown" },
                     resolved: !isCurrentlyResolved,
                 },
             ],
@@ -1182,14 +1197,14 @@ function App() {
             command: "updateCommentThread",
             commentThread: updatedThread,
         } as CommentPostMessages);
-    };
+    }, [isThreadResolved]);
 
-    const toggleCollapsed = (threadId: string) => {
+    const toggleCollapsed = useCallback((threadId: string) => {
         setCollapsedThreads((prev) => ({
             ...prev,
             [threadId]: !prev[threadId],
         }));
-    };
+    }, []);
 
     const toggleAllThreads = (collapse: boolean) => {
         const newState: Record<string, boolean> = {};
@@ -1212,7 +1227,7 @@ function App() {
      * This is intentional - we want fresh data for the current cell, but we fall back
      * to simpler display for historical comments to avoid expensive lookups.
      */
-    const getCellDisplayName = (cellIdState: CellIdGlobalState | string): string => {
+    const getCellDisplayName = useCallback((cellIdState: CellIdGlobalState | string): string => {
         // Handle legacy string format (shouldn't happen after migration, but just in case)
         if (typeof cellIdState === "string") {
             const parts = cellIdState.split(":");
@@ -1259,7 +1274,7 @@ function App() {
         }
 
         return currentCellId || "Unknown cell";
-    };
+    }, []);
 
     const filteredCommentThreads = useMemo(() => {
         // First, get all non-deleted threads
@@ -1319,21 +1334,24 @@ function App() {
     // Whether a user can start a new top-level comment thread (requires auth and active cell)
     const canStartNewComment = currentUser.isAuthenticated && Boolean(cellId.cellId);
 
-    const handleReplyToComment = (comment: Comment, threadId: string) => {
+    const handleReplyToComment = useCallback((comment: Comment, threadId: string) => {
         const quotedText = `> ${comment.body.replace(/\n/g, "\n> ")}\n\n`;
         setReplyText((prev) => ({
             ...prev,
             [threadId]: quotedText,
         }));
         setReplyingTo({ threadId, username: comment.author.name });
-    };
+    }, []);
 
-    // Props shared by every ThreadCard instance
-    const threadCardBaseProps: Omit<ThreadCardProps, "thread"> = {
-        collapsedThreads,
+    const handleSetThreadReplyText = useCallback((threadId: string, text: string) => {
+        setReplyText((prev) => ({ ...prev, [threadId]: text }));
+    }, []);
+
+    // Props shared by every ThreadCard instance (per-thread values excluded)
+    type ThreadCardSharedProps = Omit<ThreadCardProps, "thread" | "threadReplyText" | "isCollapsed">;
+    const threadCardBaseProps: ThreadCardSharedProps = useMemo(() => ({
         editingTitle,
         threadTitleEdit,
-        replyText,
         replyingTo,
         pendingResolveThreads,
         currentUser,
@@ -1344,13 +1362,19 @@ function App() {
         onSetThreadTitleEdit: setThreadTitleEdit,
         onSaveEditTitle: handleEditThreadTitle,
         onToggleResolved: toggleResolved,
-        onSetReplyText: setReplyText,
+        onSetThreadReplyText: handleSetThreadReplyText,
         onSetReplyingTo: setReplyingTo,
         onSubmitReply: handleReply,
         onReplyToComment: handleReplyToComment,
         onDeleteComment: handleCommentDeletion,
         onUndoDeleteComment: handleUndoCommentDeletion,
-    };
+    }), [
+        editingTitle, threadTitleEdit, replyingTo, pendingResolveThreads,
+        currentUser, isThreadResolved, getCellDisplayName,
+        toggleCollapsed, handleEditThreadTitle, toggleResolved,
+        handleSetThreadReplyText, handleReply, handleReplyToComment,
+        handleCommentDeletion, handleUndoCommentDeletion,
+    ]);
 
     return (
         <TooltipProvider>
@@ -1593,12 +1617,16 @@ function App() {
                                 threads={filteredCommentThreads}
                                 getMissingLabel={getMissingLabel}
                                 threadCardBaseProps={threadCardBaseProps}
+                                replyText={replyText}
+                                collapsedThreads={collapsedThreads}
                                 scrollContainerRef={scrollContainerRef}
                             />
                         ) : (
                             <VirtualizedThreadList
                                 threads={filteredCommentThreads}
                                 threadCardBaseProps={threadCardBaseProps}
+                                replyText={replyText}
+                                collapsedThreads={collapsedThreads}
                                 scrollContainerRef={scrollContainerRef}
                             />
                         )}
