@@ -275,12 +275,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsSyncStatus"; }
     | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
-    | { command: "project.createEmpty"; }
-    | { command: "project.createEmptyWithName"; projectName: string; }
-    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; projectId?: string; }
+    | { command: "project.createForUpload"; projectName: string; projectType: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
-    | { command: "metadata.check"; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
     | { command: "startup.dismiss"; }
@@ -374,20 +371,8 @@ export type MessagesFromStartupFlowProvider =
         isOpen: boolean;
         path?: string;
     }
-    | {
-        command: "metadata.checkResponse";
-        data: {
-            exists: boolean;
-            hasCriticalData: boolean;
-            sourceLanguage?: any;
-            targetLanguage?: any;
-            sourceTexts?: string[];
-            chatSystemMessage?: string | null;
-        };
-    }
     | { command: "setupIncompleteCriticalDataMissing"; }
     | { command: "setupComplete"; }
-    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
     | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
     | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
