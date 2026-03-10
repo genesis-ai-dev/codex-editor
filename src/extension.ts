@@ -361,14 +361,27 @@ export async function activate(context: vscode.ExtensionContext) {
         await notebookMetadataManager.initialize();
         stepStart = trackTiming("Loading Project Metadata", metadataStart);
 
-        // Migrate comments early during project startup
-        const migrationStart = globalThis.performance.now();
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        // Check for metadata.json early — this determines if we're in a Codex project
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        let metadataExists = false;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
             try {
-                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+                await vscode.workspace.fs.stat(metadataUri);
+                metadataExists = true;
+            } catch {
+                metadataExists = false;
+            }
+        }
+
+        // Migrate comments early during project startup (only for Codex projects)
+        const migrationStart = globalThis.performance.now();
+        if (metadataExists && workspaceFolders) {
+            try {
+                await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
 
                 // Also repair any existing corrupted data during startup
-                const commentsFilePath = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, ".project", "comments.json");
+                const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
                 CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true).catch(() => {
                     // Silent fallback - don't block startup if repair fails
                 });
@@ -391,9 +404,8 @@ export async function activate(context: vscode.ExtensionContext) {
         // Update git configuration files after Frontier auth is connected
         // This ensures .gitignore and .gitattributes are current when extension starts
         const gitConfigStart = globalThis.performance.now();
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        if (metadataExists) {
             try {
-                // Import and run git config update (only if we have a workspace)
                 const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
                 await ensureGitConfigsAreUpToDate();
                 console.log("[Extension] Git configuration files updated on startup");
@@ -401,7 +413,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 console.error("[Extension] Error updating git config files on startup:", error);
                 // Don't fail startup due to git config update errors
             }
-
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
 
@@ -431,8 +442,7 @@ export async function activate(context: vscode.ExtensionContext) {
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
         // Initialize SqlJs with real-time progress since it loads WASM files
-        // Only initialize database if we have a workspace (database is for project content)
-        const workspaceFolders = vscode.workspace.workspaceFolders;
+        // Only initialize database if we have a workspace with a Codex project
 
         // Check for pending swap downloads (after workspace is ready)
         if (workspaceFolders && workspaceFolders.length > 0) {
@@ -440,11 +450,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 console.error("[Extension] Error checking pending swap downloads:", err);
             });
         }
-        if (workspaceFolders && workspaceFolders.length > 0) {
+        if (metadataExists) {
             startRealtimeStep("AI preparing search capabilities");
             try {
                 global.db = await initializeSqlJs(context);
-
             } catch (error) {
                 console.error("Error initializing SqlJs:", error);
             }
@@ -459,8 +468,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 ingestJsonlDictionaryEntries(global.db);
             }
         } else {
-            // No workspace, skip database initialization
-            stepStart = trackTiming("AI search capabilities (skipped - no workspace)", globalThis.performance.now());
+            stepStart = trackTiming("AI search capabilities (skipped - no Codex project)", globalThis.performance.now());
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -507,15 +515,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
 
-            let metadataExists = false;
-            try {
-                // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
-                await vscode.workspace.fs.stat(metadataUri);
-                metadataExists = true;
-
-                // Note: validateAndFixProjectId is now called AFTER migrations complete
-                // to ensure projectName updates aren't overwritten by migrations
-
+            if (metadataExists) {
                 // Ensure all installed extension versions are recorded in metadata
                 // This handles: 1) Adding missing versions (e.g., frontierAuthentication added after project creation)
                 //               2) Updating to newer versions (never downgrades)
@@ -524,8 +524,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 } catch (error) {
                     console.warn("[Extension] Error ensuring extension version requirements:", error);
                 }
-            } catch {
-                metadataExists = false;
             }
 
             trackTiming("Initializing Workspace", workspaceStart);
@@ -534,11 +532,11 @@ export async function activate(context: vscode.ExtensionContext) {
             await initializeExtension(context, metadataExists);
 
             // Ensure local project settings exist when a Codex project is open
-            try {
-                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            if (metadataExists) {
+                try {
                     // Only ensure settings once a repo is fully initialized (avoid during clone checkout)
                     try {
-                        const projectUri = vscode.workspace.workspaceFolders[0].uri;
+                        const projectUri = workspaceFolders[0].uri;
                         const gitDir = vscode.Uri.joinPath(projectUri, ".git");
                         await vscode.workspace.fs.stat(gitDir);
                         const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
@@ -546,9 +544,9 @@ export async function activate(context: vscode.ExtensionContext) {
                     } catch {
                         // No .git yet; skip until project is fully initialized/opened
                     }
+                } catch (e) {
+                    console.warn("[Extension] Failed to ensure local project settings exist:", e);
                 }
-            } catch (e) {
-                console.warn("[Extension] Failed to ensure local project settings exist:", e);
             }
 
             if (!metadataExists) {
@@ -564,8 +562,10 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register remaining components in parallel
         const coreComponentsStart = globalThis.performance.now();
 
+        if (metadataExists) {
+            registerSmartEditCommands(context);
+        }
         await Promise.all([
-            registerSmartEditCommands(context),
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),
@@ -612,20 +612,25 @@ export async function activate(context: vscode.ExtensionContext) {
         const postActivationStart = globalThis.performance.now();
 
         await executeCommandsAfter(context);
-        // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
-        await temporaryMigrationScript_checkMatthewNotebook();
-        await migration_changeDraftFolderToFilesFolder();
-        await migration_lineNumbersSettings(context);
-        await migration_moveTimestampsToMetadataData(context);
-        await migration_promoteCellTypeToTopLevel(context);
-        await migration_editHistoryFormat(context);
-        await migration_addImporterTypeToMetadata(context);
-        await migration_hoistDocumentContextToNotebookMetadata(context);
-        await migration_addMilestoneCells(context);
-        await migration_reorderMisplacedParatextCells(context);
-        await migration_addGlobalReferences(context);
-        await migration_cellIdsToUuid(context);
-        await migration_recoverTempFilesAndMergeDuplicates(context);
+
+        // Only run migrations in actual Codex projects — they write completion flags
+        // to .vscode/settings.json even when no project files exist
+        if (metadataExists) {
+            // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
+            await temporaryMigrationScript_checkMatthewNotebook();
+            await migration_changeDraftFolderToFilesFolder();
+            await migration_lineNumbersSettings(context);
+            await migration_moveTimestampsToMetadataData(context);
+            await migration_promoteCellTypeToTopLevel(context);
+            await migration_editHistoryFormat(context);
+            await migration_addImporterTypeToMetadata(context);
+            await migration_hoistDocumentContextToNotebookMetadata(context);
+            await migration_addMilestoneCells(context);
+            await migration_reorderMisplacedParatextCells(context);
+            await migration_addGlobalReferences(context);
+            await migration_cellIdsToUuid(context);
+            await migration_recoverTempFilesAndMergeDuplicates(context);
+        }
 
         // After migrations complete, trigger sync directly
         // (All migrations have finished executing since they're awaited sequentially)
