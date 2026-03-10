@@ -81,6 +81,10 @@ export interface LocalProjectSettings {
      * Kept for backward compatibility with existing localProjectSettings.json files.
      */
     forceCloseAfterSuccessfulSwap?: boolean;
+    /** Whether automatic sync is enabled for this project (migrated from .vscode/settings.json) */
+    autoSyncEnabled?: boolean;
+    /** Delay in minutes before triggering automatic sync after changes (migrated from .vscode/settings.json) */
+    syncDelayMinutes?: number;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -213,6 +217,8 @@ async function writeLocalProjectSettingsInternal(
             pendingUpdate: settings.pendingUpdate,
             updateCompletedLocally: settings.updateCompletedLocally,
             projectSwap: settings.projectSwap,
+            autoSyncEnabled: settings.autoSyncEnabled ?? true,
+            syncDelayMinutes: settings.syncDelayMinutes ?? 5,
         };
         let existingRaw: Record<string, any> = {};
         try {
@@ -353,6 +359,8 @@ export async function ensureLocalProjectSettingsExists(
         mediaFileStrategyApplyState: "applied",
         autoDownloadAudioOnOpen: false,
         mediaFileStrategySwitchStarted: false,
+        autoSyncEnabled: true,
+        syncDelayMinutes: 5,
         ...(defaults || {}),
     };
     await writeLocalProjectSettings(def, workspaceFolderUri);
@@ -421,6 +429,98 @@ export async function clearUpdateCompletedLocally(
         await writeLocalProjectSettings(settings, workspaceFolderUri);
         debug("Cleared local update completion flag");
     }
+}
+
+// =============================================================================
+// SYNC SETTINGS (migrated from .vscode/settings.json)
+// =============================================================================
+
+const SYNC_DELAY_MINIMUM = 5;
+
+/**
+ * One-time migration: copies autoSyncEnabled and syncDelayMinutes from the
+ * VS Code workspace configuration into localProjectSettings.json.
+ * No-op if the local file already contains these keys.
+ */
+async function migrateSyncSettingsFromVSCodeConfig(
+    workspaceFolderUri?: vscode.Uri
+): Promise<{ autoSyncEnabled: boolean; syncDelayMinutes: number }> {
+    const settingsPath = getSettingsFilePath(workspaceFolderUri);
+    if (!settingsPath) {
+        return { autoSyncEnabled: true, syncDelayMinutes: 5 };
+    }
+
+    // Only run migration inside an actual project (one that has a .project directory)
+    const projectDir = vscode.Uri.joinPath(
+        workspaceFolderUri || vscode.workspace.workspaceFolders![0].uri,
+        ".project"
+    );
+    try {
+        await vscode.workspace.fs.stat(projectDir);
+    } catch {
+        return { autoSyncEnabled: true, syncDelayMinutes: 5 };
+    }
+
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+
+    if (settings.autoSyncEnabled !== undefined && settings.syncDelayMinutes !== undefined) {
+        return {
+            autoSyncEnabled: settings.autoSyncEnabled,
+            syncDelayMinutes: Math.max(settings.syncDelayMinutes, SYNC_DELAY_MINIMUM),
+        };
+    }
+
+    const config = vscode.workspace.getConfiguration("codex-project-manager");
+    const autoSyncEnabled = settings.autoSyncEnabled ?? config.get<boolean>("autoSyncEnabled", true);
+    let syncDelayMinutes = settings.syncDelayMinutes ?? config.get<number>("syncDelayMinutes", 5);
+    if (syncDelayMinutes < SYNC_DELAY_MINIMUM) {
+        syncDelayMinutes = SYNC_DELAY_MINIMUM;
+    }
+
+    settings.autoSyncEnabled = autoSyncEnabled;
+    settings.syncDelayMinutes = syncDelayMinutes;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+    debug("Migrated sync settings from VS Code config:", { autoSyncEnabled, syncDelayMinutes });
+
+    if (!autoSyncEnabled) {
+        vscode.window
+            .showInformationMessage(
+                "You previously disabled auto-sync. If you'd like to re-enable it, click here to go to the settings page.",
+                "Open Sync Settings"
+            )
+            .then((selection) => {
+                if (selection === "Open Sync Settings") {
+                    vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                }
+            });
+    }
+
+    return { autoSyncEnabled, syncDelayMinutes };
+}
+
+/**
+ * Returns the current sync settings, migrating from VS Code config on first call
+ * if the local file doesn't yet contain them.
+ */
+export async function getSyncSettings(
+    workspaceFolderUri?: vscode.Uri
+): Promise<{ autoSyncEnabled: boolean; syncDelayMinutes: number }> {
+    return migrateSyncSettingsFromVSCodeConfig(workspaceFolderUri);
+}
+
+/**
+ * Persists sync settings to localProjectSettings.json.
+ * Enforces a minimum sync delay of 5 minutes.
+ */
+export async function setSyncSettings(
+    autoSyncEnabled: boolean,
+    syncDelayMinutes: number,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.autoSyncEnabled = autoSyncEnabled;
+    settings.syncDelayMinutes = Math.max(syncDelayMinutes, SYNC_DELAY_MINIMUM);
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 
 // =============================================================================
