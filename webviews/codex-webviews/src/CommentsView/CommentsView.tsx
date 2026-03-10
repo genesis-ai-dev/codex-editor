@@ -1411,7 +1411,7 @@ function App() {
                             className="flex-1 rounded-none"
                             onClick={() => {
                                 setViewMode("cell");
-                                setSearchQuery(cellId.cellId);
+                                setSearchQuery("");
                             }}
                         >
                             <span className="hidden sm:inline">Current Cell</span>
