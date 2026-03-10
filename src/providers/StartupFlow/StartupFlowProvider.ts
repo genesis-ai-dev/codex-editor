@@ -18,7 +18,6 @@ import { findAllCodexProjects } from "../../../src/projectManager/utils/projectU
 import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import {
     createNewProject,
-    createNewWorkspaceAndProject,
     createWorkspaceWithProjectName,
     checkProjectNameExists,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
@@ -85,7 +84,6 @@ export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
     OPEN_OR_CREATE_PROJECT = "createNewProject",
     PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
-    PROMPT_USER_TO_ADD_CRITICAL_DATA = "promptUserToAddCriticalData",
     ALREADY_WORKING = "alreadyWorking",
 }
 
@@ -434,7 +432,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             },
                         ],
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
                             StartupFlowStates.ALREADY_WORKING,
                     },
@@ -459,7 +457,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.NO_AUTH_EXTENSION]: {
                             target: StartupFlowStates.LOGIN_REGISTER,
                             actions: assign({
@@ -501,11 +499,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             },
                         ],
                         [StartupFlowEvents.INITIALIZE_PROJECT]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
                             StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                         [StartupFlowEvents.NO_AUTH_EXTENSION]: {
@@ -534,22 +532,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }),
                             }),
                         },
-                    },
-                },
-                [StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA]: {
-                    on: {
-                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
-                            {
-                                target: StartupFlowStates.LOGIN_REGISTER,
-                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: updateAuthStateAction,
-                            },
-                            {
-                                actions: updateAuthStateAction,
-                            },
-                        ],
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
-                            StartupFlowStates.ALREADY_WORKING,
                     },
                 },
                 [StartupFlowStates.ALREADY_WORKING]: {
@@ -2422,51 +2404,38 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "project.showManager":
                 await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 break;
-            case "project.createEmpty": {
-                debugLog("Creating empty project");
-                await createNewWorkspaceAndProject(this.context);
-                break;
-            }
-            case "project.createEmptyWithName": {
+            case "project.createForUpload": {
                 try {
-                    const inputName = (message as any).projectName as string;
+                    const { projectName: inputName, projectType, sourceLanguage, targetLanguage } = message as any;
                     const sanitized = sanitizeProjectName(inputName);
-                    if (sanitized !== inputName) {
-                        // Generate projectId when sanitization is needed (will be confirmed in modal)
-                        const projectId = generateProjectId();
-                        this.safeSendMessage({
-                            command: "project.nameWillBeSanitized",
-                            original: inputName,
-                            sanitized,
-                            projectId,
-                        } as MessagesFromStartupFlowProvider);
-                        // Optionally wait for confirm message from webview
-                    } else {
-                        // Generate projectId immediately if no sanitization needed
-                        const projectId = generateProjectId();
-                        await this.context.globalState.update("pendingProjectCreate", true);
-                        // Store sanitized name WITHOUT UUID for metadata.json
-                        // The folder name will still include the UUID via createWorkspaceWithProjectName
-                        await this.context.globalState.update("pendingProjectCreateName", sanitized);
-                        await this.context.globalState.update("pendingProjectCreateId", projectId);
-                        await createWorkspaceWithProjectName(sanitized, projectId);
-                    }
-                } catch (error) {
-                    console.error("Error creating project with name:", error);
-                }
-                break;
-            }
-            case "project.createEmpty.confirm": {
-                const { proceed, projectName, projectId } = message;
-                if (proceed && projectName) {
+                    const projectId = generateProjectId();
                     await this.context.globalState.update("pendingProjectCreate", true);
-                    // Use provided projectId or generate one if not provided (shouldn't happen in normal flow)
-                    const finalProjectId = projectId || generateProjectId();
-                    // Store sanitized name WITHOUT UUID for metadata.json
-                    // The folder name will still include the UUID via createWorkspaceWithProjectName
-                    await this.context.globalState.update("pendingProjectCreateName", projectName);
-                    await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
-                    await createWorkspaceWithProjectName(projectName, finalProjectId);
+                    await this.context.globalState.update("pendingProjectCreateName", sanitized);
+                    await this.context.globalState.update("pendingProjectCreateId", projectId);
+                    await this.context.globalState.update("pendingProjectCreateSourceLanguage", JSON.stringify(sourceLanguage));
+                    await this.context.globalState.update("pendingProjectCreateTargetLanguage", JSON.stringify(targetLanguage));
+                    await this.context.globalState.update("pendingProjectCreateCategory", projectType);
+                    await this.context.globalState.update("pendingOpenSourceUploader", true);
+
+                    // Record project type selection to AB testing analytics
+                    const allProjectTypes = ["bible", "subtitles", "obs", "documents", "dubbing", "audioTranslation", "audiobibleTranslation", "other"];
+                    const selectedIndex = allProjectTypes.indexOf(projectType);
+                    if (selectedIndex >= 0) {
+                        try {
+                            const { recordAbResult } = await import("../../utils/abTestingAnalytics");
+                            await recordAbResult({
+                                category: "Project Type Selection",
+                                options: allProjectTypes,
+                                winner: selectedIndex,
+                            });
+                        } catch (analyticsError) {
+                            console.debug("[StartupFlowProvider] Failed to record project type analytics:", analyticsError);
+                        }
+                    }
+
+                    await createWorkspaceWithProjectName(sanitized, projectId);
+                } catch (error) {
+                    console.error("Error creating project for upload:", error);
                 }
                 break;
             }
@@ -2660,56 +2629,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "navigateToMainMenu": {
                 await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                break;
-            }
-            case "metadata.check": {
-                const workspaceFolders = vscode.workspace.workspaceFolders;
-                if (workspaceFolders) {
-                    try {
-                        const metadataUri = vscode.Uri.joinPath(
-                            workspaceFolders[0].uri,
-                            "metadata.json"
-                        );
-                        const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
-                        const metadata = JSON.parse(metadataContent.toString());
-
-                        const sourceLanguage = metadata.languages?.find(
-                            (l: any) => l.projectStatus === "source"
-                        );
-                        const targetLanguage = metadata.languages?.find(
-                            (l: any) => l.projectStatus === "target"
-                        );
-
-                        // Get source texts
-                        const sourceTexts = metadata.ingredients
-                            ? Object.keys(metadata.ingredients)
-                            : [];
-
-                        // Get chat system message if it exists
-                        const chatSystemMessage = metadata.chatSystemMessage;
-
-                        this.safeSendMessage({
-                            command: "metadata.checkResponse",
-                            data: {
-                                sourceLanguage,
-                                targetLanguage,
-                                sourceTexts,
-                                chatSystemMessage,
-                            },
-                        });
-                    } catch (error) {
-                        console.error("Error checking metadata:", error);
-                        this.safeSendMessage({
-                            command: "metadata.checkResponse",
-                            data: {
-                                sourceLanguage: null,
-                                targetLanguage: null,
-                                sourceTexts: [],
-                                chatSystemMessage: null,
-                            },
-                        });
-                    }
-                }
                 break;
             }
             case "systemMessage.generate": {
