@@ -155,14 +155,28 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             const parsedUri = vscode.Uri.parse(uri);
             const stringUri = parsedUri.toString();
             if (stringUri.includes(".codex") || stringUri.includes(".source")) {
-                await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
+                const isSource = stringUri.includes(".source");
+                const sourceUri = isSource ? parsedUri : getCorrespondingSourceUri(parsedUri);
+                const codexUri = isSource ? getCorrespondingCodexUri(parsedUri) : parsedUri;
 
-                const correspondingUri = stringUri.includes(".source")
-                    ? getCorrespondingCodexUri(parsedUri)
-                    : getCorrespondingSourceUri(parsedUri);
+                if (sourceUri) {
+                    try {
+                        await vscode.workspace.fs.stat(sourceUri);
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith", sourceUri, "codex.cellEditor",
+                            { viewColumn: vscode.ViewColumn.One }
+                        );
+                    } catch { /* file doesn't exist */ }
+                }
 
-                if (correspondingUri) {
-                    await vscode.commands.executeCommand("vscode.openWith", correspondingUri, "codex.cellEditor");
+                if (codexUri) {
+                    try {
+                        await vscode.workspace.fs.stat(codexUri);
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith", codexUri, "codex.cellEditor",
+                            { viewColumn: vscode.ViewColumn.Two }
+                        );
+                    } catch { /* file doesn't exist */ }
                 }
 
                 updateWorkspaceState(this._context, {
