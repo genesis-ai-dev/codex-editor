@@ -575,6 +575,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "refreshState":
                 await this.store.refreshState();
                 break;
+            case "publishStatusUpdate":
+                this.sendPublishStatusUpdate(
+                    message.data?.isPublishingInProgress ?? false,
+                    message.data?.publishingStage ?? "",
+                );
+                break;
             case "webviewReady":
                 await this.updateProjectOverview();
                 await this.updateWebviewState();
