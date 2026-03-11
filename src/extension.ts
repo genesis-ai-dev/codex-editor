@@ -345,14 +345,27 @@ export async function activate(context: vscode.ExtensionContext) {
         await notebookMetadataManager.initialize();
         stepStart = trackTiming("Loading Project Metadata", metadataStart);
 
-        // Migrate comments early during project startup
-        const migrationStart = globalThis.performance.now();
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        // Check for metadata.json early — this determines if we're in a Codex project
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        let metadataExists = false;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
             try {
-                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+                await vscode.workspace.fs.stat(metadataUri);
+                metadataExists = true;
+            } catch {
+                metadataExists = false;
+            }
+        }
+
+        // Migrate comments early during project startup (only for Codex projects)
+        const migrationStart = globalThis.performance.now();
+        if (metadataExists && workspaceFolders) {
+            try {
+                await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
 
                 // Also repair any existing corrupted data during startup
-                const commentsFilePath = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, ".project", "comments.json");
+                const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
                 CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true).catch(() => {
                     // Silent fallback - don't block startup if repair fails
                 });
@@ -380,9 +393,8 @@ export async function activate(context: vscode.ExtensionContext) {
         // Update git configuration files after Frontier auth is connected
         // This ensures .gitignore and .gitattributes are current when extension starts
         const gitConfigStart = globalThis.performance.now();
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        if (metadataExists) {
             try {
-                // Import and run git config update (only if we have a workspace)
                 const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
                 await ensureGitConfigsAreUpToDate();
                 console.log("[Extension] Git configuration files updated on startup");
@@ -390,7 +402,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 console.error("[Extension] Error updating git config files on startup:", error);
                 // Don't fail startup due to git config update errors
             }
-
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
 
@@ -433,11 +444,8 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.window.showWarningMessage(
                 "SQLite native module could not be loaded. Search features will be unavailable."
             );
-            // Database features (content index) will be unavailable
         }
         stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
-
-        const workspaceFolders = vscode.workspace.workspaceFolders;
 
         // Check for pending update (swap) downloads (after workspace is ready)
         if (workspaceFolders && workspaceFolders.length > 0) {
@@ -449,6 +457,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
         // Initialize extension based on workspace state
+        const pendingOpenSourceUploader = context.globalState.get<boolean>("pendingOpenSourceUploader");
         const workspaceStart = globalThis.performance.now();
         if (workspaceFolders && workspaceFolders.length > 0) {
             if (!vscode.workspace.isTrusted) {
@@ -471,12 +480,19 @@ export async function activate(context: vscode.ExtensionContext) {
             if (pendingCreate) {
                 const pendingName = context.globalState.get<string>("pendingProjectCreateName");
                 const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
+                const pendingSourceLangStr = context.globalState.get<string>("pendingProjectCreateSourceLanguage");
+                const pendingTargetLangStr = context.globalState.get<string>("pendingProjectCreateTargetLanguage");
+                const pendingCategory = context.globalState.get<string>("pendingProjectCreateCategory");
                 console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
 
                 // Clear flags immediately to prevent re-triggering on subsequent reloads
                 await context.globalState.update("pendingProjectCreate", undefined);
                 await context.globalState.update("pendingProjectCreateName", undefined);
                 await context.globalState.update("pendingProjectCreateId", undefined);
+                await context.globalState.update("pendingProjectCreateSourceLanguage", undefined);
+                await context.globalState.update("pendingProjectCreateTargetLanguage", undefined);
+                await context.globalState.update("pendingProjectCreateCategory", undefined);
+                await context.globalState.update("pendingOpenSourceUploader", undefined);
 
                 // Only create the project if metadata.json doesn't already exist.
                 // A stale pendingProjectCreate flag (e.g. from a failed folder creation or
@@ -495,7 +511,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 } else {
                     try {
                         const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
-                        await createNewProject({ projectName: pendingName, projectId: pendingProjectId });
+                        const sourceLanguage = pendingSourceLangStr ? JSON.parse(pendingSourceLangStr) : undefined;
+                        const targetLanguage = pendingTargetLangStr ? JSON.parse(pendingTargetLangStr) : undefined;
+                        await createNewProject({
+                            projectName: pendingName,
+                            projectId: pendingProjectId,
+                            sourceLanguage,
+                            targetLanguage,
+                            projectCategory: pendingCategory,
+                        });
                     } catch (error) {
                         console.error("Failed to resume project creation:", error);
                         vscode.window.showErrorMessage("Failed to create project after reload.");
@@ -505,15 +529,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
 
-            let metadataExists = false;
-            try {
-                // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
-                await vscode.workspace.fs.stat(metadataUri);
-                metadataExists = true;
-
-                // Note: validateAndFixProjectId is now called AFTER migrations complete
-                // to ensure projectName updates aren't overwritten by migrations
-
+            if (metadataExists) {
                 // Ensure all installed extension versions are recorded in metadata
                 // This handles: 1) Adding missing versions (e.g., frontierAuthentication added after project creation)
                 //               2) Updating to newer versions (never downgrades)
@@ -522,8 +538,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 } catch (error) {
                     console.warn("[Extension] Error ensuring extension version requirements:", error);
                 }
-            } catch {
-                metadataExists = false;
             }
 
             trackTiming("Initializing Workspace", workspaceStart);
@@ -531,11 +545,11 @@ export async function activate(context: vscode.ExtensionContext) {
             await initializeExtension(context, metadataExists);
 
             // Ensure local project settings exist when a Codex project is open
-            try {
-                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            if (metadataExists) {
+                try {
                     // Only ensure settings once a repo is fully initialized (avoid during clone checkout)
                     try {
-                        const projectUri = vscode.workspace.workspaceFolders[0].uri;
+                        const projectUri = workspaceFolders[0].uri;
                         const gitDir = vscode.Uri.joinPath(projectUri, ".git");
                         await vscode.workspace.fs.stat(gitDir);
                         const { afterProjectDetectedEnsureLocalSettings } = await import("./projectManager/utils/projectUtils");
@@ -543,9 +557,9 @@ export async function activate(context: vscode.ExtensionContext) {
                     } catch {
                         // No .git yet; skip until project is fully initialized/opened
                     }
+                } catch (e) {
+                    console.warn("[Extension] Failed to ensure local project settings exist:", e);
                 }
-            } catch (e) {
-                console.warn("[Extension] Failed to ensure local project settings exist:", e);
             }
 
             if (!metadataExists) {
@@ -561,8 +575,10 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register remaining components in parallel
         const coreComponentsStart = globalThis.performance.now();
 
+        if (metadataExists) {
+            registerBacktranslationCommands(context);
+        }
         await Promise.all([
-            registerBacktranslationCommands(context),
             registerProviders(context),
             registerCommands(context),
         ]);
@@ -573,6 +589,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Initialize A/B testing registry (always-on)
         initializeABTesting();
+
+        // If this activation follows a "create for upload" project creation, open the source uploader
+        if (pendingOpenSourceUploader) {
+            await vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+        }
 
         // Track total time for core components
         stepStart = trackTiming("Loading Core Components", coreComponentsStart);
@@ -608,20 +629,25 @@ export async function activate(context: vscode.ExtensionContext) {
         const postActivationStart = globalThis.performance.now();
 
         await executeCommandsAfter(context);
-        // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
-        await temporaryMigrationScript_checkMatthewNotebook();
-        await migration_changeDraftFolderToFilesFolder();
-        await migration_lineNumbersSettings(context);
-        await migration_moveTimestampsToMetadataData(context);
-        await migration_promoteCellTypeToTopLevel(context);
-        await migration_editHistoryFormat(context);
-        await migration_addImporterTypeToMetadata(context);
-        await migration_hoistDocumentContextToNotebookMetadata(context);
-        await migration_addMilestoneCells(context);
-        await migration_reorderMisplacedParatextCells(context);
-        await migration_addGlobalReferences(context);
-        await migration_cellIdsToUuid(context);
-        await migration_recoverTempFilesAndMergeDuplicates(context);
+
+        // Only run migrations in actual Codex projects — they write completion flags
+        // to .vscode/settings.json even when no project files exist
+        if (metadataExists) {
+            // NOTE: migration_chatSystemMessageSetting() now runs BEFORE sync (see line ~768)
+            await temporaryMigrationScript_checkMatthewNotebook();
+            await migration_changeDraftFolderToFilesFolder();
+            await migration_lineNumbersSettings(context);
+            await migration_moveTimestampsToMetadataData(context);
+            await migration_promoteCellTypeToTopLevel(context);
+            await migration_editHistoryFormat(context);
+            await migration_addImporterTypeToMetadata(context);
+            await migration_hoistDocumentContextToNotebookMetadata(context);
+            await migration_addMilestoneCells(context);
+            await migration_reorderMisplacedParatextCells(context);
+            await migration_addGlobalReferences(context);
+            await migration_cellIdsToUuid(context);
+            await migration_recoverTempFilesAndMergeDuplicates(context);
+        }
 
         // Remove leftover files from features that have been removed
         await cleanupOrphanedProjectFiles();

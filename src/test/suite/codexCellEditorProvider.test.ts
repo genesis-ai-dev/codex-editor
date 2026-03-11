@@ -2156,7 +2156,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const savedMsg = postedMessages.find((m) => m?.type === "audioAttachmentSaved");
         assert.ok(savedMsg, "Should post an audioAttachmentSaved message after saving audio");
         assert.strictEqual(savedMsg.content.cellId, cellId);
-        assert.strictEqual(savedMsg.content.success, true);
+        assert.strictEqual(savedMsg.content.success, true, `Expected success but got error: ${savedMsg.content?.error || "unknown"}`);
 
         // Assert metadata updated
         const parsed = JSON.parse(document.getText());

@@ -28,7 +28,6 @@ vi.mock('../GitLabProjectsList', () => ({
 
 describe('ProjectSetupStep', () => {
     const defaultProps = {
-        onCreateEmpty: vi.fn(),
         onCloneRepo: vi.fn(),
         onOpenProject: vi.fn(),
         vscode: {

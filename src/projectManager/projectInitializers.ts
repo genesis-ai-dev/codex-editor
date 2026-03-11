@@ -72,12 +72,6 @@ export async function setTargetFont() {
         console.log(`Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`);
     }
 }
-enum ConfirmationOptions {
-    Yes = "Yes",
-    No = "No",
-    NotNeeded = "Not-Needed",
-}
-
 export async function initializeProject(shouldImportUSFM: boolean) {
     const workspaceFolder = vscode.workspace.workspaceFolders
         ? vscode.workspace.workspaceFolders[0]
@@ -110,7 +104,6 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     return;
                 }
                 const projectFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-                const fileData = await vscode.workspace.fs.readFile(projectFilePath);
                 // Auto-fix metadata structure (scope, name) using shared utility
                 try {
                     const { validateAndFixProjectMetadata } = await import("./utils/projectUtils");
@@ -130,40 +123,6 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     );
                     return;
                 }
-                const books = Object.keys(projectScope);
-
-                const codexFiles = await vscode.workspace.findFiles("**/*.codex");
-                let overwriteSelection = ConfirmationOptions.NotNeeded;
-
-                if (codexFiles.length > 0) {
-                    const userChoice = await vscode.window.showWarningMessage(
-                        "Do you want to overwrite existing .codex project files?",
-                        { modal: true },
-                        ConfirmationOptions.Yes,
-                        ConfirmationOptions.No
-                    );
-                    overwriteSelection =
-                        userChoice === ConfirmationOptions.Yes
-                            ? ConfirmationOptions.Yes
-                            : ConfirmationOptions.No;
-                }
-
-                switch (overwriteSelection) {
-                    case ConfirmationOptions.NotNeeded:
-                        vscode.window.showInformationMessage("Creating Codex Project.");
-                        break;
-                    case ConfirmationOptions.Yes:
-                        vscode.window.showInformationMessage(
-                            "Creating Codex Project with overwrite."
-                        );
-                        break;
-                    default:
-                        vscode.window.showInformationMessage(
-                            "Creating Codex Project without overwrite."
-                        );
-                        break;
-                }
-
                 progress.report({ increment: 50, message: "Setting up GitHub repository..." });
 
                 // Check and initialize git if missing
@@ -216,29 +175,24 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     vscode.window.showErrorMessage(`Failed to initialize git repository: ${error}`);
                 }
 
-                const shouldOverWrite =
-                    overwriteSelection === ConfirmationOptions.Yes ||
-                    overwriteSelection === ConfirmationOptions.NotNeeded;
-                let foldersWithUsfmToConvert: vscode.Uri[] | undefined;
                 if (shouldImportUSFM) {
+                    const books = Object.keys(projectScope);
                     const folderUri = await vscode.window.showOpenDialog({
                         canSelectFolders: true,
                         canSelectFiles: false,
                         canSelectMany: false,
                         openLabel: "Choose USFM project folder",
                     });
-                    foldersWithUsfmToConvert = folderUri;
+                    progress.report({
+                        increment: 80,
+                        message: "Creating project notebooks from USFM...",
+                    });
+                    await createProjectNotebooks({
+                        shouldOverWrite: true,
+                        books,
+                        foldersWithUsfmToConvert: folderUri,
+                    });
                 }
-
-                progress.report({
-                    increment: 80,
-                    message: "Creating project notebooks and comment files...",
-                });
-                await createProjectNotebooks({
-                    shouldOverWrite,
-                    books,
-                    foldersWithUsfmToConvert,
-                });
 
                 // Ensure the files directory exists for project files
                 const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, "files");
@@ -250,9 +204,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     console.log("Files directory already exists or could not be created:", error);
                 }
 
-                await createProjectCommentFiles({
-                    shouldOverWrite,
-                });
+                await createProjectCommentFiles();
 
                 progress.report({ increment: 100, message: "Project initialization complete." });
                 vscode.window.showInformationMessage("Project initialized successfully.");
