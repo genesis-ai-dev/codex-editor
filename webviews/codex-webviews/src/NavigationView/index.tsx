@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -14,6 +14,7 @@ import "../tailwind.css";
 import { CodexItem } from "types";
 import { Languages, Mic } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
+import { DraggableWrapper } from "../components/DraggableWrapper";
 import {
     Dialog,
     DialogContent,
@@ -22,6 +23,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "../components/ui/dialog";
+import { Reorder } from "framer-motion";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -46,6 +48,7 @@ interface State {
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     hasReceivedInitialData: boolean;
+    customOrder: { [corpusGroup: string]: string[] };
     renameModal: {
         isOpen: boolean;
         item: CodexItem | null;
@@ -198,6 +201,7 @@ function NavigationView() {
         bibleBookMap: undefined,
 
         hasReceivedInitialData: false,
+        customOrder: {},
         renameModal: {
             isOpen: false,
             item: null,
@@ -218,6 +222,32 @@ function NavigationView() {
     });
 
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+    const [reorderedChildren, setReorderedChildren] = useState<Record<string, CodexItem[]>>({});
+
+    const handleChildrenReorder = useCallback((groupLabel: string, newChildren: CodexItem[]) => {
+        setReorderedChildren((prev) => ({ ...prev, [groupLabel]: newChildren }));
+        vscode.postMessage({
+            command: "reorderFiles",
+            content: {
+                corpusLabel: groupLabel,
+                orderedLabels: newChildren.map((item) => item.label),
+            },
+        });
+    }, []);
+
+    const getOrderedChildren = useCallback(
+        (item: CodexItem): CodexItem[] => {
+            if (!item.children) return [];
+            if (reorderedChildren[item.label]) {
+                return reorderedChildren[item.label];
+            }
+            if (state.customOrder[item.label]) {
+                return item.children;
+            }
+            return [...item.children].sort(sortItems);
+        },
+        [reorderedChildren, state.customOrder]
+    );
 
     // Initialize Bible book map on component mount
     useEffect(() => {
@@ -299,6 +329,7 @@ function NavigationView() {
                             hasReceivedInitialData: true,
                         };
                     });
+                    setReorderedChildren({});
                     break;
                 case "setBibleBookMap":
                     if (message.data) {
@@ -311,6 +342,14 @@ function NavigationView() {
                         } catch (error) {
                             console.error("Error processing bible book map data:", error);
                         }
+                    }
+                    break;
+                case "setCustomOrder":
+                    if (message.data) {
+                        setState((prevState) => ({
+                            ...prevState,
+                            customOrder: message.data,
+                        }));
                     }
                     break;
             }
@@ -731,7 +770,7 @@ function NavigationView() {
         };
     };
 
-    const renderItem = (item: CodexItem) => {
+    const renderItem = (item: CodexItem, dragHandle?: React.ReactNode) => {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
         const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
@@ -831,6 +870,7 @@ function NavigationView() {
                     <div className="py-2 px-3 flex flex-col gap-3 w-full">
                         {/* Row 1: label + action buttons */}
                         <div className="flex items-center gap-2 min-h-[24px]">
+                            {!isGroup && dragHandle}
                             {isGroup && (
                                 <i
                                     className={`codicon ${
@@ -941,11 +981,42 @@ function NavigationView() {
                         )}
                     </div>
                 </div>
-                {isGroup && isExpanded && item.children && (
-                    <div className="ml-4 mt-1 flex flex-col gap-0.5">
-                        {item.children.sort(sortItems).map(renderItem)}
-                    </div>
-                )}
+                {isGroup &&
+                    isExpanded &&
+                    item.children &&
+                    (() => {
+                        const orderedChildren = getOrderedChildren(item);
+                        const isDragEnabled = !state.searchQuery;
+
+                        if (isDragEnabled) {
+                            return (
+                                <Reorder.Group
+                                    as="div"
+                                    axis="y"
+                                    values={orderedChildren}
+                                    onReorder={(newOrder) =>
+                                        handleChildrenReorder(item.label, newOrder)
+                                    }
+                                    className="ml-4 mt-1 flex flex-col gap-0.5"
+                                >
+                                    {orderedChildren.map((child) => (
+                                        <DraggableWrapper
+                                            key={child.label + child.uri}
+                                            item={child}
+                                        >
+                                            {(dragHandle) => renderItem(child, dragHandle)}
+                                        </DraggableWrapper>
+                                    ))}
+                                </Reorder.Group>
+                            );
+                        }
+
+                        return (
+                            <div className="ml-4 mt-1 flex flex-col gap-0.5">
+                                {orderedChildren.map((child) => renderItem(child))}
+                            </div>
+                        );
+                    })()}
             </div>
         );
     };

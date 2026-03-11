@@ -1205,6 +1205,9 @@ type ProjectMetadata = {
         fileNameToHash: { [fileName: string]: string };
     };
     edits?: ProjectEditHistory[];
+    navigationFileOrder?: {
+        [corpusGroup: string]: string[];
+    };
     meta: {
         version: string;
         category: string;
