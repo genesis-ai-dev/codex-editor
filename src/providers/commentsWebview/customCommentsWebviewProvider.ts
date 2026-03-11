@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread, NotebookComment } from "../../../types";
+import type { CommentPostMessages, CellIdGlobalState, NotebookCommentThread, NotebookComment, NotebookAsJSONData, CustomNotebookCellData, CustomNotebookMetadata } from "../../../types";
 import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
@@ -7,14 +7,25 @@ import { Uri, window, workspace } from "vscode";
 import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { getAuthApi } from "../../extension";
-import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
-import { CodexCellDocument } from "../codexCellEditorProvider/codexDocument";
+import { CodexCellTypes } from "../../../types/enums";
 
 const DEBUG_COMMENTS_WEBVIEW_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
     if (DEBUG_COMMENTS_WEBVIEW_PROVIDER) {
         console.log(`[CommentsWebviewProvider] ${message}`, ...args);
     }
+}
+
+interface CellDisplayInfo {
+    fileDisplayName?: string;
+    milestoneValue?: string;
+    cellLineNumber?: number;
+    cellLabel?: string;
+}
+
+interface CellDisplayInfoLookup {
+    fileDisplayName?: string;
+    cells: Map<string, CellDisplayInfo>;
 }
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
@@ -31,8 +42,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     private _pendingChanges: Set<string> = new Set();
     private _isInitialized: boolean = false;
 
-    // Cache parsed CodexCellDocuments to avoid re-reading .codex files on every enrichment
-    private _documentCache: Map<string, CodexCellDocument> = new Map();
+    private _displayInfoCache: Map<string, CellDisplayInfoLookup> = new Map();
 
     constructor(context: vscode.ExtensionContext) {
         super(context);
@@ -394,17 +404,17 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         // Legacy migration is now manual via command palette: "Codex: Migrate Legacy Comments"
 
-        // Invalidate document cache when .codex files change so enrichment stays fresh
+        // Invalidate display info cache when .codex files change so enrichment stays fresh
         const codexFileWatcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], "**/*.codex")
         );
 
-        const invalidateDocCache = (uri: vscode.Uri) => {
-            this._documentCache.delete(uri.toString());
+        const invalidateDisplayCache = (uri: vscode.Uri) => {
+            this._displayInfoCache.delete(uri.toString());
         };
-        codexFileWatcher.onDidChange(invalidateDocCache);
-        codexFileWatcher.onDidDelete(invalidateDocCache);
-        codexFileWatcher.onDidCreate(invalidateDocCache);
+        codexFileWatcher.onDidChange(invalidateDisplayCache);
+        codexFileWatcher.onDidDelete(invalidateDisplayCache);
+        codexFileWatcher.onDidCreate(invalidateDisplayCache);
 
         this._context.subscriptions.push(commentsWatcher, codexFileWatcher);
 
@@ -828,30 +838,96 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     /**
-     * Load a CodexCellDocument from the cache, or read from disk and cache it.
-     * Returns undefined if the file cannot be read.
+     * Build a lightweight display info lookup for all cells in a .codex file.
+     * Only extracts the fields needed for comment enrichment, avoiding caching
+     * the full document (cell content, edit history, attachments, etc.).
      */
-    private async getOrLoadDocument(fullUri: vscode.Uri): Promise<CodexCellDocument | undefined> {
+    private async getOrBuildDisplayInfoLookup(fullUri: vscode.Uri): Promise<CellDisplayInfoLookup | undefined> {
         const key = fullUri.toString();
-        const cached = this._documentCache.get(key);
+        const cached = this._displayInfoCache.get(key);
         if (cached) {
             return cached;
         }
 
         try {
             const fileContent = await workspace.fs.readFile(fullUri);
-            const content = new TextDecoder().decode(fileContent);
-            const doc = new CodexCellDocument(fullUri, content);
-            this._documentCache.set(key, doc);
-            return doc;
+            const json = JSON.parse(new TextDecoder().decode(fileContent)) as NotebookAsJSONData<CustomNotebookCellData, CustomNotebookMetadata>;
+            const cells = json.cells || [];
+            const fileDisplayName = json.metadata?.fileDisplayName;
+
+            const milestones: { index: number; cellIndex: number; value?: string }[] = [];
+            let currentMilestoneIdx = -1;
+
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                const cellType = cell.metadata?.type;
+
+                if (cellType === CodexCellTypes.MILESTONE && cell.metadata?.data?.deleted !== true) {
+                    currentMilestoneIdx++;
+                    milestones.push({
+                        index: currentMilestoneIdx,
+                        cellIndex: i,
+                        value: cell.value,
+                    });
+                }
+
+                if (cell.metadata?.data && currentMilestoneIdx >= 0) {
+                    cell.metadata.data.milestoneIndex = currentMilestoneIdx;
+                }
+            }
+
+            const cellMap = new Map<string, CellDisplayInfo>();
+
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                const cellId = cell.metadata?.id;
+                if (!cellId) continue;
+
+                const cellLabel = cell.metadata?.cellLabel;
+                const milestoneIndex = cell.metadata?.data?.milestoneIndex;
+
+                let milestoneValue: string | undefined;
+                let cellLineNumber: number | undefined;
+
+                if (typeof milestoneIndex === "number" && milestoneIndex >= 0 && milestones[milestoneIndex]) {
+                    const milestone = milestones[milestoneIndex];
+                    milestoneValue = milestone.value;
+
+                    const startCellIndex = milestone.cellIndex + 1;
+                    const nextMilestone = milestones[milestoneIndex + 1];
+                    const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+                    let lineNumber = 0;
+                    for (let j = startCellIndex; j < endCellIndex; j++) {
+                        const c = cells[j];
+                        if (
+                            c.metadata?.type === CodexCellTypes.MILESTONE ||
+                            c.metadata?.type === CodexCellTypes.PARATEXT
+                        ) continue;
+                        if (c.metadata?.parentId !== undefined) continue;
+
+                        lineNumber++;
+                        if (c.metadata?.id === cellId) {
+                            cellLineNumber = lineNumber;
+                            break;
+                        }
+                    }
+                }
+
+                cellMap.set(cellId, { fileDisplayName, milestoneValue, cellLineNumber, cellLabel });
+            }
+
+            const lookup: CellDisplayInfoLookup = { fileDisplayName, cells: cellMap };
+            this._displayInfoCache.set(key, lookup);
+            return lookup;
         } catch (error) {
-            debug(`Could not load document for ${key}:`, error);
+            debug(`Could not build display info for ${key}:`, error);
             return undefined;
         }
     }
 
     /**
-     * Enrich a single thread with display information using the document cache.
+     * Enrich a single thread with display information using the lightweight cache.
      */
     private async enrichSingleThread(thread: NotebookCommentThread): Promise<NotebookCommentThread> {
         const workspaceFolder = workspace.workspaceFolders?.[0];
@@ -861,24 +937,21 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         try {
             const fullUri = vscode.Uri.joinPath(workspaceFolder.uri, thread.cellId.uri);
-            const doc = await this.getOrLoadDocument(fullUri);
-            if (!doc) {
+            const lookup = await this.getOrBuildDisplayInfoLookup(fullUri);
+            if (!lookup) {
                 return thread;
             }
 
-            const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(
-                thread.cellId.cellId,
-                doc
-            );
+            const displayInfo = lookup.cells.get(thread.cellId.cellId);
 
             return {
                 ...thread,
                 cellId: {
                     ...thread.cellId,
-                    fileDisplayName: displayInfo.fileDisplayName,
-                    milestoneValue: displayInfo.milestoneValue,
-                    cellLineNumber: displayInfo.cellLineNumber,
-                    cellLabel: displayInfo.cellLabel,
+                    fileDisplayName: displayInfo?.fileDisplayName ?? lookup.fileDisplayName,
+                    milestoneValue: displayInfo?.milestoneValue,
+                    cellLineNumber: displayInfo?.cellLineNumber,
+                    cellLabel: displayInfo?.cellLabel,
                 },
             };
         } catch (error) {
@@ -888,7 +961,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     /**
-     * Enrich all comments with display information using the document cache.
+     * Enrich all comments with display information using the lightweight cache.
      */
     private async enrichCommentsWithDisplayInfo(comments: NotebookCommentThread[]): Promise<NotebookCommentThread[]> {
         const enrichedComments: NotebookCommentThread[] = [];
