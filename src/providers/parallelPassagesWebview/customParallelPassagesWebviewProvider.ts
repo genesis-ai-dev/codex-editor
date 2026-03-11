@@ -7,6 +7,7 @@ import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
 import { updateWorkspaceState } from "../../utils/workspaceEventListener";
+import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
 
 function normalizeUri(uri: string): string {
     if (!uri) return "";
@@ -155,6 +156,15 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             const stringUri = parsedUri.toString();
             if (stringUri.includes(".codex") || stringUri.includes(".source")) {
                 await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
+
+                const correspondingUri = stringUri.includes(".source")
+                    ? getCorrespondingCodexUri(parsedUri)
+                    : getCorrespondingSourceUri(parsedUri);
+
+                if (correspondingUri) {
+                    await vscode.commands.executeCommand("vscode.openWith", correspondingUri, "codex.cellEditor");
+                }
+
                 updateWorkspaceState(this._context, {
                     key: "cellToJumpTo",
                     value: cellId,
