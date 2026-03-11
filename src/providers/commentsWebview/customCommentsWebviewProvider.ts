@@ -245,10 +245,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 }
             }
 
-            // Check for and migrate legacy file-comments.json if it exists
-            await CommentsMigrator.migrateProjectComments(folders[0].uri);
+            // Legacy migration is now manual via command palette: "Codex: Migrate Legacy Comments"
 
-            // Then check/create comments file
+            // Check/create comments file
             try {
                 await vscode.workspace.fs.stat(this.commentsFilePath);
                 debug("[CommentsProvider] Comments file exists");
@@ -393,46 +392,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             }
         });
 
-        // Watch for legacy file-comments.json and trigger migration immediately
-        const legacyCommentsWatcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], "file-comments.json")
-        );
-
-        legacyCommentsWatcher.onDidCreate(async () => {
-            try {
-                debug("[CommentsProvider] Legacy comments file created, migrating...");
-                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
-
-                // Reload cache to pick up migrated comments
-                await this.loadCommentsIntoMemory();
-
-                // Refresh the webview to show migrated content
-                this.sendCommentsToWebview(webviewView);
-                debug("[CommentsProvider] Successfully migrated legacy comments");
-            } catch (error) {
-                console.error("[CommentsProvider] Error migrating legacy comments on create:", error);
-                // Silent fallback - still try to send what we have
-                this.sendCommentsToWebview(webviewView);
-            }
-        });
-
-        legacyCommentsWatcher.onDidChange(async () => {
-            try {
-                debug("[CommentsProvider] Legacy comments file changed, migrating...");
-                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
-
-                // Reload cache to pick up migrated comments
-                await this.loadCommentsIntoMemory();
-
-                // Refresh the webview to show migrated content
-                this.sendCommentsToWebview(webviewView);
-                debug("[CommentsProvider] Successfully migrated legacy comments");
-            } catch (error) {
-                console.error("[CommentsProvider] Error migrating legacy comments on change:", error);
-                // Silent fallback - still try to send what we have
-                this.sendCommentsToWebview(webviewView);
-            }
-        });
+        // Legacy migration is now manual via command palette: "Codex: Migrate Legacy Comments"
 
         // Invalidate document cache when .codex files change so enrichment stays fresh
         const codexFileWatcher = vscode.workspace.createFileSystemWatcher(
@@ -446,7 +406,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         codexFileWatcher.onDidDelete(invalidateDocCache);
         codexFileWatcher.onDidCreate(invalidateDocCache);
 
-        this._context.subscriptions.push(commentsWatcher, legacyCommentsWatcher, codexFileWatcher);
+        this._context.subscriptions.push(commentsWatcher, codexFileWatcher);
 
         // Clean up state store listener when webview is disposed
         webviewView.onDidDispose(() => {

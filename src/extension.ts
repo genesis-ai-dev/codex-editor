@@ -374,24 +374,20 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }
 
-        // Migrate comments early during project startup (only for Codex projects)
+        // Comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
+        // Repair still runs at startup to fix any corrupted data
         const migrationStart = globalThis.performance.now();
         if (metadataExists && workspaceFolders) {
             try {
-                await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-
-                // Also repair any existing corrupted data during startup
                 const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
                 CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true).catch(() => {
                     // Silent fallback - don't block startup if repair fails
                 });
             } catch (error) {
-                console.error("[Extension] Error during startup comments migration:", error);
-                // Don't fail startup due to migration errors
+                console.error("[Extension] Error during startup comments repair:", error);
             }
-
         }
-        stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
+        stepStart = trackTiming("Repairing Comments", migrationStart);
 
         // Initialize Frontier API first - needed before startup flow
         const authStart = globalThis.performance.now();
@@ -769,6 +765,36 @@ export async function activate(context: vscode.ExtensionContext) {
                     console.error("Verse range migration failed:", error);
                     await vscode.window.showErrorMessage(
                         `Verse range migration failed: ${msg}`
+                    );
+                }
+            }
+        )
+    );
+
+    // Command: Migrate legacy comments (manual migration, not run by default)
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.runCommentsMigration",
+            async () => {
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (!workspaceFolders || workspaceFolders.length === 0) {
+                    await vscode.window.showWarningMessage("No workspace folder open.");
+                    return;
+                }
+                try {
+                    const migrated = await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
+                    const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
+                    await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
+                    if (migrated) {
+                        await vscode.window.showInformationMessage("Comments migration completed successfully.");
+                    } else {
+                        await vscode.window.showInformationMessage("No comments migration needed.");
+                    }
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    console.error("Comments migration failed:", error);
+                    await vscode.window.showErrorMessage(
+                        `Comments migration failed: ${msg}`
                     );
                 }
             }
