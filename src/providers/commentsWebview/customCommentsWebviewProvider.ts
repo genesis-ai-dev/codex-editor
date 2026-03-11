@@ -44,10 +44,27 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
     private _displayInfoCache: Map<string, CellDisplayInfoLookup> = new Map();
 
+    /**
+     * Queued reload data for when the webview isn't ready yet.
+     * Set by the comments-sidebar.reload command; consumed by the first
+     * getCurrentCellId / sendCurrentCellId response after the webview loads.
+     */
+    private _pendingReloadData: Record<string, unknown> | null = null;
+
     constructor(context: vscode.ExtensionContext) {
         super(context);
         this.initializeAuthState();
         this.setupStateStoreListener(); // Initialize state store listener
+    }
+
+    public setPendingReloadData(data: Record<string, unknown>): void {
+        this._pendingReloadData = data;
+    }
+
+    private consumePendingReloadData(): Record<string, unknown> | null {
+        const data = this._pendingReloadData;
+        this._pendingReloadData = null;
+        return data;
     }
 
     protected getWebviewId(): string {
@@ -590,6 +607,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Also send user info in case initialization hasn't completed
                     await this.sendCurrentUserInfo(this._view!);
 
+                    const pendingData = this.consumePendingReloadData();
                     initializeStateStore().then(({ getStoreState }) => {
                         getStoreState("cellId").then((value: CellIdGlobalState | undefined) => {
                             if (value) {
@@ -599,7 +617,13 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                                         cellId: value.cellId,
                                         globalReferences: value.globalReferences,
                                         uri: value.uri,
+                                        ...pendingData,
                                     },
+                                } as CommentPostMessages);
+                            } else if (pendingData) {
+                                safePostMessageToView(this._view, {
+                                    command: "reload",
+                                    data: pendingData,
                                 } as CommentPostMessages);
                             }
                         });
@@ -855,7 +879,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             const cells = json.cells || [];
             const fileDisplayName = json.metadata?.fileDisplayName;
 
-            const milestones: { index: number; cellIndex: number; value?: string }[] = [];
+            const milestones: { index: number; cellIndex: number; value?: string; }[] = [];
             let currentMilestoneIdx = -1;
 
             for (let i = 0; i < cells.length; i++) {
@@ -980,7 +1004,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         try {
             // Enrich comments with display information calculated at runtime
             const enrichedComments = await this.enrichCommentsWithDisplayInfo(this._inMemoryComments);
-            
+
             // Use JSON.stringify directly to preserve all fields (including ephemeral display info)
             // Note: formatCommentsForStorage is only for disk writes, not webview transmission
             const content = JSON.stringify(enrichedComments);
@@ -1025,13 +1049,20 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     private async sendCurrentCellId(webviewView: vscode.WebviewView) {
         const { getStoreState } = await initializeStateStore();
         const cellId = (await getStoreState("cellId")) as CellIdGlobalState | undefined;
+        const pendingData = this.consumePendingReloadData();
         if (cellId) {
             safePostMessageToView(webviewView, {
                 command: "reload",
                 data: {
                     cellId: cellId.cellId,
                     globalReferences: cellId.globalReferences,
+                    ...pendingData,
                 },
+            } as CommentPostMessages);
+        } else if (pendingData) {
+            safePostMessageToView(webviewView, {
+                command: "reload",
+                data: pendingData,
             } as CommentPostMessages);
         }
     }

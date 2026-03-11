@@ -804,7 +804,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Comments-related commands
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
-            vscode.commands.executeCommand("comments-sidebar.focus");
+            return vscode.commands.executeCommand("comments-sidebar.focus");
         })
     );
 
@@ -815,7 +815,7 @@ export async function activate(context: vscode.ExtensionContext) {
             // The webview will receive the message when it's ready via onWebviewReady hook
             const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
             if (provider && "setPendingEnableReplace" in provider) {
-                (provider as { setPendingEnableReplace: () => void }).setPendingEnableReplace();
+                (provider as { setPendingEnableReplace: () => void; }).setPendingEnableReplace();
             }
             await vscode.commands.executeCommand("search-passages-sidebar.focus");
         })
@@ -895,14 +895,19 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register the missing comments-sidebar.reload command
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.comments-sidebar.reload", (options: any) => {
-            // Get the comments provider and send reload message
             const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as any;
-            if (commentsProvider && commentsProvider._view) {
-                // Send a reload message directly to the webview
+            if (!commentsProvider) return;
+
+            if (commentsProvider._view) {
+                // Webview is live — post directly (VS Code queues until JS is ready)
                 commentsProvider._view.webview.postMessage({
                     command: "reload",
-                    data: options
+                    data: options,
                 });
+            } else {
+                // Webview hasn't been created yet; queue data for delivery
+                // once the webview initializes and sends getCurrentCellId
+                commentsProvider.setPendingReloadData(options);
             }
         })
     );

@@ -1025,6 +1025,25 @@ function App() {
                             globalReferences: message.data.globalReferences || [],
                         });
                     }
+                    if (message.data?.openCurrentTab) {
+                        setViewMode("cell");
+                        setSearchQuery("");
+                    }
+                    if (message.data?.openNewCommentIfNoComments && message.data?.cellId) {
+                        const targetCellId = message.data.cellId;
+                        const hasCommentsOnCell = commentThreadArrayRef.current.some((thread) => {
+                            const deletionEvents = thread.deletionEvent || [];
+                            const latestDeletion =
+                                deletionEvents.length > 0
+                                    ? deletionEvents.reduce((latest, ev) =>
+                                          ev.timestamp > latest.timestamp ? ev : latest
+                                      )
+                                    : null;
+                            const deleted = latestDeletion?.deleted || false;
+                            return !deleted && thread.cellId.cellId === targetCellId;
+                        });
+                        setShowNewCommentForm(!hasCommentsOnCell);
+                    }
                     break;
                 }
                 case "updateSingleThread": {
@@ -1328,8 +1347,10 @@ function App() {
             // Skip resolved threads if they're hidden
             if (!showResolvedThreads && isThreadResolved(commentThread)) return false;
 
-            // If in cell view mode, only show comments for the current cell
-            if (viewMode === "cell" && cellId.cellId) {
+            // In current-cell view, never fall back to all comments.
+            // If there is no active cell yet, show no threads.
+            if (viewMode === "cell") {
+                if (!cellId.cellId) return false;
                 return commentThread.cellId.cellId === cellId.cellId;
             }
 
