@@ -9,6 +9,7 @@ import {
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
 import AudioValidationButton from "./AudioValidationButton";
@@ -150,6 +151,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+        const { contentToScrollTo } = useContext(ScrollToContentContext);
 
         const cellRef = useRef<HTMLDivElement>(null);
         const contentRef = useRef<HTMLDivElement>(null);
@@ -236,6 +238,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
         }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
+
+        useEffect(() => {
+            if (contentToScrollTo && cellIds?.includes(contentToScrollTo) && cellRef.current) {
+                cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        }, [contentToScrollTo, cellIds]);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {

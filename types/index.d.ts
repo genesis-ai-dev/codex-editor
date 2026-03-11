@@ -800,8 +800,9 @@ export type EditorPostMessages =
     }
     | {
         command: "refreshWebviewAfterMilestoneEdits";
-        content?: Record<string, never>; // Empty content
-    };
+        content?: Record<string, never>;
+    }
+    | { command: "searchNavigateToCell"; content: string; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -2339,6 +2340,10 @@ type EditorReceiveMessages =
     | {
         type: "highlightCell";
         cellId?: string;
+    }
+    | {
+        type: "scrollToCell";
+        cellId: string;
     }
     | {
         type: "updateCellsPerPage";

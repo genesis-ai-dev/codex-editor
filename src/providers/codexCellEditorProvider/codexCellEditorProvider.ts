@@ -2410,6 +2410,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
+    public scrollOtherPanelsToCell(cellId: string, senderPanel: vscode.WebviewPanel) {
+        for (const [, panel] of this.webviewPanels.entries()) {
+            if (panel !== senderPanel) {
+                safePostMessageToPanel(panel, {
+                    type: "scrollToCell",
+                    cellId,
+                } as any);
+            }
+        }
+    }
+
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);

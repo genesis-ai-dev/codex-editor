@@ -631,12 +631,17 @@ const CodexCellEditor: React.FC = () => {
         [vscode]
     );
 
-    // Handle navigation to cell from search
+    // Handle navigation to cell from search — also tell the extension
+    // so the other editor panel scrolls to the same cell.
     const handleSearchNavigateToCell = useCallback(
         (cellId: string) => {
             setContentToScrollTo(cellId);
+            vscode.postMessage({
+                command: "searchNavigateToCell",
+                content: cellId,
+            } as EditorPostMessages);
         },
-        [setContentToScrollTo]
+        [setContentToScrollTo, vscode]
     );
 
     // Handle replace in cell from search
@@ -805,6 +810,10 @@ const CodexCellEditor: React.FC = () => {
                     setLastHighlightedChapter(null);
                     setChapterWhenHighlighted(null);
                 }
+            }
+
+            if (message.type === "scrollToCell") {
+                setContentToScrollTo(message.cellId);
             }
 
             // Add handler for pending validations updates
