@@ -131,18 +131,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return this.documentRevisions.get(documentUri) ?? 0;
     }
 
-    // Translation queue system
+    // Translation queue system - for AI translation requests only (batch and individual)
     private translationQueue: {
         cellId: string;
         document: CodexCellDocument;
         shouldUpdateValue: boolean;
-        validationRequest?: boolean;
-        audioValidationRequest?: boolean;
         shouldValidate: boolean;
         resolve: (result: any) => void;
         reject: (error: any) => void;
     }[] = [];
     private isProcessingQueue: boolean = false;
+
+    // Separate validation queue - runs independently so validations don't wait for AI translation
+    private validationQueue: {
+        cellId: string;
+        document: CodexCellDocument;
+        shouldValidate: boolean;
+        isAudioValidation: boolean;
+        resolve: (result: any) => void;
+        reject: (error: any) => void;
+    }[] = [];
+    private isProcessingValidationQueue: boolean = false;
 
     // New state for autocompletion process
     public autocompletionState: {
@@ -3212,12 +3221,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Create a new promise for this request
         return new Promise((resolve, reject) => {
-            // Add the request to the queue
+            // Add the request to the queue (translation only - validations use validationQueue)
             this.translationQueue.push({
                 cellId,
                 document,
                 shouldUpdateValue,
-                validationRequest: false,
                 shouldValidate: false,
                 resolve,
                 reject,
@@ -3249,142 +3257,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 const request = this.translationQueue[0];
 
-                // Handle audio validation request first if that's what it is
-                if (request.audioValidationRequest) {
-                    try {
-                        debug(`Processing audio validation for cell ${request.cellId}`);
-
-                        // Start audio validation with UI notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "audioValidationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: true,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Perform the audio validation
-                        await request.document.validateCellAudio(
-                            request.cellId,
-                            request.shouldValidate
-                        );
-
-                        // Send completion notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "audioValidationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove the processed request from the queue and resolve
-                        this.translationQueue.shift();
-                        request.resolve(true);
-
-                        // Update milestone progress after audio validation
-                        this.updateMilestoneProgressForDocument(request.document);
-                    } catch (error) {
-                        debug(`Error processing audio validation for cell ${request.cellId}:`, error);
-
-                        // Send audio validation error notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "audioValidationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false, // Mark as complete even on error
-                                        error:
-                                            error instanceof Error ? error.message : String(error),
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove from queue and reject the promise
-                        this.translationQueue.shift();
-                        request.reject(error);
-                    }
-                    continue;
-                }
-
-                // Handle validation request if that's what it is
-                if (request.validationRequest) {
-                    try {
-                        debug(`Processing validation for cell ${request.cellId}`);
-
-                        // Start validation with UI notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "validationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: true,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Perform the validation
-                        await request.document.validateCellContent(
-                            request.cellId,
-                            request.shouldValidate
-                        );
-
-                        // Send completion notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "validationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove the processed request from the queue and resolve
-                        this.translationQueue.shift();
-                        request.resolve(true);
-
-                        // Update milestone progress after validation
-                        this.updateMilestoneProgressForDocument(request.document);
-                    } catch (error) {
-                        debug(`Error processing validation for cell ${request.cellId}:`, error);
-
-                        // Send validation error notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "validationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false, // Mark as complete even on error
-                                        error:
-                                            error instanceof Error ? error.message : String(error),
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove from queue and reject the promise
-                        this.translationQueue.shift();
-                        request.reject(error);
-                    }
-                    continue;
-                }
-
+                // Translation queue only handles AI translation - validations use validationQueue
                 // Update the current cell being processed in the provider state
                 if (this.autocompletionState.isProcessing) {
                     this.autocompletionState.currentCellId = request.cellId;
@@ -3992,7 +3865,98 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         );
     }
 
-    // Add method to enqueue a validation
+    // Process validation queue independently from translation - validations don't wait for AI
+    private async processValidationQueue(): Promise<void> {
+        if (this.isProcessingValidationQueue || this.validationQueue.length === 0) {
+            return;
+        }
+
+        debug("Started processing validation queue");
+        this.isProcessingValidationQueue = true;
+
+        try {
+            while (this.validationQueue.length > 0) {
+                const request = this.validationQueue.shift()!;
+
+                try {
+                    if (request.isAudioValidation) {
+                        debug(`Processing audio validation for cell ${request.cellId}`);
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "audioValidationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: true },
+                                });
+                            }
+                        });
+                        await request.document.validateCellAudio(
+                            request.cellId,
+                            request.shouldValidate
+                        );
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "audioValidationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: false },
+                                });
+                            }
+                        });
+                    } else {
+                        debug(`Processing validation for cell ${request.cellId}`);
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "validationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: true },
+                                });
+                            }
+                        });
+                        await request.document.validateCellContent(
+                            request.cellId,
+                            request.shouldValidate
+                        );
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "validationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: false },
+                                });
+                            }
+                        });
+                    }
+                    this.updateMilestoneProgressForDocument(request.document);
+                    request.resolve(true);
+                } catch (error) {
+                    debug(`Error processing validation for cell ${request.cellId}:`, error);
+                    const inProgressType = request.isAudioValidation
+                        ? "audioValidationInProgress"
+                        : "validationInProgress";
+                    this.webviewPanels.forEach((panel, docUri) => {
+                        if (docUri === request.document.uri.toString()) {
+                            this.postMessageToWebview(panel, {
+                                type: inProgressType as any,
+                                content: {
+                                    cellId: request.cellId,
+                                    inProgress: false,
+                                    error: error instanceof Error ? error.message : String(error),
+                                },
+                            });
+                        }
+                    });
+                    request.reject(error);
+                }
+            }
+        } finally {
+            this.isProcessingValidationQueue = false;
+            debug("Finished processing validation queue");
+            // Process any validations added while we were running
+            if (this.validationQueue.length > 0) {
+                this.processValidationQueue();
+            }
+        }
+    }
+
+    // Add validation to the separate validation queue (does not wait for AI translation)
     public enqueueValidation(
         cellId: string,
         document: CodexCellDocument,
@@ -4000,27 +3964,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<any> {
         debug(`Enqueueing validation for cell ${cellId}, validate: ${shouldValidate}`);
 
-        // Create a new promise for this request
         return new Promise((resolve, reject) => {
-            // Add the request to the queue with a special validation type
-            this.translationQueue.push({
+            this.validationQueue.push({
                 cellId,
                 document,
-                shouldUpdateValue: false,
-                validationRequest: true, // Flag to identify validation requests
                 shouldValidate,
+                isAudioValidation: false,
                 resolve,
                 reject,
             });
-
-            // Start processing the queue if it's not already in progress
-            if (!this.isProcessingQueue) {
-                this.processTranslationQueue();
+            if (!this.isProcessingValidationQueue) {
+                this.processValidationQueue();
             }
         });
     }
 
-    // Add method to enqueue a validation
+    // Add audio validation to the separate validation queue (does not wait for AI translation)
     public enqueueAudioValidation(
         cellId: string,
         document: CodexCellDocument,
@@ -4028,22 +3987,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<any> {
         debug(`Enqueueing audio validation for cell ${cellId}, validate: ${shouldValidate}`);
 
-        // Create a new promise for this request
         return new Promise((resolve, reject) => {
-            // Add the request to the queue with a special validation type
-            this.translationQueue.push({
+            this.validationQueue.push({
                 cellId,
                 document,
-                shouldUpdateValue: false,
-                audioValidationRequest: true, // Flag to identify validation requests
                 shouldValidate,
+                isAudioValidation: true,
                 resolve,
                 reject,
             });
-
-            // Start processing the queue if it's not already in progress
-            if (!this.isProcessingQueue) {
-                this.processTranslationQueue();
+            if (!this.isProcessingValidationQueue) {
+                this.processValidationQueue();
             }
         });
     }
