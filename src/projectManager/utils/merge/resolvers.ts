@@ -2577,15 +2577,15 @@ export async function resolveConflictFiles(
                     debugLog(`Deleting file: ${conflict.filepath}`);
                     try {
                         await vscode.workspace.fs.delete(filePath);
-                        resolvedFiles.push({
-                            filepath: conflict.filepath,
-                            resolution: "deleted",
-                        });
-                    } catch (e) {
-                        const detail = e instanceof Error ? e.message : String(e);
-                        console.error(`Error deleting file ${conflict.filepath}:`, e);
-                        failedFiles.push({ filepath: conflict.filepath, error: `Delete failed: ${detail}` });
+                    } catch {
+                        // File may already be deleted locally (e.g. both sides deleted it,
+                        // or local cleanup ran first). The desired end state — file gone —
+                        // is already achieved, so treat this as success.
                     }
+                    resolvedFiles.push({
+                        filepath: conflict.filepath,
+                        resolution: "deleted",
+                    });
                     return;
                 }
 

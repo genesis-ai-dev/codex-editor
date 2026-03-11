@@ -217,25 +217,37 @@ export async function stageAndCommitAllAndSync(
                     debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
                 } catch (completeMergeError) {
                     const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
-                    debug("errorMessage in retry", errorMessage);
-                    if (retryCount < 3) {
-                        debug(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
+                    debug("completeMerge error:", errorMessage);
 
-                        // Exponential backoff starting at 30s: 30s, 60s, 120s
+                    // Only retry on transient errors (push rejected because remote
+                    // advanced, network hiccups, etc.). Permanent failures like auth,
+                    // validation, or staging errors should surface immediately.
+                    const isTransient =
+                        errorMessage.includes("non-fast-forward") ||
+                        errorMessage.includes("failed to push") ||
+                        errorMessage.includes("Failed to push") ||
+                        errorMessage.includes("timeout") ||
+                        errorMessage.includes("ETIMEDOUT") ||
+                        errorMessage.includes("ECONNRESET") ||
+                        errorMessage.includes("ECONNREFUSED") ||
+                        errorMessage.includes("network");
+
+                    if (isTransient && retryCount < 3) {
+                        debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
+
                         const backoffMs = 30 * Math.pow(2, retryCount) * 1000;
                         debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
                         await new Promise(resolve => setTimeout(resolve, backoffMs));
 
                         return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
-                    } else if (retryCount >= 3) {
+                    }
+
+                    if (retryCount >= 3) {
                         vscode.window.showErrorMessage(
                             `Failed to complete merge after 3 retries: ${errorMessage}`
                         );
-                        throw completeMergeError;
-                    } else {
-                        // Re-throw if it's not a fast-forward error or we've exhausted retries
-                        throw completeMergeError;
                     }
+                    throw completeMergeError;
                 }
             }
         }
