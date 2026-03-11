@@ -29,8 +29,8 @@ const extensionConfig = {
         // modules added here also need to be added in the .vscodeignore file
         vm: "commonjs vm",
         encoding: "commonjs encoding",
+        dugite: "commonjs dugite", // Must be external so its embedded binary resolution works (needs real __dirname and process.platform)
         // Note: tar is NOT external - it's bundled so audio import can extract FFmpeg on-demand
-        // Note: dugite is bundled by webpack (its JS API is small; the binary downloads at runtime)
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
@@ -240,6 +240,7 @@ const testRunnerConfig = {
     },
     externals: {
         vscode: "commonjs vscode",
+        dugite: "commonjs dugite",
     },
     resolve: {
         extensions: [".ts", ".js"],

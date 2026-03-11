@@ -24,6 +24,8 @@ out/**/*.map
 !**/*.svg
 !node_modules/@vscode/codicons/dist/**
 !node_modules/vscode-uri
+!node_modules/dugite/build/**
+!node_modules/dugite/package.json
 
 !CHANGELOG.md
 !LICENSE

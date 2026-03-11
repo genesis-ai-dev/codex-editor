@@ -235,7 +235,7 @@ export async function stageAndCommitAllAndSync(
                     if (isTransient && retryCount < 3) {
                         debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
 
-                        const backoffMs = 30 * Math.pow(2, retryCount) * 1000;
+                        const backoffMs = 5 * Math.pow(2, retryCount) * 1000;
                         debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
                         await new Promise(resolve => setTimeout(resolve, backoffMs));
 
