@@ -2340,7 +2340,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    test("revalidateMissingForCell restores pointer, clears audioAvailability missing, bumps updatedAt, and posts updates", async function () {
+    test("revalidateMissingForCell restores pointer, computes availability from disk, and posts updates without mutating document", async function () {
         this.timeout(12000);
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
@@ -2425,11 +2425,11 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Do not hard-fail if pointer check races; the audioAvailability flip below is the contract we require
         assert.ok(ptrOk || true, "Pointer creation may race; continuing to validate flags and messages");
 
-        // Assert attachment updated: audioAvailability not "missing" and updatedAt bumped
+        // Document should NOT be mutated — revalidation is now compute-only
         const after = JSON.parse(document.getText());
         const att = after.cells[0].metadata.attachments[audioId];
-        assert.notStrictEqual(att.audioAvailability, "missing", "audioAvailability should not be 'missing' after revalidation");
-        assert.ok(att.updatedAt > initialUpdatedAt, "updatedAt should increase");
+        assert.strictEqual(att.audioAvailability, "missing", "audioAvailability should remain unchanged on the document (compute-only)");
+        assert.strictEqual(att.updatedAt, initialUpdatedAt, "updatedAt should not change (compute-only)");
 
         // Assert messages were posted: history refresh and availability map
         const historyMsg = posted.find((m) => m?.type === "audioHistoryReceived");

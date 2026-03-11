@@ -20,7 +20,7 @@ import { getAuthApi } from "@/extension";
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
-import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
+import { computeCellAudioAvailabilityFromDisk, computeCellIdsAudioAvailability } from "../../utils/audioMissingUtils";
 import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
@@ -3111,46 +3111,30 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (!workspaceFolder) return;
-            const changed = await revalidateCellMissingFlags(document, workspaceFolder, cellId);
 
-            // If anything changed, persist and send updated history and availability
-            if (changed) {
-                await document.save(new vscode.CancellationTokenSource().token);
+            // Compute availability from disk without mutating or saving the document
+            const state = await computeCellAudioAvailabilityFromDisk(document, workspaceFolder, cellId);
 
-                // Send updated history
-                const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
-                const currentAttachment = document.getCurrentAttachment(cellId, "audio");
-                const explicitSelection = document.getExplicitAudioSelection(cellId);
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "audioHistoryReceived",
-                    content: {
-                        cellId,
-                        audioHistory,
-                        currentAttachmentId: currentAttachment?.attachmentId ?? null,
-                        hasExplicitSelection: explicitSelection !== null
-                    }
-                });
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: { [cellId]: state },
+            });
 
-                // Send updated availability for this cell
-                try {
-                    const documentText = document.getText();
-                    const notebookData = JSON.parse(documentText);
-                    const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-                    const cell = cells.find((c: any) => c?.metadata?.id === cellId);
-                    if (cell) {
-                        const state = await computeCellAudioStateWithVersionGate(
-                            cell?.metadata?.attachments,
-                            cell?.metadata?.selectedAudioId,
-                        );
-                        safePostMessageToPanel(webviewPanel, {
-                            type: "providerSendsAudioAttachments",
-                            attachments: { [cellId]: state },
-                        });
-                    }
-                } catch { /* ignore */ }
-            }
+            // Send current history (read-only)
+            const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
+            const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+            const explicitSelection = document.getExplicitAudioSelection(cellId);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioHistoryReceived",
+                content: {
+                    cellId,
+                    audioHistory,
+                    currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                    hasExplicitSelection: explicitSelection !== null,
+                },
+            });
         } catch (err) {
-            console.error("Failed to revalidate missing for cell", { cellId, err });
+            console.error("Failed to compute availability for cell", { cellId, err });
         }
     },
 
@@ -3210,6 +3194,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 allCellsInMilestone: processedAllCellsInMilestone,
                 sourceCellMap,
             });
+
+            // Compute and send filesystem-checked audio availability for the page cells
+            // so the webview doesn't rely on potentially stale persisted metadata.
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (ws) {
+                const pageCellIds = cells
+                    .map((c: any) => c.cellMarkers?.[0])
+                    .filter(Boolean) as string[];
+                if (pageCellIds.length > 0) {
+                    const availability = await computeCellIdsAudioAvailability(
+                        document, ws, pageCellIds,
+                    );
+                    if (Object.keys(availability).length > 0) {
+                        safePostMessageToPanel(webviewPanel, {
+                            type: "providerSendsAudioAttachments",
+                            attachments: availability as any,
+                        });
+                    }
+                }
+            }
 
             debug(`Sent cells for milestone ${milestoneIndex}, subsection ${subsectionIndex}: ${processedCells.length} cells`);
         } catch (error) {

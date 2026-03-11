@@ -33,7 +33,7 @@ import path from "path";
 import * as fs from "fs";
 import { getAuthApi } from "@/extension";
 import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
-import { revalidateDocumentAudioFlags } from "../../utils/audioMissingUtils";
+import { computeCellIdsAudioAvailability, computeDocumentAudioAvailability } from "../../utils/audioMissingUtils";
 import {
     getCachedChapter as getCachedChapterUtil,
     updateCachedChapter as updateCachedChapterUtil,
@@ -83,6 +83,50 @@ function extractChapterNumberFromMilestoneValue(value: string | undefined): numb
     }
 
     return null;
+}
+
+/**
+ * Builds a corrected milestone progress map with accurate cellsWithMissingAudio counts
+ * derived from filesystem-based audio availability, without mutating the document.
+ */
+function buildCorrectedMilestoneProgress(
+    originalProgress: Record<number, {
+        percentTranslationsCompleted: number;
+        percentAudioTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+        percentAudioValidatedTranslations: number;
+        percentTextValidatedTranslations: number;
+        cellsWithMissingAudio?: number;
+    }>,
+    milestoneIndex: MilestoneIndex,
+    documentCells: any[],
+    availability: Record<string, AudioAvailabilityState>,
+): typeof originalProgress {
+    const corrected: typeof originalProgress = {};
+    for (const [key, value] of Object.entries(originalProgress)) {
+        corrected[Number(key)] = { ...value };
+    }
+
+    for (let i = 0; i < milestoneIndex.milestones.length; i++) {
+        const milestone = milestoneIndex.milestones[i];
+        const startIdx = milestone.cellIndex;
+        const endIdx = startIdx + milestone.cellCount;
+
+        let missingCount = 0;
+        for (let j = startIdx; j < endIdx && j < documentCells.length; j++) {
+            const cellId = documentCells[j]?.metadata?.id;
+            if (cellId && availability[cellId] === "missing") {
+                missingCount++;
+            }
+        }
+
+        const milestoneKey = i + 1; // milestoneProgress uses 1-based keys
+        if (corrected[milestoneKey]) {
+            corrected[milestoneKey].cellsWithMissingAudio = missingCount;
+        }
+    }
+
+    return corrected;
 }
 
 // StateStore interface matching what's provided by initializeStateStore
@@ -887,6 +931,49 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     milestoneIndex: initialMilestoneIndex,
                     subsectionIndex: initialSubsectionIndex,
                 });
+
+                // Compute audio availability from the filesystem (read-only — no document mutation).
+                // First send results for visible cells so CellContentDisplay icons update fast,
+                // then compute for ALL cells so MilestoneAccordion progress is accurate.
+                try {
+                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (ws) {
+                        const visibleCellIds = initialCells
+                            .map((c: any) => c.cellMarkers?.[0])
+                            .filter(Boolean) as string[];
+
+                        if (visibleCellIds.length > 0) {
+                            const visibleAvailability = await computeCellIdsAudioAvailability(
+                                document, ws, visibleCellIds,
+                            );
+                            if (Object.keys(visibleAvailability).length > 0) {
+                                this.postMessageToWebview(webviewPanel, {
+                                    type: "providerSendsAudioAttachments",
+                                    attachments: visibleAvailability as any,
+                                });
+                            }
+                        }
+
+                        const allAvailability = await computeDocumentAudioAvailability(document, ws);
+                        if (Object.keys(allAvailability).length > 0) {
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsAudioAttachments",
+                                attachments: allAvailability as any,
+                            });
+
+                            const documentCells = (document as any)._documentData?.cells || [];
+                            const correctedProgress = buildCorrectedMilestoneProgress(
+                                milestoneProgress, milestoneIndex, documentCells, allAvailability,
+                            );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "milestoneProgressUpdate",
+                                milestoneProgress: correctedProgress,
+                            });
+                        }
+                    }
+                } catch (e) {
+                    debug("Failed to compute refined audio availability", e);
+                }
             }
 
             // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
@@ -903,43 +990,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     type: "providerUpdatesNotebookMetadataForWebview",
                     content: notebookData.metadata,
                 });
-            }
-
-            // After sending initial content, revalidate audio availability against the filesystem
-            // and send corrected state so icons are accurate on initial load.
-            try {
-                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (ws) {
-                    const flagsChanged = await revalidateDocumentAudioFlags(document, ws);
-
-                    // Re-read the document after revalidation to get fresh metadata
-                    const freshData = this.getDocumentAsJson(document);
-                    if (Array.isArray(freshData?.cells)) {
-                        const availability: Record<string, AudioAvailabilityState> = {};
-                        for (const cell of freshData.cells as any[]) {
-                            const cellId = cell?.metadata?.id;
-                            if (!cellId) continue;
-                            availability[cellId] = await computeCellAudioStateWithVersionGate(
-                                cell?.metadata?.attachments,
-                                cell?.metadata?.selectedAudioId,
-                            );
-                        }
-                        if (Object.keys(availability).length > 0) {
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsAudioAttachments",
-                                attachments: availability as any,
-                            });
-                        }
-                    }
-
-                    // If any flags changed, refresh milestone progress so MilestoneAccordion
-                    // shows corrected missing-audio icons for all milestones.
-                    if (flagsChanged) {
-                        await sendMilestoneRefreshToWebview(document, webviewPanel, this);
-                    }
-                }
-            } catch (e) {
-                debug("Failed to compute refined audio availability", e);
             }
         };
 
@@ -2447,38 +2497,48 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 content: notebookData.metadata,
             });
 
-            // Revalidate audio availability against the filesystem and send corrected state
+            // Compute audio availability from the filesystem (read-only — no document mutation).
+            // Send visible cells first for fast CellContentDisplay update, then all cells
+            // so MilestoneAccordion progress is accurate.
             (async () => {
                 try {
                     const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                     if (ws) {
-                        const flagsChanged = await revalidateDocumentAudioFlags(document, ws);
+                        const visibleCellIds = initialCells
+                            .map((c: any) => c.cellMarkers?.[0])
+                            .filter(Boolean) as string[];
 
-                        const freshData = this.getDocumentAsJson(document);
-                        if (Array.isArray(freshData?.cells)) {
-                            const availability: Record<string, AudioAvailabilityState> = {};
-                            for (const cell of freshData.cells as any[]) {
-                                const cellId = cell?.metadata?.id;
-                                if (!cellId) continue;
-                                availability[cellId] = await computeCellAudioStateWithVersionGate(
-                                    cell?.metadata?.attachments,
-                                    cell?.metadata?.selectedAudioId,
-                                );
-                            }
-                            if (Object.keys(availability).length > 0) {
+                        if (visibleCellIds.length > 0) {
+                            const visibleAvailability = await computeCellIdsAudioAvailability(
+                                document, ws, visibleCellIds,
+                            );
+                            if (Object.keys(visibleAvailability).length > 0) {
                                 safePostMessageToPanel(webviewPanel, {
                                     type: "providerSendsAudioAttachments",
-                                    attachments: availability as any,
+                                    attachments: visibleAvailability as any,
                                 });
                             }
                         }
 
-                        if (flagsChanged) {
-                            await sendMilestoneRefreshToWebview(document, webviewPanel, this);
+                        const allAvailability = await computeDocumentAudioAvailability(document, ws);
+                        if (Object.keys(allAvailability).length > 0) {
+                            safePostMessageToPanel(webviewPanel, {
+                                type: "providerSendsAudioAttachments",
+                                attachments: allAvailability as any,
+                            });
+
+                            const documentCells = (document as any)._documentData?.cells || [];
+                            const correctedProgress = buildCorrectedMilestoneProgress(
+                                milestoneProgress, milestoneIndex, documentCells, allAvailability,
+                            );
+                            safePostMessageToPanel(webviewPanel, {
+                                type: "milestoneProgressUpdate",
+                                milestoneProgress: correctedProgress,
+                            });
                         }
                     }
                 } catch (e) {
-                    debug("Failed to revalidate audio availability during refresh", e);
+                    debug("Failed to compute audio availability during refresh", e);
                 }
             })();
 
