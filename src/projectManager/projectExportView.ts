@@ -291,6 +291,18 @@ function getWebviewContent(
                     border-radius: 4px;
                     opacity: 1;
                 }
+                .format-warning {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    margin-top: 8px;
+                    padding: 4px 8px;
+                    font-size: 0.85em;
+                    color: var(--vscode-charts-yellow, #ca8a04);
+                    background-color: rgba(202, 138, 4, 0.12);
+                    border: 1px solid rgba(202, 138, 4, 0.35);
+                    border-radius: 4px;
+                }
                 .step-content { flex: 1; overflow-y: auto; }
             </style>
         </head>
@@ -392,6 +404,10 @@ function getWebviewContent(
                                             <span class="format-tag format-tag-roundtrip">CSV/TSV</span>
                                             <span class="format-tag format-tag-roundtrip">IDML</span>
                                             <span class="format-tag format-tag-roundtrip">Biblica Study Notes</span>
+                                        </div>
+                                        <div class="format-warning">
+                                            <i class="codicon codicon-warning"></i>
+                                            <span>This option might not work for stream only!</span>
                                         </div>
                                     </div>
                                 </div>

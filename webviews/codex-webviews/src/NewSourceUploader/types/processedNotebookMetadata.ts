@@ -186,10 +186,6 @@ export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetad
 
 export interface DocxNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "docx";
-}
-
-export interface DocxRoundtripNotebookMetadata extends ProcessedNotebookMetadataBase {
-    importerType: "docx-roundtrip";
     corpusMarker?: string;
     paragraphCount?: number;
 }
@@ -236,7 +232,6 @@ export type ProcessedNotebookMetadata =
     | UsfmNotebookMetadata
     | UsfmExperimentalNotebookMetadata
     | DocxNotebookMetadata
-    | DocxRoundtripNotebookMetadata
     | IndesignNotebookMetadata
     | BiblicaNotebookMetadata
     | MaculaNotebookMetadata;
@@ -258,7 +253,6 @@ export type ProcessedNotebookMetadataByImporter = {
     usfm: UsfmNotebookMetadata;
     "usfm-experimental": UsfmExperimentalNotebookMetadata;
     docx: DocxNotebookMetadata;
-    "docx-roundtrip": DocxRoundtripNotebookMetadata;
     indesign: IndesignNotebookMetadata;
     biblica: BiblicaNotebookMetadata;
     macula: MaculaNotebookMetadata;

@@ -400,9 +400,9 @@ async function exportCodexContentAsDocxRoundtrip(
 
                     // Check if this is a round-trip DOCX file
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    if (corpusMarker !== 'docx-roundtrip') {
-                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with round-trip importer (corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX round-trip importer`);
+                    if (corpusMarker !== 'docx' && corpusMarker !== 'docx-roundtrip') {
+                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with DOCX importer (corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX importer`);
                         continue;
                     }
 
@@ -1343,7 +1343,7 @@ async function exportCodexContentAsRebuild(
                     console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}"`);
 
                     // Group by supported types
-                    if (corpusMarker === 'docx-roundtrip') {
+                    if (corpusMarker === 'docx' || corpusMarker === 'docx-roundtrip') {
                         filesByType['docx'] = filesByType['docx'] || [];
                         filesByType['docx'].push(filePath);
                     } else if (

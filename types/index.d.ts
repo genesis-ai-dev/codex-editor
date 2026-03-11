@@ -1042,7 +1042,6 @@ type FileImporterType =
     | "plaintext"
     | "audio"
     | "docx"
-    | "docx-roundtrip"
     | "markdown"
     | "subtitles"
     | "spreadsheet"

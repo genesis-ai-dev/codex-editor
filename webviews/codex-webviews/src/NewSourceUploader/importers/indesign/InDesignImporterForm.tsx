@@ -395,7 +395,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                 // Default: one cell per paragraph (non-verse or unmatched structure)
                 // Create cell metadata (generates UUID internally)
                 const { cellId, metadata: cellMetadata } = createIndesignParagraphCellMetadata({
-                    cellLabel: (globalCellIndex + 1).toString(),
+                    cellLabel: undefined,
                     originalContent: cleanText,
                     storyId: story.id || '',
                     paragraphId: paragraph.id || '',

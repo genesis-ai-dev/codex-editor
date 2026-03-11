@@ -102,8 +102,8 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
 
     // Word Documents (docx)
     if (
+        corpusMarker === "docx" ||
         corpusMarker === "docx-roundtrip" ||
-        importerType === "docx-roundtrip" ||
         importerType === "docx" ||
         (originalFileName && /\.docx$/i.test(originalFileName))
     ) {
