@@ -525,6 +525,18 @@ export async function activate(context: vscode.ExtensionContext) {
                         vscode.window.showErrorMessage("Failed to create project after reload.");
                     }
                 }
+
+                // Re-check metadataExists after pending project creation so downstream
+                // initialization (indexes, backtranslation commands, etc.) uses the correct value.
+                if (!metadataExists) {
+                    const freshMetadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+                    try {
+                        await vscode.workspace.fs.stat(freshMetadataUri);
+                        metadataExists = true;
+                    } catch {
+                        // still doesn't exist
+                    }
+                }
             }
 
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
@@ -939,6 +951,7 @@ async function watchForInitialization(context: vscode.ExtensionContext, metadata
         if (metadataExists) {
             watcher?.dispose();
             await initializeExtension(context, metadataExists);
+            registerBacktranslationCommands(context);
         }
     };
 
