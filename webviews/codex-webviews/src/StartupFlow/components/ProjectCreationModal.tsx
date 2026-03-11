@@ -11,18 +11,9 @@ import {
 } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "../../components/ui/select";
 import { Label } from "../../components/ui/label";
 import { LanguagePicker } from "../../shared/components/LanguagePicker";
 import { MessagesToStartupFlowProvider } from "types";
-
-type ProjectType = "bible" | "subtitles" | "obs" | "documents" | "dubbing" | "audioTranslation" | "audiobibleTranslation" | "other";
 
 interface ProjectCreationModalProps {
     open: boolean;
@@ -36,7 +27,6 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     vscode,
 }) => {
     const [projectName, setProjectName] = useState("");
-    const [projectType, setProjectType] = useState<ProjectType | "">("");
     const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata | null>(null);
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
     const [touched, setTouched] = useState(false);
@@ -46,7 +36,6 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     useEffect(() => {
         if (!open) {
             setProjectName("");
-            setProjectType("");
             setSourceLanguage(null);
             setTargetLanguage(null);
             setTouched(false);
@@ -72,7 +61,6 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
         return (
             trimmedName.length > 0 &&
             trimmedName.length <= 256 &&
-            projectType !== "" &&
             sourceLanguage !== null &&
             targetLanguage !== null
         );
@@ -83,7 +71,6 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
         vscode.postMessage({
             command: "project.createForUpload",
             projectName: projectName.trim(),
-            projectType: projectType as ProjectType,
             sourceLanguage: sourceLanguage!,
             targetLanguage: targetLanguage!,
         } as MessagesToStartupFlowProvider);
@@ -124,31 +111,6 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                         {nameError && touched && (
                             <p className="text-sm text-red-500">{nameError}</p>
                         )}
-                    </div>
-
-                    {/* Project Type */}
-                    <div className="space-y-2">
-                        <Label htmlFor="project-type">
-                            Project Type <span className="text-red-500">*</span>
-                        </Label>
-                        <Select
-                            value={projectType}
-                            onValueChange={(value) => setProjectType(value as ProjectType)}
-                        >
-                            <SelectTrigger id="project-type">
-                                <SelectValue placeholder="Select project type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="bible">Bible Translation</SelectItem>
-                                <SelectItem value="subtitles">Subtitles Translation</SelectItem>
-                                <SelectItem value="obs">Open Bible Stories</SelectItem>
-                                <SelectItem value="documents">Document Translation</SelectItem>
-                                <SelectItem value="dubbing">Dubbing</SelectItem>
-                                <SelectItem value="audioTranslation">Audio Translation</SelectItem>
-                                <SelectItem value="audiobibleTranslation">Audiobible Translation</SelectItem>
-                                <SelectItem value="other">Other</SelectItem>
-                            </SelectContent>
-                        </Select>
                     </div>
 
                     {/* Source Language */}
