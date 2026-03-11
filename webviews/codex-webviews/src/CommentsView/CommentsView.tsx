@@ -1378,11 +1378,11 @@ function App() {
 
     return (
         <TooltipProvider>
-            <div className="h-full w-full flex flex-col bg-background text-foreground font-sans relative">
+            <div className="h-screen w-full flex flex-col bg-background text-foreground font-sans relative overflow-hidden">
                 <WebviewHeader title="Comments" vscode={vscode} />
 
                 {/* Header */}
-                <div className="p-4 border-b border-border flex flex-col gap-3">
+                <div className="p-4 border-b border-border flex flex-col gap-3 flex-shrink-0">
                     {/* {currentUser.isAuthenticated && (
                         <div className="flex items-center gap-2">
                             <UserAvatar
@@ -1518,7 +1518,7 @@ function App() {
 
                 {/* New comment form CHANGE THIS TOO! THIS NEEDS TO HAVE THE CELLDISPLAYNAME INSTEAD OF CELLID, about 9 lines down.*/}
                 {showNewCommentForm && (
-                    <Card className="m-4 bg-muted/50">
+                    <Card className="m-4 bg-muted/50 flex-shrink-0">
                         <CardContent className="p-4">
                             <div className="flex items-center mb-3 gap-2">
                                 <MessageSquare className="h-4 w-4" />
