@@ -280,11 +280,16 @@ export class MetadataManager {
                     metadata.meta.requiredExtensions = {};
                 }
 
-                // Only update codexEditor if new version is greater or missing
+                // Only update codexEditor if new version is greater or missing,
+                // AND no codex-editor pin is active (pinned version owns the floor while active).
                 if (versions.codexEditor !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.codexEditor;
-                    if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                    const pin = (metadata.meta as any).pinnedExtension;
+                    const codexPinActive = pin?.id === "codex-editor" && pin?.version;
+                    if (!codexPinActive) {
+                        const existingVersion = metadata.meta.requiredExtensions.codexEditor;
+                        if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
+                            metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                        }
                     }
                 }
                 
