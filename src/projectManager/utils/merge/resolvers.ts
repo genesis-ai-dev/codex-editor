@@ -2212,7 +2212,7 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
             ours = JSON.parse(conflict.ours || '{}');
             ours["git.enabled"] = false;
             vscode.window.showErrorMessage(
-                'Settings merge failed due to invalid JSON. Using local version.',
+                'Settings couldn\'t be combined properly. Your local version was kept.',
                 'Show Settings'
             ).then(choice => {
                 if (choice === 'Show Settings') {
@@ -2334,8 +2334,8 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
         // Standard conflict notification
         const conflictKeys = conflicts.map(c => c.key).join(', ');
         vscode.window.showInformationMessage(
-            `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
-            `Check settings if needed.`,
+            `${conflicts.length} setting(s) had different values and were automatically resolved. ` +
+            `You may want to review them.`,
             'Show Settings'
         ).then(choice => {
             if (choice === 'Show Settings') {
@@ -2493,7 +2493,7 @@ export async function resolveConflictFiles(
     await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: "Resolving conflicts...",
+            title: "Combining changes...",
             cancellable: false,
         },
         async (progress) => {
@@ -2502,7 +2502,7 @@ export async function resolveConflictFiles(
             const reportProgress = (): void => {
                 progress.report({
                     increment: (1 / totalConflicts) * 100,
-                    message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                    message: `File ${processedConflicts} of ${totalConflicts}`,
                 });
             };
 

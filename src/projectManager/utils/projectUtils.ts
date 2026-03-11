@@ -502,11 +502,11 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                     { name: author.name, email: author.email },
                 );
 
-                vscode.window.showInformationMessage("Git repository initialized successfully");
+                vscode.window.showInformationMessage("Project sync has been set up.");
             } catch (error) {
                 console.error("Failed to initialize git repository:", error);
                 vscode.window.showErrorMessage(
-                    `Failed to initialize git repository: ${error instanceof Error ? error.message : String(error)}`
+                    `Failed to set up sync for this project: ${error instanceof Error ? error.message : String(error)}`
                 );
             }
         }

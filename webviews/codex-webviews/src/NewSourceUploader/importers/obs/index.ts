@@ -139,12 +139,12 @@ const downloadObsRepository = async (
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Repository Access', 'Fetching OBS repository contents...', 10));
+        onProgress?.(createProgress('Downloading', 'Fetching Open Bible Stories...', 10));
 
         // Get directory listing to find all story files
         const contentFiles = await fetchRepositoryContents();
 
-        onProgress?.(createProgress('Repository Access', `Found ${contentFiles.length} story files`, 20));
+        onProgress?.(createProgress('Downloading', `Found ${contentFiles.length} story files`, 20));
 
         // Download all story files
         const storyFiles: { name: string; content: string; }[] = [];
@@ -168,7 +168,7 @@ const downloadObsRepository = async (
         }
 
         if (storyFiles.length === 0) {
-            throw new Error('No story files could be downloaded from the repository');
+            throw new Error('No story files could be downloaded');
         }
 
         onProgress?.(createProgress('Processing Stories', 'Processing downloaded stories...', 75));
@@ -358,7 +358,7 @@ const downloadObsRepository = async (
             return addMilestoneCellsToNotebookPair(notebookPair);
         });
 
-        onProgress?.(createProgress('Complete', 'OBS repository download complete', 100));
+        onProgress?.(createProgress('Complete', 'OBS download complete', 100));
 
         return {
             success: true,
@@ -374,11 +374,11 @@ const downloadObsRepository = async (
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'Failed to download OBS repository', 0));
+        onProgress?.(createProgress('Error', 'Failed to download OBS content', 0));
 
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error occurred while downloading repository',
+            error: error instanceof Error ? error.message : 'Unknown error occurred while downloading OBS content',
         };
     }
 };
@@ -391,7 +391,7 @@ const fetchRepositoryContents = async (): Promise<{ name: string; path: string; 
 
     const response = await fetch(apiUrl);
     if (!response.ok) {
-        throw new Error(`Failed to fetch repository contents: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch OBS content: ${response.status} ${response.statusText}`);
     }
 
     const contents = await response.json();

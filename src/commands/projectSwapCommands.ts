@@ -524,7 +524,7 @@ export async function initiateProjectSwap(): Promise<void> {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
+            await vscode.window.showErrorMessage("No project is open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -537,7 +537,7 @@ export async function initiateProjectSwap(): Promise<void> {
             await vscode.workspace.fs.stat(metadataUri);
         } catch {
             await vscode.window.showErrorMessage(
-                "This is not a Codex project. No metadata.json found.",
+                "This doesn't appear to be a Codex project.",
                 { modal: true }
             );
             return;
@@ -614,7 +614,7 @@ export async function initiateProjectSwap(): Promise<void> {
         const currentGitUrl = await getGitOriginUrl(workspacePath);
         if (!currentGitUrl) {
             await vscode.window.showErrorMessage(
-                "Could not determine current git origin URL. Make sure this is a valid git repository.",
+                "Could not determine this project's online source. Please make sure this project is properly set up.",
                 { modal: true }
             );
             return;
@@ -685,14 +685,14 @@ export async function initiateProjectSwap(): Promise<void> {
 
         // Prompt for new project URL
         const newProjectUrl = await vscode.window.showInputBox({
-            prompt: "Enter the Git URL for the new project (must end with .git)",
+            prompt: "Enter the URL for the new project",
             placeHolder: "https://gitlab.com/group/new-project.git",
             validateInput: (value) => {
                 if (!value) {
-                    return "Git URL is required";
+                    return "Project URL is required";
                 }
                 if (!value.endsWith(".git")) {
-                    return "Git URL must end with .git";
+                    return "URL must end with .git";
                 }
                 if (value === currentGitUrl) {
                     return "New project URL cannot be the same as current project";
@@ -709,7 +709,7 @@ export async function initiateProjectSwap(): Promise<void> {
         const validation = await validateGitUrl(newProjectUrl);
         if (!validation.valid) {
             await vscode.window.showErrorMessage(
-                `Invalid repository URL: ${validation.error}`,
+                `Invalid project URL: ${validation.error}`,
                 { modal: true }
             );
             return;
@@ -718,7 +718,7 @@ export async function initiateProjectSwap(): Promise<void> {
         // Prompt for reason
         const swapReason = await vscode.window.showInputBox({
             prompt: "Reason for swap (optional but recommended)",
-            placeHolder: "e.g., Repository size reduction, restructuring, etc.",
+            placeHolder: "e.g., Project restructuring, size reduction, etc.",
         });
 
         // Get current user info
@@ -906,7 +906,7 @@ export async function viewProjectSwapStatus(): Promise<void> {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
+            await vscode.window.showErrorMessage("No project is open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -1009,7 +1009,7 @@ export async function cancelProjectSwap(): Promise<void> {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
+            await vscode.window.showErrorMessage("No project is open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -1134,10 +1134,10 @@ async function promptSwapIfRequired(projectPath: string): Promise<void> {
 
         const selection = await vscode.window.showWarningMessage(
             `📦 Project Update Required\n\n` +
-            `This project has been updated to a new repository:\n${newProjectName}\n\n` +
-            `Reason: ${activeEntry.swapReason || "Repository update"}\n` +
-            `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
-            `Syncing has been disabled until you update.\n\n` +
+            `This project has been moved to a new version:\n${newProjectName}\n\n` +
+            `Reason: ${activeEntry.swapReason || "Project update"}\n` +
+            `Started by: ${activeEntry.swapInitiatedBy}\n\n` +
+            `Syncing is paused until you update.\n\n` +
             `Your local changes will be preserved and backed up.`,
             { modal: true },
             "Update Now"
@@ -1159,7 +1159,7 @@ export async function initiateSwapCopy(): Promise<void> {
     try {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            await vscode.window.showErrorMessage("No workspace folder open. Please open a project first.", { modal: true });
+            await vscode.window.showErrorMessage("No project is open. Please open a project first.", { modal: true });
             return;
         }
 
@@ -1266,13 +1266,13 @@ export async function initiateSwapCopy(): Promise<void> {
 
         // Check if exists
         if (fs.existsSync(newProjectPath)) {
-            await vscode.window.showErrorMessage(`Target directory already exists: ${newProjectPath}`, { modal: true });
+            await vscode.window.showErrorMessage(`A project folder already exists at this location: ${newProjectPath}`, { modal: true });
             return;
         }
 
         // Confirm
         const confirm = await vscode.window.showWarningMessage(
-            `Copy project to "${newName}"?\n\nThis will create a fresh local copy with:\n• New project ID\n• NO git history\n• Audio files will be preserved and re-uploaded to new project\n\nNew location: ${newProjectPath}`,
+            `Copy project to "${newName}"?\n\nThis will create a fresh local copy with:\n• New project ID\n• No sync history\n• Audio files will be preserved and re-uploaded to the new project\n\nNew location: ${newProjectPath}`,
             { modal: true },
             "Yes, Copy"
         );
@@ -1500,7 +1500,7 @@ export async function initiateSwapCopy(): Promise<void> {
             }
 
             // Initialize Git
-            progress.report({ message: "Initializing git repository..." });
+            progress.report({ message: "Setting up project..." });
             try {
                 await dugiteGit.init(newProjectPath);
 
@@ -1533,7 +1533,7 @@ export async function initiateSwapCopy(): Promise<void> {
                 );
             } catch (error) {
                 console.error("Git initialization failed during swap copy:", error);
-                await vscode.window.showErrorMessage(`Git initialization failed: ${error}`, { modal: true });
+                await vscode.window.showErrorMessage(`Project setup failed: ${error instanceof Error ? error.message : String(error)}`, { modal: true });
             }
 
             progress.report({ message: "Opening new project..." });

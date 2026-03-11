@@ -3004,11 +3004,11 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         const cells: any[] = notebookData.cells || [];
         if (cells.length === 0) return false;
 
-        const milestones: Array<{ cell: any; chapter: number | null }> = [];
+        const milestones: Array<{ cell: any; chapter: number | null; }> = [];
         const contentWithRef: Array<{
             cell: any;
             parsed: ParsedVerseRef;
-            sortKey: { book: string; chapter: number; verse: number };
+            sortKey: { book: string; chapter: number; verse: number; };
         }> = [];
         const contentWithoutRef: any[] = [];
         const paratextByParentId = new Map<string, any[]>();
@@ -3222,7 +3222,7 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
                     ) as {
                         refreshWebviewsForFiles?: (
                             paths: string[],
-                            options?: { isSourceAndCodexFiles?: boolean }
+                            options?: { isSourceAndCodexFiles?: boolean; }
                         ) => Promise<void>;
                     };
                     if (provider?.refreshWebviewsForFiles) {

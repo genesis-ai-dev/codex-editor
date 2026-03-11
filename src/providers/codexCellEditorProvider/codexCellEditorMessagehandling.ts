@@ -1155,7 +1155,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
-        vscode.window.showInformationMessage("Notebook metadata updated successfully.");
+        vscode.window.showInformationMessage("Notebook details updated.");
         provider.refreshWebview(webviewPanel, document);
     },
 
@@ -1454,7 +1454,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     togglePrimarySidebar: async () => {
-        vscode.window.showInformationMessage("togglePrimarySidebar");
+        // No user notification needed - just toggle the sidebar
         await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
         await vscode.commands.executeCommand("codex-editor.navigation.focus");
     },
@@ -1652,7 +1652,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 await provider.unmergeMatchingCellsInTargetFile(cellId, document.uri.toString(), workspaceFolder);
             } else {
                 console.warn("No workspace folder found, skipping target file unmerge");
-                vscode.window.showWarningMessage("Could not unmerge corresponding cell in target file - no workspace folder found");
+                vscode.window.showWarningMessage("Could not fully undo the merge — no project folder found.");
             }
 
             // Refresh the webview to show the updated state

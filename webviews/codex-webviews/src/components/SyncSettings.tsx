@@ -115,7 +115,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         
                         <span className="hidden sm:inline">
                             {!isGitAvailable
-                                ? "Download Sync Runtime"
+                                ? "Set Up Sync"
                                 : !isOnline
                                 ? "Offline"
                                 : isSyncInProgress
@@ -145,7 +145,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             <div className="flex">
                                 <i className="codicon codicon-cloud-download h-4 w-4" />
                                 <span className="ml-2">
-                                    Sync runtime not installed. Click "Download Sync Runtime" above to
+                                    Sync is not set up yet. Click the button above to download and
                                     enable syncing.
                                 </span>
                             </div>
@@ -158,7 +158,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             <div className="flex">
                                 <i className="codicon codicon-warning h-4 w-4" />
                                 <span className="ml-2">
-                                    Enable the Frontier Authentication extension to sync
+                                    Please enable Frontier Authentication to use sync
                                 </span>
                             </div>
                         </AlertDescription>

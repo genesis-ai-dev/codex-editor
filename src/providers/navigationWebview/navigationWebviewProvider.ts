@@ -813,7 +813,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private async updateCorpusMarker(oldCorpusLabel: string, newCorpusName: string): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders?.length) {
-            vscode.window.showErrorMessage("No workspace folder found");
+            vscode.window.showErrorMessage("No project folder found.");
             return;
         }
 
@@ -999,7 +999,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private async updateBookName(bookAbbr: string, newBookName: string): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders?.length) {
-            vscode.window.showErrorMessage("No workspace folder found");
+            vscode.window.showErrorMessage("No project folder found.");
             return;
         }
 
@@ -1176,7 +1176,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const author = await this.getCurrentUser();
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
-                (metadata: { edits?: unknown[] }) => {
+                (metadata: { edits?: unknown[]; }) => {
                     if (!metadata.edits) metadata.edits = [];
                     addProjectMetadataEdit(
                         metadata,
@@ -1195,7 +1195,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private async recordCorpusDeletionToEditHistory(
         corpusMarker: string,
-        deletedFiles: Array<{ filePath: string; label: string }>
+        deletedFiles: Array<{ filePath: string; label: string; }>
     ): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) return;
@@ -1204,7 +1204,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const author = await this.getCurrentUser();
             await MetadataManager.safeUpdateMetadata(
                 workspaceFolder,
-                (metadata: { edits?: unknown[] }) => {
+                (metadata: { edits?: unknown[]; }) => {
                     if (!metadata.edits) metadata.edits = [];
                     addProjectMetadataEdit(
                         metadata,
@@ -1234,11 +1234,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private async deleteCorpusMarker(
         corpusLabel: string,
         displayName: string,
-        children: Array<{ uri: string; label: string; type: string }>
+        children: Array<{ uri: string; label: string; type: string; }>
     ): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder found");
+            vscode.window.showErrorMessage("No project folder found.");
             return;
         }
 
@@ -1259,7 +1259,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             if (panelToClose) panelToClose.dispose();
         };
 
-        const allDeletedFiles: Array<{ filePath: string; label: string }> = [];
+        const allDeletedFiles: Array<{ filePath: string; label: string; }> = [];
         const errors: string[] = [];
 
         await vscode.window.withProgress(
@@ -1326,7 +1326,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             try {
                                 await vscode.workspace.fs.delete(sourceUri);
                             } catch (deleteError: unknown) {
-                                const err = deleteError as { code?: string };
+                                const err = deleteError as { code?: string; };
                                 if (err.code !== "FileNotFound" && err.code !== "ENOENT") {
                                     errors.push(`Failed to delete source for ${child.label}`);
                                 }

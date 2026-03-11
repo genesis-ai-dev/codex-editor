@@ -217,11 +217,11 @@ export async function validateAndFixProjectId(
                 if (result.success) {
                     const source = info.gitRemoteProjectId ? "remote repository" : "folder name";
                     vscode.window.showInformationMessage(
-                        `Updated project information in metadata.json to match ${source}`
+                        `Project information has been updated.`
                     );
                 } else if (result.error) {
                     vscode.window.showWarningMessage(
-                        `Could not auto-fix project information: ${result.error}`
+                        `Could not automatically fix project information. ${result.error}`
                     );
                 }
             } else {

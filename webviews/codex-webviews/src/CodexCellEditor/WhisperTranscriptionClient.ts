@@ -68,7 +68,7 @@ export class WhisperTranscriptionClient {
 
                     // Enhance error messages for common issues
                     if (response.status === 401) {
-                        errorMsg = `Authentication failed. Please check your login status.\n\n${errorMsg}`;
+                        errorMsg = `Sign-in failed. Please check that you're logged in.\n\n${errorMsg}`;
                     } else if (response.status === 504) {
                         errorMsg = `Transcription timeout. The service took too long to respond.\n\n${errorMsg}`;
                     } else if (response.status === 502) {
@@ -99,7 +99,7 @@ export class WhisperTranscriptionClient {
                     // Network or other errors
                     let errorMsg = error.message;
                     if (errorMsg.includes("Failed to fetch") || errorMsg.includes("NetworkError")) {
-                        errorMsg = `Network error: Unable to reach transcription service.\n\nThis usually means:\n1. You may be logged out - please check your authentication status\n2. The endpoint URL is invalid or unreachable\n3. There may be a network connectivity issue\n\nEndpoint: ${this.url.split("?")[0]}`;
+                        errorMsg = `Network error: Unable to reach the transcription service.\n\nThis usually means:\n1. You may be logged out — please check your login status\n2. The service address may be incorrect or unreachable\n3. There may be a network or internet issue`;
                     }
 
                     if (this.onError) {
@@ -113,7 +113,7 @@ export class WhisperTranscriptionClient {
         } catch (error) {
             let errorMsg: string;
             if (error instanceof TypeError && error.message.includes("Invalid URL")) {
-                errorMsg = `Invalid ASR endpoint URL: ${this.url}. Please check your ASR settings or authentication status.`;
+                errorMsg = `Invalid transcription service address. Please check your settings or login status.`;
             } else {
                 errorMsg = error instanceof Error ? error.message : String(error);
             }

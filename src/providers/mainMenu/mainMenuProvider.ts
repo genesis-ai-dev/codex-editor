@@ -870,12 +870,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     resetGitBinaryPath();
                     const success = await frontierApi.retryGitBinaryDownload();
                     if (success) {
-                        vscode.window.showInformationMessage("Sync runtime downloaded successfully.");
+                        vscode.window.showInformationMessage("Sync setup completed successfully.");
                     }
                     await this.sendSyncSettings();
                 } else {
                     vscode.window.showErrorMessage(
-                        "Cannot download sync runtime — the Frontier Authentication extension is not available."
+                        "Cannot set up sync — please make sure Frontier Authentication is installed and enabled."
                     );
                 }
                 break;
@@ -1736,7 +1736,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private async handleChangeProjectName(newProjectName: string): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1788,7 +1788,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             if (!result.success) {
                 console.error("Failed to update metadata:", result.error);
                 vscode.window.showErrorMessage(
-                    `Failed to update project name in metadata.json: ${result.error}`
+                    `Failed to update project name. Please try again.`
                 );
                 return;
             }

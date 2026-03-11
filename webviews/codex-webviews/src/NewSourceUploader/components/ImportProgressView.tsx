@@ -17,7 +17,7 @@ interface ImportProgressViewProps {
 const STAGE_STEPS = [
     { key: "preparing", label: "Preparing files" },
     { key: "creating", label: "Creating notebooks" },
-    { key: "metadata", label: "Finalizing metadata" },
+    { key: "metadata", label: "Finishing setup" },
     { key: "processing", label: "Processing imported files" },
     { key: "indexing", label: "AI learning content" },
     { key: "complete", label: "Import complete" },

@@ -64,8 +64,8 @@ export async function stageAndCommitAllAndSync(
     if (!versionStatus.ok) {
         debug("Frontier version requirement not met. Blocking sync operation.");
         const details = versionStatus.installedVersion
-            ? `Frontier Authentication ${versionStatus.installedVersion} detected. Version ${versionStatus.requiredVersion} or newer is required to sync.`
-            : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
+            ? `Frontier Authentication ${versionStatus.installedVersion} is installed, but version ${versionStatus.requiredVersion} or newer is needed to sync. Please update the extension.`
+            : `Frontier Authentication is not installed. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
         await vscode.window.showWarningMessage(details, { modal: true });
         return {
             success: false,
@@ -81,7 +81,7 @@ export async function stageAndCommitAllAndSync(
 
     const authApi = getAuthApi();
     if (!authApi) {
-        vscode.window.showErrorMessage("No auth API found");
+        vscode.window.showErrorMessage("Sync is not available. Please make sure you're signed in and try again.");
         return {
             success: false,
             changedFiles: [],
@@ -111,7 +111,7 @@ export async function stageAndCommitAllAndSync(
                 return syncResult;
             }
         } catch (error) {
-            vscode.window.showErrorMessage("No git repository found in this project");
+            vscode.window.showErrorMessage("This project is not set up for syncing. Please re-open the project and try again.");
             return syncResult;
         }
 
@@ -160,7 +160,7 @@ export async function stageAndCommitAllAndSync(
                     );
                     // Avoid modal spam; one-time lightweight warning.
                     vscode.window.showWarningMessage(
-                        `Sync warning: ${missingFromConflicts.length} remote .codex change(s) were not included for merge. Some remote edits may be missing.`
+                        `Some changes from other team members may not have been included. Try syncing again if something looks missing.`
                     );
                 }
             }
@@ -200,9 +200,8 @@ export async function stageAndCommitAllAndSync(
                     `[Merge] ${failedConflicts.length} conflict(s) could not be resolved:\n${failedList}`
                 );
                 vscode.window.showErrorMessage(
-                    `${failedConflicts.length} file conflict(s) could not be resolved. ` +
-                    `The merge was not completed to avoid data loss. ` +
-                    `Failed files: ${failedConflicts.map((f) => f.filepath).join(", ")}`
+                    `${failedConflicts.length} file(s) had changes that couldn't be combined automatically. ` +
+                    `Your data is safe — please try syncing again or contact support.`
                 );
                 throw new Error(
                     `Merge aborted: ${failedConflicts.length} conflict(s) could not be resolved. ` +
@@ -244,7 +243,7 @@ export async function stageAndCommitAllAndSync(
 
                     if (retryCount >= 3) {
                         vscode.window.showErrorMessage(
-                            `Failed to complete merge after 3 retries: ${errorMessage}`
+                            `Sync couldn't complete after multiple attempts. Please check your internet connection and try again.`
                         );
                     }
                     throw completeMergeError;
@@ -268,14 +267,14 @@ export async function stageAndCommitAllAndSync(
 
         // Only show completion message if requested (not during startup with splash screen)
         if (showCompletionMessage) {
-            vscode.window.showInformationMessage("Project is fully synced.");
+            vscode.window.showInformationMessage("Your project is up to date!");
         }
 
         return syncResult;
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(
-            `Failed to commit and sync changes: ${error instanceof Error ? error.message : String(error)}`
+            `Sync failed. Please try again or contact support if the problem persists.`
         );
         throw error;
     }

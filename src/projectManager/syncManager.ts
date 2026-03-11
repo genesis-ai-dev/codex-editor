@@ -112,7 +112,7 @@ export class SyncManager {
 
                 // Show modal dialog that cannot be missed (even if notifications are disabled)
                 const selection = await vscode.window.showWarningMessage(
-                    "Project Update Required\n\nA project administrator has initiated an update. Syncing has been disabled until you update.\n\nThe project must be closed to complete the update.",
+                    "Project Update Required\n\nAn administrator has made changes that require updating your project. Syncing is paused until the update is applied.\n\nThe project needs to be closed to complete the update.",
                     { modal: true },  // Modal dialog - appears in center, cannot be missed
                     "Update Project"
                 );
@@ -171,11 +171,11 @@ export class SyncManager {
                     // Show modal dialog that cannot be missed
                     const selection = await vscode.window.showWarningMessage(
                         `📦 Project Update Required\n\n` +
-                        `This project has been updated to a new repository:\n${newProjectName}\n\n` +
-                        `Reason: ${activeEntry.swapReason || "Repository update"}\n` +
-                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
-                        `Syncing has been disabled until you update.\n\n` +
-                        `Your local changes will be preserved and backed up.`,
+                        `This project has been moved to a new version:\n${newProjectName}\n\n` +
+                        `Reason: ${activeEntry.swapReason || "Project update"}\n` +
+                        `Started by: ${activeEntry.swapInitiatedBy}\n\n` +
+                        `Syncing is paused until you update.\n\n` +
+                        `Your work will be saved and backed up.`,
                         { modal: true },
                         "Update Now"
                     );
@@ -240,9 +240,9 @@ export class SyncManager {
                     // Show modal dialog
                     const selection = await vscode.window.showWarningMessage(
                         `📦 Project Update Required\n\n` +
-                        `This project has been updated to a new repository:\n${newProjectName}\n\n` +
-                        `Reason: ${activeEntry.swapReason || "Repository update"}\n` +
-                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
+                        `This project has moved to a new folder:\n${newProjectName}\n\n` +
+                        `Reason: ${activeEntry.swapReason || "Project update"}\n` +
+                        `Started by: ${activeEntry.swapInitiatedBy}\n\n` +
                         `Your local changes will be preserved and backed up.`,
                         { modal: true },
                         "Update Now"
@@ -526,7 +526,7 @@ export class SyncManager {
                 // Initial progress
                 progress.report({
                     increment: 0,
-                    message: "Checking files are up to date..."
+                    message: "Checking for updates..."
                 });
 
                 // Create a promise that we can resolve from outside
@@ -708,13 +708,13 @@ export class SyncManager {
                 vscode.window.withProgress(
                     {
                         location: vscode.ProgressLocation.Notification,
-                        title: "Sync in Progress",
+                        title: "Sync Already in Progress",
                         cancellable: false,
                     },
                     async (progress) => {
                         progress.report({
                             increment: 0,
-                            message: "Your changes will sync automatically after completion."
+                            message: "Your changes will be included when the current sync finishes."
                         });
                         // Wait for sync to complete
                         while (this.isSyncInProgress) {
@@ -815,7 +815,7 @@ export class SyncManager {
             console.error("Error checking authentication status:", error);
             if (showInfoOnConnectionIssues) {
                 this.showConnectionIssueMessage(
-                    "Unable to sync: Could not verify authentication status"
+                    "Unable to sync: Could not verify your login status"
                 );
             }
             return;
@@ -827,8 +827,8 @@ export class SyncManager {
             this.isSyncInProgress = false;
             debug("Frontier version requirement not met. Blocking sync operation.");
             const details = versionStatus.installedVersion
-                ? `Frontier Authentication version ${versionStatus.requiredVersion} or newer is required to sync.`
-                : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
+                ? `Frontier Authentication ${versionStatus.installedVersion} is installed, but version ${versionStatus.requiredVersion} or newer is needed to sync. Please update the extension.`
+                : `Frontier Authentication is not installed. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
             await vscode.window.showWarningMessage(details, { modal: true });
             return;
         }
@@ -853,6 +853,7 @@ export class SyncManager {
         // Set sync state and show feedback
         this.currentSyncStage = "Starting sync...";
         this.codexInitiatedSyncCount++;
+
         this.notifySyncStatusListeners();
         debug("Sync operation in background with message:", commitMessage);
 
@@ -862,7 +863,7 @@ export class SyncManager {
         }
 
         // Update splash screen with initial sync status
-        updateSplashScreenSync(30, "Checking files are up to date...");
+        updateSplashScreenSync(30, "Preparing to sync...");
 
         // Run the actual sync operation in the background (truly async)
         this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues, isManualSync);
@@ -903,7 +904,7 @@ export class SyncManager {
             // Update sync stage and splash screen
             this.currentSyncStage = "Preparing sync...";
             this.notifySyncStatusListeners();
-            updateSplashScreenSync(60, this.currentSyncStage);
+            updateSplashScreenSync(60, "Preparing sync...");
 
             // Migrate comments before sync if needed
             const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -919,9 +920,9 @@ export class SyncManager {
                 ]);
 
                 if (needsMigration && inSourceControl) {
-                    this.currentSyncStage = "Migrating legacy comments...";
+                    this.currentSyncStage = "Updating comments...";
                     this.notifySyncStatusListeners();
-                    updateSplashScreenSync(65, this.currentSyncStage);
+                    updateSplashScreenSync(65, "Updating comments...");
 
                     try {
                         await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
@@ -929,7 +930,7 @@ export class SyncManager {
                     } catch (error) {
                         console.error("[SyncManager] Error during pre-sync migration:", error);
                         vscode.window.showWarningMessage(
-                            "Comment migration failed before sync. Comments from older format may not appear correctly."
+                            "Some older comments couldn't be updated. They may not appear correctly."
                         );
                     }
                 }
@@ -937,9 +938,9 @@ export class SyncManager {
                 if (commentsHasLocalChanges) {
                     // Only run pre-sync repair if comments.json has local modifications
                     // This ensures we clean up any local corruption before syncing to other users
-                    this.currentSyncStage = "Cleaning up comment data...";
+                    this.currentSyncStage = "Preparing comments...";
                     this.notifySyncStatusListeners();
-                    updateSplashScreenSync(67, this.currentSyncStage);
+                    updateSplashScreenSync(67, "Preparing comments...");
 
                     try {
                         const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
@@ -947,7 +948,7 @@ export class SyncManager {
                     } catch (error) {
                         console.error("[SyncManager] Error during pre-sync comment repair:", error);
                         vscode.window.showWarningMessage(
-                            "Comment data repair failed before sync. Some comments may have formatting issues."
+                            "Some comments couldn't be cleaned up. They may have minor formatting issues."
                         );
                     }
                 }
@@ -958,9 +959,9 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             const syncResult = await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
             if (syncResult.offline) {
-                this.currentSyncStage = "Synchronization skipped! (offline)";
+                this.currentSyncStage = "Sync skipped (offline)";
                 this.notifySyncStatusListeners();
-                updateSplashScreenSync(100, "Synchronization skipped (offline)");
+                updateSplashScreenSync(100, "Sync skipped (offline)");
                 return;
             }
             if (!syncResult.success && syncResult.totalChanges === 0) {
@@ -989,7 +990,7 @@ export class SyncManager {
                 } catch (error) {
                     console.error('[SyncManager] Error during post-sync comment repair:', error);
                     vscode.window.showWarningMessage(
-                        "Comment data repair failed after sync. Some synced comments may have formatting issues."
+                        "Some synced comments may have minor formatting issues."
                     );
                 }
             }
@@ -1003,9 +1004,9 @@ export class SyncManager {
                 ]);
 
                 if (needsPostSyncMigration && inSourceControl) {
-                    this.currentSyncStage = "Cleaning up legacy files...";
+                    this.currentSyncStage = "Cleaning up...";
                     this.notifySyncStatusListeners();
-                    updateSplashScreenSync(95, this.currentSyncStage);
+                    updateSplashScreenSync(95, "Cleaning up...");
 
                     try {
                         await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
@@ -1072,9 +1073,9 @@ export class SyncManager {
             }
 
             // Update sync stage and splash screen
-            this.currentSyncStage = "Synchronization complete!";
-            this.notifySyncStatusListeners();
-            updateSplashScreenSync(100, "Synchronization complete");
+        this.currentSyncStage = "Sync complete!";
+        this.notifySyncStatusListeners();
+        updateSplashScreenSync(100, "Sync complete!");
 
             // Post-sync swap check (handled here instead of Frontier callback for Codex-initiated syncs)
             this.checkProjectSwapAfterSync();
@@ -1120,7 +1121,7 @@ export class SyncManager {
             // Update sync stage and splash screen
             this.currentSyncStage = "Sync failed";
             this.notifySyncStatusListeners();
-            updateSplashScreenSync(100, `Sync failed: ${errorMessage}`);
+            updateSplashScreenSync(100, "Sync failed");
 
             // Show error messages to user
             if (
@@ -1131,12 +1132,12 @@ export class SyncManager {
             ) {
                 if (showInfoOnConnectionIssues) {
                     this.showConnectionIssueMessage(
-                        "Sync failed: Please check your internet connection or login status"
+                        "Sync failed. Please check your internet connection and try again."
                     );
                 }
             } else {
                 // For other errors, show an error message
-                vscode.window.showErrorMessage(`Sync failed: ${errorMessage}`);
+                vscode.window.showErrorMessage(`Sync failed. Please try again or contact support if the problem persists.`);
             }
         } finally {
             // Don't clear currentSyncStage here — let the progress poller read
@@ -1416,75 +1417,126 @@ export class SyncManager {
                 let lastStage = '';
                 let currentProgress = 0;
 
-                // Map sync stages to progress percentages
-                const getProgressForStage = (stage: string): number => {
-                    // Handle dynamic Git progress messages with counts
-                    if (stage.includes('Receiving objects:')) {
+                    // Map sync stages to progress percentages and user-friendly labels
+                const friendlyStageLabel = (stage: string): string => {
+                    if (stage.includes('Receiving objects:') || stage.includes('Resolving deltas:')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map receiving to 30-55% range
-                            return 30 + Math.floor((current / total) * 25);
+                            const percent = Math.round((parseInt(match[1]) / parseInt(match[2])) * 100);
+                            return `Downloading changes... ${percent}%`;
+                        }
+                        return 'Downloading changes...';
+                    }
+                    if (stage.includes('Counting objects:') || stage.includes('Compressing objects:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const percent = Math.round((parseInt(match[1]) / parseInt(match[2])) * 100);
+                            return `Preparing upload... ${percent}%`;
+                        }
+                        return 'Preparing upload...';
+                    }
+                    if (stage.includes('Writing objects:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const percent = Math.round((parseInt(match[1]) / parseInt(match[2])) * 100);
+                            return `Uploading changes... ${percent}%`;
+                        }
+                        return 'Uploading changes...';
+                    }
+                    if (stage.includes('Uploading media')) {
+                        const pctMatch = stage.match(/(\d+)%/);
+                        if (pctMatch) {
+                            return `Uploading media... ${pctMatch[1]}%`;
+                        }
+                        return 'Uploading media...';
+                    }
+
+                    const phaseMap: Record<string, string> = {
+                        'committing': 'Saving your changes...',
+                        'fetching': 'Downloading updates...',
+                        'pushing': 'Uploading changes...',
+                        'merging': 'Combining changes...',
+                        'Committing local changes': 'Saving your changes...',
+                        'Local changes committed': 'Changes saved',
+                        'Checking for remote changes': 'Checking for updates...',
+                        'Remote check complete': 'Up to date',
+                        'Merging remote changes': 'Merging updates...',
+                        'Uploading changes': 'Uploading changes...',
+                        'Finishing upload': 'Almost done...',
+                        'Upload complete': 'Upload complete',
+                        'Finishing up': 'Finishing up...',
+                        'Cleaning up legacy files': 'Cleaning up...',
+                        'Synchronization complete': 'Sync complete!',
+                        'Synchronization complete!': 'Sync complete!',
+                    };
+
+                    for (const [key, label] of Object.entries(phaseMap)) {
+                        if (stage === key || stage.startsWith(`${key}:`)) {
+                            const countMatch = stage.match(/(\d+)\/(\d+)/);
+                            if (countMatch) {
+                                const percent = Math.round((parseInt(countMatch[1]) / parseInt(countMatch[2])) * 100);
+                                return `${label.replace('...', '')}... ${percent}%`;
+                            }
+                            return label;
+                        }
+                    }
+
+                    return stage;
+                };
+
+                const getProgressForStage = (stage: string): number => {
+                    if (stage.includes('Receiving objects:') || stage.includes('Downloading changes')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            return 30 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 25);
                         }
                         return 35;
                     }
                     if (stage.includes('Resolving deltas:')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map resolving to 55-65% range
-                            return 55 + Math.floor((current / total) * 10);
+                            return 55 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 10);
                         }
                         return 60;
                     }
-                    if (stage.includes('Counting objects:') || stage.includes('Compressing objects:')) {
+                    if (stage.includes('Counting objects:') || stage.includes('Compressing objects:') || stage.includes('Preparing upload')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map counting/compressing to 75-85% range
-                            return 75 + Math.floor((current / total) * 10);
+                            return 75 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 10);
                         }
                         return 80;
                     }
-                    if (stage.includes('Writing objects:')) {
+                    if (stage.includes('Writing objects:') || stage.includes('Uploading changes')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map writing to 85-98% range
-                            return 85 + Math.floor((current / total) * 13);
+                            return 85 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 13);
                         }
                         return 90;
                     }
                     if (stage.includes('Uploading media')) {
                         const pctMatch = stage.match(/(\d+)%/);
                         if (pctMatch) {
-                            // Map LFS upload to 10-20% range (happens during commit phase)
                             return 10 + Math.floor((parseInt(pctMatch[1]) / 100) * 10);
                         }
                         return 10;
                     }
 
-                    // Static stage mappings
                     const staticProgress: Record<string, number> = {
                         'Starting sync': 5,
                         'Preparing sync': 5,
-                        'Committing local changes': 10,
-                        'Local changes committed': 20,
-                        'Checking for remote changes': 25,
-                        'Remote check complete': 65,
-                        'Merging remote changes': 68,
+                        'Saving your changes': 10,
+                        'Changes saved': 20,
+                        'Checking for updates': 25,
+                        'Up to date': 65,
+                        'Merging updates': 68,
                         'Merge complete': 72,
                         'Already up to date': 75,
                         'Uploading changes': 75,
-                        'Finishing upload': 92,
+                        'Almost done': 92,
                         'Upload complete': 93,
                         'Finishing up': 95,
-                        'Cleaning up legacy files': 96,
-                        'Synchronization complete': 100,
+                        'Cleaning up': 96,
+                        'Sync complete!': 100,
                     };
 
                     for (const [key, value] of Object.entries(staticProgress)) {
@@ -1504,28 +1556,26 @@ export class SyncManager {
 
                 // Wait for sync to complete by polling the sync status
                 while (this.isSyncInProgress) {
-                    await new Promise(resolve => setTimeout(resolve, 200)); // Check every 200ms for smooth updates
+                    await new Promise(resolve => setTimeout(resolve, 200));
 
-                    // Update progress when stage changes
                     if (this.isSyncInProgress && this.currentSyncStage && this.currentSyncStage !== lastStage) {
                         lastStage = this.currentSyncStage;
 
+                        const displayMessage = friendlyStageLabel(this.currentSyncStage);
                         const targetProgress = getProgressForStage(this.currentSyncStage);
 
-                        // Only increment, never go backwards
                         if (targetProgress > currentProgress) {
                             const increment = targetProgress - currentProgress;
                             currentProgress = targetProgress;
 
                             progress.report({
                                 increment,
-                                message: this.currentSyncStage
+                                message: displayMessage
                             });
                         } else {
-                            // Just update message without changing progress
                             progress.report({
                                 increment: 0,
-                                message: this.currentSyncStage
+                                message: displayMessage
                             });
                         }
                     }
@@ -1535,7 +1585,7 @@ export class SyncManager {
                 if (currentProgress < 100) {
                     progress.report({
                         increment: 100 - currentProgress,
-                        message: this.currentSyncStage || "Synchronization complete!"
+                        message: this.currentSyncStage || "Sync complete!"
                     });
                 }
 

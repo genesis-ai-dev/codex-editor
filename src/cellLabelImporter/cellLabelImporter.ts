@@ -166,7 +166,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
 
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
+        vscode.window.showErrorMessage("No project is open. Please open a project first.");
         panel.dispose();
         return;
     }

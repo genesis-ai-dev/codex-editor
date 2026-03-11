@@ -363,18 +363,18 @@ export async function ensureSqliteNativeBinary(
             },
             async (progress) => {
                 progress.report({
-                    message: "Downloading search engine components... (one-time setup)",
+                    message: "Setting up search... (one-time setup)",
                 });
 
                 try {
                     const downloadedPath = await downloadBinary(context, platformKey);
-                    progress.report({ message: "Search engine ready!" });
+                    progress.report({ message: "Search is ready!" });
                     return downloadedPath;
                 } catch (error) {
                     const msg = error instanceof Error ? error.message : String(error);
                     vscode.window.showErrorMessage(
-                        `Failed to download SQLite native binary: ${msg}. ` +
-                        `Database features (search index) will be unavailable.`
+                        `Search setup failed: ${msg}. ` +
+                        `Search features will be unavailable until this is resolved.`
                     );
                     throw error;
                 }

@@ -486,20 +486,20 @@ export async function performProjectSwap(
         debugLog("Backup created at:", backupPath);
 
         // Step 2: Move old project to a temporary path
-        progress.report({ increment: 5, message: "Preparing temporary snapshot..." });
+        progress.report({ increment: 5, message: "Preparing update..." });
         const parentDir = path.dirname(oldProjectPath);
         const tmpPath = path.join(parentDir, `${projectName}_tmp_${Date.now()}`);
         fs.renameSync(oldProjectPath, tmpPath);
         debugLog("Old project moved to tmp:", tmpPath);
 
         // Step 3: Create temporary workspace for cloning
-        progress.report({ increment: 5, message: "Creating temporary workspace..." });
+        progress.report({ increment: 5, message: "Setting up project..." });
         const tempDir = await createTempWorkspace();
         debugLog("Temp workspace created:", tempDir);
 
         try {
             // Step 4: Get the new project - either from existing local copy or by cloning
-            progress.report({ increment: 15, message: "Preparing new project..." });
+            progress.report({ increment: 15, message: "Downloading new project..." });
             const newProjectPath = await getOrCloneNewProject(
                 newProjectUrl,
                 tempDir,
@@ -509,15 +509,15 @@ export async function performProjectSwap(
             debugLog("New project ready at:", newProjectPath);
 
             // Step 5: Verify structure compatibility
-            progress.report({ increment: 5, message: "Verifying project structure..." });
+            progress.report({ increment: 5, message: "Checking project files..." });
             await verifyStructureCompatibility(tmpPath, newProjectPath);
 
             // Step 6: Merge tmp snapshot into the newly-cloned project using resolvers
-            progress.report({ increment: 20, message: "Merging project files..." });
+            progress.report({ increment: 20, message: "Combining your changes with the update..." });
             await mergeProjectFiles(tmpPath, newProjectPath, progress);
 
             // Step 7: Update metadata with swap completion
-            progress.report({ increment: 5, message: "Updating project metadata..." });
+            progress.report({ increment: 5, message: "Updating project details..." });
             const oldOriginUrl = await getGitOriginUrl(tmpPath);
             // Sanitize URLs to remove any embedded credentials (tokens/passwords)
             await updateSwapMetadata(newProjectPath, swapUUID, false, {
@@ -571,14 +571,14 @@ export async function performProjectSwap(
 
             // Step 8b: Promote cloned project to canonical location (new name)
             // This will also attempt to delete the old _tmp folder
-            progress.report({ increment: 15, message: "Finalizing project directories..." });
+            progress.report({ increment: 15, message: "Finalizing update..." });
             await swapDirectories(tmpPath, newProjectPath, targetProjectPath);
 
             // Step 9: Finalize local settings on the NEW project
             // Clear projectSwap entirely - it tracked the swap execution which is now complete.
             // The NEW project doesn't need the old project's swap execution state (swapUUID, backupPath, etc.)
             // IMPORTANT: Read existing settings first to preserve media strategy that was set by copyLocalProjectSettings
-            progress.report({ increment: 5, message: "Finalizing update..." });
+            progress.report({ increment: 5, message: "Wrapping up..." });
             const finalProjectUri = vscode.Uri.file(targetProjectPath);
             const existingSettings = await readLocalProjectSettings(finalProjectUri);
             await writeLocalProjectSettings({
@@ -609,7 +609,7 @@ export async function performProjectSwap(
             // Step 10: Cleanup temp directory (the system temp used for cloning)
             await cleanupTempDirectory(tempDir);
 
-            progress.report({ increment: 15, message: "Update complete!" });
+            progress.report({ increment: 15, message: "Update complete! Opening project..." });
             debugLog("Project swap completed successfully");
 
             return targetProjectPath;
@@ -710,7 +710,7 @@ async function getOrCloneNewProject(
     // Check if the NEW project already exists locally
     if (fs.existsSync(existingLocalPath) && fs.existsSync(path.join(existingLocalPath, "metadata.json"))) {
         debugLog("Found existing local copy of new project at:", existingLocalPath);
-        progress.report({ message: "Using existing local project (preserving local changes)..." });
+        progress.report({ message: "Found a local copy — using it to preserve your changes..." });
 
         // Copy the existing local project to temp (preserving all local changes)
         await copyDirectory(existingLocalPath, targetPath);
@@ -721,7 +721,7 @@ async function getOrCloneNewProject(
 
     // No local copy found - clone from remote
     debugLog("No existing local copy found, cloning from remote");
-    progress.report({ message: "Cloning new project repository..." });
+    progress.report({ message: "Downloading the new project..." });
     return await cloneNewProject(gitUrl, tempDir, progress);
 }
 

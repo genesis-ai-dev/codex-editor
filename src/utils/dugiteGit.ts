@@ -88,7 +88,7 @@ async function resolveFromAuth(): Promise<void> {
     const binaryPath = authApi?.getGitBinaryPath?.();
     if (!binaryPath) {
         throw new Error(
-            "Git binary not available. Ensure the Frontier Authentication extension is active.",
+            "Sync is not available. Please make sure Frontier Authentication is installed and active.",
         );
     }
 
@@ -96,8 +96,8 @@ async function resolveFromAuth(): Promise<void> {
         await fs.promises.access(binaryPath.execPath, fs.constants.F_OK);
     } catch {
         throw new Error(
-            `Git binary exec path does not exist: ${binaryPath.execPath}. ` +
-            `The Frontier Authentication extension may need to re-download it.`,
+            `Sync runtime is missing or was not installed correctly. ` +
+            `Please try re-downloading it from Sync Settings.`,
         );
     }
 

@@ -681,7 +681,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
             try {
                 const workspaceFolders = vscode.workspace.workspaceFolders;
                 if (!workspaceFolders || workspaceFolders.length === 0) {
-                    vscode.window.showWarningMessage("No workspace folder open");
+                    vscode.window.showWarningMessage("No project folder is open.");
                     return;
                 }
 

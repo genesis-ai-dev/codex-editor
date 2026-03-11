@@ -239,7 +239,7 @@ export default function PublishProject() {
                             className="text-sm text-[var(--vscode-descriptionForeground)]"
                             htmlFor="name"
                         >
-                            Project name (from workspace folder)
+                            Project name (from project folder)
                         </label>
                         <input
                             id="name"
@@ -247,10 +247,10 @@ export default function PublishProject() {
                             readOnly
                             className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-disabledForeground)] cursor-not-allowed"
                             placeholder="my-project"
-                            title="Project name is based on the workspace folder name and cannot be changed"
+                            title="Project name is based on the project folder name and cannot be changed"
                         />
                         <div className="text-xs text-[var(--vscode-descriptionForeground)]">
-                            Project name matches your workspace folder and includes a unique ID
+                            Project name matches your project folder and includes a unique ID
                         </div>
                     </div>
 

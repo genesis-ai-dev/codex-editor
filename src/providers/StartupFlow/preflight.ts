@@ -149,7 +149,7 @@ export class PreflightCheck {
         } catch (error) {
             debugLog("Error during auth extension check:", error);
             console.error("Error during auth extension check:", error);
-            state.authState.error = "Failed to check authentication status";
+            state.authState.error = "Failed to check login status";
         } finally {
             state.authState.isLoading = false;
         }

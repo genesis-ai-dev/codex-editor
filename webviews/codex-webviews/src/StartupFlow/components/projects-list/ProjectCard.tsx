@@ -503,12 +503,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     {isCloning ? (
                         <>
                             <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                            Cloning...
+                            Downloading...
                         </>
                     ) : (
                         <>
                             <i className={cn("codicon mr-1", isOfflineClone ? "codicon-cloud-offline" : "codicon-arrow-circle-down")} />
-                            Clone
+                            Download
                         </>
                     )}
                 </Button>
@@ -523,7 +523,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 <span className="inline-block">{cloneButton}</span>
                             </TooltipTrigger>
                             <TooltipContent side="top">
-                                Can't clone while offline
+                                Can't download while offline
                             </TooltipContent>
                         </Tooltip>
                     ) : (
@@ -602,7 +602,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         )}
                         {effectiveSyncStatus === "orphaned" && (
                             <Badge variant="outline" className="text-xs px-1 py-0 bg-amber-50 text-amber-700 border-amber-300 whitespace-nowrap">
-                                Remote Missing
+                                Not Found Online
                             </Badge>
                         )}
                         {effectiveSyncStatus === "serverUnreachable" && (

@@ -2342,9 +2342,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         const confirm = await vscode.window.showWarningMessage(
             `Update project to "${activeEntry.newProjectName}"?\n\n` +
             `This will:\n` +
-            `1. Backup your current project to archives\n` +
-            `2. Clone the new repository\n` +
-            `3. Merge your local work (.codex, .source, etc.)\n\n` +
+            `1. Back up your current project\n` +
+            `2. Download the new version\n` +
+            `3. Restore your local work\n\n` +
             `This process may take a few minutes.`,
             { modal: true },
             "Update Project",
@@ -3506,12 +3506,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     try {
                         await vscode.workspace.fs.stat(gitPath);
                     } catch {
-                        vscode.window.showErrorMessage("No .git folder found to restore from.");
+                        vscode.window.showErrorMessage("This project's sync data is missing and can't be restored.");
                         return;
                     }
 
                     const confirm = await vscode.window.showWarningMessage(
-                        "This project appears to be missing its remote counterpart. Do you want to fix it as a new local project?\n\nThis will create a full backup of your project (including git history) and re-initialize it.",
+                        "This project isn't connected to an online source. Would you like to fix it as a new local project?\n\nA full backup of your project will be created before making any changes.",
                         { modal: true },
                         "Fix & Open"
                     );
@@ -3539,7 +3539,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         title: "Fixing project...",
                         cancellable: false
                     }, async (progress) => {
-                        progress.report({ message: "Backing up entire project to archive..." });
+                        progress.report({ message: "Creating a backup of your project..." });
 
                         // Use streaming archiver for memory efficiency
                         // Create a root folder in the zip with the folder name to preserve structure
@@ -3549,11 +3549,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             { excludeGit: false, rootFolderName: folderName }
                         );
 
-                        progress.report({ message: "Removing old git configuration..." });
+                        progress.report({ message: "Cleaning up old settings..." });
                         // 3. Delete .git folder
                         await vscode.workspace.fs.delete(gitPath, { recursive: true, useTrash: false });
 
-                        progress.report({ message: "Updating project identity..." });
+                        progress.report({ message: "Updating project info..." });
                         // 4. Update metadata with UUID
                         // 5. Rename folder logic
                         const parentDir = path.dirname(projectPath);
@@ -3644,7 +3644,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
 
                         // 7. Initialize git repository (fresh .git)
-                        progress.report({ message: "Initializing git repository..." });
+                        progress.report({ message: "Setting up project..." });
                         try {
                             const dugiteGitSwap = await import("../../utils/dugiteGit");
                             const { ensureGitConfigsAreUpToDate, ensureGitDisabledInSettings } = await import("../../projectManager/utils/projectUtils");
@@ -4195,22 +4195,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 if (!gitOriginUrl) {
                     vscode.window.showErrorMessage(
-                        "Cannot update project: No remote repository URL found. This project may not be connected to a remote repository."
+                        "Cannot update project: This project isn't connected to an online source. Please check your project settings."
                     );
                     return;
                 }
 
                 // Show notification first so user knows the process is starting
-                vscode.window.showInformationMessage("Update process starting - check for confirmation dialog");
+                vscode.window.showInformationMessage("Starting project update — please confirm in the dialog.");
 
                 const yesConfirm = "Yes, Update Project";
 
                 const confirm = await vscode.window.showWarningMessage(
                     `This will update the project "${projectName}" by:\n\n` +
-                    "1. Creating a backup ZIP\n" +
-                    "2. Saving your local changes temporarily\n" +
-                    "3. Re-cloning from the remote repository\n" +
-                    "4. Merging your local changes back\n\n" +
+                    "1. Creating a backup of your project\n" +
+                    "2. Saving your local changes\n" +
+                    "3. Downloading the latest version\n" +
+                    "4. Restoring your local changes\n\n" +
                     "This process may take several minutes. Continue?",
                     { modal: true },
                     yesConfirm
@@ -4435,7 +4435,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         // CRITICAL: Ensure internet connectivity before starting update
         // If offline, this will block with a modal until connectivity is restored
-        progress.report({ message: "Checking internet connectivity..." });
+        progress.report({ message: "Checking your connection..." });
         await ensureConnectivity("project update");
         debugLog("✅ Internet connectivity confirmed");
 
@@ -4482,8 +4482,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         let backupUri: vscode.Uri;
         let backupStat: vscode.FileStat | undefined;
 
-        progress.report({ increment: 2, message: "Preparing backup (scanning project)..." });
-        progress.report({ increment: 8, message: "Creating full backup (includes .git)..." });
+        progress.report({ increment: 2, message: "Preparing backup..." });
+        progress.report({ increment: 8, message: "Creating backup of your project..." });
 
         try {
             backupUri = await this.createProjectBackup(projectPath, projectName, true);
@@ -4513,7 +4513,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         const backupFileName = path.basename(backupUri.fsPath);
-        progress.report({ increment: 0, message: "Backup ready; preparing temp copy..." });
+        progress.report({ increment: 0, message: "Backup complete. Preparing update..." });
         await this.persistUpdateState(projectPath, {
             projectPath,
             projectName,
@@ -4525,7 +4525,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
 
         // Step 2: Create or reuse temporary snapshot
-        progress.report({ increment: 20, message: "Saving local changes..." });
+        progress.report({ increment: 20, message: "Saving your work..." });
         let tempFolderUri: vscode.Uri;
         let reuseTemp = false;
         if (priorState?.tempFolderPath) {
@@ -4570,7 +4570,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
         } else {
-            progress.report({ increment: 0, message: "Reusing existing temp snapshot..." });
+            progress.report({ increment: 0, message: "Resuming from where we left off..." });
         }
 
         await this.persistUpdateState(projectPath, {
@@ -4589,7 +4589,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         // Step 3: Prepare cloning target (canonical_cloning) and delete if stale
-        progress.report({ increment: 10, message: "Preparing cloning target..." });
+        progress.report({ increment: 10, message: "Preparing download..." });
         const parentDir = vscode.Uri.file(path.dirname(projectPath));
         const cloningFolderName = `${projectName}_cloning`;
         const toDeleteFolderName = `${projectName}_toDelete`;
@@ -4611,7 +4611,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Step 4: Re-clone the project into cloning target
             // CRITICAL: This operation requires internet connectivity
             // Errors are handled organically - network errors trigger wait/retry, server errors prompt user
-            progress.report({ increment: 20, message: "Re-cloning from remote..." });
+            progress.report({ increment: 20, message: "Downloading latest version..." });
 
             const attemptClone = async (): Promise<void> => {
                 try {
@@ -4622,7 +4622,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         updateMediaStrategy
                     );
                     if (!result) {
-                        throw new Error("Failed to clone repository");
+                        throw new Error("Failed to download project");
                     }
                 } catch (cloneError) {
                     // Handle clone errors organically
@@ -4641,7 +4641,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             await this.sleep(3000);
 
             // Step 5: Merge temporary files back into cloning target
-            progress.report({ increment: 20, message: "Merging local changes..." });
+            progress.report({ increment: 20, message: "Restoring your changes..." });
 
             // Verify the cloned project exists
             await vscode.workspace.fs.stat(cloningProjectUri);
@@ -4713,7 +4713,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             });
 
             // Step 6: Swap canonical with cloning target
-            progress.report({ increment: 10, message: "Swapping updated project into place..." });
+            progress.report({ increment: 10, message: "Finalizing update..." });
             const canonicalUri = vscode.Uri.file(projectPath);
             // Move canonical aside
             try {
@@ -5906,13 +5906,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             if (workContinuedInNewProjects) {
                                 // Show informational warning but DON'T block clone
                                 const warningAction = await vscode.window.showWarningMessage(
-                                    "This project was previously deprecated. Work may have continued in the newer project(s). " +
-                                    "Cloning this project may result in working with outdated content.",
+                                    "This project has been replaced by a newer version. Downloading it may give you outdated content.",
                                     { modal: true },
-                                    "Clone Anyway"
+                                    "Download Anyway"
                                 );
 
-                                if (warningAction !== "Clone Anyway") {
+                                if (warningAction !== "Download Anyway") {
                                     debugLog("User cancelled clone of previously deprecated project");
                                     this.safeSendMessage({
                                         command: "project.cloningInProgress",

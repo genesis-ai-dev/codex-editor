@@ -182,13 +182,13 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             case "orphaned":
                 return {
                     icon: "codicon-warning",
-                    title: "Remote project missing or inaccessible",
+                    title: "Project not found online or inaccessible",
                     className: "text-amber-500",
                 };
             case "serverUnreachable":
                 return {
                     icon: "codicon-cloud-offline",
-                    title: "Server unreachable - cannot verify remote status",
+                    title: "Server unreachable — can't check online status",
                     className: "text-red-500",
                 };
             case "error":
