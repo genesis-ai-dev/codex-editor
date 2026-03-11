@@ -490,20 +490,8 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 
     private async sendSyncSettings() {
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
-
-        // Ensure minimum sync delay is 5 minutes
-        if (syncDelayMinutes < 5) {
-            syncDelayMinutes = 5;
-            // Update the configuration to persist the corrected value
-            await config.update(
-                "syncDelayMinutes",
-                syncDelayMinutes,
-                vscode.ConfigurationTarget.Workspace
-            );
-        }
+        const { getSyncSettings } = await import("../../utils/localProjectSettings");
+        const { autoSyncEnabled, syncDelayMinutes } = await getSyncSettings();
 
         // Check if Frontier Authentication extension is enabled
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
@@ -586,6 +574,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
         switch (message.command) {
             case "refreshState":
                 await this.store.refreshState();
+                break;
+            case "publishStatusUpdate":
+                this.sendPublishStatusUpdate(
+                    message.data?.isPublishingInProgress ?? false,
+                    message.data?.publishingStage ?? "",
+                );
                 break;
             case "webviewReady":
                 await this.updateProjectOverview();
@@ -841,24 +835,13 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "updateSyncSettings": {
                 const { autoSyncEnabled, syncDelayMinutes } = message.data;
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
 
-                // Update configuration
-                await config.update(
-                    "autoSyncEnabled",
-                    autoSyncEnabled,
-                    vscode.ConfigurationTarget.Workspace
-                );
-
-                await config.update(
-                    "syncDelayMinutes",
-                    syncDelayMinutes,
-                    vscode.ConfigurationTarget.Workspace
-                );
+                const { setSyncSettings } = await import("../../utils/localProjectSettings");
+                await setSyncSettings(autoSyncEnabled, syncDelayMinutes);
 
                 // Notify SyncManager about the changes
                 const syncManager = SyncManager.getInstance();
-                syncManager.updateFromConfiguration();
+                await syncManager.updateFromConfiguration();
 
                 break;
             }

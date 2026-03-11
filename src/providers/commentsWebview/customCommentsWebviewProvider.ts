@@ -214,6 +214,15 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             return;
         }
 
+        // Only initialize comments file in a Codex project (has metadata.json)
+        const metadataUri = vscode.Uri.joinPath(folders[0].uri, "metadata.json");
+        try {
+            await vscode.workspace.fs.stat(metadataUri);
+        } catch {
+            // Not a Codex project — skip creating .project/ and comments.json
+            return;
+        }
+
         const projectDir = vscode.Uri.joinPath(folders[0].uri, ".project");
         this.commentsFilePath = vscode.Uri.joinPath(projectDir, "comments.json");
 
