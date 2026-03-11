@@ -239,11 +239,31 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             }
         }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
 
+        const [isScrollHighlighted, setIsScrollHighlighted] = useState(false);
+        const scrollHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
         useEffect(() => {
             if (contentToScrollTo && cellIds?.includes(contentToScrollTo) && cellRef.current) {
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+
+                if (scrollHighlightTimerRef.current) {
+                    clearTimeout(scrollHighlightTimerRef.current);
+                }
+                setIsScrollHighlighted(true);
+                scrollHighlightTimerRef.current = setTimeout(() => {
+                    setIsScrollHighlighted(false);
+                    scrollHighlightTimerRef.current = null;
+                }, 1500);
             }
         }, [contentToScrollTo, cellIds]);
+
+        useEffect(() => {
+            return () => {
+                if (scrollHighlightTimerRef.current) {
+                    clearTimeout(scrollHighlightTimerRef.current);
+                }
+            };
+        }, []);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {
@@ -625,7 +645,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             <div
                 ref={cellRef}
                 data-cell-id={cellIds[0]}
-                className={`cell-content-display my-4 group ${getAnimationClassName()}`}
+                className={`cell-content-display my-4 group ${getAnimationClassName()} ${
+                    isScrollHighlighted ? "cell-scroll-highlight" : ""
+                }`}
                 style={{
                     backgroundColor: getBackgroundColor(),
                     direction: textDirection,
@@ -656,10 +678,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             }}
                             className="invisible"
                         >
-                            <CellLabelText
-                                label={lineNumber}
-                                forceLabelTopRow={forceLabelTopRow}
-                            />
+                            <CellLabelText label={lineNumber} forceLabelTopRow={forceLabelTopRow} />
                         </div>
                     ) : null}
                     <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
@@ -960,12 +979,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     onClick={handleCellContentClick}
                 >
                     {/* Cell label - shown after line number when present */}
-                    {label && (
-                        <CellLabelText
-                            label={label}
-                            forceLabelTopRow={forceLabelTopRow}
-                        />
-                    )}
+                    {label && <CellLabelText label={label} forceLabelTopRow={forceLabelTopRow} />}
                     <div
                         tabIndex={0}
                         className={`flex-1 min-w-0 min-h-[1rem] ${
