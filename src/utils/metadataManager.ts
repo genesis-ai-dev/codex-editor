@@ -326,24 +326,28 @@ export class MetadataManager {
                     metadata.meta.requiredExtensions = {};
                 }
 
+                const pinnedExtensions: Record<string, { version?: string }> =
+                    (metadata.meta as any).pinnedExtensions ?? {};
+
                 // Only update codexEditor if new version is greater or missing,
                 // AND no codex-editor pin is active (pinned version owns the floor while active).
                 if (versions.codexEditor !== undefined) {
-                    const pin = (metadata.meta as any).pinnedExtension;
-                    const codexPinActive = pin?.id === "codex-editor" && pin?.version;
-                    if (!codexPinActive) {
+                    if (!pinnedExtensions["codex-editor"]?.version) {
                         const existingVersion = metadata.meta.requiredExtensions.codexEditor;
                         if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
                             metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
                         }
                     }
                 }
-                
-                // Only update frontierAuthentication if new version is greater or missing
+
+                // Only update frontierAuthentication if new version is greater or missing,
+                // AND no frontier-authentication pin is active.
                 if (versions.frontierAuthentication !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
-                    if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                    if (!pinnedExtensions["frontier-authentication"]?.version) {
+                        const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
+                        if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
+                            metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                        }
                     }
                 }
 
