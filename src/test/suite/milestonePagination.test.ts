@@ -643,7 +643,14 @@ suite("Milestone-Based Pagination Test Suite", () => {
         ];
 
         const document = await createDocumentWithCells(cells);
-        const { panel, onDidReceiveMessageRef, lastPostedMessageRef } = createMockWebviewPanel();
+        const { panel, onDidReceiveMessageRef } = createMockWebviewPanel();
+
+        const postedMessages: any[] = [];
+        const origPostMessage = panel.webview.postMessage.bind(panel.webview);
+        (panel.webview as any).postMessage = async (message: any) => {
+            postedMessages.push(message);
+            return origPostMessage(message);
+        };
 
         await provider.resolveCustomEditor(
             document,
@@ -654,8 +661,8 @@ suite("Milestone-Based Pagination Test Suite", () => {
         // Wait for initial setup
         await sleep(100);
 
-        // Clear any initial messages
-        lastPostedMessageRef.current = null;
+        // Clear messages collected during setup
+        postedMessages.length = 0;
 
         // Send requestCellsForMilestone message
         const messageCallback = onDidReceiveMessageRef.current;
@@ -672,29 +679,26 @@ suite("Milestone-Based Pagination Test Suite", () => {
         // Wait for message processing
         await sleep(100);
 
-        // Verify message was sent
-        assert.ok(lastPostedMessageRef.current, "Should have posted a message");
+        // Find the providerSendsCellPage message among all posted messages
+        // (the handler may also send follow-up messages like providerSendsAudioAttachments)
+        const cellPageMsg = postedMessages.find((m) => m?.type === "providerSendsCellPage");
+        assert.ok(cellPageMsg, "Should send providerSendsCellPage message");
         assert.strictEqual(
-            lastPostedMessageRef.current.type,
-            "providerSendsCellPage",
-            "Should send providerSendsCellPage message"
-        );
-        assert.strictEqual(
-            lastPostedMessageRef.current.milestoneIndex,
+            cellPageMsg.milestoneIndex,
             0,
             "Should include correct milestone index"
         );
         assert.strictEqual(
-            lastPostedMessageRef.current.subsectionIndex,
+            cellPageMsg.subsectionIndex,
             0,
             "Should include correct subsection index"
         );
         assert.ok(
-            Array.isArray(lastPostedMessageRef.current.cells),
+            Array.isArray(cellPageMsg.cells),
             "Should include cells array"
         );
         assert.strictEqual(
-            lastPostedMessageRef.current.cells.length,
+            cellPageMsg.cells.length,
             2,
             "Should include 2 cells"
         );
