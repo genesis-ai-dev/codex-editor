@@ -314,7 +314,11 @@ export class SQLiteIndexManager {
     ): Promise<AsyncDatabase> {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                return await AsyncDatabase.open(path);
+                const db = await AsyncDatabase.open(path);
+                // Set busy timeout immediately after open so any subsequent
+                // operation (including PRAGMAs) will wait instead of failing.
+                db.configure("busyTimeout", 5000);
+                return db;
             } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);
                 if (!SQLiteIndexManager.isBusyError(msg) || attempt === maxRetries) throw error;
@@ -547,11 +551,15 @@ export class SQLiteIndexManager {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error(`[SQLiteIndex] Database error during load: ${errorMessage}`);
 
+                // SQLITE_BUSY is transient — nuking the DB while it's locked
+                // just causes a cascading failure loop. Propagate instead.
+                if (SQLiteIndexManager.isBusyError(errorMessage)) {
+                    throw error;
+                }
+
                 try {
                     await this.nukeDatabaseAndRecreate(`database error during load: ${errorMessage}`);
                 } catch (nukeError) {
-                    // Recovery itself failed. Ensure we don't leave a half-open connection
-                    // and log the fatal error so it's diagnosable.
                     console.error(`[SQLiteIndex] FATAL: Database recovery also failed: ${nukeError}`);
                     if (this.db) {
                         try { await this.db.close(); } catch { /* best-effort */ }
@@ -597,6 +605,11 @@ export class SQLiteIndexManager {
         if (this.closed || !this.db) return;
 
         try {
+            // Busy timeout MUST be set first — before any SQL PRAGMAs — so that
+            // if the database is locked (e.g. by another connection during project
+            // creation), SQLite will wait instead of failing immediately with SQLITE_BUSY.
+            this.db.configure("busyTimeout", 5000);
+
             // WAL mode — best for read-heavy workloads with occasional writes.
             // Persisted in the file, but safe to re-issue (no-op if already WAL).
             await this.db.exec("PRAGMA journal_mode = WAL");
@@ -614,10 +627,6 @@ export class SQLiteIndexManager {
 
             // Enable foreign key enforcement
             await this.db.exec("PRAGMA foreign_keys = ON");
-
-            // Busy timeout: wait up to 5 seconds for locks instead of failing immediately.
-            // Prevents SQLITE_BUSY when another connection/process touches the file.
-            this.db.configure("busyTimeout", 5000);
 
             // Auto-checkpoint after 500 WAL pages (~2 MB) instead of the default 1000.
             // Keeps the WAL file smaller in a VS Code extension where unbounded growth
@@ -659,8 +668,10 @@ export class SQLiteIndexManager {
             debug("[SQLiteIndex] Quick integrity check passed");
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
-            // If this is our own corruption error or any DB error, let the caller's
-            // corruption handler take over (it will delete + recreate)
+            // SQLITE_BUSY is transient, not corruption — let it propagate as-is
+            if (SQLiteIndexManager.isBusyError(msg)) {
+                throw error;
+            }
             throw new Error(`database corruption: ${msg}`);
         }
     }
@@ -812,9 +823,17 @@ export class SQLiteIndexManager {
             this.trackProgress("Database Schema Setup Complete", ensureStart);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
+
+            // SQLITE_BUSY is a transient lock, NOT corruption. Nuking the DB
+            // while it's locked would just fail again, creating a destructive
+            // retry loop. Propagate it so the caller's existing retry/recovery
+            // logic can handle it.
+            if (SQLiteIndexManager.isBusyError(errorMessage)) {
+                throw error;
+            }
+
             const isCorruption = errorMessage.includes("database disk image is malformed") ||
                 errorMessage.includes("file is not a database") ||
-                errorMessage.includes("database is locked") ||
                 errorMessage.includes("database corruption");
 
             if (isCorruption) {
@@ -825,7 +844,6 @@ export class SQLiteIndexManager {
 
                 this.trackProgress("Database corruption recovery complete", stepStart);
             } else {
-                // Re-throw non-corruption errors
                 throw error;
             }
         }
@@ -4847,6 +4865,11 @@ export class SQLiteIndexManager {
             console.error(`[SQLiteIndex] Full integrity check FAILED (${elapsed.toFixed(0)}ms): ${value}`);
             return false;
         } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (SQLiteIndexManager.isBusyError(msg)) {
+                debug("[SQLiteIndex] Full integrity check skipped (database busy)");
+                return true;
+            }
             console.error("[SQLiteIndex] Full integrity check threw:", error);
             return false;
         }
