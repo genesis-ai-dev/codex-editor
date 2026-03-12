@@ -495,7 +495,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 const pendingProjectId = context.globalState.get<string>("pendingProjectCreateId");
                 const pendingSourceLangStr = context.globalState.get<string>("pendingProjectCreateSourceLanguage");
                 const pendingTargetLangStr = context.globalState.get<string>("pendingProjectCreateTargetLanguage");
-                const pendingCategory = context.globalState.get<string>("pendingProjectCreateCategory");
+                const pendingCategory =
+                    context.globalState.get<string>("pendingProjectCreateCategory") || "Translation";
                 console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
 
                 // Clear flags
