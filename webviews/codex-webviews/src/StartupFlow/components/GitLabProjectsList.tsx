@@ -387,10 +387,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             if (currentFilter === "all") {
                 // Apply only search filter for "all"
                 if (searchQuery) {
+                    const q = searchQuery.toLowerCase();
                     return (
-                        project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        project.gitOriginUrl?.toLowerCase().includes(searchQuery.toLowerCase())
+                        project.name.toLowerCase().includes(q) ||
+                        project.displayedProjectName?.toLowerCase().includes(q) ||
+                        project.description?.toLowerCase().includes(q) ||
+                        project.gitOriginUrl?.toLowerCase().includes(q)
                     );
                 }
                 return true;
@@ -414,10 +416,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
             // Then apply search filter if there is a query
             if (searchQuery) {
+                const q = searchQuery.toLowerCase();
                 return (
-                    project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    project.gitOriginUrl?.toLowerCase().includes(searchQuery.toLowerCase())
+                    project.name.toLowerCase().includes(q) ||
+                    project.displayedProjectName?.toLowerCase().includes(q) ||
+                    project.description?.toLowerCase().includes(q) ||
+                    project.gitOriginUrl?.toLowerCase().includes(q)
                 );
             }
 
