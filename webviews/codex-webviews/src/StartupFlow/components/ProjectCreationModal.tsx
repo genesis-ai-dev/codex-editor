@@ -88,7 +88,14 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
 
     return (
         <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-            <DialogContent className="max-w-2xl overflow-visible">
+            <DialogContent
+                className="max-w-2xl overflow-visible"
+                onEscapeKeyDown={(e) => {
+                    if (document.querySelector(".language-picker__dropdown")) {
+                        e.preventDefault();
+                    }
+                }}
+            >
                 <DialogHeader>
                     <DialogTitle>Create New Project</DialogTitle>
                     <DialogDescription>

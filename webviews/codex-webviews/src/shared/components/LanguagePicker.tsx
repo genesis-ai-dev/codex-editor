@@ -202,6 +202,22 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         }
                     }
                     break;
+                case "Tab": {
+                    const tabCustomAtTop = languageFilter && !hasHighQualityMatches;
+                    const tabCustomAtBottom = languageFilter && hasHighQualityMatches;
+                    if (tabCustomAtTop && highlightedIndex === 0) {
+                        handleCustomLanguageSelect(languageFilter);
+                    } else if (tabCustomAtBottom && highlightedIndex === filteredLanguages.length) {
+                        handleCustomLanguageSelect(languageFilter);
+                    } else {
+                        const langIdx = tabCustomAtTop ? highlightedIndex - 1 : highlightedIndex;
+                        if (langIdx >= 0 && langIdx < filteredLanguages.length) {
+                            const lang = filteredLanguages[langIdx];
+                            handleLanguageSelect(lang.tag || '', lang.refName || '');
+                        }
+                    }
+                    break;
+                }
                 case "Escape":
                     e.preventDefault();
                     setIsDropdownOpen(false);
@@ -241,11 +257,22 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         setLanguageFilter(e.target.value);
                         setIsDropdownOpen(true);
                     }}
-                    onClick={() => {
+                    onFocus={() => {
                         onActivate?.();
                         setIsEditing(true);
                         setIsDropdownOpen(true);
                         setHighlightedIndex(0);
+                    }}
+                    onBlur={() => {
+                        setTimeout(() => {
+                            if (!dropdownRef.current?.contains(document.activeElement)) {
+                                setIsDropdownOpen(false);
+                                if (isEditing && !languageFilter && previousLanguage) {
+                                    setLanguageFilter(previousLanguage.refName || "");
+                                }
+                                setIsEditing(false);
+                            }
+                        }, 150);
                     }}
                     onKeyDown={handleKeyDown}
                 />
