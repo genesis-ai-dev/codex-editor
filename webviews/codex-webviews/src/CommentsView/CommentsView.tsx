@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
     MessageSquare,
     Search,
@@ -36,7 +36,6 @@ import {
 } from "../components/ui/dropdown-menu";
 import bibleBooksData from "../assets/bible-books-lookup.json";
 import { getCellDisplayLabel } from "../utils/cellDisplayUtils";
-import { useVirtualizer } from "@tanstack/react-virtual";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -217,111 +216,109 @@ interface CommentCardProps {
     onUndoDeleteComment: (commentId: string, commentThreadId: string) => void;
 }
 
-const CommentCard = memo(
-    ({
-        thread,
-        comment,
-        currentUser,
-        onReplyToComment,
-        onDeleteComment,
-        onUndoDeleteComment,
-    }: CommentCardProps) => {
-        const formattedTime = formatTimestamp(comment.timestamp);
-        const [isHovered, setIsHovered] = useState(false);
+const CommentCard = ({
+    thread,
+    comment,
+    currentUser,
+    onReplyToComment,
+    onDeleteComment,
+    onUndoDeleteComment,
+}: CommentCardProps) => {
+    const formattedTime = formatTimestamp(comment.timestamp);
+    const [isHovered, setIsHovered] = useState(false);
 
-        return (
-            <div
-                className={`group relative hover:bg-muted/50 rounded-md p-2 transition-colors ${
-                    comment.deleted ? "opacity-60" : ""
-                }`}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
-            >
-                <div className="flex gap-2 items-start">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <UserAvatar username={comment.author.name} size="small" />
-                        </TooltipTrigger>
-                        <TooltipContent>{comment.author.name}</TooltipContent>
-                    </Tooltip>
+    return (
+        <div
+            className={`group relative hover:bg-muted/50 rounded-md p-2 transition-colors ${
+                comment.deleted ? "opacity-60" : ""
+            }`}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <div className="flex gap-2 items-start">
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <UserAvatar username={comment.author.name} size="small" />
+                    </TooltipTrigger>
+                    <TooltipContent>{comment.author.name}</TooltipContent>
+                </Tooltip>
 
-                    {/* Comment content */}
-                    <div className="flex-1 min-w-0">
-                        <div className="flex justify-between">
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <span className="text-xs text-muted-foreground">
-                                        {formattedTime.display}
-                                    </span>
-                                </TooltipTrigger>
-                                <TooltipContent>{formattedTime.full}</TooltipContent>
-                            </Tooltip>
-                        </div>
-                        <div
-                            className={`text-sm leading-relaxed break-words ${
-                                comment.deleted ? "text-muted-foreground italic" : ""
-                            }`}
-                        >
-                            {comment.deleted
-                                ? "This comment has been deleted"
-                                : renderCommentBody(comment.body)}
-                        </div>
+                {/* Comment content */}
+                <div className="flex-1 min-w-0">
+                    <div className="flex justify-between">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="text-xs text-muted-foreground">
+                                    {formattedTime.display}
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{formattedTime.full}</TooltipContent>
+                        </Tooltip>
+                    </div>
+                    <div
+                        className={`text-sm leading-relaxed break-words ${
+                            comment.deleted ? "text-muted-foreground italic" : ""
+                        }`}
+                    >
+                        {comment.deleted
+                            ? "This comment has been deleted"
+                            : renderCommentBody(comment.body)}
                     </div>
                 </div>
-
-                {/* Action buttons - positioned at bottom right */}
-                {isHovered && currentUser.isAuthenticated && !comment.deleted && (
-                    <div className="absolute bottom-1 right-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded px-1 py-0.5 border border-border/50">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                            onClick={() => onReplyToComment(comment, thread.id)}
-                            title="Reply to this comment"
-                        >
-                            <Reply className="h-3 w-3" />
-                        </Button>
-
-                        {comment.author.name === currentUser.username && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                onClick={() => onDeleteComment(comment.id, thread.id)}
-                                title="Delete comment"
-                            >
-                                <Trash2 className="h-3 w-3" />
-                            </Button>
-                        )}
-                    </div>
-                )}
-
-                {/* Undo deletion button for deleted comments - only show on hover */}
-                {comment.deleted && comment.author.name === currentUser.username && isHovered && (
-                    <div className="absolute bottom-1 right-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 border border-border/50">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                            onClick={() => onUndoDeleteComment(comment.id, thread.id)}
-                            title="Undo deletion"
-                        >
-                            <Undo2 className="h-3 w-3 mr-1" />
-                            Undo
-                        </Button>
-                    </div>
-                )}
             </div>
-        );
-    }
-);
+
+            {/* Action buttons - positioned at bottom right */}
+            {isHovered && currentUser.isAuthenticated && !comment.deleted && (
+                <div className="absolute bottom-1 right-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded px-1 py-0.5 border border-border/50">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => onReplyToComment(comment, thread.id)}
+                        title="Reply to this comment"
+                    >
+                        <Reply className="h-3 w-3" />
+                    </Button>
+
+                    {comment.author.name === currentUser.username && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => onDeleteComment(comment.id, thread.id)}
+                            title="Delete comment"
+                        >
+                            <Trash2 className="h-3 w-3" />
+                        </Button>
+                    )}
+                </div>
+            )}
+
+            {/* Undo deletion button for deleted comments - only show on hover */}
+            {comment.deleted && comment.author.name === currentUser.username && isHovered && (
+                <div className="absolute bottom-1 right-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 border border-border/50">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => onUndoDeleteComment(comment.id, thread.id)}
+                        title="Undo deletion"
+                    >
+                        <Undo2 className="h-3 w-3 mr-1" />
+                        Undo
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+};
 
 interface ThreadCardProps {
     thread: NotebookCommentThread;
-    isCollapsed: boolean;
-    threadReplyText: string;
+    collapsedThreads: Record<string, boolean>;
     editingTitle: string | null;
     threadTitleEdit: string;
+    replyText: Record<string, string>;
     replyingTo: { threadId: string; username?: string } | null;
     pendingResolveThreads: Set<string>;
     currentUser: { username: string; email: string; isAuthenticated: boolean };
@@ -332,7 +329,7 @@ interface ThreadCardProps {
     onSetThreadTitleEdit: (title: string) => void;
     onSaveEditTitle: (threadId: string) => void;
     onToggleResolved: (thread: NotebookCommentThread) => void;
-    onSetThreadReplyText: (threadId: string, text: string) => void;
+    onSetReplyText: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
     onSetReplyingTo: (value: { threadId: string; username?: string } | null) => void;
     onSubmitReply: (threadId: string) => void;
     onReplyToComment: (comment: Comment, threadId: string) => void;
@@ -340,301 +337,298 @@ interface ThreadCardProps {
     onUndoDeleteComment: (commentId: string, commentThreadId: string) => void;
 }
 
-const ThreadCard = memo(
-    ({
-        thread,
-        isCollapsed,
-        threadReplyText,
-        editingTitle,
-        threadTitleEdit,
-        replyingTo,
-        pendingResolveThreads,
-        currentUser,
-        isThreadResolved,
-        getCellDisplayName,
-        onToggleCollapsed,
-        onSetEditingTitle,
-        onSetThreadTitleEdit,
-        onSaveEditTitle,
-        onToggleResolved,
-        onSetThreadReplyText,
-        onSetReplyingTo,
-        onSubmitReply,
-        onReplyToComment,
-        onDeleteComment,
-        onUndoDeleteComment,
-    }: ThreadCardProps) => (
-        <Card
-            className={`overflow-hidden border transition-opacity duration-200 ${
-                isThreadResolved(thread) ? "opacity-75" : "opacity-100"
-            }`}
+const ThreadCard = ({
+    thread,
+    collapsedThreads,
+    editingTitle,
+    threadTitleEdit,
+    replyText,
+    replyingTo,
+    pendingResolveThreads,
+    currentUser,
+    isThreadResolved,
+    getCellDisplayName,
+    onToggleCollapsed,
+    onSetEditingTitle,
+    onSetThreadTitleEdit,
+    onSaveEditTitle,
+    onToggleResolved,
+    onSetReplyText,
+    onSetReplyingTo,
+    onSubmitReply,
+    onReplyToComment,
+    onDeleteComment,
+    onUndoDeleteComment,
+}: ThreadCardProps) => (
+    <Card
+        className={`overflow-hidden border transition-opacity duration-200 ${
+            isThreadResolved(thread) ? "opacity-75" : "opacity-100"
+        }`}
+    >
+        {/* Thread header */}
+        <CardHeader
+            className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors p-3"
+            onClick={() => onToggleCollapsed(thread.id)}
         >
-            {/* Thread header */}
-            <CardHeader
-                className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors p-3"
-                onClick={() => onToggleCollapsed(thread.id)}
-            >
-                <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                        {isCollapsed ? (
-                            <ChevronRight className="h-4 w-4" />
-                        ) : (
-                            <ChevronDown className="h-4 w-4" />
-                        )}
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {collapsedThreads[thread.id] ? (
+                        <ChevronRight className="h-4 w-4" />
+                    ) : (
+                        <ChevronDown className="h-4 w-4" />
+                    )}
 
-                        {editingTitle === thread.id ? (
-                            <Input
-                                value={threadTitleEdit}
-                                placeholder="Thread title"
-                                className="flex-1"
-                                onChange={(e) => onSetThreadTitleEdit(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        onSaveEditTitle(thread.id);
-                                    } else if (e.key === "Escape") {
-                                        onSetEditingTitle(null);
-                                    }
-                                }}
-                            />
-                        ) : (
-                            <span className="font-medium text-sm truncate">
-                                {thread.threadTitle || "Untitled Thread"}
-                            </span>
-                        )}
-                    </div>
-
-                    <div className="flex gap-1.5 items-center">
-                        {isThreadResolved(thread) && (
-                            <Badge variant="secondary" className="text-xs">
-                                <Check className="h-3 w-3 mr-1" />
-                                Resolved
-                            </Badge>
-                        )}
-
-                        {/* Action Buttons */}
-                        {!editingTitle && (
-                            <div className="flex gap-1">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    title="Edit title"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSetEditingTitle(thread.id);
-                                        onSetThreadTitleEdit(thread.threadTitle || "");
-                                    }}
-                                >
-                                    <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    title={
-                                        isThreadResolved(thread)
-                                            ? "Mark as unresolved"
-                                            : "Mark as resolved"
-                                    }
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onToggleResolved(thread);
-                                    }}
-                                    disabled={pendingResolveThreads.has(thread.id)}
-                                >
-                                    {pendingResolveThreads.has(thread.id) ? (
-                                        <Clock className="h-4 w-4 animate-spin" />
-                                    ) : isThreadResolved(thread) ? (
-                                        <Check className="h-4 w-4" />
-                                    ) : (
-                                        <Circle className="h-4 w-4" />
-                                    )}
-                                </Button>
-                            </div>
-                        )}
-
-                        {/* Edit mode actions */}
-                        {editingTitle === thread.id && (
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    title="Cancel"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSetEditingTitle(null);
-                                    }}
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    title="Save"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSaveEditTitle(thread.id);
-                                    }}
-                                >
-                                    <Check className="h-4 w-4" />
-                                </Button>
-                            </div>
-                        )}
-                    </div>
+                    {editingTitle === thread.id ? (
+                        <Input
+                            value={threadTitleEdit}
+                            placeholder="Thread title"
+                            className="flex-1"
+                            onChange={(e) => onSetThreadTitleEdit(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    onSaveEditTitle(thread.id);
+                                } else if (e.key === "Escape") {
+                                    onSetEditingTitle(null);
+                                }
+                            }}
+                        />
+                    ) : (
+                        <span className="font-medium text-sm truncate">
+                            {thread.threadTitle || "Untitled Thread"}
+                        </span>
+                    )}
                 </div>
 
-                <div className="flex justify-between text-xs text-muted-foreground">
-                    <div className="flex gap-2 items-center">
-                        <span
-                            className="text-primary max-w-48 truncate"
-                            title={
-                                typeof thread.cellId === "string"
-                                    ? thread.cellId
-                                    : `Cell ID: ${thread.cellId.cellId}${
-                                          thread.cellId.globalReferences?.length
-                                              ? `\nReferences: ${thread.cellId.globalReferences.join(
-                                                    ", "
-                                                )}`
-                                              : ""
-                                      }`
-                            }
-                        >
-                            {getCellDisplayName(thread.cellId)}
-                        </span>
-                    </div>
-                    <span className="flex items-center gap-1">
-                        <MessageSquare className="h-3 w-3" />
-                        {thread.comments.length}{" "}
-                        {thread.comments.length === 1 ? "comment" : "comments"}
+                <div className="flex gap-1.5 items-center">
+                    {isThreadResolved(thread) && (
+                        <Badge variant="secondary" className="text-xs">
+                            <Check className="h-3 w-3 mr-1" />
+                            Resolved
+                        </Badge>
+                    )}
+
+                    {/* Action Buttons */}
+                    {!editingTitle && (
+                        <div className="flex gap-1">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title="Edit title"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSetEditingTitle(thread.id);
+                                    onSetThreadTitleEdit(thread.threadTitle || "");
+                                }}
+                            >
+                                <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title={
+                                    isThreadResolved(thread)
+                                        ? "Mark as unresolved"
+                                        : "Mark as resolved"
+                                }
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onToggleResolved(thread);
+                                }}
+                                disabled={pendingResolveThreads.has(thread.id)}
+                            >
+                                {pendingResolveThreads.has(thread.id) ? (
+                                    <Clock className="h-4 w-4 animate-spin" />
+                                ) : isThreadResolved(thread) ? (
+                                    <Check className="h-4 w-4" />
+                                ) : (
+                                    <Circle className="h-4 w-4" />
+                                )}
+                            </Button>
+                        </div>
+                    )}
+
+                    {/* Edit mode actions */}
+                    {editingTitle === thread.id && (
+                        <div className="flex gap-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title="Cancel"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSetEditingTitle(null);
+                                }}
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                title="Save"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSaveEditTitle(thread.id);
+                                }}
+                            >
+                                <Check className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex gap-2 items-center">
+                    <span
+                        className="text-primary max-w-48 truncate"
+                        title={
+                            typeof thread.cellId === "string"
+                                ? thread.cellId
+                                : `Cell ID: ${thread.cellId.cellId}${
+                                      thread.cellId.globalReferences?.length
+                                          ? `\nReferences: ${thread.cellId.globalReferences.join(", ")}`
+                                          : ""
+                                  }`
+                        }
+                    >
+                        {getCellDisplayName(thread.cellId)}
                     </span>
                 </div>
-            </CardHeader>
+                <span className="flex items-center gap-1">
+                    <MessageSquare className="h-3 w-3" />
+                    {thread.comments.length}{" "}
+                    {thread.comments.length === 1 ? "comment" : "comments"}
+                </span>
+            </div>
+        </CardHeader>
 
-            {/* Comments section */}
-            {!isCollapsed && (
-                <CardContent className="p-3">
-                    <div className="flex flex-col gap-3">
-                        {/* Reply form at top */}
-                        {currentUser.isAuthenticated && (
-                            <div className="flex gap-3 items-start pb-3 border-b border-border">
-                                <UserAvatar
-                                    username={currentUser.username}
-                                    email={currentUser.email}
-                                    size="small"
-                                />
+        {/* Comments section */}
+        {!collapsedThreads[thread.id] && (
+            <CardContent className="p-3">
+                <div className="flex flex-col gap-3">
+                    {/* Reply form at top */}
+                    {currentUser.isAuthenticated && (
+                        <div className="flex gap-3 items-start pb-3 border-b border-border">
+                            <UserAvatar
+                                username={currentUser.username}
+                                email={currentUser.email}
+                                size="small"
+                            />
 
-                                <div className="flex-1 flex flex-col gap-2">
-                                    {replyingTo?.threadId === thread.id && (
-                                        <div className="text-xs text-primary flex items-center gap-1 pb-2 border-b border-border">
-                                            <Reply className="h-3 w-3" />
-                                            Replying to @{replyingTo.username}
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-4 w-4 p-0 ml-auto"
-                                                onClick={() => {
-                                                    onSetReplyingTo(null);
-                                                    onSetThreadReplyText(thread.id, "");
-                                                }}
-                                            >
-                                                <X className="h-3 w-3" />
-                                            </Button>
-                                        </div>
-                                    )}
-
-                                    <div className="flex gap-2">
-                                        <textarea
-                                            placeholder="Add a reply..."
-                                            value={threadReplyText}
-                                            className="flex-1 resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] max-h-32"
-                                            rows={
-                                                threadReplyText.includes("\n")
-                                                    ? Math.min(
-                                                          threadReplyText.split("\n").length,
-                                                          5
-                                                      )
-                                                    : 1
-                                            }
-                                            onKeyDown={(e) => {
-                                                if (e.key === "Enter" && !e.shiftKey) {
-                                                    e.preventDefault();
-                                                    onSubmitReply(thread.id);
-                                                } else if (e.key === "Escape") {
-                                                    onSetReplyingTo(null);
-                                                    onSetThreadReplyText(thread.id, "");
-                                                }
-                                            }}
-                                            onChange={(e) => {
-                                                onSetThreadReplyText(thread.id, e.target.value);
-                                            }}
-                                        />
-
+                            <div className="flex-1 flex flex-col gap-2">
+                                {replyingTo?.threadId === thread.id && (
+                                    <div className="text-xs text-primary flex items-center gap-1 pb-2 border-b border-border">
+                                        <Reply className="h-3 w-3" />
+                                        Replying to @{replyingTo.username}
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="h-8 w-8 p-0 self-end"
-                                            onClick={() => onSubmitReply(thread.id)}
-                                            title="Send reply"
-                                            disabled={!threadReplyText.trim()}
+                                            className="h-4 w-4 p-0 ml-auto"
+                                            onClick={() => {
+                                                onSetReplyingTo(null);
+                                                onSetReplyText((prev) => ({
+                                                    ...prev,
+                                                    [thread.id]: "",
+                                                }));
+                                            }}
                                         >
-                                            <Send className="h-4 w-4" />
+                                            <X className="h-3 w-3" />
                                         </Button>
                                     </div>
-                                </div>
-                            </div>
-                        )}
+                                )}
 
-                        {/* Comments - newest first like YouTube */}
-                        <div className="flex flex-col gap-3">
-                            {thread.comments
-                                .slice()
-                                .reverse()
-                                .map((comment) => (
-                                    <CommentCard
-                                        key={comment.id}
-                                        comment={comment}
-                                        thread={thread}
-                                        currentUser={currentUser}
-                                        onReplyToComment={onReplyToComment}
-                                        onDeleteComment={onDeleteComment}
-                                        onUndoDeleteComment={onUndoDeleteComment}
+                                <div className="flex gap-2">
+                                    <textarea
+                                        placeholder="Add a reply..."
+                                        value={replyText[thread.id] || ""}
+                                        className="flex-1 resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] max-h-32"
+                                        rows={
+                                            replyText[thread.id]?.includes("\n")
+                                                ? Math.min(
+                                                      replyText[thread.id].split("\n").length,
+                                                      5
+                                                  )
+                                                : 1
+                                        }
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && !e.shiftKey) {
+                                                e.preventDefault();
+                                                onSubmitReply(thread.id);
+                                            } else if (e.key === "Escape") {
+                                                onSetReplyingTo(null);
+                                                onSetReplyText((prev) => ({
+                                                    ...prev,
+                                                    [thread.id]: "",
+                                                }));
+                                            }
+                                        }}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            onSetReplyText((prev) => ({
+                                                ...prev,
+                                                [thread.id]: value,
+                                            }));
+                                        }}
                                     />
-                                ))}
-                        </div>
-                    </div>
-                </CardContent>
-            )}
-        </Card>
-    )
-);
 
-type GroupedListItem =
-    | { type: "file-header"; key: string; fileName: string }
-    | { type: "milestone-header"; key: string; milestoneName: string }
-    | { type: "thread"; key: string; thread: NotebookCommentThread };
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 self-end"
+                                        onClick={() => onSubmitReply(thread.id)}
+                                        title="Send reply"
+                                        disabled={!replyText[thread.id]?.trim()}
+                                    >
+                                        <Send className="h-4 w-4" />
+                                    </Button>
+                                </div>
+
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Comments - newest first like YouTube */}
+                    <div className="flex flex-col gap-3">
+                        {thread.comments
+                            .slice()
+                            .reverse()
+                            .map((comment) => (
+                                <CommentCard
+                                    key={comment.id}
+                                    comment={comment}
+                                    thread={thread}
+                                    currentUser={currentUser}
+                                    onReplyToComment={onReplyToComment}
+                                    onDeleteComment={onDeleteComment}
+                                    onUndoDeleteComment={onUndoDeleteComment}
+                                />
+                            ))}
+                    </div>
+                </div>
+            </CardContent>
+        )}
+    </Card>
+);
 
 interface LocationGroupedCommentsProps {
     threads: NotebookCommentThread[];
     getMissingLabel: (type: "file" | "milestone" | "cell") => string;
-    threadCardBaseProps: Omit<ThreadCardProps, "thread" | "threadReplyText" | "isCollapsed">;
-    replyText: Record<string, string>;
-    collapsedThreads: Record<string, boolean>;
-    scrollContainerRef: { current: HTMLDivElement | null };
+    threadCardBaseProps: Omit<ThreadCardProps, "thread">;
 }
 
 const LocationGroupedComments = ({
     threads,
     getMissingLabel,
     threadCardBaseProps,
-    replyText,
-    collapsedThreads,
-    scrollContainerRef,
 }: LocationGroupedCommentsProps) => {
-    const flatItems = useMemo(() => {
-        const grouped = threads.reduce((acc, thread) => {
+    // Group by file, then milestone
+    const grouped = threads.reduce(
+        (acc, thread) => {
             const file = thread.cellId.fileDisplayName || getMissingLabel("file");
             const milestone = thread.cellId.milestoneValue || getMissingLabel("milestone");
 
@@ -643,145 +637,33 @@ const LocationGroupedComments = ({
             acc[file][milestone].push(thread);
 
             return acc;
-        }, {} as Record<string, Record<string, NotebookCommentThread[]>>);
-
-        const items: GroupedListItem[] = [];
-        Object.entries(grouped).forEach(([fileName, milestones]) => {
-            items.push({ type: "file-header", key: `file-${fileName}`, fileName });
-            Object.entries(milestones).forEach(([milestoneName, threadsInMilestone]) => {
-                items.push({
-                    type: "milestone-header",
-                    key: `milestone-${fileName}-${milestoneName}`,
-                    milestoneName,
-                });
-                threadsInMilestone.forEach((thread) => {
-                    items.push({ type: "thread", key: thread.id, thread });
-                });
-            });
-        });
-        return items;
-    }, [threads, getMissingLabel]);
-
-    const virtualizer = useVirtualizer({
-        count: flatItems.length,
-        getScrollElement: () => scrollContainerRef.current,
-        estimateSize: (index) => {
-            const item = flatItems[index];
-            switch (item.type) {
-                case "file-header":
-                    return 36;
-                case "milestone-header":
-                    return 28;
-                case "thread":
-                    return 120;
-            }
         },
-        overscan: 5,
-        getItemKey: (index) => flatItems[index].key,
-    });
-
-    return (
-        <div
-            style={{
-                height: `${virtualizer.getTotalSize()}px`,
-                width: "100%",
-                position: "relative",
-            }}
-        >
-            {virtualizer.getVirtualItems().map((virtualItem) => {
-                const item = flatItems[virtualItem.index];
-                return (
-                    <div
-                        key={item.key}
-                        data-index={virtualItem.index}
-                        ref={virtualizer.measureElement}
-                        style={{
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            width: "100%",
-                            transform: `translateY(${virtualItem.start}px)`,
-                        }}
-                    >
-                        {item.type === "file-header" && (
-                            <div className="px-4 py-2 bg-muted/30 font-semibold text-sm">
-                                {item.fileName}
-                            </div>
-                        )}
-                        {item.type === "milestone-header" && (
-                            <div className="px-6 py-1.5 bg-muted/20 font-medium text-xs text-muted-foreground">
-                                {item.milestoneName}
-                            </div>
-                        )}
-                        {item.type === "thread" && (
-                            <div className="ml-8 pb-2">
-                                <ThreadCard
-                                    thread={item.thread}
-                                    threadReplyText={replyText[item.thread.id] || ""}
-                                    isCollapsed={!!collapsedThreads[item.thread.id]}
-                                    {...threadCardBaseProps}
-                                />
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
+        {} as Record<string, Record<string, NotebookCommentThread[]>>
     );
-};
-
-interface VirtualizedThreadListProps {
-    threads: NotebookCommentThread[];
-    threadCardBaseProps: Omit<ThreadCardProps, "thread" | "threadReplyText" | "isCollapsed">;
-    replyText: Record<string, string>;
-    collapsedThreads: Record<string, boolean>;
-    scrollContainerRef: { current: HTMLDivElement | null };
-}
-
-const VirtualizedThreadList = ({
-    threads,
-    threadCardBaseProps,
-    replyText,
-    collapsedThreads,
-    scrollContainerRef,
-}: VirtualizedThreadListProps) => {
-    const virtualizer = useVirtualizer({
-        count: threads.length,
-        getScrollElement: () => scrollContainerRef.current,
-        estimateSize: () => 120,
-        overscan: 5,
-        getItemKey: (index) => threads[index].id,
-    });
 
     return (
-        <div
-            style={{
-                height: `${virtualizer.getTotalSize()}px`,
-                width: "100%",
-                position: "relative",
-            }}
-        >
-            {virtualizer.getVirtualItems().map((virtualItem) => (
-                <div
-                    key={threads[virtualItem.index].id}
-                    data-index={virtualItem.index}
-                    ref={virtualizer.measureElement}
-                    style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
-                        transform: `translateY(${virtualItem.start}px)`,
-                    }}
-                >
-                    <div className="pb-3">
-                        <ThreadCard
-                            thread={threads[virtualItem.index]}
-                            threadReplyText={replyText[threads[virtualItem.index].id] || ""}
-                            isCollapsed={!!collapsedThreads[threads[virtualItem.index].id]}
-                            {...threadCardBaseProps}
-                        />
+        <div className="flex flex-col gap-2">
+            {Object.entries(grouped).map(([fileName, milestones]) => (
+                <div key={fileName} className="flex flex-col">
+                    <div className="px-4 py-2 bg-muted/30 font-semibold text-sm sticky top-0 z-10">
+                        {fileName}
                     </div>
+                    {Object.entries(milestones).map(([milestoneName, threadsInMilestone]) => (
+                        <div key={`${fileName}-${milestoneName}`} className="flex flex-col">
+                            <div className="px-6 py-1.5 bg-muted/20 font-medium text-xs text-muted-foreground">
+                                {milestoneName}
+                            </div>
+                            <div className="ml-8 flex flex-col gap-2 mb-2">
+                                {threadsInMilestone.map((thread) => (
+                                    <ThreadCard
+                                        key={thread.id}
+                                        thread={thread}
+                                        {...threadCardBaseProps}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ))}
                 </div>
             ))}
         </div>
@@ -791,11 +673,7 @@ const VirtualizedThreadList = ({
 // ─── Main App component ──────────────────────────────────────────────────────
 
 function App() {
-    const [cellId, setCellId] = useState<CellIdGlobalState>({
-        cellId: "",
-        uri: "",
-        globalReferences: [],
-    });
+    const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "", globalReferences: [] });
     const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>([]);
     const [replyText, setReplyText] = useState<Record<string, string>>({});
     const [collapsedThreads, setCollapsedThreads] = useState<Record<string, boolean>>({});
@@ -842,20 +720,6 @@ function App() {
     // Sort configuration
     const [sortMode, setSortMode] = useState<SortMode>("location");
 
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-    // Refs to keep callbacks stable while reading latest values
-    const replyTextRef = useRef(replyText);
-    replyTextRef.current = replyText;
-    const commentThreadArrayRef = useRef(commentThreadArray);
-    commentThreadArrayRef.current = commentThreadArray;
-    const currentUserRef = useRef(currentUser);
-    currentUserRef.current = currentUser;
-    const cellIdRef = useRef(cellId);
-    cellIdRef.current = cellId;
-    const threadTitleEditRef = useRef(threadTitleEdit);
-    threadTitleEditRef.current = threadTitleEdit;
-
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
         const resolvedEvents = thread.resolvedEvent || [];
         const latestResolvedEvent =
@@ -881,13 +745,8 @@ function App() {
 
     // Bible book map for canonical ordering (from Luke's branch)
     const bibleBookMap = useMemo(() => {
-        const map = new Map<
-            string,
-            { name: string; abbr: string; ord: string; testament: string }
-        >();
-        (
-            bibleBooksData as { name: string; abbr: string; ord: string; testament: string }[]
-        ).forEach((book) => {
+        const map = new Map<string, { name: string; abbr: string; ord: string; testament: string }>();
+        (bibleBooksData as { name: string; abbr: string; ord: string; testament: string }[]).forEach((book) => {
             map.set(book.abbr, book);
             map.set(book.name, book);
         });
@@ -897,109 +756,87 @@ function App() {
     // Helper to determine if project uses Bible terminology based on data
     const isBibleProject = useMemo(() => {
         // Check if any thread has Bible-style references (e.g., "GEN 1:1")
-        return commentThreadArray.some((thread) => {
+        return commentThreadArray.some(thread => {
             const refs = thread.cellId.globalReferences || [];
-            return refs.some((ref) => /^[A-Z0-9]{3}\s+\d+:\d+/.test(ref));
+            return refs.some(ref => /^[A-Z0-9]{3}\s+\d+:\d+/.test(ref));
         });
     }, [commentThreadArray]);
 
     // Get appropriate label for missing data
-    const getMissingLabel = useCallback(
-        (type: "file" | "milestone" | "cell"): string => {
-            if (isBibleProject) {
-                switch (type) {
-                    case "file":
-                        return "No book name";
-                    case "milestone":
-                        return "No chapter";
-                    case "cell":
-                        return "No verse number";
-                }
-            } else {
-                switch (type) {
-                    case "file":
-                        return "No file name";
-                    case "milestone":
-                        return "No milestone value";
-                    case "cell":
-                        return "No cell number";
-                }
+    const getMissingLabel = useCallback((type: "file" | "milestone" | "cell"): string => {
+        if (isBibleProject) {
+            switch (type) {
+                case "file": return "No book name";
+                case "milestone": return "No chapter";
+                case "cell": return "No verse number";
             }
-        },
-        [isBibleProject]
-    );
+        } else {
+            switch (type) {
+                case "file": return "No file name";
+                case "milestone": return "No milestone value";
+                case "cell": return "No cell number";
+            }
+        }
+    }, [isBibleProject]);
 
     // Helper to get sort order from fileDisplayName (using canonical Bible book order)
-    const getFileSortOrder = useCallback(
-        (fileDisplayName: string | undefined): string => {
-            if (!fileDisplayName) return "999";
-            const bookInfo = bibleBookMap.get(fileDisplayName);
-            return bookInfo ? bookInfo.ord : "999";
-        },
-        [bibleBookMap]
-    );
+    const getFileSortOrder = useCallback((fileDisplayName: string | undefined): string => {
+        if (!fileDisplayName) return "999";
+        const bookInfo = bibleBookMap.get(fileDisplayName);
+        return bookInfo ? bookInfo.ord : "999";
+    }, [bibleBookMap]);
 
     // Sort threads by latest activity, unresolved first (used for current cell section)
-    const sortByActivity = useCallback(
-        (threads: NotebookCommentThread[]): NotebookCommentThread[] => {
-            const byLatestActivity = (a: NotebookCommentThread, b: NotebookCommentThread) => {
-                const aTime = Math.max(...a.comments.map((c) => c.timestamp));
-                const bTime = Math.max(...b.comments.map((c) => c.timestamp));
-                return bTime - aTime;
-            };
-            const unresolved = threads.filter((t) => !isThreadResolved(t));
-            const resolved = threads.filter((t) => isThreadResolved(t));
-            return [...unresolved.sort(byLatestActivity), ...resolved.sort(byLatestActivity)];
-        },
-        [isThreadResolved]
-    );
+    const sortByActivity = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
+        const byLatestActivity = (a: NotebookCommentThread, b: NotebookCommentThread) => {
+            const aTime = Math.max(...a.comments.map((c) => c.timestamp));
+            const bTime = Math.max(...b.comments.map((c) => c.timestamp));
+            return bTime - aTime;
+        };
+        const unresolved = threads.filter((t) => !isThreadResolved(t));
+        const resolved = threads.filter((t) => isThreadResolved(t));
+        return [...unresolved.sort(byLatestActivity), ...resolved.sort(byLatestActivity)];
+    }, [isThreadResolved]);
 
     // Sort threads by sort mode (used for "all other threads" section)
-    const sortThreads = useCallback(
-        (threads: NotebookCommentThread[]): NotebookCommentThread[] => {
-            const getLatestTimestamp = (thread: NotebookCommentThread) =>
-                Math.max(...thread.comments.map((c) => c.timestamp));
+    const sortThreads = useCallback((threads: NotebookCommentThread[]): NotebookCommentThread[] => {
+        const getLatestTimestamp = (thread: NotebookCommentThread) =>
+            Math.max(...thread.comments.map((c) => c.timestamp));
 
-            switch (sortMode) {
-                case "time-increasing":
-                    return [...threads].sort(
-                        (a, b) => getLatestTimestamp(a) - getLatestTimestamp(b)
-                    );
+        switch (sortMode) {
+            case "time-increasing":
+                return [...threads].sort((a, b) => getLatestTimestamp(a) - getLatestTimestamp(b));
 
-                case "time-decreasing":
-                    return [...threads].sort(
-                        (a, b) => getLatestTimestamp(b) - getLatestTimestamp(a)
-                    );
+            case "time-decreasing":
+                return [...threads].sort((a, b) => getLatestTimestamp(b) - getLatestTimestamp(a));
 
-                case "location":
-                    return [...threads].sort((a, b) => {
-                        const aFile = a.cellId.fileDisplayName || getMissingLabel("file");
-                        const bFile = b.cellId.fileDisplayName || getMissingLabel("file");
-                        const aOrder = getFileSortOrder(a.cellId.fileDisplayName);
-                        const bOrder = getFileSortOrder(b.cellId.fileDisplayName);
+            case "location":
+                return [...threads].sort((a, b) => {
+                    const aFile = a.cellId.fileDisplayName || getMissingLabel("file");
+                    const bFile = b.cellId.fileDisplayName || getMissingLabel("file");
+                    const aOrder = getFileSortOrder(a.cellId.fileDisplayName);
+                    const bOrder = getFileSortOrder(b.cellId.fileDisplayName);
 
-                        const orderCompare = aOrder.localeCompare(bOrder);
-                        if (orderCompare !== 0) return orderCompare;
+                    const orderCompare = aOrder.localeCompare(bOrder);
+                    if (orderCompare !== 0) return orderCompare;
 
-                        const fileCompare = aFile.localeCompare(bFile);
-                        if (fileCompare !== 0) return fileCompare;
+                    const fileCompare = aFile.localeCompare(bFile);
+                    if (fileCompare !== 0) return fileCompare;
 
-                        const aMilestone = a.cellId.milestoneValue || getMissingLabel("milestone");
-                        const bMilestone = b.cellId.milestoneValue || getMissingLabel("milestone");
-                        const milestoneCompare = aMilestone.localeCompare(bMilestone);
-                        if (milestoneCompare !== 0) return milestoneCompare;
+                    const aMilestone = a.cellId.milestoneValue || getMissingLabel("milestone");
+                    const bMilestone = b.cellId.milestoneValue || getMissingLabel("milestone");
+                    const milestoneCompare = aMilestone.localeCompare(bMilestone);
+                    if (milestoneCompare !== 0) return milestoneCompare;
 
-                        const aLine = a.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
-                        const bLine = b.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
-                        return aLine - bLine;
-                    });
+                    const aLine = a.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
+                    const bLine = b.cellId.cellLineNumber ?? Number.MAX_SAFE_INTEGER;
+                    return aLine - bLine;
+                });
 
-                default:
-                    return threads;
-            }
-        },
-        [sortMode, getMissingLabel, getFileSortOrder]
-    );
+            default:
+                return threads;
+        }
+    }, [sortMode, getMissingLabel, getFileSortOrder]);
 
     const handleMessage = useCallback(
         (event: MessageEvent) => {
@@ -1025,40 +862,6 @@ function App() {
                             uri: message.data.uri || "",
                             globalReferences: message.data.globalReferences || [],
                         });
-                    }
-                    if (message.data?.openCurrentTab) {
-                        setViewMode("cell");
-                        setSearchQuery("");
-                    }
-                    if (message.data?.openNewCommentIfNoComments && message.data?.cellId) {
-                        const targetCellId = message.data.cellId;
-                        const hasCommentsOnCell = commentThreadArrayRef.current.some((thread) => {
-                            const deletionEvents = thread.deletionEvent || [];
-                            const latestDeletion =
-                                deletionEvents.length > 0
-                                    ? deletionEvents.reduce((latest, ev) =>
-                                          ev.timestamp > latest.timestamp ? ev : latest
-                                      )
-                                    : null;
-                            const deleted = latestDeletion?.deleted || false;
-                            return !deleted && thread.cellId.cellId === targetCellId;
-                        });
-                        setShowNewCommentForm(!hasCommentsOnCell);
-                    }
-                    break;
-                }
-                case "updateSingleThread": {
-                    if (message.thread) {
-                        setCommentThread((prev) => {
-                            const idx = prev.findIndex((t) => t.id === message.thread.id);
-                            if (idx !== -1) {
-                                const next = [...prev];
-                                next[idx] = message.thread;
-                                return next;
-                            }
-                            return [...prev, message.thread];
-                        });
-                        setPendingResolveThreads(new Set());
                     }
                     break;
                 }
@@ -1104,23 +907,19 @@ function App() {
         };
     }, [handleMessage]);
 
-    const handleReply = useCallback((threadId: string) => {
-        const currentReplyText = replyTextRef.current;
-        const user = currentUserRef.current;
-        if (!currentReplyText[threadId]?.trim() || !user.isAuthenticated) return;
+    const handleReply = (threadId: string) => {
+        if (!replyText[threadId]?.trim() || !currentUser.isAuthenticated) return;
 
-        const existingThread = commentThreadArrayRef.current.find(
-            (thread) => thread.id === threadId
-        );
+        const existingThread = commentThreadArray.find((thread) => thread.id === threadId);
         const timestamp = Date.now();
         const newCommentId = `${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
         const comment: Comment = {
             id: newCommentId,
             timestamp: timestamp,
-            body: currentReplyText[threadId],
+            body: replyText[threadId],
             mode: 1,
-            author: { name: user.username },
+            author: { name: currentUser.username },
             deleted: false,
         };
 
@@ -1128,7 +927,7 @@ function App() {
             ...(existingThread || {
                 id: threadId,
                 canReply: true,
-                cellId: cellIdRef.current,
+                cellId: cellId,
                 collapsibleState: 0,
                 threadTitle: "",
                 deleted: false,
@@ -1144,7 +943,7 @@ function App() {
 
         setReplyText((prev) => ({ ...prev, [threadId]: "" }));
         setReplyingTo(null);
-    }, []);
+    };
 
     const handleThreadDeletion = (commentThreadId: string) => {
         vscode.postMessage({
@@ -1153,19 +952,19 @@ function App() {
         } as CommentPostMessages);
     };
 
-    const handleCommentDeletion = useCallback((commentId: string, commentThreadId: string) => {
+    const handleCommentDeletion = (commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "deleteComment",
             args: { commentId, commentThreadId },
         } as CommentPostMessages);
-    }, []);
+    };
 
-    const handleUndoCommentDeletion = useCallback((commentId: string, commentThreadId: string) => {
+    const handleUndoCommentDeletion = (commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "undoCommentDeletion",
             args: { commentId, commentThreadId },
         } as CommentPostMessages);
-    }, []);
+    };
 
     const handleNewComment = () => {
         if (!newCommentText.trim() || !cellId.cellId || !currentUser.isAuthenticated) return;
@@ -1205,18 +1004,15 @@ function App() {
         setShowNewCommentForm(false);
     };
 
-    const handleEditThreadTitle = useCallback((threadId: string) => {
-        const title = threadTitleEditRef.current;
-        if (!title.trim()) return;
+    const handleEditThreadTitle = (threadId: string) => {
+        if (!threadTitleEdit.trim()) return;
 
-        const existingThread = commentThreadArrayRef.current.find(
-            (thread) => thread.id === threadId
-        );
+        const existingThread = commentThreadArray.find((thread) => thread.id === threadId);
         if (!existingThread) return;
 
         const updatedThread = {
             ...existingThread,
-            threadTitle: title.trim(),
+            threadTitle: threadTitleEdit.trim(),
         };
 
         vscode.postMessage({
@@ -1226,45 +1022,44 @@ function App() {
 
         setEditingTitle(null);
         setThreadTitleEdit("");
-    }, []);
+    };
 
-    const toggleResolved = useCallback(
-        (thread: NotebookCommentThread) => {
-            setPendingResolveThreads((prev) => {
-                const next = new Set(prev);
-                next.add(thread.id);
-                return next;
-            });
+    const toggleResolved = (thread: NotebookCommentThread) => {
+        setPendingResolveThreads((prev) => {
+            const next = new Set(prev);
+            next.add(thread.id);
+            return next;
+        });
 
-            const isCurrentlyResolved = isThreadResolved(thread);
+        // Determine if thread is currently resolved (latest event determines state)
+        const isCurrentlyResolved = isThreadResolved(thread);
 
-            const updatedThread = {
-                ...thread,
-                resolvedEvent: [
-                    ...(thread.resolvedEvent || []),
-                    {
-                        timestamp: Date.now(),
-                        author: { name: currentUserRef.current?.username || "Unknown" },
-                        resolved: !isCurrentlyResolved,
-                    },
-                ],
-                comments: [...thread.comments],
-            };
+        // Add new event with opposite state and current timestamp
+        const updatedThread = {
+            ...thread,
+            resolvedEvent: [
+                ...(thread.resolvedEvent || []),
+                {
+                    timestamp: Date.now(),
+                    author: { name: currentUser?.username || "Unknown" },
+                    resolved: !isCurrentlyResolved,
+                },
+            ],
+            comments: [...thread.comments],
+        };
 
-            vscode.postMessage({
-                command: "updateCommentThread",
-                commentThread: updatedThread,
-            } as CommentPostMessages);
-        },
-        [isThreadResolved]
-    );
+        vscode.postMessage({
+            command: "updateCommentThread",
+            commentThread: updatedThread,
+        } as CommentPostMessages);
+    };
 
-    const toggleCollapsed = useCallback((threadId: string) => {
+    const toggleCollapsed = (threadId: string) => {
         setCollapsedThreads((prev) => ({
             ...prev,
             [threadId]: !prev[threadId],
         }));
-    }, []);
+    };
 
     const toggleAllThreads = (collapse: boolean) => {
         const newState: Record<string, boolean> = {};
@@ -1274,70 +1069,8 @@ function App() {
         setCollapsedThreads(newState);
     };
 
-    /**
-     * Get display name for a cell, using new display fields or calculating fallback
-     * Priority:
-     * 1. Use fileDisplayName + milestoneValue + cellLineNumber if available
-     * 2. Fall back to globalReferences if available
-     * 3. Fall back to shortened cellId
-     *
-     * Note: For stored comments, the display fields may not be present.
-     * The current cell selection will have them, but older saved comments won't.
-     * This is intentional - we want fresh data for the current cell, but we fall back
-     * to simpler display for historical comments to avoid expensive lookups.
-     */
-    const getCellDisplayName = useCallback((cellIdState: CellIdGlobalState | string): string => {
-        // Handle legacy string format (shouldn't happen after migration, but just in case)
-        if (typeof cellIdState === "string") {
-            const parts = cellIdState.split(":");
-            const finalPart = parts[parts.length - 1] || cellIdState;
-            return cellIdState.length < 10 ? cellIdState : finalPart;
-        }
 
-        // New format: CellIdGlobalState object
-        // Priority 1: Use the new display fields if all are available
-        if (
-            cellIdState.fileDisplayName &&
-            cellIdState.milestoneValue &&
-            cellIdState.cellLineNumber
-        ) {
-            return `${cellIdState.fileDisplayName} · ${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
-        }
-
-        // Priority 2: Partial display info - show what we have
-        if (cellIdState.milestoneValue && cellIdState.cellLineNumber) {
-            return `${cellIdState.milestoneValue} · Line ${cellIdState.cellLineNumber}`;
-        }
-
-        if (cellIdState.fileDisplayName && cellIdState.cellLineNumber) {
-            return `${cellIdState.fileDisplayName} · Line ${cellIdState.cellLineNumber}`;
-        }
-
-        // Priority 3: Use globalReferences if available (for stored comments)
-        if (cellIdState.globalReferences && cellIdState.globalReferences.length > 0) {
-            // For stored comments with globalReferences, show them nicely
-            // Extract just the reference part (e.g., "GEN 1:1" -> "Gen 1:1" or "NUM 1:7" -> "Num 1:7")
-            const formatted = cellIdState.globalReferences.map((ref) => {
-                // Capitalize first letter, lowercase rest: "NUM 1:7" -> "Num 1:7"
-                const parts = ref.split(" ");
-                if (parts.length >= 2) {
-                    const book = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
-                    return `${book} ${parts.slice(1).join(" ")}`;
-                }
-                return ref;
-            });
-            return formatted.join(", ");
-        }
-
-        // Priority 4: Fall back to shortened cellId
-        const currentCellId = cellIdState.cellId;
-        if (currentCellId.length > 10) {
-            // Show last 8 characters for UUIDs
-            return `...${currentCellId.slice(-8)}`;
-        }
-
-        return currentCellId || "Unknown cell";
-    }, []);
+    const getCellDisplayName = getCellDisplayLabel;
 
     const filteredCommentThreads = useMemo(() => {
         // First, get all non-deleted threads
@@ -1348,10 +1081,8 @@ function App() {
             // Skip resolved threads if they're hidden
             if (!showResolvedThreads && isThreadResolved(commentThread)) return false;
 
-            // In current-cell view, never fall back to all comments.
-            // If there is no active cell yet, show no threads.
-            if (viewMode === "cell") {
-                if (!cellId.cellId) return false;
+            // If in cell view mode, only show comments for the current cell
+            if (viewMode === "cell" && cellId.cellId) {
                 return commentThread.cellId.cellId === cellId.cellId;
             }
 
@@ -1372,16 +1103,7 @@ function App() {
 
         // Apply sorting
         return sortThreads(filtered);
-    }, [
-        commentThreadArray,
-        searchQuery,
-        viewMode,
-        cellId.cellId,
-        showResolvedThreads,
-        sortThreads,
-        isThreadDeleted,
-        isThreadResolved,
-    ]);
+    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId, showResolvedThreads, sortThreads, isThreadDeleted, isThreadResolved]);
 
     // Count of hidden resolved threads
     const hiddenResolvedThreadsCount = useMemo(() => {
@@ -1403,84 +1125,51 @@ function App() {
 
             return isResolved && matchesCurrentCell && matchesSearch;
         }).length;
-    }, [
-        commentThreadArray,
-        viewMode,
-        cellId.cellId,
-        searchQuery,
-        showResolvedThreads,
-        isThreadDeleted,
-        isThreadResolved,
-    ]);
+    }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads, isThreadDeleted, isThreadResolved]);
 
     // Whether a user can start a new top-level comment thread (requires auth and active cell)
     const canStartNewComment = currentUser.isAuthenticated && Boolean(cellId.cellId);
 
-    const handleReplyToComment = useCallback((comment: Comment, threadId: string) => {
+    const handleReplyToComment = (comment: Comment, threadId: string) => {
         const quotedText = `> ${comment.body.replace(/\n/g, "\n> ")}\n\n`;
         setReplyText((prev) => ({
             ...prev,
             [threadId]: quotedText,
         }));
         setReplyingTo({ threadId, username: comment.author.name });
-    }, []);
+    };
 
-    const handleSetThreadReplyText = useCallback((threadId: string, text: string) => {
-        setReplyText((prev) => ({ ...prev, [threadId]: text }));
-    }, []);
-
-    // Props shared by every ThreadCard instance (per-thread values excluded)
-    type ThreadCardSharedProps = Omit<
-        ThreadCardProps,
-        "thread" | "threadReplyText" | "isCollapsed"
-    >;
-    const threadCardBaseProps: ThreadCardSharedProps = useMemo(
-        () => ({
-            editingTitle,
-            threadTitleEdit,
-            replyingTo,
-            pendingResolveThreads,
-            currentUser,
-            isThreadResolved,
-            getCellDisplayName,
-            onToggleCollapsed: toggleCollapsed,
-            onSetEditingTitle: setEditingTitle,
-            onSetThreadTitleEdit: setThreadTitleEdit,
-            onSaveEditTitle: handleEditThreadTitle,
-            onToggleResolved: toggleResolved,
-            onSetThreadReplyText: handleSetThreadReplyText,
-            onSetReplyingTo: setReplyingTo,
-            onSubmitReply: handleReply,
-            onReplyToComment: handleReplyToComment,
-            onDeleteComment: handleCommentDeletion,
-            onUndoDeleteComment: handleUndoCommentDeletion,
-        }),
-        [
-            editingTitle,
-            threadTitleEdit,
-            replyingTo,
-            pendingResolveThreads,
-            currentUser,
-            isThreadResolved,
-            getCellDisplayName,
-            toggleCollapsed,
-            handleEditThreadTitle,
-            toggleResolved,
-            handleSetThreadReplyText,
-            handleReply,
-            handleReplyToComment,
-            handleCommentDeletion,
-            handleUndoCommentDeletion,
-        ]
-    );
+    // Props shared by every ThreadCard instance
+    const threadCardBaseProps: Omit<ThreadCardProps, "thread"> = {
+        collapsedThreads,
+        editingTitle,
+        threadTitleEdit,
+        replyText,
+        replyingTo,
+        pendingResolveThreads,
+        currentUser,
+        isThreadResolved,
+        getCellDisplayName,
+        onToggleCollapsed: toggleCollapsed,
+        onSetEditingTitle: setEditingTitle,
+        onSetThreadTitleEdit: setThreadTitleEdit,
+        onSaveEditTitle: handleEditThreadTitle,
+        onToggleResolved: toggleResolved,
+        onSetReplyText: setReplyText,
+        onSetReplyingTo: setReplyingTo,
+        onSubmitReply: handleReply,
+        onReplyToComment: handleReplyToComment,
+        onDeleteComment: handleCommentDeletion,
+        onUndoDeleteComment: handleUndoCommentDeletion,
+    };
 
     return (
         <TooltipProvider>
-            <div className="h-screen w-full flex flex-col bg-background text-foreground font-sans relative overflow-hidden">
+            <div className="h-full w-full flex flex-col bg-background text-foreground font-sans relative">
                 <WebviewHeader title="Comments" vscode={vscode} />
 
                 {/* Header */}
-                <div className="p-4 border-b border-border flex flex-col gap-3 flex-shrink-0">
+                <div className="p-4 border-b border-border flex flex-col gap-3">
                     {/* {currentUser.isAuthenticated && (
                         <div className="flex items-center gap-2">
                             <UserAvatar
@@ -1509,7 +1198,7 @@ function App() {
                             className="flex-1 rounded-none"
                             onClick={() => {
                                 setViewMode("cell");
-                                setSearchQuery("");
+                                setSearchQuery(cellId.cellId);
                             }}
                         >
                             <span className="hidden sm:inline">Current Cell</span>
@@ -1589,33 +1278,23 @@ function App() {
                                         >
                                             <MapPin className="h-4 w-4 mr-2" />
                                             Location in Project
-                                            {sortMode === "location" && (
-                                                <Check className="h-4 w-4 ml-auto" />
-                                            )}
+                                            {sortMode === "location" && <Check className="h-4 w-4 ml-auto" />}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                             onClick={() => setSortMode("time-increasing")}
-                                            className={
-                                                sortMode === "time-increasing" ? "bg-accent" : ""
-                                            }
+                                            className={sortMode === "time-increasing" ? "bg-accent" : ""}
                                         >
                                             <Clock className="h-4 w-4 mr-2" />
                                             Time Increasing
-                                            {sortMode === "time-increasing" && (
-                                                <Check className="h-4 w-4 ml-auto" />
-                                            )}
+                                            {sortMode === "time-increasing" && <Check className="h-4 w-4 ml-auto" />}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                             onClick={() => setSortMode("time-decreasing")}
-                                            className={
-                                                sortMode === "time-decreasing" ? "bg-accent" : ""
-                                            }
+                                            className={sortMode === "time-decreasing" ? "bg-accent" : ""}
                                         >
                                             <Clock className="h-4 w-4 mr-2" />
                                             Time Decreasing
-                                            {sortMode === "time-decreasing" && (
-                                                <Check className="h-4 w-4 ml-auto" />
-                                            )}
+                                            {sortMode === "time-decreasing" && <Check className="h-4 w-4 ml-auto" />}
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
@@ -1626,7 +1305,7 @@ function App() {
 
                 {/* New comment form CHANGE THIS TOO! THIS NEEDS TO HAVE THE CELLDISPLAYNAME INSTEAD OF CELLID, about 9 lines down.*/}
                 {showNewCommentForm && (
-                    <Card className="m-4 bg-muted/50 flex-shrink-0">
+                    <Card className="m-4 bg-muted/50">
                         <CardContent className="p-4">
                             <div className="flex items-center mb-3 gap-2">
                                 <MessageSquare className="h-4 w-4" />
@@ -1680,63 +1359,65 @@ function App() {
                     </Card>
                 )}
 
-                {/* Scroll container is always mounted so the ref stays stable for the virtualizer */}
-                <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-2">
-                    {filteredCommentThreads.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center min-h-full text-muted-foreground text-center gap-4">
-                            {viewMode === "cell" && cellId.cellId ? (
-                                <>
-                                    <MessageSquare className="h-8 w-8 opacity-60" />
-                                    <div>
-                                        <div className="mb-2 text-base">
-                                            No comments on this cell
-                                        </div>
-                                        <div className="text-sm">
-                                            Be the first to start a conversation here
-                                        </div>
+                {/* Empty states */}
+                {filteredCommentThreads.length === 0 && (
+                    <div className="flex flex-col items-center justify-center p-12 text-muted-foreground text-center gap-4 flex-1">
+                        {viewMode === "cell" && cellId.cellId ? (
+                            <>
+                                <MessageSquare className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No comments on this cell</div>
+                                    <div className="text-sm">
+                                        Be the first to start a conversation here
                                     </div>
-                                </>
-                            ) : searchQuery.length > 0 ? (
-                                <>
-                                    <Search className="h-8 w-8 opacity-60" />
-                                    <div>
-                                        <div className="mb-2 text-base">No results found</div>
-                                        <div className="text-sm">
-                                            Try a different search or view all comments
-                                        </div>
+                                </div>
+                            </>
+                        ) : searchQuery.length > 0 ? (
+                            <>
+                                <Search className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No results found</div>
+                                    <div className="text-sm">
+                                        Try a different search or view all comments
                                     </div>
-                                </>
-                            ) : (
-                                <>
-                                    <MessageSquare className="h-8 w-8 opacity-60" />
-                                    <div>
-                                        <div className="mb-2 text-base">No comments yet</div>
-                                        <div className="text-sm">
-                                            Start the conversation by adding a comment
-                                        </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <MessageSquare className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No comments yet</div>
+                                    <div className="text-sm">
+                                        Start the conversation by adding a comment
                                     </div>
-                                </>
-                            )}
-                        </div>
-                    ) : sortMode === "location" && viewMode === "all" ? (
-                        <LocationGroupedComments
-                            threads={filteredCommentThreads}
-                            getMissingLabel={getMissingLabel}
-                            threadCardBaseProps={threadCardBaseProps}
-                            replyText={replyText}
-                            collapsedThreads={collapsedThreads}
-                            scrollContainerRef={scrollContainerRef}
-                        />
-                    ) : (
-                        <VirtualizedThreadList
-                            threads={filteredCommentThreads}
-                            threadCardBaseProps={threadCardBaseProps}
-                            replyText={replyText}
-                            collapsedThreads={collapsedThreads}
-                            scrollContainerRef={scrollContainerRef}
-                        />
-                    )}
-                </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* Comment list */}
+                {filteredCommentThreads.length > 0 && (
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {sortMode === "location" && viewMode === "all" ? (
+                            <LocationGroupedComments
+                                threads={filteredCommentThreads}
+                                getMissingLabel={getMissingLabel}
+                                threadCardBaseProps={threadCardBaseProps}
+                            />
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                {filteredCommentThreads.map((thread) => (
+                                    <ThreadCard
+                                        key={thread.id}
+                                        thread={thread}
+                                        {...threadCardBaseProps}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Resolved threads banner */}
                 {hiddenResolvedThreadsCount > 0 && (

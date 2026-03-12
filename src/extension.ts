@@ -374,20 +374,24 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }
 
-        // Comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
-        // Repair still runs at startup to fix any corrupted data
+        // Migrate comments early during project startup (only for Codex projects)
         const migrationStart = globalThis.performance.now();
         if (metadataExists && workspaceFolders) {
             try {
+                await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
+
+                // Also repair any existing corrupted data during startup
                 const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
                 CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true).catch(() => {
                     // Silent fallback - don't block startup if repair fails
                 });
             } catch (error) {
-                console.error("[Extension] Error during startup comments repair:", error);
+                console.error("[Extension] Error during startup comments migration:", error);
+                // Don't fail startup due to migration errors
             }
+
         }
-        stepStart = trackTiming("Repairing Comments", migrationStart);
+        stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
 
         // Initialize Frontier API first - needed before startup flow
         const authStart = globalThis.performance.now();
@@ -771,40 +775,10 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Command: Migrate legacy comments (manual migration, not run by default)
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.runCommentsMigration",
-            async () => {
-                const workspaceFolders = vscode.workspace.workspaceFolders;
-                if (!workspaceFolders || workspaceFolders.length === 0) {
-                    await vscode.window.showWarningMessage("No workspace folder open.");
-                    return;
-                }
-                try {
-                    const migrated = await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-                    const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
-                    await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
-                    if (migrated) {
-                        await vscode.window.showInformationMessage("Comments migration completed successfully.");
-                    } else {
-                        await vscode.window.showInformationMessage("No comments migration needed.");
-                    }
-                } catch (error) {
-                    const msg = error instanceof Error ? error.message : String(error);
-                    console.error("Comments migration failed:", error);
-                    await vscode.window.showErrorMessage(
-                        `Comments migration failed: ${msg}`
-                    );
-                }
-            }
-        )
-    );
-
     // Comments-related commands
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
-            return vscode.commands.executeCommand("comments-sidebar.focus");
+            vscode.commands.executeCommand("comments-sidebar.focus");
         })
     );
 
@@ -815,7 +789,7 @@ export async function activate(context: vscode.ExtensionContext) {
             // The webview will receive the message when it's ready via onWebviewReady hook
             const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
             if (provider && "setPendingEnableReplace" in provider) {
-                (provider as { setPendingEnableReplace: () => void; }).setPendingEnableReplace();
+                (provider as { setPendingEnableReplace: () => void }).setPendingEnableReplace();
             }
             await vscode.commands.executeCommand("search-passages-sidebar.focus");
         })
@@ -895,19 +869,14 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register the missing comments-sidebar.reload command
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.comments-sidebar.reload", (options: any) => {
+            // Get the comments provider and send reload message
             const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as any;
-            if (!commentsProvider) return;
-
-            if (commentsProvider._view) {
-                // Webview is live — post directly (VS Code queues until JS is ready)
+            if (commentsProvider && commentsProvider._view) {
+                // Send a reload message directly to the webview
                 commentsProvider._view.webview.postMessage({
                     command: "reload",
-                    data: options,
+                    data: options
                 });
-            } else {
-                // Webview hasn't been created yet; queue data for delivery
-                // once the webview initializes and sends getCurrentCellId
-                commentsProvider.setPendingReloadData(options);
             }
         })
     );
