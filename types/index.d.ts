@@ -274,7 +274,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsSyncStatus"; }
     | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
-    | { command: "project.createForUpload"; projectName: string; projectType: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
+    | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
     | { command: "project.showManager"; }
