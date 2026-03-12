@@ -281,16 +281,21 @@ const CellList: React.FC<CellListProps> = ({
         [cellsInAutocompleteQueue]
     );
 
-    // Optimized helper function to check if a cell is in the translation queue or currently processing
+    // Check if a cell is actively being translated (waiting or in-progress).
+    // Cells that already received their translation (successfulCompletions) are excluded
+    // so their validation buttons become enabled even while the batch continues.
     const isCellInTranslationProcess = useCallback(
         (cellId: string) => {
+            if (successfulCompletions.has(cellId)) {
+                return false;
+            }
             return (
                 translationQueueSet.has(cellId) ||
                 cellId === currentProcessingCellId ||
                 autocompleteQueueSet.has(cellId)
             );
         },
-        [translationQueueSet, currentProcessingCellId, autocompleteQueueSet]
+        [translationQueueSet, currentProcessingCellId, autocompleteQueueSet, successfulCompletions]
     );
 
     // Track cells that move from processing to completed - DISABLED to prevent cancelled cells being marked as completed
