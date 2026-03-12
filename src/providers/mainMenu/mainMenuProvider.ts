@@ -17,7 +17,6 @@ import * as dugiteGit from "../../utils/dugiteGit";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
-import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
 
@@ -374,18 +373,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.disposables.push(
             vscode.workspace.onDidChangeWorkspaceFolders(async () => {
                 this.store.refreshState();
-
-                // Re-create the metadata watcher for the new workspace
-                await this.setupMetadataWatcher();
-
-                // Trigger migration when workspace changes
-                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                    try {
-                        await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
-                    } catch (error) {
-                        console.error("[MainMenu] Error during workspace change migration:", error);
-                    }
-                }
             })
         );
 

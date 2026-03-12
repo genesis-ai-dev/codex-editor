@@ -906,39 +906,15 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             updateSplashScreenSync(60, "Preparing sync...");
 
-            // Migrate comments before sync if needed
+            // Legacy comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
+            // Pre-sync repair still runs to fix any corrupted data before syncing
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (workspaceFolders && workspaceFolders.length > 0) {
-                const workspaceUri = workspaceFolders[0].uri;
-                const workspaceFsPath = workspaceUri.fsPath;
-
-                // These checks are independent and can be expensive on large projects; run in parallel.
-                const [needsMigration, inSourceControl, commentsHasLocalChanges] = await Promise.all([
-                    CommentsMigrator.needsMigration(workspaceUri),
-                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
-                    hasLocalModifications(workspaceFsPath, ".project/comments.json"),
-                ]);
-
-                if (needsMigration && inSourceControl) {
-                    this.currentSyncStage = "Updating comments...";
-                    this.notifySyncStatusListeners();
-                    updateSplashScreenSync(65, "Updating comments...");
-
-                    try {
-                        await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-                        debug("[SyncManager] Pre-sync migration completed");
-                    } catch (error) {
-                        console.error("[SyncManager] Error during pre-sync migration:", error);
-                        vscode.window.showWarningMessage(
-                            "Some older comments couldn't be updated. They may not appear correctly."
-                        );
-                    }
-                }
+                const workspaceFsPath = workspaceFolders[0].uri.fsPath;
+                const commentsHasLocalChanges = await hasLocalModifications(workspaceFsPath, ".project/comments.json");
 
                 if (commentsHasLocalChanges) {
-                    // Only run pre-sync repair if comments.json has local modifications
-                    // This ensures we clean up any local corruption before syncing to other users
-                    this.currentSyncStage = "Preparing comments...";
+                    this.currentSyncStage = "Cleaning up comment data...";
                     this.notifySyncStatusListeners();
                     updateSplashScreenSync(67, "Preparing comments...");
 
@@ -947,9 +923,6 @@ export class SyncManager {
                         await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
                     } catch (error) {
                         console.error("[SyncManager] Error during pre-sync comment repair:", error);
-                        vscode.window.showWarningMessage(
-                            "Some comments couldn't be cleaned up. They may have minor formatting issues."
-                        );
                     }
                 }
             }
@@ -995,28 +968,7 @@ export class SyncManager {
                 }
             }
 
-            // Migrate comments after sync if new legacy files were pulled
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                const workspaceUri = workspaceFolders[0].uri;
-                const [needsPostSyncMigration, inSourceControl] = await Promise.all([
-                    CommentsMigrator.needsMigration(workspaceUri),
-                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
-                ]);
-
-                if (needsPostSyncMigration && inSourceControl) {
-                    this.currentSyncStage = "Cleaning up...";
-                    this.notifySyncStatusListeners();
-                    updateSplashScreenSync(95, "Cleaning up...");
-
-                    try {
-                        await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-                        debug("[SyncManager] Post-sync migration completed");
-                    } catch (error) {
-                        console.error("[SyncManager] Error during post-sync migration:", error);
-                        // Don't fail sync completion due to migration errors
-                    }
-                }
-            }
+            // Legacy comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
 
             // Refresh audio attachments in all open codex editors after sync
             try {
