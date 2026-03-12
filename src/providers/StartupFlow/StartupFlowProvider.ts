@@ -2406,7 +2406,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             case "project.createForUpload": {
                 try {
-                    const { projectName: inputName, projectType, sourceLanguage, targetLanguage } = message as any;
+                    const { projectName: inputName, sourceLanguage, targetLanguage } = message;
+                    const projectCategory = message.projectType?.trim() || "Translation";
                     const sanitized = sanitizeProjectName(inputName);
                     const projectId = generateProjectId();
                     await this.context.globalState.update("pendingProjectCreate", true);
@@ -2414,24 +2415,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     await this.context.globalState.update("pendingProjectCreateId", projectId);
                     await this.context.globalState.update("pendingProjectCreateSourceLanguage", JSON.stringify(sourceLanguage));
                     await this.context.globalState.update("pendingProjectCreateTargetLanguage", JSON.stringify(targetLanguage));
-                    await this.context.globalState.update("pendingProjectCreateCategory", projectType);
+                    await this.context.globalState.update("pendingProjectCreateCategory", projectCategory);
                     await this.context.globalState.update("pendingOpenSourceUploader", true);
-
-                    // Record project type selection to AB testing analytics
-                    const allProjectTypes = ["bible", "subtitles", "obs", "documents", "dubbing", "audioTranslation", "audiobibleTranslation", "other"];
-                    const selectedIndex = allProjectTypes.indexOf(projectType);
-                    if (selectedIndex >= 0) {
-                        try {
-                            const { recordAbResult } = await import("../../utils/abTestingAnalytics");
-                            await recordAbResult({
-                                category: "Project Type Selection",
-                                options: allProjectTypes,
-                                winner: selectedIndex,
-                            });
-                        } catch (analyticsError) {
-                            console.debug("[StartupFlowProvider] Failed to record project type analytics:", analyticsError);
-                        }
-                    }
 
                     await createWorkspaceWithProjectName(sanitized, projectId);
                 } catch (error) {
