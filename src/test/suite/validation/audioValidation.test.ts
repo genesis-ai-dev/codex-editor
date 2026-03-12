@@ -353,7 +353,7 @@ suite("Audio Validation Test Suite", () => {
 
     suite("CodexCellEditorProvider Audio Validation Queue", () => {
         test("should process audio validation requests in queue", async () => {
-            // Arrange: Open document and set up provider with translation queue
+            // Arrange: Open document and set up provider with validation queue (separate from translation)
             const document = await provider.openCustomDocument(
                 tempUri,
                 { backupId: undefined },
@@ -366,18 +366,18 @@ suite("Audio Validation Test Suite", () => {
             // Mock the validateCellAudio method to track calls
             const validateCellAudioStub = sinon.stub(document, "validateCellAudio").resolves();
 
-            // Act: Add audio validation request to queue
-            (provider as any).translationQueue.push({
+            // Act: Add audio validation request to validation queue (not translation queue)
+            (provider as any).validationQueue.push({
                 document,
                 cellId,
                 shouldValidate: true,
-                audioValidationRequest: true,
+                isAudioValidation: true,
                 resolve: () => { },
                 reject: () => { }
             });
 
-            // Process the queue
-            await (provider as any).processTranslationQueue();
+            // Process the validation queue (separate from translation queue)
+            await (provider as any).processValidationQueue();
 
             // Assert: validateCellAudio should have been called
             assert.ok(validateCellAudioStub.called, "validateCellAudio should have been called");
@@ -405,17 +405,17 @@ suite("Audio Validation Test Suite", () => {
             };
             (provider as any).webviewPanels.set(document.uri.toString(), mockWebviewPanel);
 
-            // Act: Add audio validation request to queue
-            (provider as any).translationQueue.push({
+            // Act: Add audio validation request to validation queue (separate from translation)
+            (provider as any).validationQueue.push({
                 document,
                 cellId,
                 shouldValidate: true,
-                audioValidationRequest: true,
+                isAudioValidation: true,
                 resolve: () => { },
                 reject: () => { }
             });
 
-            await (provider as any).processTranslationQueue();
+            await (provider as any).processValidationQueue();
 
             // Assert: Webview should have received notifications
             assert.ok(mockWebview.postMessage.called, "Webview should have received messages");
@@ -449,19 +449,19 @@ suite("Audio Validation Test Suite", () => {
 
             const validateCellAudioStub = sinon.stub(document, "validateCellAudio").rejects(new Error("Validation failed"));
 
-            // Act: Add audio validation request to queue
-            (provider as any).translationQueue.push({
+            // Act: Add audio validation request to validation queue (separate from translation)
+            (provider as any).validationQueue.push({
                 document,
                 cellId,
                 shouldValidate: true,
-                audioValidationRequest: true,
+                isAudioValidation: true,
                 resolve: () => { },
                 reject: () => { }
             });
 
-            // Process the queue (should not throw)
+            // Process the validation queue (should not throw)
             await assert.doesNotReject(
-                (provider as any).processTranslationQueue(),
+                (provider as any).processValidationQueue(),
                 "Should handle validation errors gracefully"
             );
 

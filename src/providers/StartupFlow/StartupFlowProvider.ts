@@ -2405,89 +2405,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             case "project.createForUpload": {
                 try {
-                    const { projectName: inputName, projectType, sourceLanguage, targetLanguage } = message as any;
+                    const { projectName: inputName, sourceLanguage, targetLanguage } = message;
+                    const projectCategory = message.projectType?.trim() || "Translation";
                     const sanitized = sanitizeProjectName(inputName);
-                    if (sanitized !== inputName) {
-                        const projectId = generateProjectId();
-                        this.safeSendMessage({
-                            command: "project.nameWillBeSanitized",
-                            original: inputName,
-                            sanitized,
-                            projectId,
-                        } as MessagesFromStartupFlowProvider);
-                    } else {
-                        const projectId = generateProjectId();
-                        await this.context.globalState.update("pendingProjectCreate", true);
-                        await this.context.globalState.update("pendingProjectCreateName", sanitized);
-                        await this.context.globalState.update("pendingProjectCreateId", projectId);
-                        await this.context.globalState.update("pendingProjectCreateSourceLanguage", JSON.stringify(sourceLanguage));
-                        await this.context.globalState.update("pendingProjectCreateTargetLanguage", JSON.stringify(targetLanguage));
-                        await this.context.globalState.update("pendingProjectCreateCategory", projectType);
-                        await this.context.globalState.update("pendingOpenSourceUploader", true);
+                    const projectId = generateProjectId();
+                    await this.context.globalState.update("pendingProjectCreate", true);
+                    await this.context.globalState.update("pendingProjectCreateName", sanitized);
+                    await this.context.globalState.update("pendingProjectCreateId", projectId);
+                    await this.context.globalState.update("pendingProjectCreateSourceLanguage", JSON.stringify(sourceLanguage));
+                    await this.context.globalState.update("pendingProjectCreateTargetLanguage", JSON.stringify(targetLanguage));
+                    await this.context.globalState.update("pendingProjectCreateCategory", projectCategory);
+                    await this.context.globalState.update("pendingOpenSourceUploader", true);
 
-                        // Record project type selection to AB testing analytics
-                        const allProjectTypes = ["bible", "subtitles", "obs", "documents", "dubbing", "audioTranslation", "audiobibleTranslation", "other"];
-                        const selectedIndex = allProjectTypes.indexOf(projectType);
-                        if (selectedIndex >= 0) {
-                            try {
-                                const { recordAbResult } = await import("../../utils/abTestingAnalytics");
-                                await recordAbResult({
-                                    category: "Project Type Selection",
-                                    options: allProjectTypes,
-                                    winner: selectedIndex,
-                                });
-                            } catch (analyticsError) {
-                                console.debug("[StartupFlowProvider] Failed to record project type analytics:", analyticsError);
-                            }
-                        }
-
-                        try {
-                            await createWorkspaceWithProjectName(sanitized, projectId);
-                        } catch (innerError) {
-                            await this.context.globalState.update("pendingProjectCreate", undefined);
-                            await this.context.globalState.update("pendingProjectCreateName", undefined);
-                            await this.context.globalState.update("pendingProjectCreateId", undefined);
-                            await this.context.globalState.update("pendingProjectCreateSourceLanguage", undefined);
-                            await this.context.globalState.update("pendingProjectCreateTargetLanguage", undefined);
-                            await this.context.globalState.update("pendingProjectCreateCategory", undefined);
-                            await this.context.globalState.update("pendingOpenSourceUploader", undefined);
-                            throw innerError;
-                        }
-                    }
+                    await createWorkspaceWithProjectName(sanitized, projectId);
                 } catch (error) {
                     console.error("Error creating project for upload:", error);
-                }
-                break;
-            }
-            case "project.createEmpty.confirm": {
-                const { proceed, projectName, projectId, sourceLanguage, targetLanguage, projectType } = message;
-                if (proceed && projectName) {
-                    await this.context.globalState.update("pendingProjectCreate", true);
-                    const finalProjectId = projectId || generateProjectId();
-                    await this.context.globalState.update("pendingProjectCreateName", projectName);
-                    await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
-                    if (sourceLanguage) {
-                        await this.context.globalState.update("pendingProjectCreateSourceLanguage", JSON.stringify(sourceLanguage));
-                    }
-                    if (targetLanguage) {
-                        await this.context.globalState.update("pendingProjectCreateTargetLanguage", JSON.stringify(targetLanguage));
-                    }
-                    if (projectType) {
-                        await this.context.globalState.update("pendingProjectCreateCategory", projectType);
-                    }
-                    await this.context.globalState.update("pendingOpenSourceUploader", true);
-                    try {
-                        await createWorkspaceWithProjectName(projectName, finalProjectId);
-                    } catch (error) {
-                        await this.context.globalState.update("pendingProjectCreate", undefined);
-                        await this.context.globalState.update("pendingProjectCreateName", undefined);
-                        await this.context.globalState.update("pendingProjectCreateId", undefined);
-                        await this.context.globalState.update("pendingProjectCreateSourceLanguage", undefined);
-                        await this.context.globalState.update("pendingProjectCreateTargetLanguage", undefined);
-                        await this.context.globalState.update("pendingProjectCreateCategory", undefined);
-                        await this.context.globalState.update("pendingOpenSourceUploader", undefined);
-                        console.error("Error creating workspace with project name:", error);
-                    }
                 }
                 break;
             }
