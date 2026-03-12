@@ -517,6 +517,21 @@ export async function activate(context: vscode.ExtensionContext) {
                             targetLanguage,
                             projectCategory: pendingCategory,
                         });
+
+                        if (sourceLanguage?.refName && targetLanguage?.refName) {
+                            const workspaceUri = workspaceFolders[0].uri;
+                            import("./copilotSettings/copilotSettings").then(({ generateChatSystemMessage }) =>
+                                generateChatSystemMessage(sourceLanguage, targetLanguage, workspaceUri).then(async (msg) => {
+                                    if (msg) {
+                                        const { MetadataManager } = await import("./utils/metadataManager");
+                                        await MetadataManager.setChatSystemMessage(msg, workspaceUri);
+                                        console.debug("[Extension] Pre-generated chat system message during project creation");
+                                    }
+                                })
+                            ).catch((err) => {
+                                console.debug("[Extension] Background system message generation failed (non-critical):", err);
+                            });
+                        }
                     } catch (error) {
                         console.error("Failed to resume project creation:", error);
                         vscode.window.showErrorMessage("Failed to create project after reload.");
