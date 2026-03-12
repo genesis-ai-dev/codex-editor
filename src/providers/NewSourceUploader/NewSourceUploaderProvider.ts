@@ -1044,9 +1044,12 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Save original files if provided in metadata (with hash-based deduplication)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const pairsWithOriginalFiles = new Set<number>();
         if (workspaceFolder) {
-            for (const pair of message.notebookPairs) {
+            for (let pairIdx = 0; pairIdx < message.notebookPairs.length; pairIdx++) {
+                const pair = message.notebookPairs[pairIdx];
                 if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
+                    pairsWithOriginalFiles.add(pairIdx);
                     // Save the original file with deduplication
                     const requestedFileName = pair.source.metadata.originalFileName || 'document.docx';
                     const fileData: unknown = pair.source.metadata.originalFileData;
@@ -1210,18 +1213,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         });
 
         // Register notebook references in the original files registry
-        // This tracks which notebooks use each original file, so we know when it's safe to delete
-        if (workspaceFolder) {
+        // Only for pairs that had an actual original file saved via deduplication
+        // (Bible imports from eBible/Macula set originalName to the book code, not a stored file)
+        if (workspaceFolder && pairsWithOriginalFiles.size > 0) {
             const { addNotebookReference } = await import('./originalFileUtils');
-            for (const createdFile of createdFiles) {
+            for (let i = 0; i < createdFiles.length; i++) {
+                if (!pairsWithOriginalFiles.has(i)) {
+                    continue;
+                }
+                const createdFile = createdFiles[i];
                 try {
-                    // Read the source notebook to get originalFileName from metadata
                     const sourceContent = await vscode.workspace.fs.readFile(createdFile.sourceUri);
                     const sourceNotebook = JSON.parse(new TextDecoder().decode(sourceContent));
                     const originalFileName = sourceNotebook?.metadata?.originalName || sourceNotebook?.metadata?.originalFileName;
 
                     if (originalFileName) {
-                        // Use the source filename (without extension) as the notebook base name
                         const notebookBaseName = path.basename(createdFile.sourceUri.fsPath).replace(/\.[^/.]+$/, '');
                         await addNotebookReference(workspaceFolder, originalFileName, notebookBaseName);
                     }
