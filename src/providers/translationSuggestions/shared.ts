@@ -180,14 +180,19 @@ export function buildFewShotExamplesText(
   allowHtml: boolean = false, 
   exampleFormat: string = "source-and-target"
 ): string {
-  console.debug(`[buildFewShotExamplesText] Building ${pairs.length} examples in '${exampleFormat}' format`);
-  
+  console.debug(`[buildFewShotExamplesText] Building ${pairs.length} examples in '${exampleFormat}' format, allowHtml=${allowHtml}`);
+
   const examplesInner = pairs
-    .map((pair) => {
-      const sourceRaw = pair.sourceCell?.content ?? "";
-      const targetRaw = pair.targetCell?.content ?? "";
+    .map((pair, idx) => {
+      const sourceRaw = allowHtml ? (pair.sourceCell?.rawContent || pair.sourceCell?.content || "") : (pair.sourceCell?.content ?? "");
+      const targetRaw = allowHtml ? (pair.targetCell?.rawContent || pair.targetCell?.content || "") : (pair.targetCell?.content ?? "");
       const target = allowHtml ? targetRaw.trim() : stripHtmlTags(targetRaw).trim();
       const source = allowHtml ? sourceRaw.trim() : stripHtmlTags(sourceRaw).trim();
+      if (allowHtml && idx < 3) {
+        const hasHtmlInTarget = /<[a-z][^>]*>/i.test(target);
+        const hasHtmlInSource = /<[a-z][^>]*>/i.test(source);
+        console.log(`[buildFewShotExamplesText] Example ${idx}: hasHtmlInSource=${hasHtmlInSource}, hasHtmlInTarget=${hasHtmlInTarget}, targetRawContent=${pair.targetCell?.rawContent ? 'present' : 'MISSING'}, target preview="${target.substring(0, 100)}"`);
+      }
       const targetInner = allowHtml ? wrapCdata(target) : xmlEscape(target);
       const sourceInner = allowHtml ? wrapCdata(source) : xmlEscape(source);
       
@@ -218,35 +223,37 @@ export function buildMessages(
   exampleFormat: string = "source-and-target",
   sourceLanguage: string | null = null
 ): ChatMessage[] {
-  let systemMessage = chatSystemMessage || `You are a helpful assistant`;
+  const sourceLangText = sourceLanguage ? `${sourceLanguage}` : "the source language";
+  const targetLangText = targetLanguage || "the target language";
 
+  // Build a focused system message: critical output format first, then translation guidance
+  const parts: string[] = [];
+
+  // User's custom instructions (from metadata.json) come first
+  if (chatSystemMessage) {
+    parts.push(chatSystemMessage);
+  }
+
+  // Translation direction and approach
+  parts.push(`Translate from ${sourceLangText} to ${targetLangText}. This may be an ultra-low resource language — follow the patterns, style, and vocabulary of the provided reference data closely. When in doubt, err on the side of literalness.`);
+
+  // HTML preservation — always instruct to preserve HTML based on source
+  parts.push(`If the source text contains HTML formatting (e.g., <span>, <i>, <b> tags), preserve that HTML structure in your translation. Match the formatting of the source.`);
+
+  // Line preservation
+  parts.push(`Preserve original line breaks from <currentTask><source> by returning text with the same number of lines.`);
+
+  // Output format
+  parts.push(`Wrap your final translation in <final_answer>...</final_answer> tags. Provide only the translation — no commentary, explanations, or metadata.`);
+
+  // Data format hint
   if (exampleFormat === "target-only") {
-    systemMessage += `\n\nReference translations are provided in XML <target> tags. Use these as examples of the translation style and patterns you should follow.`;
+    parts.push(`Reference translations are provided in XML <target> tags. Use these as examples of the translation style and patterns to follow.`);
   } else {
-    systemMessage += `\n\nInput sections for examples and context are provided in XML. Only use values within <source> and <target> tags.`;
-  }
-  // Preserve line breaks and specify output format
-  if (allowHtml) {
-    systemMessage += `\n\nYou may include inline HTML tags when appropriate (e.g., <span>, <i>, <b>) consistent with examples. Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
-  } else {
-    systemMessage += `\n\nReturn plain text only (no XML/HTML). Preserve original line breaks from <currentTask><source> by returning text with the same number of lines separated by newline characters.`;
-  }
-  const sourceLangText = sourceLanguage ? `from ${sourceLanguage} ` : "from the source language ";
-  systemMessage += `\n\nAlways translate ${sourceLangText}to the target language ${targetLanguage || ""
-    }, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
-
-  systemMessage += `\n\n1. Analyze the provided reference data to understand the translation patterns and style.`;
-  systemMessage += `\n2. Complete the partial or complete translation of the line.`;
-  systemMessage += `\n3. Ensure your translation fits seamlessly with the existing partial translation.`;
-  systemMessage += `\n4. Provide only the completed translation without any additional commentary or metadata.`;
-  systemMessage += `\n5. Translate only into the target language ${targetLanguage || ""}.`;
-  systemMessage += `\n6. Pay careful attention to the provided reference data.`;
-  systemMessage += `\n7. If in doubt, err on the side of literalness.`;
-  if (allowHtml) {
-    systemMessage += `\n8. If the project has any styles, return HTML with the appropriate tags or classes as per the examples in the translation memory.`;
+    parts.push(`Examples and context are provided in XML with <source> and <target> tags.`);
   }
 
-  systemMessage += `\n\nWrap your final translation in <final_answer>...</final_answer> XML tags. Do not include any other XML tags in your response outside of these tags.`;
+  const systemMessage = parts.join("\n\n");
 
   const contextXml = `<context>\n${precedingContextPairs.filter(Boolean).join("\n")}\n</context>`;
   const currentTaskXml = allowHtml
@@ -254,8 +261,6 @@ export function buildMessages(
     : `<currentTask><source>${xmlEscape(currentCellSourceContent)}</source></currentTask>`;
 
   const userMessage = [
-    "## Instructions",
-    "Follow the translation patterns and style as shown.",
     "## Translation Memory (XML)",
     fewShotExamples,
     "## Current Context (XML)",

@@ -95,8 +95,7 @@ export async function callLLM(
                     const completion = await openai.chat.completions.create({
                         model,
                         messages: messages as ChatCompletionMessageParam[],
-                        // Let the server decide temperature for the default model.
-                        ...(model.toLowerCase() === "default" ? {} : (model.toLowerCase() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature })),
+                            temperature: config.temperature,
                     }, {
                         signal: abortController.signal
                     });

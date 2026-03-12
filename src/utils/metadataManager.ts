@@ -448,8 +448,10 @@ export class MetadataManager {
         if (result.success && result.metadata) {
             const chatSystemMessage = (result.metadata as any).chatSystemMessage as string | undefined;
             if (chatSystemMessage) {
+                console.log(`[MetadataManager.getChatSystemMessage] Returning stored message (first 100 chars): "${chatSystemMessage.substring(0, 100)}..."`);
                 return chatSystemMessage;
             }
+            console.log(`[MetadataManager.getChatSystemMessage] No chatSystemMessage found in metadata.json, will try to generate`);
         }
 
         // Try to generate chatSystemMessage if it doesn't exist
