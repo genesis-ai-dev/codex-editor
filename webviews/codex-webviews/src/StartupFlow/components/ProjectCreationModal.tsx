@@ -41,6 +41,7 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
     const [touched, setTouched] = useState(false);
     const [nameError, setNameError] = useState<string | null>(null);
+    const [activePicker, setActivePicker] = useState<"source" | "target" | "projectType" | null>(null);
 
     // Reset form when modal closes
     useEffect(() => {
@@ -51,6 +52,7 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
             setTargetLanguage(null);
             setTouched(false);
             setNameError(null);
+            setActivePicker(null);
         }
     }, [open]);
 
@@ -99,7 +101,7 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
 
     return (
         <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl overflow-visible">
                 <DialogHeader>
                     <DialogTitle>Create New Project</DialogTitle>
                     <DialogDescription>
@@ -134,6 +136,8 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                         <Select
                             value={projectType}
                             onValueChange={(value) => setProjectType(value as ProjectType)}
+                            open={activePicker === "projectType"}
+                            onOpenChange={(isOpen) => setActivePicker(isOpen ? "projectType" : null)}
                         >
                             <SelectTrigger id="project-type">
                                 <SelectValue placeholder="Select project type" />
@@ -161,6 +165,8 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                             projectStatus="source"
                             label="Select Source Language"
                             initialLanguage={sourceLanguage || undefined}
+                            isActive={activePicker === "source"}
+                            onActivate={() => setActivePicker("source")}
                         />
                     </div>
 
@@ -174,6 +180,8 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                             projectStatus="target"
                             label="Select Target Language"
                             initialLanguage={targetLanguage || undefined}
+                            isActive={activePicker === "target"}
+                            onActivate={() => setActivePicker("target")}
                         />
                     </div>
                 </div>

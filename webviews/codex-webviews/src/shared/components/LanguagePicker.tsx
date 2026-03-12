@@ -9,6 +9,8 @@ interface LanguagePickerProps {
     initialLanguage?: LanguageMetadata;
     projectStatus: "source" | "target";
     label?: string;
+    isActive?: boolean;
+    onActivate?: () => void;
 }
 
 export const LanguagePicker: React.FC<LanguagePickerProps> = ({
@@ -16,6 +18,8 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     initialLanguage,
     projectStatus,
     label = "Select Language",
+    isActive,
+    onActivate,
 }) => {
     const [languageFilter, setLanguageFilter] = useState<string>(() => {
         if (initialLanguage?.refName) {
@@ -102,6 +106,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                 !dropdownRef.current.contains(event.target as Node)
             ) {
                 setIsDropdownOpen(false);
+                inputRef.current?.blur();
                 if (isEditing && !languageFilter && previousLanguage) {
                     setLanguageFilter(previousLanguage.refName || "");
                 }
@@ -114,8 +119,15 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     }, [isEditing, previousLanguage, languageFilter]);
 
     useEffect(() => {
-        inputRef.current?.focus();
-    }, []);
+        if (isActive === false) {
+            setIsDropdownOpen(false);
+            inputRef.current?.blur();
+            if (isEditing && !languageFilter && previousLanguage) {
+                setLanguageFilter(previousLanguage.refName || "");
+            }
+            setIsEditing(false);
+        }
+    }, [isActive]);
 
     const handleLanguageSelect = (code: string, name: string) => {
         const language: LanguageMetadata = {
@@ -215,17 +227,13 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
 
     return (
         <div className="language-picker" ref={dropdownRef}>
-            <label
-                htmlFor="language-select"
-                className="language-picker__label"
-            >
+            <span className="language-picker__label">
                 {label}
-            </label>
+            </span>
             <div className="language-picker__container">
                 <input
                     ref={inputRef}
                     type="text"
-                    id="language-select"
                     className="vscode-input"
                     value={languageFilter}
                     placeholder="Search for a language..."
@@ -233,11 +241,9 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         setLanguageFilter(e.target.value);
                         setIsDropdownOpen(true);
                     }}
-                    onFocus={(e) => {
+                    onClick={() => {
+                        onActivate?.();
                         setIsEditing(true);
-                        if (languageFilter) {
-                            setLanguageFilter("");
-                        }
                         setIsDropdownOpen(true);
                         setHighlightedIndex(0);
                     }}
