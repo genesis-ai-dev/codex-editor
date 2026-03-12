@@ -517,6 +517,7 @@ type MiniSearchVerseResult = {
 type MinimalCellResult = {
     cellId?: string;
     content?: string;
+    rawContent?: string;
     uri?: string;
     line?: number;
     notebookId?: string;
