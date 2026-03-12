@@ -21,7 +21,7 @@ import {
     createWorkspaceWithProjectName,
     checkProjectNameExists,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
-import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
+import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName, writeDisplayedProjectName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
@@ -5324,6 +5324,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     gitOriginUrl: project.url,
                     description: project.description || "...",
                     syncStatus: "cloudOnlyNotSynced",
+                    displayedProjectName: project.name,
                 });
             }
 
@@ -5370,11 +5371,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 [...archivedRemoteUrls].map(normalizeUrl).filter(Boolean)
             );
 
+            // Build a lookup from normalized remote URL → GitLab API name
+            // so we can quickly find the authoritative name for any local project
+            const remoteNameByUrl = new Map<string, string>();
+            for (const rp of remoteProjects) {
+                if (!rp.isArchived && rp.name && rp.url) {
+                    remoteNameByUrl.set(normalizeUrl(rp.url), rp.name);
+                }
+            }
+
+            // Collect fire-and-forget metadata writes for displayedProjectName
+            const displayNameWritePromises: Promise<void>[] = [];
+
             // Process local projects and check for matches
             for (const project of localProjects) {
                 if (!project.gitOriginUrl) {
+                    // Local-only: cache folder name as displayedProjectName if not already set
+                    const effectiveDisplayName = project.displayedProjectName || project.name;
+                    if (project.path && effectiveDisplayName !== project.displayedProjectName) {
+                        displayNameWritePromises.push(
+                            writeDisplayedProjectName(project.path, effectiveDisplayName)
+                        );
+                    }
                     projectList.push({
                         ...project,
+                        displayedProjectName: effectiveDisplayName,
                         syncStatus: "localOnlyNotSynced",
                     });
                     continue;
@@ -5399,8 +5420,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 );
 
                 if (matchInRemoteIndex !== -1) {
+                    // Remote match found — use GitLab API name (remote wins)
+                    const remoteGitLabName = remoteNameByUrl.get(localNormalized);
+                    const effectiveDisplayName = remoteGitLabName || project.displayedProjectName || project.name;
+
+                    if (project.path && effectiveDisplayName !== project.displayedProjectName) {
+                        displayNameWritePromises.push(
+                            writeDisplayedProjectName(project.path, effectiveDisplayName)
+                        );
+                    }
+
                     projectList[matchInRemoteIndex] = {
                         ...project,
+                        displayedProjectName: effectiveDisplayName,
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
@@ -5421,11 +5453,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // This means the remote project was genuinely deleted/missing.
                         status = "orphaned";
                     }
+
+                    // For orphaned/serverUnreachable: use cached displayedProjectName or folder name
+                    const effectiveDisplayName = project.displayedProjectName || project.name;
+                    if (project.path && effectiveDisplayName !== project.displayedProjectName) {
+                        displayNameWritePromises.push(
+                            writeDisplayedProjectName(project.path, effectiveDisplayName)
+                        );
+                    }
+
                     projectList.push({
                         ...project,
+                        displayedProjectName: effectiveDisplayName,
                         syncStatus: status,
                     });
                 }
+            }
+
+            // Fire-and-forget: persist displayedProjectName updates to metadata.json
+            if (displayNameWritePromises.length > 0) {
+                Promise.allSettled(displayNameWritePromises).catch(() => { });
             }
 
             // ============================================================

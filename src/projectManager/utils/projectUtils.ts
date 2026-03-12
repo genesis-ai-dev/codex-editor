@@ -15,7 +15,7 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 import { MetadataManager } from "../../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
-import { readLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
+import { readLocalProjectSettings, writeLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
 import { checkRemoteUpdatingRequired } from "../../utils/remoteUpdatingManager";
 
 const DEBUG = false;
@@ -435,6 +435,21 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         }
 
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
+
+        // Cache the project name (with UUID) in localProjectSettings.json so it's available offline
+        const resolvedProjectName = newProject.projectName;
+        if (resolvedProjectName && workspaceFolder) {
+            const sanitized = sanitizeProjectName(resolvedProjectName);
+            const fullDisplayName = sanitized ? `${sanitized}-${projectId}` : projectId;
+            try {
+                const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+                await ensureLocalProjectSettingsExists(vscode.Uri.file(workspaceFolder), {
+                    displayedProjectName: fullDisplayName,
+                });
+            } catch (e) {
+                debug("Failed to write displayedProjectName during project creation:", e);
+            }
+        }
 
         // Check if git is already initialized
         let isGitInitialized = false;
@@ -1730,6 +1745,7 @@ async function processProjectDirectory(
             mediaStrategy: mediaStrategyResult,
             pendingUpdate: settingsResult?.pendingUpdate,
             projectSwap: projectSwapWithConvenience,
+            displayedProjectName: settingsResult?.displayedProjectName,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);
@@ -1749,6 +1765,26 @@ async function getProjectNameFromMetadata(projectPath: string, fallbackName: str
     } catch (error) {
         debug(`Could not read metadata.json for ${projectPath}, using folder name`);
         return fallbackName;
+    }
+}
+
+/**
+ * Write displayedProjectName to localProjectSettings.json for a given project path
+ */
+export async function writeDisplayedProjectName(projectPath: string, displayedProjectName: string): Promise<void> {
+    try {
+        const projectUri = vscode.Uri.file(projectPath);
+        const settings = await readLocalProjectSettings(projectUri);
+
+        if (settings.displayedProjectName === displayedProjectName) {
+            return;
+        }
+
+        settings.displayedProjectName = displayedProjectName;
+        await writeLocalProjectSettings(settings, projectUri);
+        debug(`Wrote displayedProjectName "${displayedProjectName}" to ${projectPath}/.project/localProjectSettings.json`);
+    } catch (error) {
+        debug(`Failed to write displayedProjectName for ${projectPath}:`, error);
     }
 }
 

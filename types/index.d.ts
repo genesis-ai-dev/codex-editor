@@ -965,8 +965,8 @@ type ProjectMetadata = {
     /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
     originalFilesHashes?: {
         version: number;
-        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string } };
-        fileNameToHash: { [fileName: string]: string };
+        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string; }; };
+        fileNameToHash: { [fileName: string]: string; };
     };
     edits?: ProjectEditHistory[];
     meta: {
@@ -1383,7 +1383,7 @@ type ProjectManagerMessageFromWebview =
         content: {
             corpusLabel: string;
             displayName: string;
-            children: Array<{ uri: string; label: string; type: string }>;
+            children: Array<{ uri: string; label: string; type: string; }>;
         };
     }
     | { command: "openCellLabelImporter"; }
@@ -1493,6 +1493,8 @@ interface LocalProject {
     hasFolderNameMismatch?: boolean;
     correctFolderName?: string;
     projectSwap?: ProjectSwapInfo;
+    /** Cached display name from GitLab API, persisted in localProjectSettings.json so it survives offline/orphaned states */
+    displayedProjectName?: string;
 }
 
 export interface BiblePreview extends BasePreview {
@@ -2227,7 +2229,7 @@ type EditorReceiveMessages =
     | {
         type: "searchMatchCounts";
         query: string;
-        milestoneMatchCounts: { [milestoneIdx: number]: number };
+        milestoneMatchCounts: { [milestoneIdx: number]: number; };
         totalMatches: number;
         error?: string;
     };
