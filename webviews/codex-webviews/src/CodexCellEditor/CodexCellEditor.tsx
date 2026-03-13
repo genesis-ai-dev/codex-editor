@@ -3242,7 +3242,18 @@ const CodexCellEditor: React.FC = () => {
                             onSaveMetadata={handleSaveMetadata}
                             onPickFile={handlePickFile}
                             onUpdateVideoUrl={handleUpdateVideoUrl}
-                            toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
+                            toggleScrollSync={() => {
+                                const newState = !scrollSyncEnabled;
+                                setScrollSyncEnabled(newState);
+                                vscode.postMessage({
+                                    command: "toggleChapterSync",
+                                    content: {
+                                        enabled: newState,
+                                        currentMilestoneIndex: currentMilestoneIndex,
+                                        currentSubsectionIndex: currentSubsectionIndex,
+                                    },
+                                } as EditorPostMessages);
+                            }}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                             isTranslatingCell={translationQueue.length > 0 || isProcessingCell}

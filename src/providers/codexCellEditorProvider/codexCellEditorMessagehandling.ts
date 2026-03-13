@@ -1651,6 +1651,116 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
+    toggleChapterSync: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "toggleChapterSync"; }>;
+        const { enabled, currentMilestoneIndex, currentSubsectionIndex } = typedEvent.content;
+
+        const baseFileName = path.basename(document.uri.fsPath).replace(/\.(source|codex)$/, "");
+
+        if (enabled) {
+            provider.chapterSyncEnabled.add(baseFileName);
+
+            // Find the paired panel's current milestone and sync THIS panel to it
+            const panels = provider.getWebviewPanels();
+            for (const [panelUri] of panels) {
+                if (panelUri === document.uri.toString()) continue;
+                const panelBaseName = path.basename(panelUri).replace(/\.(source|codex)$/, "");
+                if (panelBaseName !== baseFileName) continue;
+
+                const pairedMilestone = provider.currentMilestoneSubsectionMap.get(panelUri);
+                if (!pairedMilestone) continue;
+
+                const { milestoneIndex: targetMilestoneIndex, subsectionIndex: targetSubsectionIndex } = pairedMilestone;
+
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const cellsPerPage = config.get("cellsPerPage", 50);
+                const isThisSource = document.uri.toString().includes(".source");
+
+                const cells = document.getCellsForMilestone(targetMilestoneIndex, targetSubsectionIndex, cellsPerPage);
+                const allCellsInMilestone = document.getAllCellsForMilestone(targetMilestoneIndex);
+                const processedCells = provider.mergeRangesAndProcess(cells, provider.isCorrectionEditorMode, isThisSource);
+                const processedAllCellsInMilestone = provider.mergeRangesAndProcess(allCellsInMilestone, provider.isCorrectionEditorMode, isThisSource);
+
+                const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+                for (const cell of cells) {
+                    const cellId = cell.cellMarkers?.[0];
+                    if (cellId && document._sourceCellMap[cellId]) {
+                        sourceCellMap[cellId] = document._sourceCellMap[cellId];
+                    }
+                }
+
+                provider.currentMilestoneSubsectionMap.set(document.uri.toString(), {
+                    milestoneIndex: targetMilestoneIndex,
+                    subsectionIndex: targetSubsectionIndex,
+                });
+
+                safePostMessageToPanel(webviewPanel, {
+                    type: "providerSendsCellPage",
+                    rev: provider.getDocumentRevision(document.uri.toString()),
+                    milestoneIndex: targetMilestoneIndex,
+                    subsectionIndex: targetSubsectionIndex,
+                    cells: processedCells,
+                    allCellsInMilestone: processedAllCellsInMilestone,
+                    sourceCellMap,
+                });
+                break;
+            }
+        } else {
+            provider.chapterSyncEnabled.delete(baseFileName);
+        }
+    },
+
+    syncChapterToOther: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "syncChapterToOther"; }>;
+        const { milestoneIndex, subsectionIndex } = typedEvent.content;
+
+        const baseFileName = path.basename(document.uri.fsPath).replace(/\.(source|codex)$/, "");
+        if (!provider.chapterSyncEnabled.has(baseFileName)) return;
+
+        const panels = provider.getWebviewPanels();
+        for (const [panelUri, targetPanel] of panels) {
+            if (panelUri === document.uri.toString()) continue;
+            const panelBaseName = path.basename(panelUri).replace(/\.(source|codex)$/, "");
+            if (panelBaseName !== baseFileName) continue;
+
+            const targetDocument = provider.getDocumentByUri(panelUri);
+            if (!targetDocument) continue;
+
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const cellsPerPage = config.get("cellsPerPage", 50);
+            const isTargetSource = panelUri.includes(".source");
+
+            const cells = targetDocument.getCellsForMilestone(milestoneIndex, subsectionIndex, cellsPerPage);
+            const allCellsInMilestone = targetDocument.getAllCellsForMilestone(milestoneIndex);
+            const processedCells = provider.mergeRangesAndProcess(cells, provider.isCorrectionEditorMode, isTargetSource);
+            const processedAllCellsInMilestone = provider.mergeRangesAndProcess(allCellsInMilestone, provider.isCorrectionEditorMode, isTargetSource);
+
+            const sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
+            for (const cell of cells) {
+                const cellId = cell.cellMarkers?.[0];
+                if (cellId && targetDocument._sourceCellMap[cellId]) {
+                    sourceCellMap[cellId] = targetDocument._sourceCellMap[cellId];
+                }
+            }
+
+            provider.currentMilestoneSubsectionMap.set(panelUri, {
+                milestoneIndex,
+                subsectionIndex,
+            });
+
+            safePostMessageToPanel(targetPanel, {
+                type: "providerSendsCellPage",
+                rev: provider.getDocumentRevision(panelUri),
+                milestoneIndex,
+                subsectionIndex,
+                cells: processedCells,
+                allCellsInMilestone: processedAllCellsInMilestone,
+                sourceCellMap,
+            });
+            break;
+        }
+    },
+
     closeCurrentDocument: async ({ event }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "closeCurrentDocument"; }>;
         debug("Close document request received:", typedEvent.content);
