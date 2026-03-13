@@ -27,6 +27,7 @@ import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./bibleSpredSheet/index.tsx";
 import { audioImporterPlugin } from "./audio/index.tsx";
 import { biblicaImporterPlugin } from "./biblica/index.tsx";
+// import { reach4lifeImporterPlugin } from "./reach4life/index.tsx";
 import { tmsImporterPlugin } from "./tms/index.tsx";
 // import { pdfImporterPlugin } from "./pdf/index.tsx";
 import { indesignImporterPlugin } from "./indesign/index.tsx";
@@ -144,6 +145,12 @@ export const importerPlugins: ImporterPlugin[] = [
         description: "Biblica IDML importer with Study Bible notes",
         tags: ["Specialized", "Bible", "Biblica", "Round-trip"],
     },
+    // {
+    //     ...reach4lifeImporterPlugin,
+    //     name: "Reach4Life",
+    //     description: "Reach4Life IDML importer with Study Bible notes",
+    //     tags: ["Specialized", "Bible", "Reach4Life", "Round-trip"],
+    // },
     {
         ...spreadsheetImporterPlugin,
         name: "Bible Spreadsheet with Audio data",

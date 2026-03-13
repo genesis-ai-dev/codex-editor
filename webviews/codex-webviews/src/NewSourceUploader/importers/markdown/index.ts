@@ -272,9 +272,7 @@ export const parseFile = async (
                     elementType: elementInfo.type,
                     headingLevel: elementInfo.level,
                     headingText: elementInfo.headingText,
-                    cellLabel: elementInfo.type === 'heading' && elementInfo.headingText
-                        ? elementInfo.headingText.substring(0, 20)
-                        : String(index + 1),
+                    cellLabel: undefined,
                 });
 
                 // Extract images from the converted HTML

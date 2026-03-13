@@ -36,8 +36,6 @@ export interface ParatextCellMetadataParams {
     originalLine: string;
     originalText: string;
     lineIndex: number;
-    isChapterMarker?: boolean; // True if this is a \c chapter marker
-    chapterNumber?: number; // Chapter number for chapter markers (extracted from \c marker)
 }
 
 /**
@@ -82,13 +80,9 @@ export function createParatextCellMetadata(params: ParatextCellMetadataParams): 
     // Generate UUID for cell ID
     const cellId = uuidv4();
 
-    // For chapter markers (\c), use the chapter number from the marker, not the assigned chapter
-    // This ensures milestones are inserted before the correct chapter
-    const chapterNumberForMetadata = params.isChapterMarker && params.chapterNumber !== undefined
-        ? String(params.chapterNumber)
-        : params.chapter === 0
-            ? "0" // Pre-chapter content (before first \c marker)
-            : String(params.chapter);
+    const chapterNumberForMetadata = params.chapter === 0
+        ? "0"
+        : String(params.chapter);
 
     return {
         cellId,

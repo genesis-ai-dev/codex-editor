@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread, NotebookComment } from "../../../types";
+import type { CommentPostMessages, CellIdGlobalState, NotebookCommentThread, NotebookComment, NotebookAsJSONData, CustomNotebookCellData, CustomNotebookMetadata } from "../../../types";
 import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
@@ -7,14 +7,25 @@ import { Uri, window, workspace } from "vscode";
 import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { getAuthApi } from "../../extension";
-import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
-import { CodexCellDocument } from "../codexCellEditorProvider/codexDocument";
+import { CodexCellTypes } from "../../../types/enums";
 
 const DEBUG_COMMENTS_WEBVIEW_PROVIDER = false;
 function debug(message: string, ...args: any[]): void {
     if (DEBUG_COMMENTS_WEBVIEW_PROVIDER) {
         console.log(`[CommentsWebviewProvider] ${message}`, ...args);
     }
+}
+
+interface CellDisplayInfo {
+    fileDisplayName?: string;
+    milestoneValue?: string;
+    cellLineNumber?: number;
+    cellLabel?: string;
+}
+
+interface CellDisplayInfoLookup {
+    fileDisplayName?: string;
+    cells: Map<string, CellDisplayInfo>;
 }
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
@@ -28,13 +39,32 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     // In-memory comment cache (like .codex files)
     private _inMemoryComments: NotebookCommentThread[] = [];
     private _isDirty: boolean = false;
-    private _pendingChanges: Set<string> = new Set(); // Track which threads have pending changes
+    private _pendingChanges: Set<string> = new Set();
     private _isInitialized: boolean = false;
+
+    private _displayInfoCache: Map<string, CellDisplayInfoLookup> = new Map();
+
+    /**
+     * Queued reload data for when the webview isn't ready yet.
+     * Set by the comments-sidebar.reload command; consumed by the first
+     * getCurrentCellId / sendCurrentCellId response after the webview loads.
+     */
+    private _pendingReloadData: Record<string, unknown> | null = null;
 
     constructor(context: vscode.ExtensionContext) {
         super(context);
         this.initializeAuthState();
         this.setupStateStoreListener(); // Initialize state store listener
+    }
+
+    public setPendingReloadData(data: Record<string, unknown>): void {
+        this._pendingReloadData = data;
+    }
+
+    private consumePendingReloadData(): Record<string, unknown> | null {
+        const data = this._pendingReloadData;
+        this._pendingReloadData = null;
+        return data;
     }
 
     protected getWebviewId(): string {
@@ -242,10 +272,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 }
             }
 
-            // Check for and migrate legacy file-comments.json if it exists
-            await CommentsMigrator.migrateProjectComments(folders[0].uri);
+            // Legacy migration is now manual via command palette: "Codex: Migrate Legacy Comments"
 
-            // Then check/create comments file
+            // Check/create comments file
             try {
                 await vscode.workspace.fs.stat(this.commentsFilePath);
                 debug("[CommentsProvider] Comments file exists");
@@ -390,48 +419,21 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             }
         });
 
-        // Watch for legacy file-comments.json and trigger migration immediately
-        const legacyCommentsWatcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], "file-comments.json")
+        // Legacy migration is now manual via command palette: "Codex: Migrate Legacy Comments"
+
+        // Invalidate display info cache when .codex files change so enrichment stays fresh
+        const codexFileWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], "**/*.codex")
         );
 
-        legacyCommentsWatcher.onDidCreate(async () => {
-            try {
-                debug("[CommentsProvider] Legacy comments file created, migrating...");
-                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
+        const invalidateDisplayCache = (uri: vscode.Uri) => {
+            this._displayInfoCache.delete(uri.toString());
+        };
+        codexFileWatcher.onDidChange(invalidateDisplayCache);
+        codexFileWatcher.onDidDelete(invalidateDisplayCache);
+        codexFileWatcher.onDidCreate(invalidateDisplayCache);
 
-                // Reload cache to pick up migrated comments
-                await this.loadCommentsIntoMemory();
-
-                // Refresh the webview to show migrated content
-                this.sendCommentsToWebview(webviewView);
-                debug("[CommentsProvider] Successfully migrated legacy comments");
-            } catch (error) {
-                console.error("[CommentsProvider] Error migrating legacy comments on create:", error);
-                // Silent fallback - still try to send what we have
-                this.sendCommentsToWebview(webviewView);
-            }
-        });
-
-        legacyCommentsWatcher.onDidChange(async () => {
-            try {
-                debug("[CommentsProvider] Legacy comments file changed, migrating...");
-                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
-
-                // Reload cache to pick up migrated comments
-                await this.loadCommentsIntoMemory();
-
-                // Refresh the webview to show migrated content
-                this.sendCommentsToWebview(webviewView);
-                debug("[CommentsProvider] Successfully migrated legacy comments");
-            } catch (error) {
-                console.error("[CommentsProvider] Error migrating legacy comments on change:", error);
-                // Silent fallback - still try to send what we have
-                this.sendCommentsToWebview(webviewView);
-            }
-        });
-
-        this._context.subscriptions.push(commentsWatcher, legacyCommentsWatcher);
+        this._context.subscriptions.push(commentsWatcher, codexFileWatcher);
 
         // Clean up state store listener when webview is disposed
         webviewView.onDidDispose(() => {
@@ -510,7 +512,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change (like immediate save, but with merge protection)
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(threadWithRelativePaths.id);
                     break;
                 }
                 case "deleteCommentThread": {
@@ -542,7 +544,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(commentThreadId);
                     break;
                 }
                 case "deleteComment": {
@@ -567,7 +569,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(commentThreadId);
                     break;
                 }
                 case "undoCommentDeletion": {
@@ -592,7 +594,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Auto-save after each change
                     await this.saveCommentsWithMerge();
 
-                    this.sendCommentsToWebview(this._view!);
+                    await this.sendSingleThreadUpdate(commentThreadId);
                     break;
                 }
                 case "fetchComments": {
@@ -605,6 +607,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     // Also send user info in case initialization hasn't completed
                     await this.sendCurrentUserInfo(this._view!);
 
+                    const pendingData = this.consumePendingReloadData();
                     initializeStateStore().then(({ getStoreState }) => {
                         getStoreState("cellId").then((value: CellIdGlobalState | undefined) => {
                             if (value) {
@@ -614,7 +617,13 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                                         cellId: value.cellId,
                                         globalReferences: value.globalReferences,
                                         uri: value.uri,
+                                        ...pendingData,
                                     },
+                                } as CommentPostMessages);
+                            } else if (pendingData) {
+                                safePostMessageToView(this._view, {
+                                    command: "reload",
+                                    data: pendingData,
                                 } as CommentPostMessages);
                             }
                         });
@@ -853,71 +862,136 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     /**
-     * Enrich comments with display information (fileDisplayName, milestoneValue, cellLineNumber)
-     * calculated at runtime from the documents
+     * Build a lightweight display info lookup for all cells in a .codex file.
+     * Only extracts the fields needed for comment enrichment, avoiding caching
+     * the full document (cell content, edit history, attachments, etc.).
+     */
+    private async getOrBuildDisplayInfoLookup(fullUri: vscode.Uri): Promise<CellDisplayInfoLookup | undefined> {
+        const key = fullUri.toString();
+        const cached = this._displayInfoCache.get(key);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const fileContent = await workspace.fs.readFile(fullUri);
+            const json = JSON.parse(new TextDecoder().decode(fileContent)) as NotebookAsJSONData<CustomNotebookCellData, CustomNotebookMetadata>;
+            const cells = json.cells || [];
+            const fileDisplayName = json.metadata?.fileDisplayName;
+
+            const milestones: { index: number; cellIndex: number; value?: string; }[] = [];
+            let currentMilestoneIdx = -1;
+
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                const cellType = cell.metadata?.type;
+
+                if (cellType === CodexCellTypes.MILESTONE && cell.metadata?.data?.deleted !== true) {
+                    currentMilestoneIdx++;
+                    milestones.push({
+                        index: currentMilestoneIdx,
+                        cellIndex: i,
+                        value: cell.value,
+                    });
+                }
+
+                if (cell.metadata?.data && currentMilestoneIdx >= 0) {
+                    cell.metadata.data.milestoneIndex = currentMilestoneIdx;
+                }
+            }
+
+            const cellMap = new Map<string, CellDisplayInfo>();
+
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                const cellId = cell.metadata?.id;
+                if (!cellId) continue;
+
+                const cellLabel = cell.metadata?.cellLabel;
+                const milestoneIndex = cell.metadata?.data?.milestoneIndex;
+
+                let milestoneValue: string | undefined;
+                let cellLineNumber: number | undefined;
+
+                if (typeof milestoneIndex === "number" && milestoneIndex >= 0 && milestones[milestoneIndex]) {
+                    const milestone = milestones[milestoneIndex];
+                    milestoneValue = milestone.value;
+
+                    const startCellIndex = milestone.cellIndex + 1;
+                    const nextMilestone = milestones[milestoneIndex + 1];
+                    const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+
+                    let lineNumber = 0;
+                    for (let j = startCellIndex; j < endCellIndex; j++) {
+                        const c = cells[j];
+                        if (
+                            c.metadata?.type === CodexCellTypes.MILESTONE ||
+                            c.metadata?.type === CodexCellTypes.PARATEXT
+                        ) continue;
+                        if (c.metadata?.parentId !== undefined) continue;
+
+                        lineNumber++;
+                        if (c.metadata?.id === cellId) {
+                            cellLineNumber = lineNumber;
+                            break;
+                        }
+                    }
+                }
+
+                cellMap.set(cellId, { fileDisplayName, milestoneValue, cellLineNumber, cellLabel });
+            }
+
+            const lookup: CellDisplayInfoLookup = { fileDisplayName, cells: cellMap };
+            this._displayInfoCache.set(key, lookup);
+            return lookup;
+        } catch (error) {
+            debug(`Could not build display info for ${key}:`, error);
+            return undefined;
+        }
+    }
+
+    /**
+     * Enrich a single thread with display information using the lightweight cache.
+     */
+    private async enrichSingleThread(thread: NotebookCommentThread): Promise<NotebookCommentThread> {
+        const workspaceFolder = workspace.workspaceFolders?.[0];
+        if (!workspaceFolder || !thread.cellId?.cellId || !thread.cellId?.uri) {
+            return thread;
+        }
+
+        try {
+            const fullUri = vscode.Uri.joinPath(workspaceFolder.uri, thread.cellId.uri);
+            const lookup = await this.getOrBuildDisplayInfoLookup(fullUri);
+            if (!lookup) {
+                return thread;
+            }
+
+            const displayInfo = lookup.cells.get(thread.cellId.cellId);
+
+            return {
+                ...thread,
+                cellId: {
+                    ...thread.cellId,
+                    fileDisplayName: displayInfo?.fileDisplayName ?? lookup.fileDisplayName,
+                    milestoneValue: displayInfo?.milestoneValue,
+                    cellLineNumber: displayInfo?.cellLineNumber,
+                    cellLabel: displayInfo?.cellLabel,
+                },
+            };
+        } catch (error) {
+            debug(`Error enriching comment ${thread.id}:`, error);
+            return thread;
+        }
+    }
+
+    /**
+     * Enrich all comments with display information using the lightweight cache.
      */
     private async enrichCommentsWithDisplayInfo(comments: NotebookCommentThread[]): Promise<NotebookCommentThread[]> {
-        const workspaceFolder = workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            return comments;
-        }
-
         const enrichedComments: NotebookCommentThread[] = [];
-
         for (const thread of comments) {
-            try {
-                // Skip if cellId is missing
-                if (!thread.cellId?.cellId || !thread.cellId?.uri) {
-                    enrichedComments.push(thread);
-                    continue;
-                }
-
-                // NOTE: Always calculate display info at runtime to ensure fresh, accurate data
-                // (Commented out caching to avoid using stale values from JSON)
-                // // If already has all display fields, skip calculation
-                // if (thread.cellId.fileDisplayName && thread.cellId.milestoneValue && thread.cellId.cellLineNumber) {
-                //     enrichedComments.push(thread);
-                //     continue;
-                // }
-
-                // Construct full URI from relative path
-                const fullUri = vscode.Uri.joinPath(workspaceFolder.uri, thread.cellId.uri);
-                
-                // Load the document
-                let doc: CodexCellDocument | undefined;
-                try {
-                    const fileContent = await workspace.fs.readFile(fullUri);
-                    const content = new TextDecoder().decode(fileContent);
-                    doc = new CodexCellDocument(fullUri, content);
-                } catch (error) {
-                    debug(`Could not load document for ${thread.cellId.uri}:`, error);
-                    enrichedComments.push(thread);
-                    continue;
-                }
-
-                // Calculate display info
-                const displayInfo = CodexCellEditorProvider.calculateCellDisplayInfo(
-                    thread.cellId.cellId,
-                    doc
-                );
-
-                // Create enriched thread with display info
-                enrichedComments.push({
-                    ...thread,
-                    cellId: {
-                        ...thread.cellId,
-                        fileDisplayName: displayInfo.fileDisplayName,
-                        milestoneValue: displayInfo.milestoneValue,
-                        cellLineNumber: displayInfo.cellLineNumber,
-                        cellLabel: displayInfo.cellLabel,
-                    },
-                });
-            } catch (error) {
-                debug(`Error enriching comment ${thread.id}:`, error);
-                enrichedComments.push(thread);
-            }
+            enrichedComments.push(await this.enrichSingleThread(thread));
         }
-
         return enrichedComments;
     }
 
@@ -930,10 +1004,10 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         try {
             // Enrich comments with display information calculated at runtime
             const enrichedComments = await this.enrichCommentsWithDisplayInfo(this._inMemoryComments);
-            
+
             // Use JSON.stringify directly to preserve all fields (including ephemeral display info)
             // Note: formatCommentsForStorage is only for disk writes, not webview transmission
-            const content = JSON.stringify(enrichedComments, null, 2);
+            const content = JSON.stringify(enrichedComments);
 
             safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
@@ -955,16 +1029,40 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
+    /**
+     * Send a single enriched thread update to the webview instead of the full list.
+     * Used after mutations to avoid re-enriching and re-serializing all threads.
+     */
+    private async sendSingleThreadUpdate(threadId: string): Promise<void> {
+        if (!this._view) return;
+
+        const thread = this._inMemoryComments.find(t => t.id === threadId);
+        if (!thread) return;
+
+        const enriched = await this.enrichSingleThread(thread);
+        safePostMessageToView(this._view, {
+            command: "updateSingleThread",
+            thread: enriched,
+        } as CommentPostMessages);
+    }
+
     private async sendCurrentCellId(webviewView: vscode.WebviewView) {
         const { getStoreState } = await initializeStateStore();
         const cellId = (await getStoreState("cellId")) as CellIdGlobalState | undefined;
+        const pendingData = this.consumePendingReloadData();
         if (cellId) {
             safePostMessageToView(webviewView, {
                 command: "reload",
                 data: {
                     cellId: cellId.cellId,
                     globalReferences: cellId.globalReferences,
+                    ...pendingData,
                 },
+            } as CommentPostMessages);
+        } else if (pendingData) {
+            safePostMessageToView(webviewView, {
+                command: "reload",
+                data: pendingData,
             } as CommentPostMessages);
         }
     }

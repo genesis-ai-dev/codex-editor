@@ -195,8 +195,7 @@ export const parseFile = async (
         // Add cells using the ProcessedCell format
         for (let index = 0; index < parsed.cues.length; index++) {
             const cue = parsed.cues[index];
-            const includeCellLabels = options?.includeCellLabels ?? false;
-            const cellLabel = includeCellLabels ? String(index + 1) : null;
+            const cellLabel = null;
 
             // Create cell metadata with UUID, globalReferences, and chapterNumber
             const { cellId, metadata } = createSubtitleCellMetadata({
