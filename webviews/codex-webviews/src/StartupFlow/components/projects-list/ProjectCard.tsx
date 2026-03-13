@@ -582,7 +582,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                         <div className="flex flex-col min-w-0">
                             <span className="font-normal truncate transition-colors duration-200 text-sm">
-                                {project.name || cleanName}
+                                {project.displayedProjectName || project.name || cleanName}
                             </span>
                             {swapNewName && (
                                 <span className="text-xs text-muted-foreground truncate">
