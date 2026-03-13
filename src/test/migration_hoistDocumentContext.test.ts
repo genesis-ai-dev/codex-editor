@@ -36,7 +36,7 @@ describe("migration_hoistDocumentContextToNotebookMetadata", () => {
                     metadata: {
                         id: "cell-1",
                         documentContext: {
-                            importerType: "docx-roundtrip",
+                            importerType: "docx",
                             fileName: "example.docx",
                             originalHash: "hash-1",
                         },
@@ -66,7 +66,7 @@ describe("migration_hoistDocumentContextToNotebookMetadata", () => {
         assert.ok(isRecord(data["metadata"]));
         const md = data["metadata"] as Record<string, unknown>;
 
-        assert.strictEqual(md["importerType"], "docx-roundtrip");
+        assert.strictEqual(md["importerType"], "docx");
         assert.strictEqual(md["originalFileName"], "example.docx");
         assert.ok(isRecord(md["importContext"]));
         const importContext = md["importContext"] as Record<string, unknown>;

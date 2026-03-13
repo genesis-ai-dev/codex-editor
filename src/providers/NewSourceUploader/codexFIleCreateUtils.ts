@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData, NotebookPreview } from "@types";
 import { CodexCellTypes } from "../../../types/enums";
-import { createStandardizedFilename, isBiblicalImporterType } from "../../utils/bookNameUtils";
+import { createStandardizedFilename, isBiblicalImporterType, shouldShowLineNumbersByDefault } from "../../utils/bookNameUtils";
 import { CorpusMarker, findCanonicalCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { CustomNotebookMetadata } from "../../../types";
@@ -36,7 +36,7 @@ export async function writeNotebook(uri: vscode.Uri, notebook: CodexNotebookAsJS
             metadata: {
                 textDirection: notebook.metadata.textDirection || "ltr",
                 videoUrl: notebook.metadata.videoUrl || "",
-                lineNumbersEnabled: notebook.metadata.lineNumbersEnabled ?? true,
+                lineNumbersEnabled: notebook.metadata.lineNumbersEnabled ?? shouldShowLineNumbersByDefault(notebook.metadata.importerType),
                 lineNumbersEnabledSource: notebook.metadata.lineNumbersEnabledSource || "global",
                 edits: notebook.metadata.edits || [],
                 ...notebook.metadata,
@@ -294,6 +294,15 @@ export async function createNoteBookPair({
         await vscode.workspace.fs.createDirectory(
             vscode.Uri.joinPath(workspaceFolder.uri, "files", "target")
         );
+
+        // Set lineNumbersEnabled default based on importer type when not explicitly set.
+        // Script-like content (subtitles, TMS, audio) shows line numbers;
+        // Bible and document content hides them in favour of cell labels.
+        if (sourceNotebook.metadata.lineNumbersEnabled === undefined) {
+            const showLineNumbers = shouldShowLineNumbersByDefault(importerType);
+            sourceNotebook.metadata.lineNumbersEnabled = showLineNumbers;
+            codexNotebook.metadata.lineNumbersEnabled = showLineNumbers;
+        }
 
         console.log(`[CODEX FILE CREATE] Writing notebooks for "${sourceNotebook.name}"`);
         console.log(`[CODEX FILE CREATE] - Source: ${sourceUri.fsPath}`);
