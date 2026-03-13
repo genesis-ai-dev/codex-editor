@@ -514,6 +514,7 @@ type MiniSearchVerseResult = {
 type MinimalCellResult = {
     cellId?: string;
     content?: string;
+    rawContent?: string;
     uri?: string;
     line?: number;
     notebookId?: string;
@@ -1048,7 +1049,6 @@ type FileImporterType =
     | "plaintext"
     | "audio"
     | "docx"
-    | "docx-roundtrip"
     | "markdown"
     | "subtitles"
     | "spreadsheet"
@@ -1064,6 +1064,7 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
+    | "reach4life"
     | "obs";
 
 /**

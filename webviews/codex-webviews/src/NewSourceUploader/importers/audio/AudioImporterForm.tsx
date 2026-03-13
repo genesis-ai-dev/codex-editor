@@ -622,7 +622,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     fileName,
                     url,
                     documentId: docId,
-                    cellLabel: String(index + 1),
+                    cellLabel: undefined,
                 });
 
                 // Store mapping for segment tracking

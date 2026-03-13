@@ -961,7 +961,7 @@ function NavigationView() {
                 </div>
                 {isGroup && isExpanded && item.children && (
                     <div className="ml-4 mt-1 flex flex-col gap-0.5">
-                        {item.children.sort(sortItems).map(renderItem)}
+                        {[...item.children].sort(sortItems).map((child) => renderItem(child))}
                     </div>
                 )}
             </div>

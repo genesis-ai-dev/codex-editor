@@ -45,8 +45,7 @@ export function createAudioCellMetadata(params: AudioCellMetadataParams): { meta
     // Determine chapter number for milestone detection
     const chapterNumber = getChapterNumber(params.segmentIndex, params.startTime);
 
-    // Determine cell label
-    const cellLabel = params.cellLabel || `${params.segmentIndex + 1}`;
+    const cellLabel = params.cellLabel;
 
     return {
         cellId,
