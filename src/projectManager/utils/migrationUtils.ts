@@ -1472,7 +1472,7 @@ function standardizeImporterType(importerType: string | undefined): string | und
     const validTypes: string[] = [
         "smart-segmenter",
         "audio",
-        "docx-roundtrip",
+        "docx",
         "markdown",
         "subtitles",
         "spreadsheet",
@@ -1525,8 +1525,8 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
         "biblica": "biblica",
         "audio": "audio",
         "smart-segmenter": "smart-segmenter",
-        "docx-roundtrip": "docx-roundtrip",
-        "docx": "docx-roundtrip", // Common alias
+        "docx": "docx",
+        "docx-roundtrip": "docx", // Legacy alias
         "obs-story": "obs", // Special case
     };
 

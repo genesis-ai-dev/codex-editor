@@ -278,8 +278,8 @@ export async function getTranslationPairsFromSourceCellQuery(
                 debug(`[getTranslationPairsFromSourceCellQuery] ✅ Adding direct result for ${cellId}`);
                 translationPairs.push({
                     cellId,
-                    sourceCell: { cellId, content: searchResult.sourceContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
-                    targetCell: { cellId, content: searchResult.targetContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
+                    sourceCell: { cellId, content: searchResult.sourceContent, rawContent: searchResult.rawSourceContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
+                    targetCell: { cellId, content: searchResult.targetContent, rawContent: searchResult.rawTargetContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
                 });
             } else {
                 debug(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - empty content after trim`);
@@ -291,8 +291,8 @@ export async function getTranslationPairsFromSourceCellQuery(
                 debug(`[getTranslationPairsFromSourceCellQuery] ✅ Adding fetched result for ${cellId}`);
                 translationPairs.push({
                     cellId,
-                    sourceCell: { cellId, content: translationPair.sourceContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
-                    targetCell: { cellId, content: translationPair.targetContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
+                    sourceCell: { cellId, content: translationPair.sourceContent, rawContent: translationPair.rawSourceContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
+                    targetCell: { cellId, content: translationPair.targetContent, rawContent: translationPair.rawTargetContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
                 });
             } else {
                 debug(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - no valid translation pair found`);

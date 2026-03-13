@@ -3727,6 +3727,8 @@ export class SQLiteIndexManager {
                     globalReferences: row.global_references,
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                    rawSourceContent: row.raw_source_content || row.source_content,
+                    rawTargetContent: row.raw_target_content || row.target_content,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     uri: row.uri,
                     line: row.line,
@@ -3886,6 +3888,8 @@ export class SQLiteIndexManager {
                     globalReferences: row.global_references,
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                    rawSourceContent: row.raw_source_content || row.source_content,
+                    rawTargetContent: rawTargetContent || targetContent,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     uri: row.uri,
                     line: row.line,
@@ -3974,6 +3978,8 @@ export class SQLiteIndexManager {
                     globalReferences: row.global_references,
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                    rawSourceContent: row.raw_source_content || row.source_content,
+                    rawTargetContent: row.raw_target_content || row.target_content,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     uri: row.uri,
                     line: row.line,
@@ -4140,12 +4146,15 @@ export class SQLiteIndexManager {
                         globalReferences: row.global_references,
                         sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                         targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                        rawSourceContent: row.raw_source_content || row.source_content,
+                        rawTargetContent: rawTargetContent || targetContent,
                         content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                         uri: row.uri,
                         line: row.line,
                         score: row.score,
                         cell_type: 'source'
                     });
+                    if (results.length >= limit) break;
                 }
             }
         } catch (error) {

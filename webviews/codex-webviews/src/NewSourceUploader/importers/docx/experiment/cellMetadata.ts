@@ -53,8 +53,7 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
             globalReferences: [], // Empty for DOCX files (no verse references)
         },
 
-        // Cell label (paragraph number)
-        cellLabel: `${paragraphIndex + 1}`,
+        cellLabel: undefined,
     };
 
     return {
@@ -99,8 +98,7 @@ export function createDocxTableCellMetadata(
             globalReferences: [],
         },
 
-        cellLabel:
-            firstParagraphIndex >= 0 ? `T¶${firstParagraphIndex + 1}` : 'TableCell',
+        cellLabel: undefined,
     };
 
     return { cellId, metadata: cellMetadata };

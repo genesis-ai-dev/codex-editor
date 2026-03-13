@@ -189,7 +189,7 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                             onSelect={onSelectPlugin}
                             className={cn(
                                 "border-2 shadow-sm hover:shadow-xl",
-                                plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
+                                plugin.id === "docx" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
                                     ? "hover:border-yellow-500" 
                                     : "hover:border-primary"
                             )}
@@ -230,7 +230,7 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                             onSelect={onSelectPlugin}
                             className={cn(
                                 "border-2 shadow-sm hover:shadow-xl opacity-95 hover:opacity-100",
-                                plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
+                                plugin.id === "docx" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
                                     ? "hover:border-yellow-500" 
                                     : "hover:border-primary"
                             )}
