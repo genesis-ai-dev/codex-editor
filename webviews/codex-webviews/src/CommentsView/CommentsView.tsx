@@ -37,7 +37,6 @@ import {
 import bibleBooksData from "../assets/bible-books-lookup.json";
 import { getCellDisplayLabel } from "../utils/cellDisplayUtils";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { getCellDisplayLabel } from "../utils/cellDisplayUtils";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
