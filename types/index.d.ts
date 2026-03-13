@@ -818,6 +818,21 @@ export type EditorPostMessages =
     | {
         command: "refreshWebviewAfterMilestoneEdits";
         content?: Record<string, never>; // Empty content
+    }
+    | {
+        command: "toggleChapterSync";
+        content: {
+            enabled: boolean;
+            currentMilestoneIndex: number;
+            currentSubsectionIndex: number;
+        };
+    }
+    | {
+        command: "syncChapterToOther";
+        content: {
+            milestoneIndex: number;
+            subsectionIndex: number;
+        };
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
