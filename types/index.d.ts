@@ -1733,6 +1733,8 @@ interface LocalProject {
     hasFolderNameMismatch?: boolean;
     correctFolderName?: string;
     projectSwap?: ProjectSwapInfo;
+    /** Cached display name from GitLab API, persisted in localProjectSettings.json so it survives offline/orphaned states */
+    displayedProjectName?: string;
 }
 
 export interface BiblePreview extends BasePreview {
