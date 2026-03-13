@@ -646,12 +646,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Open the comments view and navigate to the specific cell
             await vscode.commands.executeCommand("codex-editor-extension.focusCommentsView");
 
-            // Send a message to the comments view with navigation/open behavior.
-            vscode.commands.executeCommand("codex-editor-extension.comments-sidebar.reload", {
-                cellId: typedEvent.content.cellId,
-                openCurrentTab: typedEvent.content.openCurrentTab ?? true,
-                openNewCommentIfNoComments: typedEvent.content.openNewCommentIfNoComments ?? false,
-            });
+            // Send a message to the comments view to navigate to this cell
+            vscode.commands.executeCommand("codex-editor-extension.navigateToCellInComments", typedEvent.content.cellId);
         } catch (error) {
             console.error("Error opening comments for cell:", error);
         }
@@ -3509,6 +3505,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 totalMatches: 0,
                 error: String(error),
             });
+        }
+    },
+
+    searchNavigateToCell: async ({ event, webviewPanel, provider }) => {
+        const cellId = (event as any).content;
+        if (cellId) {
+            provider.scrollOtherPanelsToCell(cellId, webviewPanel);
         }
     },
 

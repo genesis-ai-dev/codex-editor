@@ -185,21 +185,11 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
-    | {
-        command: "reload";
-        data?: {
-            cellId: string;
-            globalReferences?: string[];
-            uri?: string;
-            openCurrentTab?: boolean;
-            openNewCommentIfNoComments?: boolean;
-        };
-    }
+    | { command: "reload"; data?: { cellId: string; globalReferences: string[]; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
     | { command: "undoCommentDeletion"; args: { commentId: string; commentThreadId: string; }; }
-    | { command: "updateSingleThread"; thread: NotebookCommentThread; }
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }
@@ -683,14 +673,7 @@ export type EditorPostMessages =
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
-    | {
-        command: "openCommentsForCell";
-        content: {
-            cellId: string;
-            openCurrentTab?: boolean;
-            openNewCommentIfNoComments?: boolean;
-        };
-    }
+    | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
         requestId?: string;
@@ -818,8 +801,9 @@ export type EditorPostMessages =
     }
     | {
         command: "refreshWebviewAfterMilestoneEdits";
-        content?: Record<string, never>; // Empty content
-    };
+        content?: Record<string, never>;
+    }
+    | { command: "searchNavigateToCell"; content: string; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -2359,6 +2343,10 @@ type EditorReceiveMessages =
     | {
         type: "highlightCell";
         cellId?: string;
+    }
+    | {
+        type: "scrollToCell";
+        cellId: string;
     }
     | {
         type: "updateCellsPerPage";
