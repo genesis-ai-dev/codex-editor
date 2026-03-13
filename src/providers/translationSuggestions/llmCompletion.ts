@@ -136,14 +136,18 @@ export async function llmCompletion(
             throw new Error(`No source content found for cell ${currentCellId}. The search index may be incomplete. Try running "Force Complete Rebuild" from the command palette.`);
         }
 
-        // Sanitize HTML content to extract plain text (handles transcription spans, etc.)
+        // Convert source HTML into search-friendly plain text while preserving word
+        // boundaries that would otherwise be lost when tags are stripped.
         const sanitizeHtmlContent = (html: string): string => {
             if (!html) return '';
             return html
                 .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
                 .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
                 .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, '')
+                .replace(/<br\s*\/?>/gi, ' ')
                 .replace(/<\/p>/gi, ' ')
+                .replace(/<\/div>/gi, ' ')
+                .replace(/<\/li>/gi, ' ')
                 .replace(/<[^>]*>/g, '')
                 .replace(/&nbsp;/g, ' ')
                 .replace(/&amp;/g, '&')
@@ -157,16 +161,32 @@ export async function llmCompletion(
                 .trim();
         };
 
-        const sourceContent = validSourceCells
-            .map((cell) => sanitizeHtmlContent(cell!.content || ""))
+        const preserveHtmlInPrompt = Boolean(completionConfig.allowHtmlPredictions);
+        const searchSourceContent = validSourceCells
+            .map((cell) => sanitizeHtmlContent(cell?.rawContent || cell?.content || ""))
             .join(" ");
+
+        const currentCellSourceContent = validSourceCells
+            .map((cell) => {
+                const rawSourceContent = cell?.rawContent || cell?.content || "";
+                if (!preserveHtmlInPrompt) {
+                    return sanitizeHtmlContent(rawSourceContent);
+                }
+
+                return rawSourceContent
+                    .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, "")
+                    .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, "")
+                    .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, "")
+                    .trim();
+            })
+            .join(preserveHtmlInPrompt ? "\n" : " ");
 
         // Get few-shot examples (existing behavior encapsulated)
         if (completionConfig.debugMode) {
-            console.debug(`[llmCompletion] Fetching few-shot examples with query: "${sourceContent}", cellId: ${currentCellId}, count: ${numberOfFewShotExamples}, onlyValidated: ${completionConfig.useOnlyValidatedExamples}`);
+            console.debug(`[llmCompletion] Fetching few-shot examples with query: "${searchSourceContent}", cellId: ${currentCellId}, count: ${numberOfFewShotExamples}, onlyValidated: ${completionConfig.useOnlyValidatedExamples}`);
         }
         const finalExamples = await fetchFewShotExamples(
-            sourceContent,
+            searchSourceContent,
             currentCellId,
             numberOfFewShotExamples,
             completionConfig.useOnlyValidatedExamples
@@ -203,12 +223,11 @@ export async function llmCompletion(
 
         try {
             const currentCellIdString = currentCellIds.join(", ");
-            const currentCellSourceContent = sourceContent;
 
             // Generate few-shot examples
             const fewShotExamples = buildFewShotExamplesText(
                 finalExamples, 
-                Boolean(completionConfig.allowHtmlPredictions), 
+                preserveHtmlInPrompt,
                 fewShotExampleFormat || "source-and-target"
             );
             console.log(`[llmCompletion] Built few-shot examples text (${fewShotExamples.length} chars, format: ${fewShotExampleFormat}):`, fewShotExamples.substring(0, 200) + '...');
@@ -223,7 +242,7 @@ export async function llmCompletion(
                 fewShotExamples,
                 precedingTranslationPairs,
                 currentCellSourceContent,
-                Boolean(completionConfig.allowHtmlPredictions),
+                preserveHtmlInPrompt,
                 fewShotExampleFormat || "source-and-target",
                 sourceLanguage
             );

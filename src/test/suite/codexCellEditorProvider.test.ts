@@ -3865,7 +3865,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             const cellId = codexSubtitleContent.cells[0].metadata.id;
-            const sourceContent = "Test source content";
+            const sourceContent = "<p><span class='source-highlight'>Test source content</span><br /></p>";
 
             // Track onlyValidated parameter
             let capturedOnlyValidated: boolean | null = null;
@@ -3968,7 +3968,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             const cellId = codexSubtitleContent.cells[0].metadata.id;
-            const sourceContent = "Test source content";
+            const sourceContent = "<p><span class='source-highlight'>Test source content</span><br /></p>";
 
             // Track onlyValidated parameter
             let capturedOnlyValidated: boolean | null = null;
@@ -3982,7 +3982,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     return [];
                 }
                 if (command === "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells") {
-                    return { cellId: args[0], content: sourceContent, versions: [], notebookId: "nb1" } as MinimalCellResult;
+                    return {
+                        cellId: args[0],
+                        content: sourceContent,
+                        rawContent: sourceContent,
+                        versions: [],
+                        notebookId: "nb1",
+                    } as MinimalCellResult;
                 }
                 return originalExecuteCommand.apply(vscode.commands, [command, ...args]);
             };
@@ -4207,7 +4213,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             );
 
             const cellId = codexSubtitleContent.cells[0].metadata.id;
-            const sourceContent = "Test source content";
+            const sourceContent = "<p><span class='source-highlight'>Test source content</span><br /></p>";
             const htmlExample = "<span class='highlight'>HTML content</span>";
 
             // Mock translation pairs with HTML content
@@ -4229,7 +4235,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     return mockTranslationPairs;
                 }
                 if (command === "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells") {
-                    return { cellId: args[0], content: sourceContent, versions: [], notebookId: "nb1" } as MinimalCellResult;
+                    return {
+                        cellId: args[0],
+                        content: sourceContent,
+                        rawContent: sourceContent,
+                        versions: [],
+                        notebookId: "nb1",
+                    } as MinimalCellResult;
                 }
                 return originalExecuteCommand.apply(vscode.commands, [command, ...args]);
             };
@@ -4303,6 +4315,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 assert.ok(userMessage.content.includes("<span"), "User message should contain HTML tags when allowHtmlPredictions is enabled");
                 assert.ok(userMessage.content.includes("class='highlight'"), "User message should preserve HTML attributes");
                 assert.ok(userMessage.content.includes("HTML content"), "User message should contain HTML content");
+                assert.ok(
+                    userMessage.content.includes("<currentTask><source><![CDATA[<p><span class='source-highlight'>Test source content</span><br /></p>]]></source></currentTask>"),
+                    "Current task source should preserve source HTML when allowHtmlPredictions is enabled"
+                );
 
                 // Verify system message mentions HTML
                 const systemMessage = (capturedMessages as any[]).find((m: any) => m.role === "system");
