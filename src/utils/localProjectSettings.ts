@@ -85,6 +85,8 @@ export interface LocalProjectSettings {
     autoSyncEnabled?: boolean;
     /** Delay in minutes before triggering automatic sync after changes (migrated from .vscode/settings.json) */
     syncDelayMinutes?: number;
+    /** Cached display name from GitLab API, persisted locally so it survives offline/orphaned states */
+    displayedProjectName?: string;
     // Legacy keys (read and mirrored for backward compatibility)
     mediaFilesStrategy?: MediaFilesStrategy;
     lastModeRun?: MediaFilesStrategy;
@@ -219,6 +221,7 @@ async function writeLocalProjectSettingsInternal(
             projectSwap: settings.projectSwap,
             autoSyncEnabled: settings.autoSyncEnabled ?? true,
             syncDelayMinutes: settings.syncDelayMinutes ?? 5,
+            displayedProjectName: settings.displayedProjectName,
         };
         let existingRaw: Record<string, any> = {};
         try {
@@ -444,7 +447,7 @@ const SYNC_DELAY_MINIMUM = 5;
  */
 async function migrateSyncSettingsFromVSCodeConfig(
     workspaceFolderUri?: vscode.Uri
-): Promise<{ autoSyncEnabled: boolean; syncDelayMinutes: number }> {
+): Promise<{ autoSyncEnabled: boolean; syncDelayMinutes: number; }> {
     const settingsPath = getSettingsFilePath(workspaceFolderUri);
     if (!settingsPath) {
         return { autoSyncEnabled: true, syncDelayMinutes: 5 };
@@ -504,7 +507,7 @@ async function migrateSyncSettingsFromVSCodeConfig(
  */
 export async function getSyncSettings(
     workspaceFolderUri?: vscode.Uri
-): Promise<{ autoSyncEnabled: boolean; syncDelayMinutes: number }> {
+): Promise<{ autoSyncEnabled: boolean; syncDelayMinutes: number; }> {
     return migrateSyncSettingsFromVSCodeConfig(workspaceFolderUri);
 }
 

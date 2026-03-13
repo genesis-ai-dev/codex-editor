@@ -203,7 +203,7 @@ const downloadObsRepository = async (
                         documentId,
                         sectionId,
                         cellIndex: cellCounter,
-                        cellLabel: cellCounter.toString(),
+                        cellLabel: undefined,
                         sourceReference: obsStory.sourceReference,
                     });
                     const textCell = {
@@ -232,7 +232,7 @@ const downloadObsRepository = async (
                             documentId,
                             sectionId,
                             cellIndex: cellCounter,
-                            cellLabel: cellCounter.toString(),
+                            cellLabel: undefined,
                             imageAlt: img.alt,
                             imageTitle: img.title,
                             originalImageSrc: img.src,
@@ -463,7 +463,7 @@ const parseObsMarkdown = async (
                 documentId,
                 sectionId,
                 cellIndex: cellCounter,
-                cellLabel: cellCounter.toString(),
+                cellLabel: undefined,
                 sourceReference: obsStory.sourceReference,
             });
             const textCell = {
@@ -504,7 +504,7 @@ const parseObsMarkdown = async (
                     documentId,
                     sectionId,
                     cellIndex: cellCounter,
-                    cellLabel: cellCounter.toString(),
+                    cellLabel: undefined,
                     imageAlt: img.alt,
                     imageTitle: img.title,
                     originalImageSrc: img.src,
@@ -697,7 +697,7 @@ const parseObsZip = async (
                         documentId,
                         sectionId,
                         cellIndex: cellCounter,
-                        cellLabel: cellCounter.toString(),
+                        cellLabel: undefined,
                         sourceReference: obsStory.sourceReference,
                     });
                     const textCell = {
@@ -772,7 +772,7 @@ const parseObsZip = async (
                             documentId,
                             sectionId,
                             cellIndex: cellCounter,
-                            cellLabel: cellCounter.toString(),
+                            cellLabel: undefined,
                             imageAlt: img.alt,
                             imageTitle: img.title,
                             originalImageSrc: img.src,
