@@ -186,10 +186,6 @@ export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetad
 
 export interface DocxNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "docx";
-}
-
-export interface DocxRoundtripNotebookMetadata extends ProcessedNotebookMetadataBase {
-    importerType: "docx-roundtrip";
     corpusMarker?: string;
     paragraphCount?: number;
 }
@@ -215,6 +211,17 @@ export interface BiblicaNotebookMetadata extends ProcessedNotebookMetadataBase {
     contentType?: "notes";
 }
 
+export interface Reach4LifeNotebookMetadata extends ProcessedNotebookMetadataBase {
+    importerType: "reach4life";
+    originalFileData?: ArrayBuffer;
+    documentId?: string;
+    storyCount?: number;
+    originalHash?: string;
+    totalCells?: number;
+    fileType?: "reach4life" | string;
+    contentType?: "notes";
+}
+
 export interface MaculaNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "macula";
     corpusMarker?: string;
@@ -236,9 +243,9 @@ export type ProcessedNotebookMetadata =
     | UsfmNotebookMetadata
     | UsfmExperimentalNotebookMetadata
     | DocxNotebookMetadata
-    | DocxRoundtripNotebookMetadata
     | IndesignNotebookMetadata
     | BiblicaNotebookMetadata
+    | Reach4LifeNotebookMetadata
     | MaculaNotebookMetadata;
 
 export type ProcessedNotebookMetadataByImporter = {
@@ -258,9 +265,9 @@ export type ProcessedNotebookMetadataByImporter = {
     usfm: UsfmNotebookMetadata;
     "usfm-experimental": UsfmExperimentalNotebookMetadata;
     docx: DocxNotebookMetadata;
-    "docx-roundtrip": DocxRoundtripNotebookMetadata;
     indesign: IndesignNotebookMetadata;
     biblica: BiblicaNotebookMetadata;
+    reach4life: Reach4LifeNotebookMetadata;
     macula: MaculaNotebookMetadata;
 };
 

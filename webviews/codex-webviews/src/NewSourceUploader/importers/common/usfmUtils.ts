@@ -169,7 +169,7 @@ export const processUsfmContent = async (
                     chapter: chapterNumber,
                     verse: content.verseNumber,
                     originalText: verseText,
-                    cellLabel: `${bookCode} ${chapterNumber}:${content.verseNumber}`, // Set cellLabel in format "GEN 1:1", "GEN 1:2", etc.
+                    cellLabel: `${content.verseNumber}`,
                     hasFootnotes: processedText.includes('footnote-marker'),
                 });
 
@@ -184,7 +184,7 @@ export const processUsfmContent = async (
                         bookName,
                         chapter: chapterNumber,
                         verse: content.verseNumber,
-                        cellLabel: `${bookCode} ${chapterNumber}:${content.verseNumber}`,
+                        cellLabel: `${content.verseNumber}`,
                         originalText: verseText,
                         fileName,
                         hasFootnotes: processedText.includes('footnote-marker'),

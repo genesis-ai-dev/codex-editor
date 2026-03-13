@@ -546,7 +546,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                         
                         // Create cell metadata (generates UUID internally)
                         const { cellId, metadata: cellMetadata } = createNoteCellMetadata({
-                            cellLabel: globalCellIndex.toString(), // Use sequential number as label
+                            cellLabel: undefined,
                             storyId: story.id,
                             paragraphId: paragraph.id,
                             appliedParagraphStyle: paragraphStyle,

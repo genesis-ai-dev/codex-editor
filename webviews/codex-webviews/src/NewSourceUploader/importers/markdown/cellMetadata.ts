@@ -187,11 +187,7 @@ export function createMarkdownCellMetadata(params: MarkdownCellMetadataParams): 
         chapterNumber = String(Math.floor(params.segmentIndex / 20) + 1);
     }
 
-    // Generate cell label if not provided
-    const cellLabel = params.cellLabel ||
-        (params.elementType === 'heading' && params.headingText
-            ? params.headingText.substring(0, 20)
-            : String(params.segmentIndex + 1));
+    const cellLabel = params.cellLabel;
 
     return {
         cellId,
