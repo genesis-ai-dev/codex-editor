@@ -241,9 +241,10 @@ async function exportCodexContentAsIdmlRoundtrip(
         async (progress) => {
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-            // Import both exporters
+            // Import exporters
             const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
             const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
+            const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
 
             // For each selected codex file, find its original attachment and create a translated copy in export folder
             for (const [index, filePath] of filesToExport.entries()) {
@@ -256,7 +257,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                     // Read codex notebook
                     const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Detect if this is a Biblica file based on corpusMarker metadata (more reliable than filename)
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
                     const importerType = (codexNotebook.metadata as any)?.importerType || '';
                     const fileType = (codexNotebook.metadata as any)?.fileType || '';
@@ -265,10 +265,14 @@ async function exportCodexContentAsIdmlRoundtrip(
                         corpusMarker === 'biblica-idml' ||
                         importerType === 'biblica' ||
                         fileType === 'biblica' ||
-                        importerType === 'biblica-experimental' || // Backward compatibility
-                        fileType === 'biblica-experimental'; // Backward compatibility
-                    // Note: We no longer check filename suffix since importer type is stored in metadata
-                    const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
+                        importerType === 'biblica-experimental' ||
+                        fileType === 'biblica-experimental';
+                    const isReach4LifeFile =
+                        corpusMarker === 'reach4life' ||
+                        corpusMarker === 'reach4life-idml' ||
+                        importerType === 'reach4life' ||
+                        fileType === 'reach4life';
+                    const exporterType = isReach4LifeFile ? 'Reach4Life' : isBiblicaFile ? 'Biblica' : 'Standard';
 
                     console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
 
@@ -331,17 +335,17 @@ async function exportCodexContentAsIdmlRoundtrip(
                     }
                     console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
 
-                    // Use the appropriate exporter based on file type
                     let updatedIdmlData: Uint8Array;
-                    if (isBiblicaFile) {
+                    if (isReach4LifeFile) {
+                        updatedIdmlData = await exportReach4LifeIdml(idmlData, codexNotebook.cells);
+                    } else if (isBiblicaFile) {
                         updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
                     } else {
                         updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
                     }
 
-                    // Save duplicated, injected IDML into the chosen export folder
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
+                    const suffix = isReach4LifeFile ? '_reach4life_translated' : isBiblicaFile ? '_biblica_translated' : '_translated';
                     const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
                     const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
                     await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
@@ -1349,15 +1353,18 @@ async function exportCodexContentAsRebuild(
                     } else if (
                         corpusMarker === 'biblica' ||
                         corpusMarker === 'biblica-idml' ||
+                        corpusMarker === 'reach4life' ||
+                        corpusMarker === 'reach4life-idml' ||
                         corpusMarker === 'idml-roundtrip' ||
                         (corpusMarker && corpusMarker.startsWith('idml-')) ||
                         importerType === 'biblica' ||
                         fileType === 'biblica' ||
+                        importerType === 'reach4life' ||
+                        fileType === 'reach4life' ||
                         importerType === 'biblica-experimental' || // Backward compatibility
                         fileType === 'biblica-experimental' // Backward compatibility
                     ) {
-                        // Biblica files and IDML files both use the IDML exporter
-                        // Includes Biblica importer which uses the same IDML format
+                        // Biblica/Reach4Life files and IDML files both use the IDML exporter
                         filesByType['idml'] = filesByType['idml'] || [];
                         filesByType['idml'].push(filePath);
                     } else if (
@@ -1589,7 +1596,7 @@ async function exportCodexContentAsRebuild(
                     .join('\n');
 
                 vscode.window.showWarningMessage(
-                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, PDF, OBS, TMS, USFM, CSV/TSV`,
+                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, TMS, USFM, CSV/TSV`,
                     { modal: false }
                 );
             }

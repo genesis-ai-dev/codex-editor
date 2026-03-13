@@ -292,7 +292,7 @@ function getWebviewContent(
                     opacity: 1;
                 }
                 .format-warning {
-                    display: flex;
+                    display: inline-flex;
                     align-items: center;
                     gap: 6px;
                     margin-top: 8px;
@@ -404,10 +404,11 @@ function getWebviewContent(
                                             <span class="format-tag format-tag-roundtrip">CSV/TSV</span>
                                             <span class="format-tag format-tag-roundtrip">IDML</span>
                                             <span class="format-tag format-tag-roundtrip">Biblica Study Notes</span>
+                                            <!--<span class="format-tag format-tag-roundtrip">Reach4Life</span>-->
                                         </div>
                                         <div class="format-warning">
                                             <i class="codicon codicon-warning"></i>
-                                            <span>This option might not work for stream only!</span>
+                                            <span>This option will not work if you are in "Stream Only" mode.</span>
                                         </div>
                                     </div>
                                 </div>

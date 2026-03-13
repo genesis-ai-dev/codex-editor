@@ -48,7 +48,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private pendingRebuild = false;
     private serializer = new CodexContentSerializer();
     private bibleBookMap: Map<string, BibleBookInfo> = new Map();
-    private navigationFileOrder: { [corpusGroup: string]: string[] } = {};
 
     constructor(context: vscode.ExtensionContext) {
         super(context);
@@ -453,18 +452,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
             }
-            case "reorderFiles": {
-                try {
-                    const { corpusLabel, orderedLabels } = message.content as {
-                        corpusLabel: string;
-                        orderedLabels: string[];
-                    };
-                    await this.persistFileOrder(corpusLabel, orderedLabels);
-                } catch (error) {
-                    console.error("Error reordering files:", error);
-                }
-                break;
-            }
         }
     }
 
@@ -512,8 +499,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 this.dictionaryItems = [];
                 return;
             }
-
-            await this.loadFileOrder();
 
             const rootUri = workspaceFolders[0].uri;
             const codexPattern = new vscode.RelativePattern(
@@ -751,7 +736,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const averageTextValidationLevels = avgArray('textValidationLevels', textLen);
             const averageAudioValidationLevels = avgArray('audioValidationLevels', audioLen);
 
-            const defaultSorted = itemsInGroup.sort((a, b) => {
+            const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {
                     return a.sortOrder.localeCompare(b.sortOrder);
                 }
@@ -759,11 +744,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 const bDisplayName = b.fileDisplayName || b.label;
                 return aDisplayName.localeCompare(bDisplayName);
             });
-
-            const customOrder = this.navigationFileOrder[corpusMarker];
-            const sortedItems = customOrder
-                ? this.sortByCustomOrder(defaultSorted, customOrder)
-                : defaultSorted;
 
             groupedItems.push({
                 uri: itemsInGroup[0].uri,
@@ -795,57 +775,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             }),
             ...ungroupedItems.sort((a, b) => a.label.localeCompare(b.label)),
         ];
-    }
-
-    private async loadFileOrder(): Promise<void> {
-        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-        if (!workspaceUri) return;
-
-        const result = await MetadataManager.safeReadMetadata<ProjectMetadata>(workspaceUri);
-        if (result.success && result.metadata?.navigationFileOrder) {
-            this.navigationFileOrder = result.metadata.navigationFileOrder;
-        }
-    }
-
-    private async persistFileOrder(corpusLabel: string, orderedLabels: string[]): Promise<void> {
-        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-        if (!workspaceUri) return;
-
-        this.navigationFileOrder[corpusLabel] = orderedLabels;
-
-        await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
-            workspaceUri,
-            (metadata) => ({
-                ...metadata,
-                navigationFileOrder: { ...this.navigationFileOrder },
-            })
-        );
-
-        this.applyCustomOrderToItems();
-        this.sendItemsToWebview();
-    }
-
-    private applyCustomOrderToItems(): void {
-        for (const item of this.codexItems) {
-            if (item.type === "corpus" && item.children) {
-                const order = this.navigationFileOrder[item.label];
-                if (order) {
-                    item.children = this.sortByCustomOrder(item.children, order);
-                }
-            }
-        }
-    }
-
-    private sortByCustomOrder(items: CodexItem[], order: string[]): CodexItem[] {
-        const orderMap = new Map(order.map((label, index) => [label, index]));
-        return [...items].sort((a, b) => {
-            const aIdx = orderMap.get(a.label);
-            const bIdx = orderMap.get(b.label);
-            if (aIdx !== undefined && bIdx !== undefined) return aIdx - bIdx;
-            if (aIdx !== undefined) return -1;
-            if (bIdx !== undefined) return 1;
-            return a.label.localeCompare(b.label);
-        });
     }
 
     private makeCodexItem(uri: vscode.Uri): CodexItem {
@@ -973,12 +902,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 });
             }
 
-            if (Object.keys(this.navigationFileOrder).length > 0) {
-                safePostMessageToView(this._view, {
-                    command: "setCustomOrder",
-                    data: this.navigationFileOrder,
-                });
-            }
         }
     }
 
