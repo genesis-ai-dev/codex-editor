@@ -396,7 +396,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     // partially-indexed DB) and go straight to the sync check.
     const previousRebuildWasInterrupted = rebuildState.rebuildInProgress;
     if (previousRebuildWasInterrupted) {
-        console.log("[Index] Previous rebuild was interrupted — will run sync check regardless of health");
+        debug("[Index] Previous rebuild was interrupted — will run sync check regardless of health");
     }
     // Now reset the flag so a new rebuild can track its own progress.
     // Must persist to globalState — otherwise next startup still sees true.
@@ -406,8 +406,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const currentDocCount = await translationPairsIndex.getDocumentCount();
     const healthCheck = await validateIndexHealthConservatively();
 
-    // Always log rebuild decisions to console so we can diagnose "always rebuilds" issues
-    console.log(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
+    // Log rebuild decisions behind DEBUG_MODE to reduce noise
+    debug(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
 
     let needsRebuild = false;
     let rebuildReason = '';
@@ -415,7 +415,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     if (!healthCheck.isHealthy) {
         needsRebuild = true;
         rebuildReason = healthCheck.criticalIssue || 'health check failed';
-        console.log(`[Index] Rebuild triggered by HEALTH CHECK: ${rebuildReason}`);
+        debug(`[Index] Rebuild triggered by HEALTH CHECK: ${rebuildReason}`);
     } else if (previousRebuildWasInterrupted) {
         // Health check passed but previous session was interrupted.
         // The DB may be partially indexed — always run the sync check.
@@ -423,9 +423,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         if (changeCheck.needsRebuild) {
             needsRebuild = true;
             rebuildReason = `interrupted rebuild recovery: ${changeCheck.reason}`;
-            console.log(`[Index] Rebuild triggered by INTERRUPTED REBUILD RECOVERY: ${rebuildReason}`);
+            debug(`[Index] Rebuild triggered by INTERRUPTED REBUILD RECOVERY: ${rebuildReason}`);
         } else {
-            console.log(`[Index] Previous rebuild was interrupted but DB appears complete (${currentDocCount} documents)`);
+            debug(`[Index] Previous rebuild was interrupted but DB appears complete (${currentDocCount} documents)`);
         }
     } else {
         // Health check passed - database is structurally sound
@@ -434,14 +434,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         if (changeCheck.needsRebuild) {
             needsRebuild = true;
             rebuildReason = changeCheck.reason;
-            console.log(`[Index] Rebuild triggered by SYNC CHECK: ${rebuildReason}`);
+            debug(`[Index] Rebuild triggered by SYNC CHECK: ${rebuildReason}`);
         } else {
-            console.log(`[Index] No rebuild needed — database is up to date with ${currentDocCount} documents`);
+            debug(`[Index] No rebuild needed — database is up to date with ${currentDocCount} documents`);
         }
     }
 
     if (needsRebuild) {
-        console.log(`[Index] Starting rebuild: ${rebuildReason}`);
+        debug(`[Index] Starting rebuild: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically
         const isCritical = !healthCheck.isHealthy;
@@ -487,7 +487,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         // Registered after the initial rebuild so startup nukes don't
         // trigger a redundant rebuild.
         const dbRecreatedListener = indexManager.onDatabaseRecreated(async (reason) => {
-            console.log(`[Index] Database was recreated (${reason}) — triggering auto-rebuild`);
+            debug(`[Index] Database was recreated (${reason}) — triggering auto-rebuild`);
             try {
                 await smartRebuildIndexes(`auto-rebuild after db recreation: ${reason}`, true);
             } catch (error) {
@@ -1937,8 +1937,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                             const result = await translationPairsIndex.recalculateAllValidationStatus();
 
-                            // Log validation recalculation to console instead of showing to user
-                            console.log(`[SQLiteIndex] ✅ Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`);
+                            // Log validation recalculation behind DEBUG_MODE
+                            debug(`[SQLiteIndex] ✅ Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`);
                         } catch (error) {
                             console.error('[SQLiteIndex] Auto-recalculation failed:', error);
                         }
@@ -1960,8 +1960,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                             const result = await translationPairsIndex.recalculateAllAudioValidationStatus();
 
-                            // Log validation recalculation to console instead of showing to user
-                            console.log(`[SQLiteIndex] ✅ Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`);
+                            // Log validation recalculation behind DEBUG_MODE
+                            debug(`[SQLiteIndex] ✅ Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`);
                         } catch (error) {
                             console.error('[SQLiteIndex] Auto-recalculation failed:', error);
                         }
@@ -1991,8 +1991,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                             const result = await translationPairsIndex.recalculateAllValidationStatus();
 
-                            // Log validation recalculation to console and show simple completion message
-                            console.log(`[SQLiteIndex] ✅ Validation status recalculated! ${result.updatedCells} cells processed with threshold of ${currentThreshold} validator${currentThreshold === 1 ? '' : 's'}.`);
+                            // Log validation recalculation behind DEBUG_MODE and show simple completion message
+                            debug(`[SQLiteIndex] ✅ Validation status recalculated! ${result.updatedCells} cells processed with threshold of ${currentThreshold} validator${currentThreshold === 1 ? '' : 's'}.`);
                             vscode.window.showInformationMessage("Validation status recalculation complete.");
                         });
                     } else {
@@ -2055,7 +2055,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                     };
 
                                     // Get sample audio validation data
-                                    const sampleAudioRows = await db.all<any>(`
+                                    type AudioValidationSampleRow = {
+                                        cell_id: string;
+                                        t_audio_validation_count: number | null;
+                                        t_audio_validated_by: string | null;
+                                        t_audio_is_fully_validated: number | null;
+                                        t_current_edit_timestamp: number | null;
+                                    };
+                                    const sampleAudioRows = await db.all<AudioValidationSampleRow>(`
                                         SELECT 
                                             cell_id,
                                             t_audio_validation_count,
@@ -2070,7 +2077,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                         LIMIT 10
                                     `);
 
-                                    const sampleAudioCells: any[] = [];
+                                    const sampleAudioCells: AudioValidationSampleRow[] = [];
                                     for (const row of sampleAudioRows) {
                                         sampleAudioCells.push(row);
                                     }
@@ -2173,7 +2180,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                     };
 
                                     // Get sample validation data
-                                    const sampleRows = await db.all<any>(`
+                                    type ValidationSampleRow = {
+                                        cell_id: string;
+                                        t_validation_count: number | null;
+                                        t_validated_by: string | null;
+                                        t_is_fully_validated: number | null;
+                                        t_current_edit_timestamp: number | null;
+                                    };
+                                    const sampleRows = await db.all<ValidationSampleRow>(`
                                         SELECT 
                                             cell_id,
                                             t_validation_count,
@@ -2188,7 +2202,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                         LIMIT 10
                                     `);
 
-                                    const sampleCells: any[] = [];
+                                    const sampleCells: ValidationSampleRow[] = [];
                                     for (const row of sampleRows) {
                                         sampleCells.push(row);
                                     }
