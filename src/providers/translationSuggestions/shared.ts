@@ -184,8 +184,8 @@ export function buildFewShotExamplesText(
   
   const examplesInner = pairs
     .map((pair) => {
-      const sourceRaw = allowHtml ? (pair.sourceCell?.rawContent || pair.sourceCell?.content || "") : (pair.sourceCell?.content ?? "");
-      const targetRaw = allowHtml ? (pair.targetCell?.rawContent || pair.targetCell?.content || "") : (pair.targetCell?.content ?? "");
+      const sourceRaw = pair.sourceCell?.content ?? "";
+      const targetRaw = pair.targetCell?.content ?? "";
       const target = allowHtml ? targetRaw.trim() : stripHtmlTags(targetRaw).trim();
       const source = allowHtml ? sourceRaw.trim() : stripHtmlTags(sourceRaw).trim();
       const targetInner = allowHtml ? wrapCdata(target) : xmlEscape(target);
