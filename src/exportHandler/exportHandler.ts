@@ -244,7 +244,7 @@ async function exportCodexContentAsIdmlRoundtrip(
             // Import exporters
             const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
             const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
-            const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
+            // const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
 
             // For each selected codex file, find its original attachment and create a translated copy in export folder
             for (const [index, filePath] of filesToExport.entries()) {
@@ -267,12 +267,12 @@ async function exportCodexContentAsIdmlRoundtrip(
                         fileType === 'biblica' ||
                         importerType === 'biblica-experimental' ||
                         fileType === 'biblica-experimental';
-                    const isReach4LifeFile =
-                        corpusMarker === 'reach4life' ||
-                        corpusMarker === 'reach4life-idml' ||
-                        importerType === 'reach4life' ||
-                        fileType === 'reach4life';
-                    const exporterType = isReach4LifeFile ? 'Reach4Life' : isBiblicaFile ? 'Biblica' : 'Standard';
+                    // const isReach4LifeFile =
+                    //     corpusMarker === 'reach4life' ||
+                    //     corpusMarker === 'reach4life-idml' ||
+                    //     importerType === 'reach4life' ||
+                    //     fileType === 'reach4life';
+                    const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
 
                     console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
 
@@ -336,16 +336,14 @@ async function exportCodexContentAsIdmlRoundtrip(
                     console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
 
                     let updatedIdmlData: Uint8Array;
-                    if (isReach4LifeFile) {
-                        updatedIdmlData = await exportReach4LifeIdml(idmlData, codexNotebook.cells);
-                    } else if (isBiblicaFile) {
+                    if (isBiblicaFile) {
                         updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
                     } else {
                         updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
                     }
 
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const suffix = isReach4LifeFile ? '_reach4life_translated' : isBiblicaFile ? '_biblica_translated' : '_translated';
+                    const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
                     const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
                     const injectedUri = vscode.Uri.joinPath(exportFolder, injectedName);
                     await vscode.workspace.fs.writeFile(injectedUri, updatedIdmlData);
