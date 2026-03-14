@@ -17,10 +17,30 @@ interface CellItemProps {
     replaceText?: string;
     retainValidations?: boolean;
     onReplace?: (cellId: string, currentContent: string, retainValidations: boolean) => void;
+    highlightSearchResults?: boolean;
 }
 
 const stripHtmlTags = (html: string) => {
     return stripHtml(html);
+};
+
+const highlightPlainText = (text: string, query: string): string => {
+    if (!query.trim()) return escapeHtml(text);
+
+    const escapedQuery = escapeRegex(query);
+    const regex = new RegExp(escapedQuery, "gi");
+    let result = "";
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+        result += escapeHtml(text.substring(lastIndex, match.index));
+        result += `<mark style="background-color: rgba(34, 197, 94, 0.3);">${escapeHtml(match[0])}</mark>`;
+        lastIndex = match.index + match[0].length;
+    }
+    result += escapeHtml(text.substring(lastIndex));
+
+    return result;
 };
 
 const highlightSearchMatches = (htmlText: string, query: string): string => {
@@ -96,6 +116,7 @@ const CellItem: React.FC<CellItemProps> = ({
     replaceText = "",
     retainValidations = false,
     onReplace,
+    highlightSearchResults = true,
 }) => {
     const [replaceSuccess, setReplaceSuccess] = useState(false);
     const [localRetainValidations, setLocalRetainValidations] =
@@ -136,6 +157,17 @@ const CellItem: React.FC<CellItemProps> = ({
         return cleanContent.length > 0;
     }, [item.targetCell.content]);
 
+    const sourceContentDisplay = useMemo(() => {
+        const sourceContent = item.sourceCell.content || "";
+        const plainText = stripHtml(sourceContent);
+        if (!plainText) return null;
+
+        if (highlightSearchResults && searchQuery) {
+            return highlightPlainText(plainText, searchQuery);
+        }
+        return null;
+    }, [item.sourceCell.content, searchQuery, highlightSearchResults]);
+
     const targetContentDisplay = useMemo(() => {
         const targetContent = item.targetCell.content || "";
         if (!targetContent) return null;
@@ -147,12 +179,12 @@ const CellItem: React.FC<CellItemProps> = ({
                 replaceText
             );
             return computeDiffHtml(targetContent, replacedText, searchQuery);
-        } else if (searchQuery) {
+        } else if (highlightSearchResults && searchQuery) {
             return highlightSearchMatches(targetContent, searchQuery);
         }
 
         return targetContent;
-    }, [item.targetCell.content, searchQuery, replaceText]);
+    }, [item.targetCell.content, searchQuery, replaceText, highlightSearchResults]);
 
     const hasMatch = useMemo(() => {
         if (!searchQuery.trim() || !item.targetCell.content) return false;
@@ -215,15 +247,26 @@ const CellItem: React.FC<CellItemProps> = ({
                                     <span className="codicon codicon-copy" style={{ fontSize: "14px" }}></span>
                                 </Button>
                             </div>
-                            <p
-                                className="text-sm leading-relaxed cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1"
-                                onClick={() =>
-                                    onUriClick(item.sourceCell.uri || "", `${item.cellId}`)
-                                }
-                                title="Click to open"
-                            >
-                                {stripHtml(item.sourceCell.content || "")}
-                            </p>
+                            {sourceContentDisplay ? (
+                                <p
+                                    className="text-sm leading-relaxed cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1"
+                                    onClick={() =>
+                                        onUriClick(item.sourceCell.uri || "", `${item.cellId}`)
+                                    }
+                                    title="Click to open"
+                                    dangerouslySetInnerHTML={{ __html: sourceContentDisplay }}
+                                />
+                            ) : (
+                                <p
+                                    className="text-sm leading-relaxed cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1"
+                                    onClick={() =>
+                                        onUriClick(item.sourceCell.uri || "", `${item.cellId}`)
+                                    }
+                                    title="Click to open"
+                                >
+                                    {stripHtml(item.sourceCell.content || "")}
+                                </p>
+                            )}
                         </div>
                     )}
 

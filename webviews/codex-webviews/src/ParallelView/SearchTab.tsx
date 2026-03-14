@@ -42,6 +42,7 @@ interface SearchTabProps {
     forceReplaceExpanded?: boolean;
     showPinnedOnly?: boolean;
     onTogglePinnedFilter?: () => void;
+    highlightSearchResults?: boolean;
 }
 
 function SearchTab({
@@ -71,6 +72,7 @@ function SearchTab({
     forceReplaceExpanded,
     showPinnedOnly = false,
     onTogglePinnedFilter,
+    highlightSearchResults = true,
 }: SearchTabProps) {
     const [isReplaceExpanded, setIsReplaceExpanded] = useState(false);
 
@@ -712,6 +714,7 @@ function SearchTab({
                                 searchQuery={lastQuery}
                                 replaceText={replaceText}
                                 retainValidations={retainValidations}
+                                highlightSearchResults={highlightSearchResults}
                                 onReplace={
                                     onReplaceCell ||
                                     ((cellId, currentContent, retainValidations) => {
