@@ -151,7 +151,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-        const { contentToScrollTo } = useContext(ScrollToContentContext);
+        const { contentToScrollTo, setContentToScrollTo } = useContext(ScrollToContentContext);
 
         const cellRef = useRef<HTMLDivElement>(null);
         const contentRef = useRef<HTMLDivElement>(null);
@@ -245,6 +245,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         useEffect(() => {
             if (contentToScrollTo && cellIds?.includes(contentToScrollTo) && cellRef.current) {
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+                setContentToScrollTo(null);
 
                 if (scrollHighlightTimerRef.current) {
                     clearTimeout(scrollHighlightTimerRef.current);
@@ -255,7 +256,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     scrollHighlightTimerRef.current = null;
                 }, 1500);
             }
-        }, [contentToScrollTo, cellIds]);
+        }, [contentToScrollTo, cellIds, setContentToScrollTo]);
 
         useEffect(() => {
             return () => {

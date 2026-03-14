@@ -251,7 +251,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
-    const { contentToScrollTo } = useContext(ScrollToContentContext);
+    const { contentToScrollTo, setContentToScrollTo } = useContext(ScrollToContentContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
@@ -459,6 +459,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (contentToScrollTo && contentToScrollTo === cellMarkers[0] && cellEditorRef.current) {
             debug("Scrolling to content", { contentToScrollTo, cellMarkers });
             centerEditor();
+            setContentToScrollTo(null);
 
             if (scrollHighlightTimerRef.current) {
                 clearTimeout(scrollHighlightTimerRef.current);
@@ -469,7 +470,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 scrollHighlightTimerRef.current = null;
             }, 1500);
         }
-    }, [contentToScrollTo, centerEditor, cellMarkers]);
+    }, [contentToScrollTo, centerEditor, cellMarkers, setContentToScrollTo]);
 
     useEffect(() => {
         return () => {
