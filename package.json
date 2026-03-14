@@ -434,6 +434,11 @@
                 "category": "Codex Project Management"
             },
             {
+                "command": "codex-project-manager.openInterfaceSettings",
+                "title": "Open Interface Settings",
+                "category": "Codex Project Management"
+            },
+            {
                 "command": "codex-project-manager.openLicenseSettings",
                 "title": "Open License Settings",
                 "category": "Codex Project Management"
@@ -733,6 +738,16 @@
                         "type": "string",
                         "default": "",
                         "description": "The source text to use for the Codex Extension feature."
+                    }
+                }
+            },
+            {
+                "title": "Codex Extension: Interface",
+                "properties": {
+                    "codex-editor-extension.highlightSearchResults": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Highlight matching text in search results within the parallel passages panel"
                     }
                 }
             },

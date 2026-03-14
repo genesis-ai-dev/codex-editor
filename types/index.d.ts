@@ -1591,6 +1591,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "openSourceUpload"; }
     | { command: "openExportView"; }
     | { command: "openAISettings"; }
+    | { command: "openInterfaceSettings"; }
     | { command: "openLicenseSettings"; }
     | { command: "openExportView"; }
     | { command: "closeProject"; }

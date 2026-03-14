@@ -231,16 +231,33 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
-    // Reset ready state when webview is recreated
+    private configDisposable: vscode.Disposable | undefined;
+
     protected onWebviewResolved(): void {
         this._isWebviewReady = false;
+
+        this.configDisposable?.dispose();
+        this.configDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("codex-editor-extension.highlightSearchResults")) {
+                this.sendHighlightSearchResultsSetting();
+            }
+        });
     }
 
-    // Override the onWebviewReady hook to send pending data
     protected onWebviewReady(): void {
         this._isWebviewReady = true;
         this.sendPendingSearch();
         this.sendPendingEnableReplace();
+        this.sendHighlightSearchResultsSetting();
+    }
+
+    private sendHighlightSearchResultsSetting(): void {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        const value = config.get<boolean>("highlightSearchResults", true);
+        safePostMessageToView(this._view, {
+            command: "setHighlightSearchResults",
+            value,
+        });
     }
 
     protected async handleMessage(message: any): Promise<void> {
