@@ -158,6 +158,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 const isSource = stringUri.includes(".source");
                 const sourceUri = isSource ? parsedUri : getCorrespondingSourceUri(parsedUri);
                 const codexUri = isSource ? getCorrespondingCodexUri(parsedUri) : parsedUri;
+                let didOpenEditor = false;
 
                 if (sourceUri) {
                     try {
@@ -166,6 +167,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             "vscode.openWith", sourceUri, "codex.cellEditor",
                             { viewColumn: vscode.ViewColumn.One }
                         );
+                        didOpenEditor = true;
                     } catch { /* file doesn't exist */ }
                 }
 
@@ -176,7 +178,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             "vscode.openWith", codexUri, "codex.cellEditor",
                             { viewColumn: vscode.ViewColumn.Two }
                         );
+                        didOpenEditor = true;
                     } catch { /* file doesn't exist */ }
+                }
+
+                if (!didOpenEditor) {
+                    throw new Error("No source or codex file could be opened for the requested location");
                 }
 
                 updateWorkspaceState(this._context, {
