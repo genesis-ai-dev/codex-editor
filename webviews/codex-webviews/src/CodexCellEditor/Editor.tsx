@@ -1492,7 +1492,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     cursor: "pointer",
                                 }}
                             >
-                                History
+                                All
                             </button>
                             <button
                                 onClick={() => setHistoryTab("llm-previews")}
@@ -1511,7 +1511,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     cursor: "pointer",
                                 }}
                             >
-                                LLM Previews
+                                LLM Suggestions
                             </button>
                         </div>
 
@@ -1520,16 +1520,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                 .filter(isValueEdit)
                                 .reverse()
                                 .filter((entry, index, array) => {
-                                    // Separate tabs: previews vs non-previews
-                                    const isPreview =
-                                        (entry as any).preview === true ||
-                                        (entry.type === "llm-generation" &&
-                                            (entry as any).preview === true);
+                                    const isLlmEntry = entry.type === "llm-generation";
                                     if (historyTab === "llm-previews") {
-                                        return isPreview;
+                                        return isLlmEntry;
                                     } else {
-                                        // Main history: exclude previews; keep non-preview LLM edits
-                                        return !isPreview;
+                                        // "All" tab: show non-LLM edits only
+                                        return !isLlmEntry;
                                     }
                                 })
                                 .filter((entry, index, array) => {
