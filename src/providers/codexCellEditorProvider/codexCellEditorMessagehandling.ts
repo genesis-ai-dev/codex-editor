@@ -2484,7 +2484,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
             const availability: Record<string, AudioAvailabilityState> = {};
             let validatedByArray: ValidationEntry[] = [];
-            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
