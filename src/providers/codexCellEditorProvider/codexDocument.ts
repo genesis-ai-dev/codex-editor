@@ -2989,15 +2989,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return null;
         }
 
+        const isAttachmentMissing = (att: any): boolean =>
+            att.audioAvailability === "missing" ||
+            (att.audioAvailability === undefined && att.isMissing === true);
+
         // STEP 1: Check for explicit selection first
         if (cell.metadata?.selectedAudioId && attachmentType === "audio") {
             const selectedAttachment = cell.metadata.attachments?.[cell.metadata.selectedAudioId];
 
-            // Validate selection is still valid and the file isn't missing
             if (selectedAttachment &&
                 selectedAttachment.type === attachmentType &&
                 !selectedAttachment.isDeleted &&
-                selectedAttachment.audioAvailability !== "missing") {
+                !isAttachmentMissing(selectedAttachment)) {
                 return {
                     attachmentId: cell.metadata.selectedAudioId,
                     attachment: selectedAttachment
@@ -3007,7 +3010,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Selection is invalid or missing — fall through to automatic resolution
         }
 
-        // STEP 2: Fall back to latest non-deleted, non-missing attachment (prefer available files)
+        // STEP 2: Fall back to latest non-deleted attachment (prefer non-missing files)
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3015,8 +3018,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 !attachment.isDeleted
             )
             .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
-                const aMissing = a.audioAvailability === "missing" ? 1 : 0;
-                const bMissing = b.audioAvailability === "missing" ? 1 : 0;
+                const aMissing = isAttachmentMissing(a) ? 1 : 0;
+                const bMissing = isAttachmentMissing(b) ? 1 : 0;
                 if (aMissing !== bMissing) return aMissing - bMissing;
                 return (b.updatedAt || 0) - (a.updatedAt || 0);
             });
@@ -3223,12 +3226,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     selectedAttachment.type !== "audio" ||
                     selectedAttachment.isDeleted;
 
-                const isMissingAudio = !isInvalid && selectedAttachment.audioAvailability === "missing";
+                const isAttMissing = (att: any): boolean =>
+                    att.audioAvailability === "missing" ||
+                    (att.audioAvailability === undefined && att.isMissing === true);
+
+                const isMissingAudio = !isInvalid && isAttMissing(selectedAttachment);
 
                 if (isInvalid || isMissingAudio) {
                     const validAlternative = Object.entries(cell.metadata.attachments)
                         .filter(([_, att]: [string, any]) =>
-                            att?.type === "audio" && !att.isDeleted && att.audioAvailability !== "missing"
+                            att?.type === "audio" && !att.isDeleted && !isAttMissing(att)
                         )
                         .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
                             (b.updatedAt || 0) - (a.updatedAt || 0)

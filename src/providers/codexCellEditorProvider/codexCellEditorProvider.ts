@@ -4254,7 +4254,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     /**
      * Refreshes audio attachments for all open webviews after sync operations.
      * This ensures that audio availability is updated even if file watchers didn't trigger during sync.
-     * Uses getCurrentAttachment() to respect selectedAudioId metadata.
+     *
+     * Uses filesystem-based checks (not metadata) because the sync merge can lose
+     * the legacy `isMissing` flag when the remote version of an attachment is newer,
+     * causing the webview to incorrectly treat missing audio as available.
      */
     public async refreshAudioAttachmentsAfterSync(): Promise<void> {
         debug("Refreshing audio attachments after sync for all webviews");
@@ -4267,26 +4270,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (!ws) continue;
 
-                const availability: Record<string, AudioAvailabilityState> = {};
-
-                const cellIds = document.getAllCellIds();
-                for (const cellId of cellIds) {
-                    const currentAttachment = document.getCurrentAttachment(cellId, "audio");
-                    if (!currentAttachment) {
-                        availability[cellId] = "none";
-                        continue;
+                // Revert non-dirty documents first so we read the post-merge cell data
+                if (!document.isDirty) {
+                    try {
+                        await document.revert();
+                    } catch {
+                        // Revert failure is non-fatal; proceed with current in-memory data
                     }
-
-                    availability[cellId] = await computeCellAudioStateWithVersionGate(
-                        { [currentAttachment.attachmentId]: currentAttachment.attachment },
-                        currentAttachment.attachmentId,
-                    );
                 }
 
+                const availability = await computeDocumentAudioAvailability(document, ws);
                 if (Object.keys(availability).length > 0) {
                     safePostMessageToPanel(webviewPanel, {
                         type: "providerSendsAudioAttachments",
-                        attachments: availability
+                        attachments: availability as any,
                     });
                     debug(`Refreshed audio attachments for ${Object.keys(availability).length} cells in ${documentUri}`);
                 }
