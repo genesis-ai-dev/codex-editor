@@ -179,6 +179,108 @@ function MainMenu() {
 
     const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
 
+    // Optimistic local state for validation counters so rapid clicks work correctly.
+    // Without this, each click reads from the stale server-confirmed state (which
+    // hasn't round-tripped yet), causing lost increments and UI bouncing.
+    const [localValidationCount, setLocalValidationCount] = useState<number | null>(null);
+    const [localValidationCountAudio, setLocalValidationCountAudio] = useState<number | null>(
+        null
+    );
+    const validationCountDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const validationCountAudioDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const localCountFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const localCountAudioFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const displayValidationCount =
+        localValidationCount ??
+        state.projectState.projectOverview?.validationCount ??
+        1;
+    const displayValidationCountAudio =
+        localValidationCountAudio ??
+        state.projectState.projectOverview?.validationCountAudio ??
+        1;
+
+    // Clear optimistic override once the server has caught up to the local value
+    useEffect(() => {
+        const serverCount = state.projectState.projectOverview?.validationCount;
+        if (localValidationCount !== null && serverCount === localValidationCount) {
+            setLocalValidationCount(null);
+        }
+    }, [state.projectState.projectOverview?.validationCount, localValidationCount]);
+
+    useEffect(() => {
+        const serverCount = state.projectState.projectOverview?.validationCountAudio;
+        if (localValidationCountAudio !== null && serverCount === localValidationCountAudio) {
+            setLocalValidationCountAudio(null);
+        }
+    }, [state.projectState.projectOverview?.validationCountAudio, localValidationCountAudio]);
+
+    // Clean up debounce timers on unmount
+    useEffect(() => {
+        return () => {
+            if (validationCountDebounceRef.current) clearTimeout(validationCountDebounceRef.current);
+            if (validationCountAudioDebounceRef.current)
+                clearTimeout(validationCountAudioDebounceRef.current);
+            if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
+            if (localCountAudioFallbackRef.current)
+                clearTimeout(localCountAudioFallbackRef.current);
+        };
+    }, []);
+
+    const handleValidationCountChange = useCallback(
+        (newCount: number) => {
+            setLocalValidationCount(newCount);
+
+            if (validationCountDebounceRef.current)
+                clearTimeout(validationCountDebounceRef.current);
+            if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
+
+            validationCountDebounceRef.current = setTimeout(() => {
+                try {
+                    vscode.postMessage({
+                        command: "setValidationCountDirect",
+                        data: { count: newCount },
+                    });
+                } catch (error) {
+                    console.error("Could not send validation count:", error);
+                }
+            }, 150);
+
+            // Safety net: clear optimistic state after 5s in case server never confirms
+            localCountFallbackRef.current = setTimeout(() => {
+                setLocalValidationCount(null);
+            }, 5000);
+        },
+        []
+    );
+
+    const handleValidationCountAudioChange = useCallback(
+        (newCount: number) => {
+            setLocalValidationCountAudio(newCount);
+
+            if (validationCountAudioDebounceRef.current)
+                clearTimeout(validationCountAudioDebounceRef.current);
+            if (localCountAudioFallbackRef.current)
+                clearTimeout(localCountAudioFallbackRef.current);
+
+            validationCountAudioDebounceRef.current = setTimeout(() => {
+                try {
+                    vscode.postMessage({
+                        command: "setValidationCountAudioDirect",
+                        data: { count: newCount },
+                    });
+                } catch (error) {
+                    console.error("Could not send audio validation count:", error);
+                }
+            }, 150);
+
+            localCountAudioFallbackRef.current = setTimeout(() => {
+                setLocalValidationCountAudio(null);
+            }, 5000);
+        },
+        []
+    );
+
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
@@ -633,13 +735,9 @@ function MainMenu() {
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCount || 1;
-                                                                    if (current > 1)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountDirect",
-                                                                            { count: current - 1 }
+                                                                    if (displayValidationCount > 1)
+                                                                        handleValidationCountChange(
+                                                                            displayValidationCount - 1
                                                                         );
                                                                 }}
                                                                 title="Decrease"
@@ -647,19 +745,14 @@ function MainMenu() {
                                                                 -
                                                             </button>
                                                             <span className="w-5 text-center font-semibold">
-                                                                {projectState.projectOverview
-                                                                    .validationCount || 1}
+                                                                {displayValidationCount}
                                                             </span>
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCount || 1;
-                                                                    if (current < 15)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountDirect",
-                                                                            { count: current + 1 }
+                                                                    if (displayValidationCount < 15)
+                                                                        handleValidationCountChange(
+                                                                            displayValidationCount + 1
                                                                         );
                                                                 }}
                                                                 title="Increase"
@@ -676,14 +769,13 @@ function MainMenu() {
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCountAudio ||
-                                                                        1;
-                                                                    if (current > 1)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountAudioDirect",
-                                                                            { count: current - 1 }
+                                                                    if (
+                                                                        displayValidationCountAudio >
+                                                                        1
+                                                                    )
+                                                                        handleValidationCountAudioChange(
+                                                                            displayValidationCountAudio -
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Decrease"
@@ -691,20 +783,18 @@ function MainMenu() {
                                                                 -
                                                             </button>
                                                             <span className="w-5 text-center font-semibold">
-                                                                {projectState.projectOverview
-                                                                    .validationCountAudio || 1}
+                                                                {displayValidationCountAudio}
                                                             </span>
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCountAudio ||
-                                                                        1;
-                                                                    if (current < 15)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountAudioDirect",
-                                                                            { count: current + 1 }
+                                                                    if (
+                                                                        displayValidationCountAudio <
+                                                                        15
+                                                                    )
+                                                                        handleValidationCountAudioChange(
+                                                                            displayValidationCountAudio +
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Increase"

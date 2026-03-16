@@ -12,7 +12,7 @@ import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
 import { addMetadataEdit, addProjectMetadataEdit, EditMapUtils } from "../../utils/editMapUtils";
 import { MetadataManager } from "../../utils/metadataManager";
 import { getAuthApi } from "../../extension";
-import { CustomNotebookMetadata } from "../../../types";
+import { CustomNotebookMetadata, ProjectMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
 
@@ -901,6 +901,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     data: Array.from(this.bibleBookMap.entries()),
                 });
             }
+
         }
     }
 

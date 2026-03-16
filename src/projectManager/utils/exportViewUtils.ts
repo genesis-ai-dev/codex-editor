@@ -14,6 +14,7 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     maculabible: "Macula Bible",
     obs: "Bible Stories",
     biblica: "Biblica Study Notes",
+    reach4life: "Reach4Life",
     spreadsheet: "Spreadsheet with Audio data",
     pdf: "PDF Files",
     unknown: "Other Files",
@@ -38,6 +39,7 @@ export const EXPORT_OPTIONS_BY_FILE_TYPE: Record<string, string[]> = {
         "docx",
         "indesign",
         "biblica",
+        "reach4life",
         "pdf",
         "obs",
         "tms",
@@ -102,12 +104,22 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
 
     // Word Documents (docx)
     if (
+        corpusMarker === "docx" ||
         corpusMarker === "docx-roundtrip" ||
-        importerType === "docx-roundtrip" ||
         importerType === "docx" ||
         (originalFileName && /\.docx$/i.test(originalFileName))
     ) {
         return "docx";
+    }
+
+    // Reach4Life (idml) - check before Biblica and generic InDesign
+    if (
+        corpusMarker === "reach4life" ||
+        corpusMarker === "reach4life-idml" ||
+        importerType === "reach4life" ||
+        fileType === "reach4life"
+    ) {
+        return "reach4life";
     }
 
     // Biblica Study Notes (idml) - check before generic InDesign
@@ -251,8 +263,9 @@ export async function groupCodexFilesByImporterType(
         maculabible: 9,
         obs: 10,
         biblica: 11,
-        spreadsheet: 12,
-        pdf: 13,
+        reach4life: 12,
+        spreadsheet: 13,
+        pdf: 14,
         unknown: 99,
     };
 
