@@ -49,6 +49,7 @@ import {
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { cellHasMissingAudio } from "../../../sharedUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -114,8 +115,14 @@ function buildCorrectedMilestoneProgress(
 
         let missingCount = 0;
         for (let j = startIdx; j < endIdx && j < documentCells.length; j++) {
-            const cellId = documentCells[j]?.metadata?.id;
-            if (cellId && availability[cellId] === "missing") {
+            const cell = documentCells[j];
+            const cellId = cell?.metadata?.id;
+            const hasMissingAudioByMetadata = cellHasMissingAudio(
+                cell?.metadata?.attachments,
+                cell?.metadata?.selectedAudioId,
+            );
+            const hasMissingAudioByDisk = cellId ? availability[cellId] === "missing" : false;
+            if (hasMissingAudioByMetadata || hasMissingAudioByDisk) {
                 missingCount++;
             }
         }
