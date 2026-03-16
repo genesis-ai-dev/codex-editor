@@ -20,7 +20,7 @@ import { getAuthApi } from "@/extension";
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
-import { computeCellAudioAvailabilityFromDisk, computeCellIdsAudioAvailability } from "../../utils/audioMissingUtils";
+import { computeCellIdsAudioAvailability } from "../../utils/audioMissingUtils";
 import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
@@ -3115,8 +3115,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (!workspaceFolder) return;
 
-            // Compute availability from disk without mutating or saving the document
-            const state = await computeCellAudioAvailabilityFromDisk(document, workspaceFolder, cellId);
+            // Compute version-gated availability from disk without mutating or saving the document
+            const availabilityByCell = await computeCellIdsAudioAvailability(
+                document,
+                workspaceFolder,
+                [cellId],
+            );
+            const state = availabilityByCell[cellId] ?? "none";
 
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsAudioAttachments",
