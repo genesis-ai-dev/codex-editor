@@ -34,6 +34,7 @@ import * as fs from "fs";
 import { getAuthApi } from "@/extension";
 import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
 import { computeCellIdsAudioAvailability, computeDocumentAudioAvailability } from "../../utils/audioMissingUtils";
+import { cellHasMissingAudio } from "../../../sharedUtils";
 import {
     getCachedChapter as getCachedChapterUtil,
     updateCachedChapter as updateCachedChapterUtil,
@@ -114,8 +115,8 @@ function buildCorrectedMilestoneProgress(
 
         let missingCount = 0;
         for (let j = startIdx; j < endIdx && j < documentCells.length; j++) {
-            const cellId = documentCells[j]?.metadata?.id;
-            if (cellId && availability[cellId] === "missing") {
+            const cell = documentCells[j];
+            if (cell && cellHasMissingAudio(cell.metadata?.attachments, cell.metadata?.selectedAudioId)) {
                 missingCount++;
             }
         }

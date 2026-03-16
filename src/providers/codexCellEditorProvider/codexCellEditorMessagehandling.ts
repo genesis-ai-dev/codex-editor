@@ -21,7 +21,7 @@ import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
 import { computeCellAudioAvailabilityFromDisk, computeCellIdsAudioAvailability } from "../../utils/audioMissingUtils";
-import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
+import { computeCellAudioStateWithVersionGate, applyFrontierVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // Comment out problematic imports
@@ -2484,7 +2484,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
             const availability: Record<string, AudioAvailabilityState> = {};
             let validatedByArray: ValidationEntry[] = [];
-            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
@@ -3117,7 +3116,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             if (!workspaceFolder) return;
 
             // Compute availability from disk without mutating or saving the document
-            const state = await computeCellAudioAvailabilityFromDisk(document, workspaceFolder, cellId);
+            const rawState = await computeCellAudioAvailabilityFromDisk(document, workspaceFolder, cellId);
+            const state = await applyFrontierVersionGate(rawState);
 
             safePostMessageToPanel(webviewPanel, {
                 type: "providerSendsAudioAttachments",
