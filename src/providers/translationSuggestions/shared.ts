@@ -237,8 +237,10 @@ export function buildMessages(
   // Translation direction and approach
   parts.push(`Translate from ${sourceLangText} to ${targetLangText}. This may be an ultra-low resource language — follow the patterns, style, and vocabulary of the provided reference data closely. When in doubt, err on the side of literalness.`);
 
-  // HTML preservation — always instruct to preserve HTML based on source
-  parts.push(`If the source text contains HTML formatting (e.g., <span>, <i>, <b> tags), preserve that HTML structure in your translation. Match the formatting of the source.`);
+  // HTML preservation — only when allowHtml is enabled
+  if (allowHtml) {
+    parts.push(`IMPORTANT: The source text contains HTML tags and attributes. You MUST preserve the exact same HTML tag structure (tag names, classes, attributes) from the source in your translation. Only translate the visible text content inside the tags — do not simplify, remove, or change the HTML tags themselves. The example targets may use simplified HTML, but your output must match the source's HTML structure exactly.`);
+  }
 
   // Line preservation
   parts.push(`Preserve original line breaks from <currentTask><source> by returning text with the same number of lines.`);

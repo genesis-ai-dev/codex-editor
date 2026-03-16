@@ -252,8 +252,7 @@ export async function llmCompletion(
             // to avoid interrupting the user with variant selection UI
             const extConfig = vscode.workspace.getConfiguration("codex-editor-extension");
             const abEnabled = Boolean(extConfig.get("abTestingEnabled") ?? true) && !isBatchOperation;
-            const abProbabilityRaw = extConfig.get<number>("abTestingProbability");
-            const abProbability = Math.max(0, Math.min(1, typeof abProbabilityRaw === "number" ? abProbabilityRaw : 0.01));
+            const abProbability = 0.01; // Hardcoded 1% — not user-configurable
             const randomValue = Math.random();
             const triggerAB = abEnabled && randomValue < abProbability;
 
