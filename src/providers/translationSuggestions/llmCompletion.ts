@@ -226,7 +226,7 @@ export async function llmCompletion(
 
             // Generate few-shot examples
             const fewShotExamples = buildFewShotExamplesText(
-                finalExamples, 
+                finalExamples,
                 preserveHtmlInPrompt,
                 fewShotExampleFormat || "source-and-target"
             );
@@ -235,7 +235,6 @@ export async function llmCompletion(
             // Build messages — buildMessages is the single source of truth for
             // system message construction. Pass the raw chatSystemMessage and let
             // buildMessages append instructions exactly once.
-            console.log(`[llmCompletion] System message from config (first 200 chars): "${chatSystemMessage?.substring(0, 200)}..."`);
             const messages = buildMessages(
                 targetLanguage,
                 chatSystemMessage,

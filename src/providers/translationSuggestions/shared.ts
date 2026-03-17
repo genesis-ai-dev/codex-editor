@@ -14,7 +14,7 @@ export async function fetchFewShotExamples(
   // Use a higher multiplier since many candidates may be incomplete pairs
   const initialCandidateCount = Math.max(numberOfFewShotExamples * 10, 100);
   console.debug(`[fetchFewShotExamples] Starting search with query: "${sourceContent}" (length: ${sourceContent?.length || 0}), requesting ${initialCandidateCount} candidates, validated only: ${useOnlyValidatedExamples}`);
-  
+
   let similarSourceCells: TranslationPair[] = [];
   try {
     similarSourceCells = await vscode.commands.executeCommand(
@@ -52,7 +52,7 @@ export async function fetchFewShotExamples(
 
   // Instead of filtering, rank all valid complete pairs by relevance
   const currentTokens = tokenizeText({ method: "whitespace_and_punctuation", text: sourceContent });
-  
+
   const rankedPairs = (similarSourceCells || [])
     .filter((pair) => {
       // Basic validity filters only
@@ -62,7 +62,7 @@ export async function fetchFewShotExamples(
         }
         return false;
       }
-      
+
       // Must have both source and target content for complete pairs
       const pairSourceContent = pair.sourceCell?.content || "";
       const pairTargetContent = pair.targetCell?.content || "";
@@ -70,7 +70,7 @@ export async function fetchFewShotExamples(
         console.debug(`[fetchFewShotExamples] Filtering out pair ${pair.cellId} - incomplete pair (missing source or target)`);
         return false;
       }
-      
+
       return true;
     })
     .map((pair) => {
@@ -79,13 +79,13 @@ export async function fetchFewShotExamples(
       const pairSourceContentRaw = pair.sourceCell?.content || "";
       const pairSourceContentSanitized = sanitizeHtmlContent(pairSourceContentRaw);
       const pairTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairSourceContentSanitized });
-      
+
       // Calculate overlap ratio
       const overlapCount = currentTokens.filter(token => pairTokens.includes(token)).length;
       const overlapRatio = currentTokens.length > 0 ? overlapCount / currentTokens.length : 0;
-      
+
       console.debug(`[fetchFewShotExamples] Pair ${pair.cellId} - overlap: ${overlapCount}/${currentTokens.length} = ${(overlapRatio * 100).toFixed(1)}%`);
-      
+
       return {
         pair,
         overlapRatio,
@@ -99,23 +99,23 @@ export async function fetchFewShotExamples(
       }
       return b.overlapCount - a.overlapCount;
     });
-  
+
   console.debug(`[fetchFewShotExamples] Ranked ${rankedPairs.length} complete pairs by relevance`);
-  
+
   // Take the top N most relevant complete pairs
   const filteredSimilarSourceCells = rankedPairs
     .slice(0, numberOfFewShotExamples)
     .map(ranked => ranked.pair);
 
   console.debug(`[fetchFewShotExamples] Returning ${filteredSimilarSourceCells.length} top-ranked examples (requested: ${numberOfFewShotExamples})`);
-  
+
   if (filteredSimilarSourceCells.length === 0) {
     console.debug(`[fetchFewShotExamples] No complete translation pairs found. Source length: ${sourceContent?.length || 0}`);
     console.debug(`[fetchFewShotExamples] Database may contain only incomplete pairs (source-only or target-only).`);
   } else if (filteredSimilarSourceCells.length < numberOfFewShotExamples) {
     console.debug(`[fetchFewShotExamples] Found fewer examples than requested: ${filteredSimilarSourceCells.length}/${numberOfFewShotExamples}`);
   }
-  
+
   return filteredSimilarSourceCells;
 }
 
@@ -176,11 +176,11 @@ export async function getPrecedingTranslationPairs(
 }
 
 export function buildFewShotExamplesText(
-  pairs: TranslationPair[], 
-  allowHtml: boolean = false, 
+  pairs: TranslationPair[],
+  allowHtml: boolean = false,
   exampleFormat: string = "source-and-target"
 ): string {
-  console.debug(`[buildFewShotExamplesText] Building ${pairs.length} examples in '${exampleFormat}' format, allowHtml=${allowHtml}`);
+
 
   const examplesInner = pairs
     .map((pair, idx) => {
@@ -191,11 +191,11 @@ export function buildFewShotExamplesText(
       if (allowHtml && idx < 3) {
         const hasHtmlInTarget = /<[a-z][^>]*>/i.test(target);
         const hasHtmlInSource = /<[a-z][^>]*>/i.test(source);
-        console.log(`[buildFewShotExamplesText] Example ${idx}: hasHtmlInSource=${hasHtmlInSource}, hasHtmlInTarget=${hasHtmlInTarget}, targetRawContent=${pair.targetCell?.rawContent ? 'present' : 'MISSING'}, target preview="${target.substring(0, 100)}"`);
+
       }
       const targetInner = allowHtml ? wrapCdata(target) : xmlEscape(target);
       const sourceInner = allowHtml ? wrapCdata(source) : xmlEscape(source);
-      
+
       // Format examples based on the setting
       if (exampleFormat === "target-only") {
         return `<example><target>${targetInner}</target></example>`;
