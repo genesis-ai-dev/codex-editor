@@ -17,6 +17,7 @@ interface ProjectMetadata {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        pinnedExtensions?: Record<string, { version: string }>;
         [key: string]: unknown;
     };
     edits?: any[];
@@ -414,8 +415,12 @@ export class MetadataManager {
             const existingVersions = currentVersions.versions || {};
             const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
 
+            // Suppress ratchet if a pin exists (The Conductor is in charge)
+            const fullMetadata = await this.safeReadMetadata(workspaceUri);
+            const pinnedExtensions = fullMetadata.metadata?.meta?.pinnedExtensions || {};
+
             // Check codexEditor - update if missing or if installed version is newer
-            if (codexEditorVersion) {
+            if (codexEditorVersion && !pinnedExtensions['codex-editor']) {
                 if (!existingVersions.codexEditor) {
                     versionsToUpdate.codexEditor = codexEditorVersion;
                 } else if (compareVersions(codexEditorVersion, existingVersions.codexEditor) > 0) {
@@ -424,7 +429,7 @@ export class MetadataManager {
             }
 
             // Check frontierAuthentication - update if missing or if installed version is newer
-            if (frontierAuthVersion) {
+            if (frontierAuthVersion && !pinnedExtensions['frontier-authentication']) {
                 if (!existingVersions.frontierAuthentication) {
                     versionsToUpdate.frontierAuthentication = frontierAuthVersion;
                 } else if (compareVersions(frontierAuthVersion, existingVersions.frontierAuthentication) > 0) {
