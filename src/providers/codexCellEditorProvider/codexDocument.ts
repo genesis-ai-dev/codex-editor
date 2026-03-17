@@ -2926,6 +2926,29 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Updates only the audioAvailability (and deprecated isMissing) fields on an
+     * existing attachment without triggering auto-selection or edit history entries.
+     * Marks the document as dirty so the change is persisted on the next save.
+     */
+    public patchAttachmentAvailability(
+        cellId: string,
+        attachmentId: string,
+        availability: import("../../../types").AttachmentAvailability,
+    ): boolean {
+        const cell = this._documentData.cells.find((c) => c.metadata?.id === cellId);
+        const att = cell?.metadata?.attachments?.[attachmentId];
+        if (!att || typeof att !== "object") return false;
+
+        const prev = (att as any).audioAvailability;
+        if (prev === availability) return false;
+
+        (att as any).audioAvailability = availability;
+        (att as any).isMissing = availability === "missing";
+        this._isDirty = true;
+        return true;
+    }
+
+    /**
      * Soft deletes an attachment by setting isDeleted to true
      * @param cellId The ID of the cell to update
      * @param attachmentId The unique ID of the attachment to soft delete

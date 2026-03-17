@@ -281,3 +281,84 @@ export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boole
     const availability: AttachmentAvailability = desiredMissing ? "missing" : "available-local";
     return setAttachmentAvailability(att, availability);
 }
+
+/**
+ * Revalidates the audioAvailability field on each audio attachment for a cell
+ * by checking the filesystem. Uses patchAttachmentAvailability to update only
+ * availability metadata without triggering auto-selection or edit history entries.
+ *
+ * Returns true if any attachment was updated (caller should save the document).
+ */
+export async function revalidateCellAttachmentAvailability(
+    document: CodexCellDocument,
+    workspaceFolder: vscode.WorkspaceFolder,
+    cellId: string,
+): Promise<boolean> {
+    try {
+        const cell = (document as any)._documentData?.cells?.find(
+            (c: any) => c?.metadata?.id === cellId
+        );
+        if (!cell?.metadata?.attachments) return false;
+
+        let changed = false;
+        const attachments = cell.metadata.attachments as Record<string, any>;
+
+        for (const [attId, attVal] of Object.entries(attachments)) {
+            if (!attVal || typeof attVal !== "object") continue;
+            if (attVal.type !== "audio") continue;
+            if (attVal.isDeleted) continue;
+
+            const url: string | undefined = attVal.url;
+            if (!url || typeof url !== "string") continue;
+
+            const diskAvailability = await computeAttachmentAvailabilityFromDisk(workspaceFolder, url);
+            if (document.patchAttachmentAvailability(cellId, attId, diskAvailability)) {
+                changed = true;
+            }
+        }
+
+        return changed;
+    } catch (err) {
+        console.error("Failed to revalidate attachment availability for cell", { cellId, err });
+        return false;
+    }
+}
+
+/**
+ * Revalidates audioAvailability on all audio attachments in a document by checking
+ * the filesystem. Intended to run once after document open so that subsequent
+ * metadata reads (e.g. deriveAudioAvailability in the webview) return correct values.
+ *
+ * Returns true if any attachment was updated (caller should save the document).
+ */
+export async function revalidateDocumentAttachmentAvailability(
+    document: CodexCellDocument,
+    workspaceFolder: vscode.WorkspaceFolder,
+): Promise<boolean> {
+    try {
+        const cells = (document as any)._documentData?.cells || [];
+        let changed = false;
+
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (!cellId || !cell?.metadata?.attachments) continue;
+
+            const hasAudio = Object.values(cell.metadata.attachments).some(
+                (att: any) => att?.type === "audio"
+            );
+            if (!hasAudio) continue;
+
+            const cellChanged = await revalidateCellAttachmentAvailability(
+                document,
+                workspaceFolder,
+                cellId,
+            );
+            if (cellChanged) changed = true;
+        }
+
+        return changed;
+    } catch (err) {
+        console.error("Failed to revalidate document attachment availability", err);
+        return false;
+    }
+}

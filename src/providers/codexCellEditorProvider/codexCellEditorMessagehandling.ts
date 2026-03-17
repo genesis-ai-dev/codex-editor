@@ -20,7 +20,7 @@ import { getAuthApi } from "@/extension";
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
-import { computeCellIdsAudioAvailability } from "../../utils/audioMissingUtils";
+import { computeCellIdsAudioAvailability, revalidateCellAttachmentAvailability } from "../../utils/audioMissingUtils";
 import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
@@ -3115,7 +3115,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (!workspaceFolder) return;
 
-            // Compute version-gated availability from disk without mutating or saving the document
+            // Update the document's attachment metadata from disk state, then save if changed.
+            // This ensures the audio history entries returned below reflect actual availability.
+            const metadataChanged = await revalidateCellAttachmentAvailability(
+                document,
+                workspaceFolder,
+                cellId,
+            );
+            if (metadataChanged) {
+                await document.save(new vscode.CancellationTokenSource().token);
+            }
+
+            // Compute version-gated cell-level availability from metadata (now up-to-date)
             const availabilityByCell = await computeCellIdsAudioAvailability(
                 document,
                 workspaceFolder,
@@ -3128,7 +3139,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 attachments: { [cellId]: state },
             });
 
-            // Send current history (read-only)
+            // Send history with freshly-updated attachment metadata
             const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
             const currentAttachment = document.getCurrentAttachment(cellId, "audio");
             const explicitSelection = document.getExplicitAudioSelection(cellId);
