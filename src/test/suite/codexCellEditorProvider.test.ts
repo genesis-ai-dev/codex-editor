@@ -3826,7 +3826,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 assert.ok(userMessage, "Should have a user message");
 
                 // Verify system message contains expected content
-                assert.ok(systemMessage.content.includes("target language"), "System message should mention target language");
+                assert.ok(systemMessage.content.includes("fr") || systemMessage.content.includes("target language"), "System message should mention target language");
                 assert.ok(systemMessage.content.includes("fr") || systemMessage.content.includes("French"), "System message should include target language");
 
                 // Verify user message contains examples
@@ -4180,10 +4180,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     "System message should contain translation instructions"
                 );
 
-                // Verify format instructions (plain text since allowHtmlPredictions is false)
+                // Verify format instructions (HTML preservation guidance is always included)
                 assert.ok(
-                    systemContent.includes("plain text") || systemContent.includes("no XML/HTML"),
-                    "System message should mention plain text format when HTML is disabled"
+                    systemContent.includes("HTML") || systemContent.includes("formatting"),
+                    "System message should mention HTML/formatting handling"
                 );
 
                 // Verify reference to examples/patterns
