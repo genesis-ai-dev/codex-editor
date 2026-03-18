@@ -331,9 +331,9 @@ export class MetadataManager {
                     (metadata.meta as any).pinnedExtensions ?? {};
 
                 // Only update codexEditor if new version is greater or missing,
-                // AND no codex-editor pin is active (pinned version owns the floor while active).
+                // AND no codex-editor pin is active (the Conductor owns the floor while active).
                 if (versions.codexEditor !== undefined) {
-                    if (!pinnedExtensions["codex-editor"]?.version) {
+                    if (!pinnedExtensions["project-accelerate.codex-editor-extension"]?.version) {
                         const existingVersion = metadata.meta.requiredExtensions.codexEditor;
                         if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
                             metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
@@ -344,7 +344,7 @@ export class MetadataManager {
                 // Only update frontierAuthentication if new version is greater or missing,
                 // AND no frontier-authentication pin is active.
                 if (versions.frontierAuthentication !== undefined) {
-                    if (!pinnedExtensions["frontier-authentication"]?.version) {
+                    if (!pinnedExtensions["frontier-rnd.frontier-authentication"]?.version) {
                         const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
                         if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
                             metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
@@ -420,7 +420,7 @@ export class MetadataManager {
             const pinnedExtensions = fullMetadata.metadata?.meta?.pinnedExtensions || {};
 
             // Check codexEditor - update if missing or if installed version is newer
-            if (codexEditorVersion && !pinnedExtensions['codex-editor']) {
+            if (codexEditorVersion && !pinnedExtensions['project-accelerate.codex-editor-extension']) {
                 if (!existingVersions.codexEditor) {
                     versionsToUpdate.codexEditor = codexEditorVersion;
                 } else if (compareVersions(codexEditorVersion, existingVersions.codexEditor) > 0) {
@@ -429,7 +429,7 @@ export class MetadataManager {
             }
 
             // Check frontierAuthentication - update if missing or if installed version is newer
-            if (frontierAuthVersion && !pinnedExtensions['frontier-authentication']) {
+            if (frontierAuthVersion && !pinnedExtensions['frontier-rnd.frontier-authentication']) {
                 if (!existingVersions.frontierAuthentication) {
                     versionsToUpdate.frontierAuthentication = frontierAuthVersion;
                 } else if (compareVersions(frontierAuthVersion, existingVersions.frontierAuthentication) > 0) {

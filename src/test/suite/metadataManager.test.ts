@@ -236,7 +236,7 @@ suite('MetadataManager Tests', () => {
             const initial = {
                 meta: {
                     requiredExtensions: { codexEditor: '0.22.90' },
-                    pinnedExtensions: { 'codex-editor': { version: '0.22.90' } }
+                    pinnedExtensions: { 'project-accelerate.codex-editor-extension': { version: '0.22.90' } }
                 }
             };
             await vscode.workspace.fs.writeFile(metadataPath,
@@ -256,7 +256,7 @@ suite('MetadataManager Tests', () => {
             const initial = {
                 meta: {
                     requiredExtensions: { frontierAuthentication: '0.4.0' },
-                    pinnedExtensions: { 'frontier-authentication': { version: '0.4.0' } }
+                    pinnedExtensions: { 'frontier-rnd.frontier-authentication': { version: '0.4.0' } }
                 }
             };
             await vscode.workspace.fs.writeFile(metadataPath,
@@ -275,7 +275,7 @@ suite('MetadataManager Tests', () => {
             const initial = {
                 meta: {
                     requiredExtensions: { codexEditor: '0.22.90', frontierAuthentication: '0.4.0' },
-                    pinnedExtensions: { 'codex-editor': { version: '0.22.90' } }
+                    pinnedExtensions: { 'project-accelerate.codex-editor-extension': { version: '0.22.90' } }
                 }
             };
             await vscode.workspace.fs.writeFile(metadataPath,
