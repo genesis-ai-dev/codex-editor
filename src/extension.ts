@@ -58,6 +58,9 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
+import { checkTools, getUnavailableTools, isAudioToolRequired, markAudioToolRequired } from "./utils/toolsManager";
+import { downloadFFmpeg, downloadFFprobe } from "./utils/ffmpegManager";
+import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
@@ -437,11 +440,126 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch (error: any) {
             console.error("[SQLite] Failed to set up native binary:", error?.message || error);
             console.error("[SQLite] Stack:", error?.stack);
-            vscode.window.showWarningMessage(
-                "SQLite native module could not be loaded. Search features will be unavailable."
-            );
+            // Don't show a notification here — the MissingToolsWarning webview
+            // will handle this if SQLite remains unavailable after all retries.
         }
         stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
+
+        // Auto-detect system ffmpeg/ffprobe and mark as required if present.
+        // This ensures that if the user already has them installed, future
+        // startups will verify they're still available.
+        const audioToolsStart = globalThis.performance.now();
+        try {
+            const { checkAudioToolsAvailable } = await import("./utils/ffmpegManager");
+            if (!isAudioToolRequired(context, "ffmpeg") || !isAudioToolRequired(context, "ffprobe")) {
+                const available = await checkAudioToolsAvailable();
+                if (available) {
+                    await markAudioToolRequired(context, "ffmpeg");
+                    await markAudioToolRequired(context, "ffprobe");
+                    console.info("[Extension] FFmpeg/FFprobe detected on system — marked as required");
+                }
+            }
+        } catch (error) {
+            console.error("[Extension] Error detecting audio tools:", error);
+        }
+
+        // Download audio tools if required but missing
+        try {
+            const ffmpegNeeded = isAudioToolRequired(context, "ffmpeg");
+            const ffprobeNeeded = isAudioToolRequired(context, "ffprobe");
+            if (ffmpegNeeded || ffprobeNeeded) {
+                updateSplashScreenSync(0, "Setting up audio tools...");
+                const downloads: Promise<string | null>[] = [];
+                if (ffmpegNeeded) {
+                    downloads.push(downloadFFmpeg(context));
+                }
+                if (ffprobeNeeded) {
+                    downloads.push(downloadFFprobe(context));
+                }
+                await Promise.all(downloads);
+            }
+        } catch (error) {
+            console.error("[Extension] Error downloading audio tools:", error);
+        }
+        stepStart = trackTiming("Setting up audio tools", audioToolsStart);
+
+        // Run a fresh tool availability check after all download attempts
+        const toolCheckStart = globalThis.performance.now();
+        let toolCheckResult: Awaited<ReturnType<typeof checkTools>>;
+        let unavailableTools: string[];
+        try {
+            toolCheckResult = await checkTools(context, authApi);
+            unavailableTools = getUnavailableTools(toolCheckResult);
+        } catch (error) {
+            console.error("[Extension] checkTools() threw unexpectedly:", error);
+            toolCheckResult = { git: false, sqlite: false, ffmpeg: null, ffprobe: null };
+            unavailableTools = getUnavailableTools(toolCheckResult);
+        }
+        stepStart = trackTiming("Checking tool availability", toolCheckStart);
+
+        const ff = (v: boolean | null) => v === null ? "not required" : v ? "ok" : "MISSING";
+        console.info(
+            `[Extension] Tools status — git: ${toolCheckResult.git ? "ok" : "MISSING"}, sqlite: ${toolCheckResult.sqlite ? "ok" : "MISSING"}, ffmpeg: ${ff(toolCheckResult.ffmpeg)}, ffprobe: ${ff(toolCheckResult.ffprobe)}`
+        );
+
+        if (unavailableTools.length > 0) {
+            console.warn(
+                "[Extension] Unavailable tools after download attempts:",
+                unavailableTools.join(", ")
+            );
+
+            const warningProvider = new MissingToolsWarningProvider(context);
+            context.subscriptions.push(warningProvider);
+
+            // Close splash immediately (no animation) so it doesn't fight
+            // for focus with the warning panel.
+            closeSplashScreen();
+            // Wait for the 1500ms close animation to complete before showing
+            // the warning panel, so there's no panel overlap/race.
+            await new Promise((r) => setTimeout(r, 1700));
+
+            const userAction = await warningProvider.show(
+                toolCheckResult,
+                async () => {
+                    // Always re-check what's currently missing before retrying,
+                    // so we don't skip tools that a previous retry didn't fix.
+                    const current = await checkTools(context, authApi).catch(() => toolCheckResult);
+
+                    if (!current.git) {
+                        try {
+                            await authApi?.retryGitBinaryDownload?.();
+                        } catch (e) {
+                            console.error("[Extension] Git binary retry failed:", e);
+                        }
+                    }
+                    if (!current.sqlite) {
+                        try {
+                            const binaryPath = await ensureSqliteNativeBinary(context);
+                            initNativeSqlite(binaryPath);
+                        } catch (e) {
+                            console.error("[Extension] SQLite retry failed:", e);
+                        }
+                    }
+                    if (current.ffmpeg === false) {
+                        try { await downloadFFmpeg(context); } catch (e) {
+                            console.error("[Extension] FFmpeg retry failed:", e);
+                        }
+                    }
+                    if (current.ffprobe === false) {
+                        try { await downloadFFprobe(context); } catch (e) {
+                            console.error("[Extension] FFprobe retry failed:", e);
+                        }
+                    }
+                    return checkTools(context, authApi).catch(() => current);
+                }
+            );
+
+            if (userAction === "blocked" && !toolCheckResult.sqlite) {
+                // SQLite is missing and the user closed the panel without
+                // continuing. The extension cannot function without SQLite.
+                return;
+            }
+        }
 
         // Check for pending update (swap) downloads (after workspace is ready)
         if (workspaceFolders && workspaceFolders.length > 0) {
@@ -631,6 +749,22 @@ export async function activate(context: vscode.ExtensionContext) {
         autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
         autoCompleteStatusBarItem.hide();
         context.subscriptions.push(autoCompleteStatusBarItem);
+
+        if (!toolCheckResult.git) {
+            const gitStatusBarItem = vscode.window.createStatusBarItem(
+                vscode.StatusBarAlignment.Left,
+                0
+            );
+            gitStatusBarItem.text = "$(warning) Offline (missing sync tools)";
+            gitStatusBarItem.tooltip =
+                "Git sync tools could not be downloaded. Sync and collaboration features are unavailable. Download the Codex application from codexeditor.app for full support.";
+            gitStatusBarItem.backgroundColor = new vscode.ThemeColor(
+                "statusBarItem.warningBackground"
+            );
+            gitStatusBarItem.show();
+            context.subscriptions.push(gitStatusBarItem);
+        }
+
         stepStart = trackTiming("Initializing Status Bar", statusBarStart);
 
         // Show activation summary

@@ -2234,3 +2234,12 @@ type EditorReceiveMessages =
         totalMatches: number;
         error?: string;
     };
+
+export type MessagesToMissingToolsWarning =
+    | { command: "showWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean | null; ffprobe: boolean | null }
+    | { command: "updateWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean | null; ffprobe: boolean | null };
+
+export type MessagesFromMissingToolsWarning =
+    | { command: "retry" }
+    | { command: "continue" }
+    | { command: "openDownloadPage" };
