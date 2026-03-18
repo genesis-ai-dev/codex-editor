@@ -37,6 +37,10 @@ function ParallelView() {
     );
     const [forceReplaceExpanded, setForceReplaceExpanded] = useState(false);
     const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+    const [highlightSearchResults, setHighlightSearchResults] = useState<boolean>(() => {
+        const saved = localStorage.getItem("highlightSearchResults");
+        return saved !== null ? saved === "true" : true;
+    });
 
     // Auto-reset pin filter when all pins are removed
     useEffect(() => {
@@ -299,6 +303,12 @@ function ParallelView() {
                     }
                     break;
                 }
+                case "setHighlightSearchResults": {
+                    const value = message.value as boolean;
+                    setHighlightSearchResults(value);
+                    localStorage.setItem("highlightSearchResults", String(value));
+                    break;
+                }
             }
         };
 
@@ -443,6 +453,7 @@ function ParallelView() {
                 forceReplaceExpanded={forceReplaceExpanded}
                 showPinnedOnly={showPinnedOnly}
                 onTogglePinnedFilter={() => setShowPinnedOnly((prev) => !prev)}
+                highlightSearchResults={highlightSearchResults}
             />
         </div>
     );
