@@ -1,7 +1,7 @@
-import React, { useRef, useState } from "react";
+import React, { useRef } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
-import type { QuillCellContent, SpellCheckResponse, MilestoneIndex } from "../../../../../types";
+import type { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { useVSCodeMessageHandler } from "../hooks/useVSCodeMessageHandler";
 
 /**
@@ -54,9 +54,6 @@ function StaleGuardHarness(props: {
     /** Called when setContentPaginated rejects a stale message */
     onRejected: (milestoneIdx: number, subsectionIdx: number) => void;
 }) {
-    const [spell, setSpell] = useState<SpellCheckResponse | null>(null);
-    void spell;
-
     // Mirrors CodexCellEditor.tsx refs
     const currentMilestoneIndexRef = useRef<number>(0);
     const currentSubsectionIndexRef = useRef<number>(0);
@@ -94,15 +91,12 @@ function StaleGuardHarness(props: {
 
     useVSCodeMessageHandler({
         setContent: () => {},
-        setSpellCheckResponse: setSpell,
         jumpToCell: () => {},
         updateCell: () => {},
         autocompleteChapterComplete: () => {},
         updateTextDirection: () => {},
         updateNotebookMetadata: () => {},
         updateVideoUrl: () => {},
-        setAlertColorCodes: () => {},
-        recheckAlertCodes: () => {},
         setAudioAttachments: () => {},
         setContentPaginated,
         handleCellPage: () => {},

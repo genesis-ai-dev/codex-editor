@@ -8,8 +8,6 @@ import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import {
     QuillCellContent,
-    SpellCheckResponse,
-    AlertCodesServerResponse,
     ValidationEntry,
 } from "../../../types";
 import path from "path";
@@ -23,13 +21,6 @@ import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
-// Comment out problematic imports
-// import { getAddWordToSpellcheckApi } from "../../extension";
-// import { getSimilarCellIds } from "@/utils/semanticSearch";
-// import { getSpellCheckResponseForText } from "../../extension";
-// import { ChapterGenerationManager } from "./chapterGenerationManager";
-// import { generateBackTranslation, editBacktranslation, getBacktranslation, setBacktranslation } from "../../backtranslation";
-// import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -551,14 +542,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    addWord: async ({ event, webviewPanel }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "addWord"; }>;
-        await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);
-        safePostMessageToPanel(webviewPanel, {
-            type: "wordAdded",
-            content: typedEvent.words,
-        });
-    },
 
     getCommentsForCell: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getCommentsForCell"; }>;
@@ -681,75 +664,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    "from-quill-spellcheck-getSpellCheckResponse": async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "from-quill-spellcheck-getSpellCheckResponse"; }>;
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-        if (!spellcheckEnabled) {
-            return;
-        }
-
-        const response = await vscode.commands.executeCommand(
-            "codex-editor-extension.spellCheckText",
-            typedEvent.content.cellContent
-        );
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsSpellCheckResponse",
-            content: response as SpellCheckResponse,
-        });
-    },
-
-    getAlertCodes: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes"; }>;
-
-        try {
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-
-            if (!spellcheckEnabled) {
-                debug("[Message Handler] Spellcheck is disabled, skipping alert codes");
-                return;
-            }
-
-            const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
-                "codex-editor-extension.alertCodes",
-                typedEvent.content
-            );
-
-            const content: { [cellId: string]: number; } = {};
-            result.forEach((item) => {
-                content[item.cellId] = item.code;
-            });
-
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        } catch (error) {
-            console.error("[Message Handler] Failed to get alert codes:", {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                requestedCells: typedEvent?.content?.length || 0,
-                cellIds: typedEvent?.content?.map(item => item.cellId) || [],
-                errorType: error instanceof Error ? error.constructor.name : typeof error
-            });
-
-            // Provide fallback response with empty codes for all requested cells
-            const content: { [cellId: string]: number; } = {};
-            if (typedEvent?.content && Array.isArray(typedEvent.content)) {
-                typedEvent.content.forEach((item) => {
-                    content[item.cellId] = 0; // 0 = no alerts
-                });
-            }
-
-            // Always send a response to prevent webview from waiting indefinitely
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        }
-    },
-
     saveHtml: async ({ event, document, provider, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
         const requestId = typedEvent.requestId;
@@ -794,13 +708,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
 
         if (oldText !== newText) {
-            if (!isSourceText) {
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.recordIceEdit",
-                    oldText,
-                    newText
-                );
-            }
             provider.updateFileStatus("dirty");
         }
 
@@ -1260,7 +1167,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
-        vscode.window.showInformationMessage("Notebook metadata updated successfully.");
+        vscode.window.showInformationMessage("Notebook details updated.");
         provider.refreshWebview(webviewPanel, document);
     },
 
@@ -1299,16 +1206,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    supplyRecentEditHistory: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
-        debug("supplyRecentEditHistory message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.supplyRecentEditHistory",
-            typedEvent.content.cellId,
-            typedEvent.content.editHistory
-        );
-    },
-
     exportFile: async ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile"; }>;
         const notebookName = path.parse(document.uri.fsPath).name;
@@ -1342,16 +1239,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.commands.executeCommand("codex-project-manager.openStartupFlow", {
             forceLogin: true,
         });
-    },
-
-    togglePinPrompt: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt"; }>;
-        debug("togglePinPrompt message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.togglePinPrompt",
-            typedEvent.content.cellId,
-            typedEvent.content.promptText
-        );
     },
 
     generateBacktranslation: async ({ event, webviewPanel, provider, document }) => {
@@ -1427,14 +1314,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerConfirmsBacktranslationSet",
             content: backtranslation,
         });
-    },
-
-    rejectEditSuggestion: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion"; }>;
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.rejectEditSuggestion",
-            typedEvent.content
-        );
     },
 
     webviewFocused: ({ event, provider }) => {
@@ -1586,7 +1465,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     togglePrimarySidebar: async () => {
-        vscode.window.showInformationMessage("togglePrimarySidebar");
+        // No user notification needed - just toggle the sidebar
         await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
         await vscode.commands.executeCommand("codex-editor.navigation.focus");
     },
@@ -1784,7 +1663,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 await provider.unmergeMatchingCellsInTargetFile(cellId, document.uri.toString(), workspaceFolder);
             } else {
                 console.warn("No workspace folder found, skipping target file unmerge");
-                vscode.window.showWarningMessage("Could not unmerge corresponding cell in target file - no workspace folder found");
+                vscode.window.showWarningMessage("Could not fully undo the merge — no project folder found.");
             }
 
             // Refresh the webview to show the updated state
@@ -3205,6 +3084,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Mark the document as dirty manually since we bypassed the normal update methods
             (document as any)._isDirty = true;
+            (document as any)._dirtyCellIds.add(previousCellId);
 
             // 6. Mark current cell as merged by updating its data
             const currentCellData = document.getCellData(currentCellId) || {};

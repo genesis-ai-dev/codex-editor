@@ -1,6 +1,6 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useNetworkState } from "@uidotdev/usehooks";
-import { vscode } from "../EditableReactTable/utilities/vscode";
+
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -15,10 +15,12 @@ interface SyncSettingsProps {
     isImportInProgress?: boolean;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
+    isGitAvailable?: boolean;
     onToggleAutoSync: (enabled: boolean) => void;
     onChangeSyncDelay: (minutes: number) => void;
     onTriggerSync: () => void;
     onLogin: () => void;
+    onDownloadSyncRuntime?: () => void;
 }
 
 export const SyncSettings: React.FC<SyncSettingsProps> = ({
@@ -29,50 +31,15 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     isImportInProgress = false,
     isFrontierExtensionEnabled,
     isAuthenticated,
+    isGitAvailable = true,
     onToggleAutoSync,
     onChangeSyncDelay,
     onTriggerSync,
     onLogin,
+    onDownloadSyncRuntime,
 }) => {
     const network = useNetworkState();
-    const isOnline = network?.online ?? true; // Default to true if network state is unavailable
-
-    // UI Polling Fallback: Verify sync state every 5 seconds when sync is in progress
-    // This prevents UI from getting stuck if backend state changes (crash, completion, etc.)
-    useEffect(() => {
-        if (!isSyncInProgress) {
-            return; // No need to poll when not syncing
-        }
-
-        const pollInterval = setInterval(() => {
-            // Request lock status check from backend
-            if (typeof vscode !== "undefined") {
-                vscode.postMessage({ type: "checkSyncLock" });
-            }
-        }, 5000); // Poll every 5 seconds
-
-        return () => clearInterval(pollInterval);
-    }, [isSyncInProgress]);
-
-    // Listen for lock status responses
-    useEffect(() => {
-        const handler = (event: MessageEvent) => {
-            if (event.data.type === "syncLockStatus") {
-                // If lock doesn't exist but UI thinks sync is in progress, request refresh
-                if (!event.data.exists && isSyncInProgress) {
-                    console.log(
-                        "[SyncSettings] Lock released but UI still shows syncing, requesting state refresh"
-                    );
-                    if (typeof vscode !== "undefined") {
-                        vscode.postMessage({ type: "refreshSyncState" });
-                    }
-                }
-            }
-        };
-
-        window.addEventListener("message", handler);
-        return () => window.removeEventListener("message", handler);
-    }, [isSyncInProgress]);
+    const isOnline = network?.online ?? true;
 
     return (
         <Card
@@ -97,22 +64,26 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </CardTitle>
                     <Button
                         onClick={() => {
-                            if (!isAuthenticated) {
+                            if (!isGitAvailable && onDownloadSyncRuntime) {
+                                onDownloadSyncRuntime();
+                            } else if (!isAuthenticated) {
                                 onLogin();
                             } else {
                                 onTriggerSync();
                             }
                         }}
                         disabled={
-                            isSyncInProgress ||
-                            isImportInProgress ||
-                            !isOnline ||
-                            !isFrontierExtensionEnabled
+                            (!isGitAvailable && !onDownloadSyncRuntime) ||
+                            (isGitAvailable && (
+                                isSyncInProgress ||
+                                isImportInProgress ||
+                                !isOnline ||
+                                !isFrontierExtensionEnabled
+                            ))
                         }
                         size="default"
                         className="button-primary font-semibold py-2 text-sm xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[160px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none relative pl-10 pr-3 xl:pl-12 xl:pr-4"
                     >
-                        {/* Icon container - positioned absolutely on the left */}
                         <div 
                             className="absolute left-0 top-0 bottom-0 w-10 xl:w-12 flex items-center justify-center"
                             style={{
@@ -123,7 +94,9 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         >
                             <i
                                 className={`codicon ${
-                                    isSyncInProgress
+                                    !isGitAvailable
+                                        ? "codicon-cloud-download"
+                                        : isSyncInProgress
                                         ? "codicon-loading codicon-modifier-spin"
                                         : "codicon-sync"
                                 }`}
@@ -140,9 +113,10 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             />
                         </div>
                         
-                        {/* Text - now has left padding to avoid the icon area */}
                         <span className="hidden sm:inline">
-                            {!isOnline
+                            {!isGitAvailable
+                                ? "Set Up Sync"
+                                : !isOnline
                                 ? "Offline"
                                 : isSyncInProgress
                                 ? syncStage || "Syncing..."
@@ -151,7 +125,9 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                 : "Sync Now"}
                         </span>
                         <span className="sm:hidden">
-                            {!isOnline
+                            {!isGitAvailable
+                                ? "Download"
+                                : !isOnline
                                 ? "Offline"
                                 : isSyncInProgress
                                 ? "Syncing"
@@ -163,19 +139,32 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                 </div>
             </CardHeader>
             <CardContent className="space-y-6">
-                {!isFrontierExtensionEnabled && (
+                {!isGitAvailable && (
                     <Alert variant="destructive">
                         <AlertDescription>
                             <div className="flex">
-                                <i className="codicon codicon-warning h-4 w-4" />
+                                <i className="codicon codicon-cloud-download h-4 w-4" />
                                 <span className="ml-2">
-                                    Enable the Frontier Authentication extension to sync
+                                    Sync is not set up yet. Click the button above to download and
+                                    enable syncing.
                                 </span>
                             </div>
                         </AlertDescription>
                     </Alert>
                 )}
-                {isFrontierExtensionEnabled && !isAuthenticated && (
+                {isGitAvailable && !isFrontierExtensionEnabled && (
+                    <Alert variant="destructive">
+                        <AlertDescription>
+                            <div className="flex">
+                                <i className="codicon codicon-warning h-4 w-4" />
+                                <span className="ml-2">
+                                    Please enable Frontier Authentication to use sync
+                                </span>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                )}
+                {isGitAvailable && isFrontierExtensionEnabled && !isAuthenticated && (
                     <Alert variant="destructive" className="hidden">
                         <AlertDescription>
                             <div className="flex">
@@ -185,7 +174,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         </AlertDescription>
                     </Alert>
                 )}
-                {!isOnline && (
+                {isGitAvailable && !isOnline && (
                     <Alert variant="destructive">
                         <i className="codicon codicon-warning h-4 w-4" />
                         <AlertDescription>
@@ -194,7 +183,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                         </AlertDescription>
                     </Alert>
                 )}
-                {isFrontierExtensionEnabled && isAuthenticated && (
+                {isGitAvailable && isFrontierExtensionEnabled && isAuthenticated && (
                     <div
                         className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200 flex-wrap gap-2"
                         style={{
@@ -230,7 +219,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </div>
                 )}
 
-                {autoSyncEnabled && isOnline && isFrontierExtensionEnabled && isAuthenticated && (
+                {isGitAvailable && autoSyncEnabled && isOnline && isFrontierExtensionEnabled && isAuthenticated && (
                     <div
                         className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300 flex-wrap gap-2"
                         style={{

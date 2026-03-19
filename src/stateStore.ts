@@ -1,17 +1,7 @@
 import * as vscode from "vscode";
-import { CellIdGlobalState, SelectedTextDataWithContext } from "../types";
+import { CellIdGlobalState } from "../types";
 type StateStoreUpdate =
-    | { key: "cellId"; value: CellIdGlobalState }
-    | { key: "uri"; value: string | null }
-    | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
-    | { key: "plainTextNotes"; value: string }
-    | { key: "apiKey"; value: string }
-    | { key: "verseRef"; value: { verseRef: string; uri: string } }
-    | { key: "cellId"; value: CellIdGlobalState }
-    | {
-          key: "sourceCellMap";
-          value: { [k: string]: { content: string; versions: string[] } };
-      };
+    | { key: "cellId"; value: CellIdGlobalState };
 
 type StateStoreKey = StateStoreUpdate["key"];
 type StateStoreValue<K extends StateStoreKey> = Extract<StateStoreUpdate, { key: K }>["value"];
