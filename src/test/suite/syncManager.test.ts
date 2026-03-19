@@ -102,6 +102,11 @@ suite('SyncManager VS Code Version Warning Tests', () => {
         syncManager = SyncManager.getInstance();
     });
 
+    let connectivityModule: any;
+    let isOnlineStub: sinon.SinonStub;
+    let dugiteModule: any;
+    let listRemotesStub: sinon.SinonStub;
+
     setup(async () => {
         // Restore any existing stubs first to avoid double-wrapping errors
         sinon.restore();
@@ -128,9 +133,19 @@ suite('SyncManager VS Code Version Warning Tests', () => {
         versionChecksModule = await import('../../projectManager/utils/versionChecks');
         getFrontierVersionStatusStub = sinon.stub(versionChecksModule, 'getFrontierVersionStatus').resolves({
             ok: true,
-            installedVersion: '0.4.18',
-            requiredVersion: '0.4.18'
+            installedVersion: '0.4.24',
+            requiredVersion: '0.4.24'
         });
+
+        // Stub isOnline to return true so executeSync doesn't bail out early
+        connectivityModule = await import('../../utils/connectivityChecker');
+        isOnlineStub = sinon.stub(connectivityModule, 'isOnline').resolves(true);
+
+        // Stub dugiteGit.listRemotes so the "no git remote" check doesn't exit early
+        dugiteModule = await import('../../utils/dugiteGit');
+        listRemotesStub = sinon.stub(dugiteModule, 'listRemotes').resolves([
+            { remote: 'origin', url: 'https://example.com/repo.git' }
+        ]);
 
         // Stub VS Code APIs
         showInformationMessageStub = sinon.stub(vscode.window, 'showInformationMessage');
@@ -138,31 +153,6 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     });
 
     teardown(() => {
-        // Restore all stubs
-        if (checkVSCodeVersionStub) {
-            checkVSCodeVersionStub.restore();
-        }
-        if (getFrontierVersionStatusStub) {
-            getFrontierVersionStatusStub.restore();
-        }
-        if (getAuthApiStub) {
-            getAuthApiStub.restore();
-        }
-        // Restore VS Code API stubs if they exist
-        try {
-            if (showInformationMessageStub && typeof showInformationMessageStub.restore === 'function') {
-                showInformationMessageStub.restore();
-            }
-        } catch {
-            // Already restored or not a stub
-        }
-        try {
-            if (openExternalStub && typeof openExternalStub.restore === 'function') {
-                openExternalStub.restore();
-            }
-        } catch {
-            // Already restored or not a stub
-        }
         sinon.restore();
     });
 
