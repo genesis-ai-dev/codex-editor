@@ -2,6 +2,12 @@ import * as vscode from "vscode";
 import path from "path";
 import { toPosixPath, normalizeAttachmentUrl } from "./pathUtils";
 import type { CodexCellDocument } from "../providers/codexCellEditorProvider/codexDocument";
+import type { AttachmentAvailability } from "../../types";
+import {
+    determineAttachmentAvailability,
+    applyFrontierVersionGate,
+    type AudioAvailabilityState,
+} from "./audioAvailabilityUtils";
 
 /**
  * Checks whether a pointer file exists for a given attachment URL.
@@ -48,7 +54,6 @@ async function ensurePointerFromFiles(
         ...pointersPosix.split("/").filter(Boolean)
     );
 
-    // Check files exists
     let fileExists = false;
     try {
         await vscode.workspace.fs.stat(fileUri);
@@ -58,7 +63,6 @@ async function ensurePointerFromFiles(
     }
     if (!fileExists) return false;
 
-    // If pointer already exists, done
     try {
         await vscode.workspace.fs.stat(pointerUri);
         return true;
@@ -66,7 +70,6 @@ async function ensurePointerFromFiles(
 
     try {
         const bytes = await vscode.workspace.fs.readFile(fileUri);
-        // Ensure parent directory exists
         const pointerDir = vscode.Uri.file(path.posix.dirname(pointerUri.fsPath));
         try { await vscode.workspace.fs.createDirectory(pointerDir); } catch { /* ignore */ }
         await vscode.workspace.fs.writeFile(pointerUri, bytes);
@@ -77,56 +80,190 @@ async function ensurePointerFromFiles(
 }
 
 /**
- * Revalidates and updates isMissing flags for all audio attachments on a specific cell.
- * Returns true if any flag changed.
+ * Compute the on-disk audio availability for a single attachment URL.
+ * Performs filesystem stat + LFS pointer checks but does NOT mutate the document.
  */
-export async function revalidateCellMissingFlags(
+async function computeAttachmentAvailabilityFromDisk(
+    workspaceFolder: vscode.WorkspaceFolder,
+    url: string,
+): Promise<AttachmentAvailability> {
+    let existsInPointers = await attachmentPointerExists(workspaceFolder, url);
+    if (!existsInPointers) {
+        existsInPointers = await ensurePointerFromFiles(workspaceFolder, url);
+    }
+
+    return existsInPointers
+        ? await determineAttachmentAvailability(workspaceFolder, url)
+        : "missing" as AttachmentAvailability;
+}
+
+/**
+ * Compute the overall audio availability state for a single cell by checking the
+ * filesystem. Returns an AudioAvailabilityState without mutating the document.
+ *
+ * Priority: available-local > available-pointer > missing > deletedOnly > none
+ */
+export async function computeCellAudioAvailabilityFromDisk(
     document: CodexCellDocument,
     workspaceFolder: vscode.WorkspaceFolder,
-    cellId: string
-): Promise<boolean> {
+    cellId: string,
+): Promise<AudioAvailabilityState> {
     try {
         const cell = (document as any)._documentData?.cells?.find(
             (c: any) => c?.metadata?.id === cellId
         );
-        if (!cell?.metadata?.attachments) return false;
+        if (!cell?.metadata?.attachments) return "none";
 
-        let changed = false;
-        for (const [attId, attVal] of Object.entries(cell.metadata.attachments) as [string, any][]) {
+        let hasAvailableLocal = false;
+        let hasAvailablePointer = false;
+        let hasMissing = false;
+        let hasDeleted = false;
+
+        for (const attVal of Object.values(cell.metadata.attachments) as any[]) {
             if (!attVal || typeof attVal !== "object") continue;
             if (attVal.type !== "audio") continue;
-            const url: string | undefined = attVal.url;
-            if (!url || typeof url !== "string") continue;
-
-            // If the file exists but pointer is missing, try to restore the pointer now
-            let existsInPointers = await attachmentPointerExists(workspaceFolder, url);
-            if (!existsInPointers) {
-                existsInPointers = await ensurePointerFromFiles(workspaceFolder, url);
+            if (attVal.isDeleted) {
+                hasDeleted = true;
+                continue;
             }
-            const desiredMissing = !existsInPointers;
-            // Use shared util to set flag and bump updatedAt only when changed
-            const updated = { ...attVal };
-            if (setMissingFlagOnAttachmentObject(updated, desiredMissing)) {
-                document.updateCellAttachment(cellId, attId, updated);
-                changed = true;
+
+            const url: string | undefined = attVal.url;
+            if (!url || typeof url !== "string") {
+                hasMissing = true;
+                continue;
+            }
+
+            const availability = await computeAttachmentAvailabilityFromDisk(workspaceFolder, url);
+            switch (availability) {
+                case "available-local":
+                    hasAvailableLocal = true;
+                    break;
+                case "available-pointer":
+                    hasAvailablePointer = true;
+                    break;
+                case "missing":
+                    hasMissing = true;
+                    break;
             }
         }
-        return changed;
+
+        if (hasAvailableLocal) return "available-local";
+        if (hasAvailablePointer) return "available-pointer";
+        if (hasMissing) return "missing";
+        if (hasDeleted) return "deletedOnly";
+        return "none";
     } catch (err) {
-        console.error("Failed to revalidate missing flags for cell", { cellId, err });
-        return false;
+        console.error("Failed to compute audio availability for cell", { cellId, err });
+        return "none";
     }
 }
 
 /**
- * Sets the isMissing flag on an attachment object and updates updatedAt when changed.
+ * Resolve the Frontier version gate once and return a function that applies it.
+ * Avoids repeated dynamic imports and async calls when processing many cells.
+ */
+async function resolveVersionGate(): Promise<(state: AudioAvailabilityState) => AudioAvailabilityState> {
+    try {
+        const { getFrontierVersionStatus } = await import(
+            "../projectManager/utils/versionChecks"
+        );
+        const status = await getFrontierVersionStatus();
+        if (!status.ok) {
+            return (state) => {
+                if (
+                    state === "available-local" ||
+                    state === "missing" ||
+                    state === "deletedOnly" ||
+                    state === "none"
+                ) {
+                    return state;
+                }
+                return "available-pointer";
+            };
+        }
+    } catch {
+        // Version check unavailable — pass through unchanged
+    }
+    return (state) => state;
+}
+
+/**
+ * Compute audio availability for a specific set of cell IDs by checking the filesystem.
+ * Applies the Frontier version gate once for all cells.
+ * Returns a map of cellId → AudioAvailabilityState.
+ * Does NOT mutate or save the document.
+ */
+export async function computeCellIdsAudioAvailability(
+    document: CodexCellDocument,
+    workspaceFolder: vscode.WorkspaceFolder,
+    cellIds: string[],
+): Promise<Record<string, AudioAvailabilityState>> {
+    const result: Record<string, AudioAvailabilityState> = {};
+    if (cellIds.length === 0) return result;
+
+    try {
+        const gate = await resolveVersionGate();
+
+        for (const cellId of cellIds) {
+            const state = await computeCellAudioAvailabilityFromDisk(
+                document,
+                workspaceFolder,
+                cellId,
+            );
+            result[cellId] = gate(state);
+        }
+    } catch (err) {
+        console.error("Failed to compute audio availability for cells", err);
+    }
+
+    return result;
+}
+
+/**
+ * Compute audio availability for ALL cells with audio in a document.
+ * Applies the Frontier version gate once for all cells.
+ * Returns a map of cellId → AudioAvailabilityState.
+ * Does NOT mutate or save the document.
+ */
+export async function computeDocumentAudioAvailability(
+    document: CodexCellDocument,
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<Record<string, AudioAvailabilityState>> {
+    try {
+        const cells = (document as any)._documentData?.cells || [];
+        const audioCellIds: string[] = [];
+
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (!cellId || !cell?.metadata?.attachments) continue;
+
+            const hasAudio = Object.values(cell.metadata.attachments).some(
+                (att: any) => att?.type === "audio"
+            );
+            if (hasAudio) {
+                audioCellIds.push(cellId);
+            }
+        }
+
+        return computeCellIdsAudioAvailability(document, workspaceFolder, audioCellIds);
+    } catch (err) {
+        console.error("Failed to compute document audio availability", err);
+        return {};
+    }
+}
+
+/**
+ * Sets the audioAvailability field on an attachment object and updates updatedAt when changed.
+ * Also sets the deprecated isMissing field for backward compatibility.
+ * Intended for genuine write events only (recording, importing, deleting).
  * Returns true if the object was modified.
  */
-export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boolean): boolean {
+export function setAttachmentAvailability(att: any, availability: AttachmentAvailability): boolean {
     try {
-        const current = att?.isMissing ?? false;
-        if (current !== desiredMissing) {
-            att.isMissing = desiredMissing;
+        const current = att?.audioAvailability;
+        if (current !== availability) {
+            att.audioAvailability = availability;
+            att.isMissing = availability === "missing";
             att.updatedAt = Date.now();
             return true;
         }
@@ -136,4 +273,92 @@ export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boole
     }
 }
 
+/**
+ * @deprecated Use setAttachmentAvailability instead.
+ * Kept for backward compatibility during migration window.
+ */
+export function setMissingFlagOnAttachmentObject(att: any, desiredMissing: boolean): boolean {
+    const availability: AttachmentAvailability = desiredMissing ? "missing" : "available-local";
+    return setAttachmentAvailability(att, availability);
+}
 
+/**
+ * Revalidates the audioAvailability field on each audio attachment for a cell
+ * by checking the filesystem. Uses patchAttachmentAvailability to update only
+ * availability metadata without triggering auto-selection or edit history entries.
+ *
+ * Returns true if any attachment was updated (caller should save the document).
+ */
+export async function revalidateCellAttachmentAvailability(
+    document: CodexCellDocument,
+    workspaceFolder: vscode.WorkspaceFolder,
+    cellId: string,
+): Promise<boolean> {
+    try {
+        const cell = (document as any)._documentData?.cells?.find(
+            (c: any) => c?.metadata?.id === cellId
+        );
+        if (!cell?.metadata?.attachments) return false;
+
+        let changed = false;
+        const attachments = cell.metadata.attachments as Record<string, any>;
+
+        for (const [attId, attVal] of Object.entries(attachments)) {
+            if (!attVal || typeof attVal !== "object") continue;
+            if (attVal.type !== "audio") continue;
+            if (attVal.isDeleted) continue;
+
+            const url: string | undefined = attVal.url;
+            if (!url || typeof url !== "string") continue;
+
+            const diskAvailability = await computeAttachmentAvailabilityFromDisk(workspaceFolder, url);
+            if (document.patchAttachmentAvailability(cellId, attId, diskAvailability)) {
+                changed = true;
+            }
+        }
+
+        return changed;
+    } catch (err) {
+        console.error("Failed to revalidate attachment availability for cell", { cellId, err });
+        return false;
+    }
+}
+
+/**
+ * Revalidates audioAvailability on all audio attachments in a document by checking
+ * the filesystem. Intended to run once after document open so that subsequent
+ * metadata reads (e.g. deriveAudioAvailability in the webview) return correct values.
+ *
+ * Returns true if any attachment was updated (caller should save the document).
+ */
+export async function revalidateDocumentAttachmentAvailability(
+    document: CodexCellDocument,
+    workspaceFolder: vscode.WorkspaceFolder,
+): Promise<boolean> {
+    try {
+        const cells = (document as any)._documentData?.cells || [];
+        let changed = false;
+
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (!cellId || !cell?.metadata?.attachments) continue;
+
+            const hasAudio = Object.values(cell.metadata.attachments).some(
+                (att: any) => att?.type === "audio"
+            );
+            if (!hasAudio) continue;
+
+            const cellChanged = await revalidateCellAttachmentAvailability(
+                document,
+                workspaceFolder,
+                cellId,
+            );
+            if (cellChanged) changed = true;
+        }
+
+        return changed;
+    } catch (err) {
+        console.error("Failed to revalidate document attachment availability", err);
+        return false;
+    }
+}

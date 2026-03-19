@@ -28,7 +28,9 @@ interface AudioHistoryEntry {
         createdAt: number;
         updatedAt: number;
         isDeleted: boolean;
-        isMissing?: boolean; // Added for missing audio
+        audioAvailability?: "available-local" | "available-pointer" | "missing";
+        /** @deprecated Use audioAvailability instead */
+        isMissing?: boolean;
         validatedBy?: ValidationEntry[];
     };
 }
@@ -120,7 +122,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 // Pre-mark entries that are known missing
                 try {
                     const missingIds = (message.content.audioHistory as any[])
-                        .filter((e: any) => e?.attachment?.isMissing === true)
+                        .filter((e: any) => e?.attachment?.audioAvailability === "missing" || (e?.attachment?.audioAvailability === undefined && e?.attachment?.isMissing === true))
                         .map((e: any) => e.attachmentId);
                     if (missingIds.length > 0) {
                         setErrorIds((prev) => {
@@ -563,7 +565,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const isLoading = delayedLoadingIds.has(entry.attachmentId);
                             const hasError =
                                 errorIds.has(entry.attachmentId) ||
-                                entry.attachment?.isMissing === true;
+                                entry.attachment?.audioAvailability === "missing" ||
+                                (entry.attachment?.audioAvailability === undefined && entry.attachment?.isMissing === true);
                             const isValidating = validatingIds.has(entry.attachmentId);
 
                             // Compute validation status from attachment.validatedBy
@@ -682,7 +685,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                     DELETED
                                                 </span>
                                             )}
-                                            {entry.attachment.isMissing &&
+                                            {(entry.attachment.audioAvailability === "missing" || (entry.attachment.audioAvailability === undefined && entry.attachment.isMissing)) &&
                                                 !entry.attachment.isDeleted && (
                                                     <span
                                                         style={{

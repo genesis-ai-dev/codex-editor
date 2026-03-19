@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
-import { setMissingFlagOnAttachmentObject } from './audioMissingUtils';
+import { setAttachmentAvailability } from './audioMissingUtils';
+import { determineAttachmentAvailability } from './audioAvailabilityUtils';
 
 const DEBUG_MODE = false;
 const debug = (message: string) => {
@@ -423,12 +424,11 @@ export class AudioAttachmentsMigrator {
     }
 
     /**
-     * Scans all .codex documents and sets/unsets attachment.isMissing based on pointer existence.
-     * If a referenced file is not present in pointers/, sets isMissing=true. If present, sets isMissing=false.
+     * Scans all .codex documents and sets audioAvailability based on filesystem checks.
+     * Also migrates legacy isMissing fields to audioAvailability.
      */
     private async updateMissingFlagsForCodexDocuments(): Promise<void> {
         try {
-            // Find all codex documents
             const codexPattern = new vscode.RelativePattern(
                 this.workspaceFolder.uri,
                 "files/target/**/*.codex"
@@ -452,31 +452,15 @@ export class AudioAttachmentsMigrator {
                         if (!attachments || typeof attachments !== 'object') continue;
 
                         for (const [attId, attVal] of Object.entries(attachments) as [string, any][]) {
-                            // Only process object-style attachments (skip legacy string forms)
                             if (!attVal || typeof attVal !== 'object') continue;
                             const url: string | undefined = attVal.url;
                             if (!url || typeof url !== 'string') continue;
 
-                            // Normalize URL to files/ path then derive pointers/ path
-                            const normalizedUrl = normalizeAttachmentUrl(url) || url;
-                            const posixUrl = toPosixPath(normalizedUrl);
-                            const pointerPosix = posixUrl.includes('/attachments/files/')
-                                ? posixUrl.replace('/attachments/files/', '/attachments/pointers/')
-                                : posixUrl;
-
-                            const pointerSegments = pointerPosix.split('/').filter(Boolean);
-                            const pointerUri = vscode.Uri.joinPath(this.workspaceFolder.uri, ...pointerSegments);
-
-                            let existsInPointers = false;
-                            try {
-                                await vscode.workspace.fs.stat(pointerUri);
-                                existsInPointers = true;
-                            } catch {
-                                existsInPointers = false;
-                            }
-
-                            const desiredMissing = !existsInPointers;
-                            if (setMissingFlagOnAttachmentObject(attVal, desiredMissing)) {
+                            const availability = await determineAttachmentAvailability(
+                                this.workspaceFolder,
+                                url
+                            );
+                            if (setAttachmentAvailability(attVal, availability)) {
                                 changed = true;
                             }
                         }
@@ -485,14 +469,14 @@ export class AudioAttachmentsMigrator {
                     if (changed) {
                         const updated = JSON.stringify(data, null, 2);
                         await vscode.workspace.fs.writeFile(codexUri, new TextEncoder().encode(updated));
-                        debug(`Updated missing flags for attachments in ${codexUri.fsPath}`);
+                        debug(`Updated audioAvailability for attachments in ${codexUri.fsPath}`);
                     }
                 } catch (err) {
-                    console.error(`[AudioAttachmentsMigration] Failed to update missing flags for ${codexUri.fsPath}:`, err);
+                    console.error(`[AudioAttachmentsMigration] Failed to update availability for ${codexUri.fsPath}:`, err);
                 }
             }
         } catch (error) {
-            console.error('[AudioAttachmentsMigration] Error while updating missing flags in codex documents:', error);
+            console.error('[AudioAttachmentsMigration] Error while updating availability in codex documents:', error);
         }
     }
 

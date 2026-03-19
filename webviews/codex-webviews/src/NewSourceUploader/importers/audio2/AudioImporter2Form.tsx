@@ -639,6 +639,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                             createdAt: Date.now(),
                             updatedAt: Date.now(),
                             isDeleted: false,
+                            audioAvailability: "available-local" as const,
                         },
                     },
                     selectedAudioId: attachmentId,
