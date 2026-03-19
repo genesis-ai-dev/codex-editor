@@ -89,4 +89,39 @@ jobs:
                     -d "{\"ref\":\"refs/tags/${VERSION}\",\"sha\":\"${SHA}\"}" \
                     "https://api.github.com/repos/${REPO}/git/refs"
 
-                  echo "✅ Created tag ${VERSION} -> ${SHA}"
+                  echo "Created tag ${VERSION} -> ${SHA}"
+
+            - name: Checkout code for VSIX build
+              if: steps.version.outputs.changed == 'true'
+              run: |
+                  set -euo pipefail
+                  REPO_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+                  git init .
+                  git config --global --add safe.directory "$PWD"
+                  git remote add origin "$REPO_URL"
+                  git fetch --no-tags --prune --depth=1 origin "${{ github.ref }}"
+                  git checkout --force ${{ github.sha }}
+
+            - name: Verify Node.js
+              if: steps.version.outputs.changed == 'true'
+              run: node -v && npm -v
+
+            - name: Install dependencies and build VSIX
+              if: steps.version.outputs.changed == 'true'
+              run: |
+                  set -euo pipefail
+                  npm install --no-audit --no-fund
+                  npx vsce package -o codex-editor-extension-${{ steps.version.outputs.version }}.vsix
+
+            - name: Create GitHub Release with VSIX
+              if: steps.version.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  VERSION: ${{ steps.version.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  gh release create "${VERSION}" \
+                    "codex-editor-extension-${VERSION}.vsix" \
+                    --title "${VERSION}" \
+                    --notes "Release ${VERSION}" \
+                    --latest
