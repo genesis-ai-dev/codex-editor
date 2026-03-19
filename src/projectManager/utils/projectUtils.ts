@@ -1006,12 +1006,12 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
             // to avoid creating a dirty working directory before sync operations
         }
     } catch {
-        debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
+        debug("Git repository not initialized yet");
     }
 
-
-
-    return metadataExists && gitExists;
+    // A project is considered initialized if metadata.json exists.
+    // Git being unavailable is a separate concern (handled by MissingToolsWarning).
+    return metadataExists;
 }
 
 export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean; }) => {
