@@ -165,6 +165,12 @@ export async function readExistingFileOrThrowWithFs(
                     // Empty file on disk: allow caller to treat this as "missing" and do an initial write.
                     return { kind: "missing" };
                 }
+                // Non-empty file but empty read — Windows filesystem flush timing issue.
+                // Retry with a short delay before giving up.
+                if (attempt < maxAttempts) {
+                    await new Promise((resolve) => setTimeout(resolve, 25));
+                    continue;
+                }
                 throw new Error(`Read empty content from non-empty file: ${uri.fsPath}`);
             }
             return { kind: "readable", content };
