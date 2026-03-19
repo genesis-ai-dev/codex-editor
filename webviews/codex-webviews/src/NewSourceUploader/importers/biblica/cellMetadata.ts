@@ -15,7 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
  * Parameters for creating note/paragraph cell metadata
  */
 export interface NoteCellMetadataParams {
-    cellLabel: string;
+    cellLabel?: string;
     storyId?: string;
     paragraphId?: string;
     appliedParagraphStyle: string;

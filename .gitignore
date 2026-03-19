@@ -9,15 +9,15 @@ webviews/editable-react-table/node_modules
 /webviews/commentsWebview
 .DS_Store
 package-lock.json
-.project/complete_drafts.txt
-.project/indexes.sqlite
-.project/dictionary.sqlite
 .wdio-vscode-service
-AGENTS.md
 # TypeScript build cache
 .tsbuildinfo
 
-CLAUDE.md
-
 # Vite build cache files
 webviews/codex-webviews/vite.config.ts.timestamp-*.mjs
+
+# .project/ files should not be created here — if they exist, it's a bug that must be fixed (see PR #714)
+# .project/
+
+# AI coding agents
+.claude/

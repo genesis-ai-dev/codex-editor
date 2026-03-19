@@ -328,7 +328,7 @@ export class SyncManager {
         });
     }
 
-    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean } {
+    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean; } {
         return {
             isSyncInProgress: this.isSyncInProgress,
             syncStage: this.currentSyncStage,
@@ -551,7 +551,7 @@ export class SyncManager {
     }
 
     // Schedule a sync operation to occur after the configured delay
-    public scheduleSyncOperation(commitMessage: string = "Auto-sync changes"): void {
+    public async scheduleSyncOperation(commitMessage: string = "Auto-sync changes"): Promise<void> {
         debug(`scheduleSyncOperation called with message: "${commitMessage}"`);
 
         // Don't schedule sync while NewSourceUploader is importing files
@@ -576,16 +576,9 @@ export class SyncManager {
             return;
         }
 
-        // Get current configuration
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
-
-        // Ensure minimum sync delay is 5 minutes
-        if (syncDelayMinutes < 5) {
-            syncDelayMinutes = 5;
-            debug("Sync delay was less than 5 minutes, adjusting to 5 minutes");
-        }
+        // Get current configuration from local project settings
+        const { getSyncSettings } = await import("../utils/localProjectSettings");
+        const { autoSyncEnabled, syncDelayMinutes } = await getSyncSettings();
 
         // Clear any pending sync operation
         this.clearPendingSync();
@@ -839,36 +832,14 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             updateSplashScreenSync(60, this.currentSyncStage);
 
-            // Migrate comments before sync if needed
+            // Legacy comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
+            // Pre-sync repair still runs to fix any corrupted data before syncing
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (workspaceFolders && workspaceFolders.length > 0) {
-                const workspaceUri = workspaceFolders[0].uri;
-                const workspaceFsPath = workspaceUri.fsPath;
-
-                // These checks are independent and can be expensive on large projects; run in parallel.
-                const [needsMigration, inSourceControl, commentsHasLocalChanges] = await Promise.all([
-                    CommentsMigrator.needsMigration(workspaceUri),
-                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
-                    hasLocalModifications(workspaceFsPath, ".project/comments.json"),
-                ]);
-
-                if (needsMigration && inSourceControl) {
-                    this.currentSyncStage = "Migrating legacy comments...";
-                    this.notifySyncStatusListeners();
-                    updateSplashScreenSync(65, this.currentSyncStage);
-
-                    try {
-                        await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-                        debug("[SyncManager] Pre-sync migration completed");
-                    } catch (error) {
-                        console.error("[SyncManager] Error during pre-sync migration:", error);
-                        // Don't fail sync due to migration errors
-                    }
-                }
+                const workspaceFsPath = workspaceFolders[0].uri.fsPath;
+                const commentsHasLocalChanges = await hasLocalModifications(workspaceFsPath, ".project/comments.json");
 
                 if (commentsHasLocalChanges) {
-                    // Only run pre-sync repair if comments.json has local modifications
-                    // This ensures we clean up any local corruption before syncing to other users
                     this.currentSyncStage = "Cleaning up comment data...";
                     this.notifySyncStatusListeners();
                     updateSplashScreenSync(67, this.currentSyncStage);
@@ -878,7 +849,6 @@ export class SyncManager {
                         await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
                     } catch (error) {
                         console.error("[SyncManager] Error during pre-sync comment repair:", error);
-                        // Don't fail sync due to repair errors
                     }
                 }
             }
@@ -912,28 +882,7 @@ export class SyncManager {
                 }
             }
 
-            // Migrate comments after sync if new legacy files were pulled
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                const workspaceUri = workspaceFolders[0].uri;
-                const [needsPostSyncMigration, inSourceControl] = await Promise.all([
-                    CommentsMigrator.needsMigration(workspaceUri),
-                    CommentsMigrator.areCommentsFilesInSourceControl(workspaceUri),
-                ]);
-
-                if (needsPostSyncMigration && inSourceControl) {
-                    this.currentSyncStage = "Cleaning up legacy files...";
-                    this.notifySyncStatusListeners();
-                    updateSplashScreenSync(95, this.currentSyncStage);
-
-                    try {
-                        await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-                        debug("[SyncManager] Post-sync migration completed");
-                    } catch (error) {
-                        console.error("[SyncManager] Error during post-sync migration:", error);
-                        // Don't fail sync completion due to migration errors
-                    }
-                }
-            }
+            // Legacy comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
 
             // Refresh audio attachments in all open codex editors after sync
             try {
@@ -1140,7 +1089,7 @@ export class SyncManager {
 
             const sqliteIndex = getSQLiteIndexManager();
             if (!sqliteIndex) {
-                console.error("❌ SQLite index manager not available");
+                console.debug("SQLite index manager not available");
                 return;
             }
 
@@ -1286,28 +1235,19 @@ export class SyncManager {
     }
 
     // Update the manager settings from configuration
-    public updateFromConfiguration(): void {
-        // This method will be called when configuration changes
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        let autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+    public async updateFromConfiguration(): Promise<void> {
+        const { getSyncSettings } = await import("../utils/localProjectSettings");
+        const syncSettings = await getSyncSettings();
+        let autoSyncEnabled = syncSettings.autoSyncEnabled;
+        const syncDelayMinutes = syncSettings.syncDelayMinutes;
 
         // Check if there's a workspace folder open
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
 
         if (!hasWorkspace) {
-            // Disable autosync when no workspace is open
             autoSyncEnabled = false;
             debug("SyncManager: No workspace open, disabling autosync and clearing pending operations");
-
-            // Clear any pending sync operations
             this.clearPendingSync();
-        }
-
-        // Ensure minimum sync delay is 5 minutes
-        if (syncDelayMinutes < 5) {
-            syncDelayMinutes = 5;
-            debug("Sync delay was less than 5 minutes, adjusting to 5 minutes");
         }
 
         debug(
@@ -1478,18 +1418,6 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
             debug("manualCommit called, scheduling sync operation");
             syncManager.scheduleSyncOperation(message);
-        })
-    );
-
-    // Listen for configuration changes
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (
-                event.affectsConfiguration("codex-project-manager.autoSyncEnabled") ||
-                event.affectsConfiguration("codex-project-manager.syncDelayMinutes")
-            ) {
-                syncManager.updateFromConfiguration();
-            }
         })
     );
 

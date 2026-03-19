@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 15; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
+export const CURRENT_SCHEMA_VERSION = 16; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -3038,6 +3038,8 @@ export class SQLiteIndexManager {
                         cellLabel: row.cell_label, // NO FALLBACK
                         sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                         targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                        rawSourceContent: row.raw_source_content || row.source_content,
+                        rawTargetContent: row.raw_target_content || row.target_content,
                         content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                         uri: row.uri,
                         line: row.line,
@@ -3186,6 +3188,8 @@ export class SQLiteIndexManager {
                     cellLabel: row.cell_label, // NO FALLBACK
                     sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                    rawSourceContent: row.raw_source_content || row.source_content,
+                    rawTargetContent: rawTargetContent || targetContent,
                     content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                     uri: row.uri,
                     line: row.line,
@@ -3272,6 +3276,8 @@ export class SQLiteIndexManager {
                             cellLabel: row.cell_label || null,
                             sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                            rawSourceContent: row.raw_source_content || row.source_content,
+                            rawTargetContent: row.raw_target_content || row.target_content,
                             content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             uri: row.uri,
                             line: row.line,
@@ -3442,6 +3448,8 @@ export class SQLiteIndexManager {
                             cellLabel: row.cell_label, // NO FALLBACK - show raw value
                             sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                            rawSourceContent: row.raw_source_content || row.source_content,
+                            rawTargetContent: rawTargetContent || targetContent,
                             content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
                             uri: row.uri,
                             line: row.line,

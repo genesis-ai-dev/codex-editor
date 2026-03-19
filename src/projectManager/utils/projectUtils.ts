@@ -17,7 +17,7 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 import { MetadataManager } from "../../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
-import { readLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
+import { readLocalProjectSettings, writeLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
 import { checkRemoteUpdatingRequired } from "../../utils/remoteUpdatingManager";
 
 const DEBUG = false;
@@ -402,40 +402,56 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             // File doesn't exist, we can proceed with creation
         }
 
-        // Use MetadataManager to safely create the project metadata
-        const createResult = await MetadataManager.safeUpdateMetadata(
-            WORKSPACE_FOLDER.uri,
-            () => {
-                // Add extension version requirements to the new project
-                const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
-                const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
+        // Build the full project metadata object with extension version requirements
+        const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+        const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
 
-                const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
-                if (codexEditorVersion) {
-                    requiredExtensions.codexEditor = codexEditorVersion;
-                }
-                if (frontierAuthVersion) {
-                    requiredExtensions.frontierAuthentication = frontierAuthVersion;
-                }
+        const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
+        if (codexEditorVersion) {
+            requiredExtensions.codexEditor = codexEditorVersion;
+        }
+        if (frontierAuthVersion) {
+            requiredExtensions.frontierAuthentication = frontierAuthVersion;
+        }
 
-                const projectWithVersions = {
-                    ...newProject,
-                    meta: {
-                        ...newProject.meta,
-                        requiredExtensions
-                    }
-                };
-                return projectWithVersions;
+        const projectWithVersions = {
+            ...newProject,
+            meta: {
+                ...newProject.meta,
+                requiredExtensions
             }
-        );
+        };
 
-        if (!createResult.success) {
-            console.error("Failed to create project metadata:", createResult.error);
+        // Write metadata directly — safeUpdateMetadata requires an existing file, which
+        // doesn't exist yet for brand-new projects. A direct write is correct here.
+        try {
+            const jsonContent = JSON.stringify(projectWithVersions, null, 4);
+            await vscode.workspace.fs.writeFile(
+                projectFilePath,
+                new TextEncoder().encode(jsonContent)
+            );
+        } catch (writeError) {
+            console.error("Failed to create project metadata:", writeError);
             vscode.window.showErrorMessage("Failed to create project metadata. Check the output panel for details.");
             return;
         }
 
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
+
+        // Cache the project name (with UUID) in localProjectSettings.json so it's available offline
+        const resolvedProjectName = newProject.projectName;
+        if (resolvedProjectName && workspaceFolder) {
+            const sanitized = sanitizeProjectName(resolvedProjectName);
+            const fullDisplayName = sanitized ? `${sanitized}-${projectId}` : projectId;
+            try {
+                const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+                await ensureLocalProjectSettingsExists(vscode.Uri.file(workspaceFolder), {
+                    displayedProjectName: fullDisplayName,
+                });
+            } catch (e) {
+                debug("Failed to write displayedProjectName during project creation:", e);
+            }
+        }
 
         // Check if git is already initialized
         let isGitInitialized = false;
@@ -629,8 +645,17 @@ export async function updateMetadataFile() {
             project.meta.generator.userEmail = newUserEmail;
 
             const newLanguages = project.languages || [null, null];
-            newLanguages[0] = projectSettings.get("sourceLanguage", newLanguages[0] || "");
-            newLanguages[1] = projectSettings.get("targetLanguage", newLanguages[1] || "");
+            const configSource = projectSettings.get<any>("sourceLanguage");
+            const configTarget = projectSettings.get<any>("targetLanguage");
+            // Only overwrite from config if the config value has meaningful content.
+            // Accept strings (legacy) and non-empty objects (LanguageMetadata), but
+            // reject empty {} defaults from package.json that would destroy real data.
+            if (configSource && (typeof configSource === "string" || Object.keys(configSource).length > 0)) {
+                newLanguages[0] = configSource;
+            }
+            if (configTarget && (typeof configTarget === "string" || Object.keys(configTarget).length > 0)) {
+                newLanguages[1] = configTarget;
+            }
             project.languages = newLanguages;
 
             const newAbbreviation = projectSettings.get("abbreviation", "");
@@ -903,7 +928,8 @@ export async function syncMetadataToConfiguration() {
                 );
 
                 // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+                const { getSyncSettings } = await import("../../utils/localProjectSettings");
+                const { autoSyncEnabled } = await getSyncSettings();
 
                 if (autoSyncEnabled) {
                     SyncManager.getInstance().scheduleSyncOperation(
@@ -948,9 +974,10 @@ export async function syncMetadataToConfiguration() {
                 );
 
                 // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+                const { getSyncSettings: getSyncSettings2 } = await import("../../utils/localProjectSettings");
+                const syncSettings = await getSyncSettings2();
 
-                if (autoSyncEnabled) {
+                if (syncSettings.autoSyncEnabled) {
                     SyncManager.getInstance().scheduleSyncOperation(
                         "Update project configuration from metadata"
                     );
@@ -1755,6 +1782,7 @@ async function processProjectDirectory(
             mediaStrategy: mediaStrategyResult,
             pendingUpdate: settingsResult?.pendingUpdate,
             projectSwap: projectSwapWithConvenience,
+            displayedProjectName: settingsResult?.displayedProjectName,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);
@@ -1774,6 +1802,26 @@ async function getProjectNameFromMetadata(projectPath: string, fallbackName: str
     } catch (error) {
         debug(`Could not read metadata.json for ${projectPath}, using folder name`);
         return fallbackName;
+    }
+}
+
+/**
+ * Write displayedProjectName to localProjectSettings.json for a given project path
+ */
+export async function writeDisplayedProjectName(projectPath: string, displayedProjectName: string): Promise<void> {
+    try {
+        const projectUri = vscode.Uri.file(projectPath);
+        const settings = await readLocalProjectSettings(projectUri);
+
+        if (settings.displayedProjectName === displayedProjectName) {
+            return;
+        }
+
+        settings.displayedProjectName = displayedProjectName;
+        await writeLocalProjectSettings(settings, projectUri);
+        debug(`Wrote displayedProjectName "${displayedProjectName}" to ${projectPath}/.project/localProjectSettings.json`);
+    } catch (error) {
+        debug(`Failed to write displayedProjectName for ${projectPath}:`, error);
     }
 }
 

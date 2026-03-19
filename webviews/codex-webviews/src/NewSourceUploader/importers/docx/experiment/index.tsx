@@ -7,8 +7,8 @@ import { validateFile, parseFile } from "./index";
 export { validateFile, parseFile, docxImporter } from "./index";
 
 export const docxRoundtripImporterPlugin: ImporterPlugin = {
-    id: "docx-roundtrip",
-    name: "DOCX Documents (Round-trip)",
+    id: "docx",
+    name: "Word Documents",
     description: "Import Microsoft Word DOCX files with complete structure preservation for export",
     icon: FileText,
     component: DocxImporterForm,

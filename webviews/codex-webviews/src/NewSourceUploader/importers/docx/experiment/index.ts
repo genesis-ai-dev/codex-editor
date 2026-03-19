@@ -124,12 +124,11 @@ export const parseFile = async (
                 originalFileName: file.name,
                 sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for export
-                // Use importerType as corpusMarker for export routing / rebuild-export detection
-                corpusMarker: 'docx-roundtrip',
-                importerType: 'docx-roundtrip',
+                corpusMarker: 'docx',
+                importerType: 'docx',
                 createdAt: nowIso,
                 importContext: {
-                    importerType: 'docx-roundtrip',
+                    importerType: 'docx',
                     fileName: file.name,
                     originalFileName: file.name,
                     originalHash: docxDoc.originalHash,
@@ -158,7 +157,7 @@ export const parseFile = async (
             metadata: {
                 ...sourceNotebook.metadata,
                 id: uuidv4(),
-                importerType: 'docx-roundtrip', // Explicitly set again
+                importerType: 'docx',
                 // Don't duplicate the original file data in codex
                 originalFileData: undefined,
             },

@@ -101,12 +101,12 @@ One-time attributes from the import process are stored **once per notebook**, no
 ```typescript
 {
   metadata: {
-    importerType: "docx-roundtrip",
+    importerType: "docx",
     originalFileName: "document.docx",
     originalHash: "abc123...",
     // ... other notebook metadata ...
     importContext: {
-      importerType: "docx-roundtrip",
+      importerType: "docx",
       fileName: "document.docx",
       originalFileName: "document.docx",
       originalHash: "abc123...",
