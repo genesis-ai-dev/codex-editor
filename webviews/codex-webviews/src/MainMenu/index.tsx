@@ -1,3 +1,4 @@
+import "../shared/posthog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { useNetworkState } from "@uidotdev/usehooks";

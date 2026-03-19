@@ -1,3 +1,4 @@
+import "../shared/posthog";
 import React, { useEffect, useState, useMemo } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./CodexCellEditor";

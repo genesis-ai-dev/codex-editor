@@ -1,3 +1,4 @@
+import "../shared/posthog";
 import { Buffer } from "buffer";
 import process from "process";
 

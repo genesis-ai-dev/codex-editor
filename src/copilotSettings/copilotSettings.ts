@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { callLLM } from "../utils/llmUtils";
 import { CompletionConfig } from "@/utils/llmUtils";
 import { MetadataManager } from "../utils/metadataManager";
+import { getPostHogWebviewScript } from "../utils/telemetry";
 
 interface ProjectLanguage {
     tag: string;
@@ -68,6 +69,7 @@ export async function openSystemMessageEditor() {
       </head>
       <body>
         <div id="root"></div>
+        ${getPostHogWebviewScript(nonce)}
         <script nonce="${nonce}" src="${scriptUri}"></script>
       </body>
     </html>`;

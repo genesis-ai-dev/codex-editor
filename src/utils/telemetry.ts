@@ -4,6 +4,7 @@ import { PostHog } from "posthog-node";
 
 const EXTENSION_ID = "project-accelerate.codex-editor-extension";
 const POSTHOG_PROJECT_TOKEN = "phc_RI95xdYMQyCjOFSfPmsWrj9zviS4ywf56XwEX9cZ6Mf";
+const POSTHOG_HOST = "https://us.i.posthog.com";
 
 let client: PostHog | undefined;
 let distinctId: string | undefined;
@@ -31,7 +32,7 @@ export const initTelemetry = (context: vscode.ExtensionContext): void => {
     distinctId = vscode.env.machineId;
 
     client = new PostHog(POSTHOG_PROJECT_TOKEN, {
-        host: "https://us.i.posthog.com",
+        host: POSTHOG_HOST,
         flushAt: 20,
         flushInterval: 30_000,
     });
@@ -71,4 +72,19 @@ export const shutdownTelemetry = async (): Promise<void> => {
     } finally {
         client = undefined;
     }
+};
+
+export const getPostHogWebviewScript = (nonce: string): string => {
+    const enabled = vscode.workspace
+        .getConfiguration("codex-editor-extension")
+        .get<boolean>("sessionRecordingEnabled", true);
+
+    return `<script nonce="${nonce}">
+        window.__POSTHOG_CONFIG__ = ${JSON.stringify({
+            token: POSTHOG_PROJECT_TOKEN,
+            host: POSTHOG_HOST,
+            distinctId: vscode.env.machineId,
+            sessionRecordingEnabled: enabled,
+        })};
+    </script>`;
 };

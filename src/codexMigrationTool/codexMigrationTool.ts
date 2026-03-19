@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { getNonce } from "../utils/getNonce";
+import { getPostHogWebviewScript } from "../utils/telemetry";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import { matchMigrationCells } from "./matcher";
 import { applyMigrationToTargetFile } from "./updater";
@@ -50,7 +51,8 @@ async function getHtmlForCodexMigrationToolView(
                 img-src ${webview.cspSource} https: data:;
                 style-src ${webview.cspSource} 'unsafe-inline';
                 script-src 'nonce-${nonce}';
-                font-src ${webview.cspSource};">
+                font-src ${webview.cspSource};
+                connect-src https://*.posthog.com https://*.i.posthog.com;">
             <link href="${styleResetUri}" rel="stylesheet">
             <link href="${codiconsUri}" rel="stylesheet">
             <script nonce="${nonce}">
@@ -59,6 +61,7 @@ async function getHtmlForCodexMigrationToolView(
         </head>
         <body>
             <div id="root"></div>
+            ${getPostHogWebviewScript(nonce)}
             <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
         </html>`;

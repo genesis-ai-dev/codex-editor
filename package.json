@@ -868,6 +868,12 @@
                         "default": "",
                         "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
                     },
+                    "codex-editor-extension.sessionRecordingEnabled": {
+                        "title": "Session Recording",
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enable PostHog session recording in webviews for product analytics."
+                    },
                     "codex-editor-extension.debugMode": {
                         "title": "Debugging Mode",
                         "type": "boolean",

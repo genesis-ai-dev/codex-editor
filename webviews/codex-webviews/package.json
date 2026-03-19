@@ -80,6 +80,7 @@
         "papaparse": "^5.5.2",
         "pdfjs-dist": "^5.4.149",
         "pnpm": "^10.6.2",
+        "posthog-js": "^1.362.0",
         "process": "^0.11.10",
         "quill": "^2.0.3",
         "quilljs-markdown": "^1.2.0",
