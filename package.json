@@ -1107,6 +1107,7 @@
         "pdf-parse": "^1.1.1",
         "pdfjs-dist": "4.0.379",
         "pnpm": "^8.15.5",
+        "posthog-node": "^5.21.2",
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",
         "sax": "^1.4.1",
