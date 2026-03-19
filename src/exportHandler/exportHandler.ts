@@ -2063,7 +2063,7 @@ async function exportCodexContentAsDelimited(
                         // First pass: collect all possible metadata fields (excluding edits)
                         const allMetadataFields = new Set<string>();
                         for (const [cellId, codexCell] of codexCellsMap) {
-                            const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
+                            const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; cellLabel?: string; };
                             if (cellMetadata.data && typeof cellMetadata.data === 'object') {
                                 Object.keys(cellMetadata.data).forEach(field => {
                                     if (field !== 'edits') {
@@ -2072,6 +2072,7 @@ async function exportCodexContentAsDelimited(
                                 });
                             }
                         }
+                        allMetadataFields.add('cellLabel');
 
                         // Sort metadata fields for consistent column order
                         const sortedMetadataFields = Array.from(allMetadataFields).sort();
@@ -2087,7 +2088,7 @@ async function exportCodexContentAsDelimited(
                         // Process cells in their original order from the notebook
                         for (const codexCell of codexNotebook.cells) {
                             if (codexCell.kind === 2 || codexCell.kind === 1) { // vscode.NotebookCellKind.Code
-                                const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
+                                const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; cellLabel?: string; };
 
                                 if (cellMetadata.type === CodexCellTypes.TEXT &&
                                     cellMetadata.id &&
@@ -2106,6 +2107,7 @@ async function exportCodexContentAsDelimited(
                                             metadata[field] = cellMetadata.data[field] || "";
                                         }
                                     }
+                                    metadata['cellLabel'] = cellMetadata.cellLabel ?? '';
 
                                     verseData.push({
                                         id: cellMetadata.id,
