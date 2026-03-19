@@ -372,10 +372,7 @@ export async function ensureSqliteNativeBinary(
                     return downloadedPath;
                 } catch (error) {
                     const msg = error instanceof Error ? error.message : String(error);
-                    vscode.window.showErrorMessage(
-                        `Search setup failed: ${msg}. ` +
-                        `Search features will be unavailable until this is resolved.`
-                    );
+                    console.warn(`[SQLite] Binary download failed: ${msg}`);
                     throw error;
                 }
             }
