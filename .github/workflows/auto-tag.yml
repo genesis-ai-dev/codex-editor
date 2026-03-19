@@ -89,4 +89,32 @@ jobs:
                     -d "{\"ref\":\"refs/tags/${VERSION}\",\"sha\":\"${SHA}\"}" \
                     "https://api.github.com/repos/${REPO}/git/refs"
 
-                  echo "✅ Created tag ${VERSION} -> ${SHA}"
+                  echo "Created tag ${VERSION} -> ${SHA}"
+
+            - uses: actions/checkout@v4
+              if: steps.version.outputs.changed == 'true'
+
+            - uses: actions/setup-node@v4
+              if: steps.version.outputs.changed == 'true'
+              with:
+                  node-version: 20
+
+            - name: Install dependencies and build VSIX
+              if: steps.version.outputs.changed == 'true'
+              run: |
+                  set -euo pipefail
+                  npm install --no-audit --no-fund
+                  npx vsce package --no-dependencies -o codex-editor-extension-${{ steps.version.outputs.version }}.vsix
+
+            - name: Create GitHub Release with VSIX
+              if: steps.version.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  VERSION: ${{ steps.version.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  gh release create "${VERSION}" \
+                    "codex-editor-extension-${VERSION}.vsix" \
+                    --title "${VERSION}" \
+                    --notes "Release ${VERSION}" \
+                    --latest
