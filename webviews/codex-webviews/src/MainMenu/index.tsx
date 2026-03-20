@@ -5,6 +5,14 @@ import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../components/ui/dialog";
 import { SyncSettings } from "../components/SyncSettings";
 import {
     TextDisplaySettingsModal,
@@ -185,6 +193,10 @@ function MainMenu() {
     const isOnline = network?.online ?? true;
 
     const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
+    const [isSessionRecordingDialogOpen, setIsSessionRecordingDialogOpen] = useState(false);
+    const [pendingSessionRecordingEnabled, setPendingSessionRecordingEnabled] = useState<
+        boolean | null
+    >(null);
 
     // Optimistic local state for validation counters so rapid clicks work correctly.
     // Without this, each click reads from the stale server-confirmed state (which
@@ -468,6 +480,23 @@ function MainMenu() {
             console.error("Could not apply text display settings:", error);
         }
     };
+
+    const handleSessionRecordingToggleClick = () => {
+        setPendingSessionRecordingEnabled(!state.sessionRecordingEnabled);
+        setIsSessionRecordingDialogOpen(true);
+    };
+
+    const handleProceedSessionRecordingToggle = () => {
+        setIsSessionRecordingDialogOpen(false);
+        handleProjectAction("toggleSessionRecording");
+    };
+
+    const handleCancelSessionRecordingToggle = () => {
+        setIsSessionRecordingDialogOpen(false);
+        setPendingSessionRecordingEnabled(null);
+    };
+
+    const isEnablingSessionRecording = pendingSessionRecordingEnabled === true;
 
     const getLanguageDisplay = (languageObj: any): string => {
         if (!languageObj) return "Missing";
@@ -992,10 +1021,7 @@ function MainMenu() {
                                                 label: state.sessionRecordingEnabled
                                                     ? "Disable Session Recording"
                                                     : "Enable Session Recording",
-                                                action: () =>
-                                                    handleProjectAction(
-                                                        "toggleSessionRecording",
-                                                    ),
+                                                action: handleSessionRecordingToggleClick,
                                             },
                                             {
                                                 icon: "codicon-close",
@@ -1120,6 +1146,54 @@ function MainMenu() {
                 onClose={() => setIsTextDisplaySettingsOpen(false)}
                 onApply={handleApplyTextDisplaySettings}
             />
+
+            <Dialog
+                open={isSessionRecordingDialogOpen}
+                onOpenChange={(open) => {
+                    setIsSessionRecordingDialogOpen(open);
+                    if (!open) {
+                        setPendingSessionRecordingEnabled(null);
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>
+                            {isEnablingSessionRecording
+                                ? "Enable Session Recording"
+                                : "Disable Session Recording"}
+                        </DialogTitle>
+                        <DialogDescription asChild>
+                            <div className="space-y-3">
+                                {isEnablingSessionRecording ? (
+                                    <>
+                                        <p>
+                                            Enabling session recording is a debugging tool that will
+                                            record your screen while you work for the dev team (only)
+                                            to support you better. While sensitive information such as
+                                            project name, cell text and labels, and filenames will be
+                                            blurred out, we can't guarantee this for all data on your
+                                            screen.
+                                        </p>
+                                        <p>The project will reload upon proceeding.</p>
+                                    </>
+                                ) : (
+                                    <p>
+                                        The project will reload in order to disable session
+                                        recording.
+                                    </p>
+                                )}
+                            </div>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleCancelSessionRecordingToggle}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleProceedSessionRecordingToggle}>Proceed</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

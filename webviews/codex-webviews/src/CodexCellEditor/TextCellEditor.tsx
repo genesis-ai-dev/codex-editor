@@ -1922,9 +1922,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <div className="flex flex-row flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-col justify-center gap-2 pr-3">
                         <div
-                            className="flex items-center gap-2"
+                            className="ph-mask flex items-center gap-2"
                             role="button"
-                            aria-label="Cell id and label"
+                            aria-label="Cell label and actions"
                         >
                             {cellType !== CodexCellTypes.PARATEXT &&
                                 cellType !== CodexCellTypes.MILESTONE && (
@@ -2140,7 +2140,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             <CardContent className="p-4 space-y-4">
                 <div
-                    className={`flex items-start gap-2 ${
+                    className={`ph-mask flex items-start gap-2 ${
                         showFlashingBorder
                             ? "ring-2 ring-blue-500 ring-opacity-50 animate-pulse rounded-lg p-2"
                             : ""
@@ -2288,7 +2288,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             defaultValue={cellLabel}
                                             onChange={handleLabelChange}
                                             placeholder="Enter label..."
-                                            className="flex-1"
+                                            className="ph-no-capture flex-1"
                                         />
                                         <RotateCcw
                                             className="h-4 w-4 cursor-pointer"
@@ -2304,7 +2304,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </TabsContent>
                         )}
                     <TabsContent value="source">
-                        <div className="space-y-6">
+                        <div className="ph-mask space-y-6">
                             {/* Source Text */}
                             <div>
                                 <h4 className="text-sm font-medium mb-2 text-muted-foreground">
@@ -2317,7 +2317,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </div>
 
                             {/* Backtranslation Section */}
-                            <div className="space-y-4">
+                            <div className="ph-mask space-y-4">
                                 <div className="flex items-center justify-between">
                                     <h4 className="text-sm font-medium text-muted-foreground">
                                         Backtranslation
@@ -2378,7 +2378,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     onChange={(e) =>
                                                         setEditedBacktranslation(e.target.value)
                                                     }
-                                                    className="min-h-[150px]"
+                                                    className="ph-no-capture min-h-[150px]"
                                                     placeholder="Enter backtranslation text..."
                                                 />
                                                 <div className="flex gap-2 justify-end">
@@ -2403,7 +2403,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             </div>
                                         ) : (
                                             <div className="p-4 rounded-lg bg-muted">
-                                                <ReactMarkdown className="prose prose-sm max-w-none">
+                                                <ReactMarkdown className="ph-mask rose prose-sm max-w-none">
                                                     {backtranslation.backtranslation}
                                                 </ReactMarkdown>
                                             </div>
@@ -2439,7 +2439,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "footnotes" && (
                         <TabsContent value="footnotes">
-                            <div className="content-section">
+                            <div className="ph-mask content-section">
                                 {/* Add Footnote action surfaced here with selection-aware hint - hide when already creating */}
                                 {!isEditingFootnoteInline && (
                                     <div className="flex items-center justify-between mb-3">
@@ -2577,7 +2577,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "timestamps" && (
                         <TabsContent value="timestamps">
-                            <div className="content-section space-y-4">
+                            <div className="ph-mask content-section space-y-4">
                                 <h3 className="text-lg font-medium">Timestamps</h3>
 
                                 {effectiveTimestamps &&
@@ -2698,7 +2698,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     {activeTab === "audio" && (
                         <TabsContent value="audio">
-                            <div className="content-section space-y-6">
+                            <div className="ph-mask content-section space-y-6">
                                 <h3 className="text-lg font-medium">Audio Recording</h3>
 
                                 {showRecorder ||

@@ -518,6 +518,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             }}
         >
             <div
+                className="ph-mask"
                 style={{
                     backgroundColor: "var(--vscode-editor-background)",
                     border: "1px solid var(--vscode-panel-border)",

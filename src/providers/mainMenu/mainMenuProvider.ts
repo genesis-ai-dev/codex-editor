@@ -498,6 +498,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         const current = config.get<boolean>("sessionRecordingEnabled", true);
         await config.update("sessionRecordingEnabled", !current, vscode.ConfigurationTarget.Global);
         this.sendSessionRecordingSetting();
+        await vscode.commands.executeCommand("workbench.action.reloadWindow");
     }
 
     private async sendSyncSettings() {
