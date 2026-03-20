@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfProjectIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -250,7 +250,7 @@ class ProjectManagerStore {
             this.isRefreshing = true;
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
-            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
+            const hasMetadata = hasWorkspace ? await checkIfProjectIsInitialized() : false;
 
             const canInitializeProject = hasWorkspace && !hasMetadata;
             const workspaceIsOpen = hasWorkspace;
