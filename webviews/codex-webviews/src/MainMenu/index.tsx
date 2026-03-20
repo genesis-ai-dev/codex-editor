@@ -147,6 +147,7 @@ interface State {
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
     isGitAvailable: boolean;
+    sessionRecordingEnabled: boolean;
 }
 
 function MainMenu() {
@@ -177,6 +178,7 @@ function MainMenu() {
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
         isGitAvailable: true,
+        sessionRecordingEnabled: true,
     });
 
     const network = useNetworkState();
@@ -356,6 +358,13 @@ function MainMenu() {
                         },
                     }));
                     break;
+                case "sessionRecordingUpdate":
+                    setState((prevState) => ({
+                        ...prevState,
+                        sessionRecordingEnabled:
+                            message.data.enabled ?? prevState.sessionRecordingEnabled,
+                    }));
+                    break;
                 // Speech-to-text settings moved to Copilot Settings panel
             }
         };
@@ -367,6 +376,7 @@ function MainMenu() {
             vscode.postMessage({ command: "webviewReady" });
             // Request sync settings
             vscode.postMessage({ command: "getSyncSettings" });
+            vscode.postMessage({ command: "getSessionRecordingSetting" });
         } catch (error) {
             console.error("Could not send webviewReady message:", error);
         }
@@ -974,6 +984,18 @@ function MainMenu() {
                                                     handleProjectAction("checkForUpdates"),
                                                 disabled: projectState.isCheckingForUpdates,
                                                 spinning: projectState.isCheckingForUpdates,
+                                            },
+                                            {
+                                                icon: state.sessionRecordingEnabled
+                                                    ? "codicon-eye"
+                                                    : "codicon-eye-closed",
+                                                label: state.sessionRecordingEnabled
+                                                    ? "Disable Session Recording"
+                                                    : "Enable Session Recording",
+                                                action: () =>
+                                                    handleProjectAction(
+                                                        "toggleSessionRecording",
+                                                    ),
                                             },
                                             {
                                                 icon: "codicon-close",

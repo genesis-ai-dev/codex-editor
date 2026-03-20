@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as os from "os";
+import * as crypto from "crypto";
 import { PostHog } from "posthog-node";
 
 const EXTENSION_ID = "project-accelerate.codex-editor-extension";
@@ -8,6 +9,16 @@ const POSTHOG_HOST = "https://us.i.posthog.com";
 
 let client: PostHog | undefined;
 let distinctId: string | undefined;
+
+const buildDistinctId = (): string => {
+    const uuid = crypto.randomUUID();
+    try {
+        const username = os.userInfo().username;
+        return username ? `${username}_${uuid}` : uuid;
+    } catch {
+        return uuid;
+    }
+};
 
 const getExtensionVersion = (): string => {
     const ext = vscode.extensions.getExtension(EXTENSION_ID);
@@ -28,8 +39,8 @@ const getSystemProperties = () => ({
     locale: vscode.env.language,
 });
 
-export const initTelemetry = (context: vscode.ExtensionContext): void => {
-    distinctId = vscode.env.machineId;
+export const initTelemetry = (): void => {
+    distinctId = buildDistinctId();
 
     client = new PostHog(POSTHOG_PROJECT_TOKEN, {
         host: POSTHOG_HOST,
@@ -40,23 +51,6 @@ export const initTelemetry = (context: vscode.ExtensionContext): void => {
     client.identify({
         distinctId,
         properties: getSystemProperties(),
-    });
-
-    captureTelemetryEvent("extension_activated", getSystemProperties());
-};
-
-export const captureTelemetryEvent = (
-    event: string,
-    properties?: Record<string, unknown>,
-): void => {
-    if (!client || !distinctId) {
-        return;
-    }
-
-    client.capture({
-        distinctId,
-        event,
-        properties,
     });
 };
 
@@ -83,7 +77,7 @@ export const getPostHogWebviewScript = (nonce: string): string => {
         window.__POSTHOG_CONFIG__ = ${JSON.stringify({
             token: POSTHOG_PROJECT_TOKEN,
             host: POSTHOG_HOST,
-            distinctId: vscode.env.machineId,
+            distinctId: buildDistinctId(),
             sessionRecordingEnabled: enabled,
         })};
     </script>`;

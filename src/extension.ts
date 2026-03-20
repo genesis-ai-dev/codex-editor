@@ -325,7 +325,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Continue with activation even if splash screen fails
     }
 
-    initTelemetry(context);
+    initTelemetry();
 
     let stepStart = activationStart;
 

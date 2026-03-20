@@ -1404,7 +1404,9 @@ type ProjectManagerMessageFromWebview =
     | { command: "fetchAsrModels"; data: { endpoint: string; }; }
     | { command: "setValidationCountDirect"; data: { count: number; }; }
     | { command: "setValidationCountAudioDirect"; data: { count: number; }; }
-    | { command: "publishStatusUpdate"; data: { isPublishingInProgress: boolean; publishingStage: string; }; };
+    | { command: "publishStatusUpdate"; data: { isPublishingInProgress: boolean; publishingStage: string; }; }
+    | { command: "getSessionRecordingSetting"; }
+    | { command: "toggleSessionRecording"; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
