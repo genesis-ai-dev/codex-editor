@@ -8,7 +8,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { getFFmpegPath, getFFprobePath } from './ffmpegManager';
-import { markAudioToolRequired } from './toolsManager';
 
 // Lazy load to avoid bundling issues
 function getFs(): typeof fs {
@@ -43,17 +42,6 @@ export function initializeAudioProcessor(context: vscode.ExtensionContext): void
     console.log('[audioProcessor] Initialized with extension context');
 }
 
-let audioToolsMarked = false;
-async function ensureAudioToolsMarkedRequired(): Promise<void> {
-    if (audioToolsMarked || !extensionContext) {
-        return;
-    }
-    audioToolsMarked = true;
-    await Promise.all([
-        markAudioToolRequired(extensionContext, "ffmpeg"),
-        markAudioToolRequired(extensionContext, "ffprobe"),
-    ]);
-}
 
 export interface AudioFileMetadata {
     id: string;
@@ -363,7 +351,6 @@ export async function processAudioFile(
     thresholdDb: number = -40,
     minDuration: number = 0.5
 ): Promise<AudioFileMetadata> {
-    await ensureAudioToolsMarkedRequired();
     console.log(`[audioProcessor] Processing file: ${filePath}`);
     const fsModule = getFs();
 
@@ -424,7 +411,6 @@ export async function extractSegment(
     startSec: number,
     endSec: number
 ): Promise<void> {
-    await ensureAudioToolsMarkedRequired();
     const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
     
     return new Promise((resolve, reject) => {

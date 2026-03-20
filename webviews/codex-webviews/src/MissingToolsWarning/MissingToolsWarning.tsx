@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -12,8 +13,8 @@ const vscode = acquireVsCodeApi();
 interface ToolStatus {
     git: boolean;
     sqlite: boolean;
-    ffmpeg: boolean | null;
-    ffprobe: boolean | null;
+    ffmpeg: boolean;
+    ffprobe: boolean;
 }
 
 function getInitialStatus(): ToolStatus | null {
@@ -23,8 +24,8 @@ function getInitialStatus(): ToolStatus | null {
             return {
                 git: data.git,
                 sqlite: data.sqlite,
-                ffmpeg: data.ffmpeg ?? null,
-                ffprobe: data.ffprobe ?? null,
+                ffmpeg: data.ffmpeg ?? false,
+                ffprobe: data.ffprobe ?? false,
             };
         }
     } catch {
@@ -36,6 +37,8 @@ function getInitialStatus(): ToolStatus | null {
 export const MissingToolsWarning: React.FC = () => {
     const [status, setStatus] = useState<ToolStatus | null>(getInitialStatus);
     const [retrying, setRetrying] = useState(false);
+    const network = useNetworkState();
+    const isOnline = network?.online ?? true;
 
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -59,9 +62,10 @@ export const MissingToolsWarning: React.FC = () => {
     }, []);
 
     const handleRetry = useCallback(() => {
+        if (!isOnline) return;
         setRetrying(true);
         vscode.postMessage({ command: "retry" });
-    }, []);
+    }, [isOnline]);
 
     const handleContinue = useCallback(() => {
         vscode.postMessage({ command: "continue" });
@@ -81,23 +85,12 @@ export const MissingToolsWarning: React.FC = () => {
 
     const sqliteMissing = !status.sqlite;
     const gitMissing = !status.git;
-    const ffmpegMissing = status.ffmpeg === false;
-    const ffprobeMissing = status.ffprobe === false;
-    const audioMissing = ffmpegMissing || ffprobeMissing;
+    const audioMissing = !status.ffmpeg || !status.ffprobe;
     const canContinue = !sqliteMissing;
-
-    const audioDetail = (() => {
-        if (ffmpegMissing && ffprobeMissing) {
-            return "FFmpeg and FFprobe";
-        }
-        if (ffmpegMissing) {
-            return "FFmpeg";
-        }
-        if (ffprobeMissing) {
-            return "FFprobe";
-        }
-        return "";
-    })();
+    const missingCount =
+        (sqliteMissing ? 1 : 0) +
+        (gitMissing ? 1 : 0) +
+        (audioMissing ? 1 : 0);
 
     return (
         <div className="flex items-center justify-center min-h-screen p-6">
@@ -123,8 +116,8 @@ export const MissingToolsWarning: React.FC = () => {
                         <ToolCard
                             icon="codicon-error"
                             iconColor="var(--destructive)"
-                            title="Search Engine (SQLite)"
-                            description="The search and AI learning engine could not be set up. Projects cannot be opened or created without this component."
+                            title="AI Learning Engine"
+                            description="The AI learning and search engine could not be set up. Projects cannot be opened or created without this component."
                             severity="error"
                         />
                     )}
@@ -133,8 +126,8 @@ export const MissingToolsWarning: React.FC = () => {
                         <ToolCard
                             icon="codicon-warning"
                             iconColor="var(--chart-4)"
-                            title="Sync Tools (Git)"
-                            description="Sync tools could not be set up. You can still work offline, but syncing and collaboration features are unavailable. Your work will be saved locally."
+                            title="Sync Tool"
+                            description="The sync tool could not be set up. You can still work offline, but syncing and collaboration features are unavailable. Your work will be saved locally."
                             severity="warning"
                         />
                     )}
@@ -143,8 +136,8 @@ export const MissingToolsWarning: React.FC = () => {
                         <ToolCard
                             icon="codicon-warning"
                             iconColor="var(--chart-4)"
-                            title="Audio Processing"
-                            description={`${audioDetail} could not be set up. Audio import and export features are unavailable.`}
+                            title="Audio Tools"
+                            description="Audio tools could not be set up. Audio import and export features are unavailable."
                             severity="warning"
                         />
                     )}
@@ -177,8 +170,8 @@ export const MissingToolsWarning: React.FC = () => {
                 {!canContinue && (
                     <Alert variant="destructive">
                         <AlertDescription className="text-center">
-                            Codex cannot start without the search engine. Please
-                            download the Codex application from{" "}
+                            Codex cannot start without the AI learning engine.
+                            Please download the Codex application from{" "}
                             <button
                                 onClick={handleDownload}
                                 className="underline font-semibold cursor-pointer bg-transparent border-none p-0"
@@ -191,33 +184,45 @@ export const MissingToolsWarning: React.FC = () => {
                     </Alert>
                 )}
 
-                <div className="flex gap-3 justify-center">
-                    <Button
-                        onClick={handleRetry}
-                        disabled={retrying}
-                        variant="outline"
-                        className="min-w-[150px]"
-                    >
-                        {retrying ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
-                                Retrying…
-                            </>
-                        ) : (
-                            <>
-                                <i className="codicon codicon-refresh mr-2" />
-                                Retry Downloads
-                            </>
-                        )}
-                    </Button>
-
-                    {canContinue && (
+                <div className="flex flex-col items-center gap-2">
+                    <div className="flex gap-3 justify-center">
                         <Button
-                            onClick={handleContinue}
-                            className="min-w-[180px]"
+                            onClick={isOnline ? handleRetry : undefined}
+                            disabled={!isOnline || retrying}
+                            variant="outline"
+                            className="min-w-[150px]"
                         >
-                            Continue with limitations
+                            {retrying ? (
+                                <>
+                                    <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                    Retrying…
+                                </>
+                            ) : (
+                                <>
+                                    <i className={`codicon ${isOnline ? "codicon-refresh" : "codicon-globe"} mr-2`} />
+                                    {missingCount === 1 ? "Retry Download" : "Retry Downloads"}
+                                </>
+                            )}
                         </Button>
+
+                        {canContinue && (
+                            <Button
+                                onClick={handleContinue}
+                                className="min-w-[180px]"
+                            >
+                                Continue with limitations
+                            </Button>
+                        )}
+                    </div>
+
+                    {!isOnline && (
+                        <p
+                            className="text-xs text-center"
+                            style={{ color: "var(--muted-foreground)" }}
+                        >
+                            <i className="codicon codicon-warning mr-1" />
+                            You are offline. Connect to the internet to retry.
+                        </p>
                     )}
                 </div>
             </div>

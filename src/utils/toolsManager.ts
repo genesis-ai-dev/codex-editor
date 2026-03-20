@@ -11,8 +11,8 @@ const execFile = promisify(execFileCb);
 export interface ToolCheckResult {
     git: boolean;
     sqlite: boolean;
-    ffmpeg: boolean | null;
-    ffprobe: boolean | null;
+    ffmpeg: boolean;
+    ffprobe: boolean;
 }
 
 const REQUIRED_TOOLS_FFMPEG_KEY = "requiredTools.ffmpeg";
@@ -20,8 +20,7 @@ const REQUIRED_TOOLS_FFPROBE_KEY = "requiredTools.ffprobe";
 
 /**
  * Run a fresh availability check for all required tools.
- * Git and SQLite are always checked. FFmpeg/FFprobe are only checked
- * when the user has previously triggered an audio operation.
+ * All four tools (git, sqlite, ffmpeg, ffprobe) are always checked.
  */
 export async function checkTools(
     context: vscode.ExtensionContext,
@@ -41,34 +40,25 @@ export async function checkTools(
         console.error("[toolsManager] sqlite check threw:", e);
     }
 
-    let ffmpeg: boolean | null = null;
-    if (isAudioToolRequired(context, "ffmpeg")) {
-        try {
-            ffmpeg = await verifyBinaryAvailable("ffmpeg", context);
-        } catch (e) {
-            console.error("[toolsManager] ffmpeg check threw:", e);
-            ffmpeg = false;
-        }
+    let ffmpeg = false;
+    try {
+        ffmpeg = await verifyBinaryAvailable("ffmpeg", context);
+    } catch (e) {
+        console.error("[toolsManager] ffmpeg check threw:", e);
     }
 
-    let ffprobe: boolean | null = null;
-    if (isAudioToolRequired(context, "ffprobe")) {
-        try {
-            ffprobe = await verifyBinaryAvailable("ffprobe", context);
-        } catch (e) {
-            console.error("[toolsManager] ffprobe check threw:", e);
-            ffprobe = false;
-        }
+    let ffprobe = false;
+    try {
+        ffprobe = await verifyBinaryAvailable("ffprobe", context);
+    } catch (e) {
+        console.error("[toolsManager] ffprobe check threw:", e);
     }
 
     return { git, sqlite, ffmpeg, ffprobe };
 }
 
 /**
- * Returns the list of tools that are required but currently unavailable.
- * Git and SQLite are always considered required. FFmpeg/FFprobe are only
- * included when their value is `false` (required but missing), not `null`
- * (not required).
+ * Returns the list of tools that are currently unavailable.
  */
 export function getUnavailableTools(result: ToolCheckResult): string[] {
     const unavailable: string[] = [];
@@ -78,10 +68,10 @@ export function getUnavailableTools(result: ToolCheckResult): string[] {
     if (!result.sqlite) {
         unavailable.push("sqlite");
     }
-    if (result.ffmpeg === false) {
+    if (!result.ffmpeg) {
         unavailable.push("ffmpeg");
     }
-    if (result.ffprobe === false) {
+    if (!result.ffprobe) {
         unavailable.push("ffprobe");
     }
     return unavailable;

@@ -7,7 +7,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { getFFmpegPath } from './ffmpegManager';
-import { markAudioToolRequired } from './toolsManager';
 
 // Lazy load to avoid bundling issues
 function getFs(): typeof fs {
@@ -53,9 +52,6 @@ export async function mergeAudioFiles(
     inputFile2: string,
     outputPath: string
 ): Promise<string | null> {
-    if (extensionContext) {
-        await markAudioToolRequired(extensionContext, "ffmpeg");
-    }
     const fs = getFs();
     const spawn = getSpawn();
 
