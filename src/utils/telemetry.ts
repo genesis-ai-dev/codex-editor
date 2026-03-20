@@ -13,11 +13,17 @@ let distinctId: string | undefined;
 const buildDistinctId = (): string => {
     const uuid = crypto.randomUUID();
     try {
-        const username = os.userInfo().username;
-        return username ? `${username}_${uuid}` : uuid;
+        const pm = vscode.workspace.getConfiguration("codex-project-manager");
+        const email = pm.get<string>("userEmail");
+        
+        if (email) {
+            return `${email}`;
+        }
     } catch {
-        return uuid;
+        // Config unavailable — fall through to OS username
     }
+
+    return `anonymous_${uuid}`;
 };
 
 const getExtensionVersion = (): string => {
