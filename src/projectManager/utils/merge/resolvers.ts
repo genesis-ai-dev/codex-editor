@@ -921,8 +921,13 @@ function applyEditToCell(cell: CustomNotebookCellData, edit: EditHistory): void 
 
     try {
         if (path.length === 1 && path[0] === 'value') {
-            // Direct cell value edit
-            cell.value = value as string;
+            // Direct cell value edit — store as object if edit has an id
+            if (edit.id) {
+                (cell as any).value = { selectedEdit: edit.id, updatedAt: edit.timestamp };
+                cell.metadata.activeEditId = edit.id;
+            } else {
+                cell.value = value as string;
+            }
         } else if (path.length >= 2 && path[0] === 'metadata') {
             // Metadata field edit
             if (path.length === 2) {
@@ -1014,12 +1019,20 @@ function mergeTwoCellsUsingResolverLogic(
         ...(theirCell.metadata?.edits || [])
     ].sort((a, b) => a.timestamp - b.timestamp);
 
-    // Remove duplicates based on timestamp, editMap and value, while merging validatedBy entries
+    // Remove duplicates: prefer edit id as primary key, fall back to composite key for legacy
     const editMap = new Map<string, any>();
     allEdits.forEach((edit) => {
         if (edit.editMap && Array.isArray(edit.editMap)) {
-            const editMapKey = edit.editMap.join('.');
-            const key = `${edit.timestamp}:${editMapKey}:${edit.value}`;
+            let key: string;
+            if (edit.id) {
+                key = edit.id;
+            } else {
+                const editMapKey = edit.editMap.join('.');
+                const valueKey = typeof edit.value === 'object' && edit.value !== null
+                    ? JSON.stringify(edit.value)
+                    : String(edit.value);
+                key = `${edit.timestamp}:${editMapKey}:${valueKey}`;
+            }
             if (!editMap.has(key)) {
                 editMap.set(key, edit);
             } else {
@@ -1039,6 +1052,15 @@ function mergeTwoCellsUsingResolverLogic(
         };
     }
     mergedCell.metadata.edits = uniqueEdits;
+
+    // After merge, resolve activeEditId to the latest non-preview value edit
+    const latestValueEdit = [...uniqueEdits].reverse().find(
+        (e) => e.editMap && Array.isArray(e.editMap) && e.editMap.length === 1 && e.editMap[0] === 'value' && !e.preview
+    );
+    if (latestValueEdit?.id) {
+        mergedCell.metadata.activeEditId = latestValueEdit.id;
+        (mergedCell as any).value = { selectedEdit: latestValueEdit.id, updatedAt: latestValueEdit.timestamp };
+    }
 
     // Merge attachments intelligently
     const mergedAttachments = mergeAttachments(
