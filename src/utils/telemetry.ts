@@ -70,16 +70,7 @@ export const captureException = (
 
     const err = error instanceof Error ? error : new Error(String(error));
 
-    client.capture({
-        distinctId,
-        event: "$exception",
-        properties: {
-            $exception_type: err.name,
-            $exception_message: err.message,
-            $exception_stack_trace_raw: err.stack,
-            ...context,
-        },
-    });
+    client.captureException(err, distinctId, context);
 };
 
 export const captureEvent = (
