@@ -482,7 +482,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private sendSessionRecordingSetting() {
         const enabled = vscode.workspace
             .getConfiguration("codex-editor-extension")
-            .get<boolean>("sessionRecordingEnabled", true);
+            .get<boolean>("sessionRecordingEnabled", false);
 
         if (this._view) {
             safePostMessageToView(
@@ -495,7 +495,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
     private async toggleSessionRecording() {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
-        const current = config.get<boolean>("sessionRecordingEnabled", true);
+        const current = config.get<boolean>("sessionRecordingEnabled", false);
         await config.update("sessionRecordingEnabled", !current, vscode.ConfigurationTarget.Global);
         this.sendSessionRecordingSetting();
         await vscode.commands.executeCommand("workbench.action.reloadWindow");

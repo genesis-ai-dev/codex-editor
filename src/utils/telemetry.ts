@@ -15,7 +15,7 @@ const buildDistinctId = (): string => {
     try {
         const pm = vscode.workspace.getConfiguration("codex-project-manager");
         const email = pm.get<string>("userEmail");
-        
+
         if (email) {
             return `${email}`;
         }
@@ -113,16 +113,16 @@ const SESSION_RECORDING_WEBVIEWS = new Set([
 export const getPostHogWebviewScript = (nonce: string, webviewName?: string): string => {
     const userEnabled = vscode.workspace
         .getConfiguration("codex-editor-extension")
-        .get<boolean>("sessionRecordingEnabled", true);
+        .get<boolean>("sessionRecordingEnabled", false);
 
     const enableRecording = userEnabled && SESSION_RECORDING_WEBVIEWS.has(webviewName ?? "");
 
     return `<script nonce="${nonce}">
         window.__POSTHOG_CONFIG__ = ${JSON.stringify({
-            token: POSTHOG_PROJECT_TOKEN,
-            host: POSTHOG_HOST,
-            distinctId: buildDistinctId(),
-            enableRecording,
-        })};
+        token: POSTHOG_PROJECT_TOKEN,
+        host: POSTHOG_HOST,
+        distinctId: buildDistinctId(),
+        enableRecording,
+    })};
     </script>`;
 };

@@ -871,7 +871,7 @@
                     "codex-editor-extension.sessionRecordingEnabled": {
                         "title": "Session Recording",
                         "type": "boolean",
-                        "default": true,
+                        "default": false,
                         "description": "When enabled, session replays are buffered locally and only sent when an error occurs, to help diagnose issues."
                     },
                     "codex-editor-extension.debugMode": {

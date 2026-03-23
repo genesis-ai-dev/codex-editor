@@ -187,7 +187,7 @@ function MainMenu() {
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
         isGitAvailable: true,
-        sessionRecordingEnabled: true,
+        sessionRecordingEnabled: false,
     });
 
     const network = useNetworkState();
@@ -203,22 +203,16 @@ function MainMenu() {
     // Without this, each click reads from the stale server-confirmed state (which
     // hasn't round-tripped yet), causing lost increments and UI bouncing.
     const [localValidationCount, setLocalValidationCount] = useState<number | null>(null);
-    const [localValidationCountAudio, setLocalValidationCountAudio] = useState<number | null>(
-        null
-    );
+    const [localValidationCountAudio, setLocalValidationCountAudio] = useState<number | null>(null);
     const validationCountDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const validationCountAudioDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const localCountFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const localCountAudioFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const displayValidationCount =
-        localValidationCount ??
-        state.projectState.projectOverview?.validationCount ??
-        1;
+        localValidationCount ?? state.projectState.projectOverview?.validationCount ?? 1;
     const displayValidationCountAudio =
-        localValidationCountAudio ??
-        state.projectState.projectOverview?.validationCountAudio ??
-        1;
+        localValidationCountAudio ?? state.projectState.projectOverview?.validationCountAudio ?? 1;
 
     // Clear optimistic override once the server has caught up to the local value
     useEffect(() => {
@@ -238,7 +232,8 @@ function MainMenu() {
     // Clean up debounce timers on unmount
     useEffect(() => {
         return () => {
-            if (validationCountDebounceRef.current) clearTimeout(validationCountDebounceRef.current);
+            if (validationCountDebounceRef.current)
+                clearTimeout(validationCountDebounceRef.current);
             if (validationCountAudioDebounceRef.current)
                 clearTimeout(validationCountAudioDebounceRef.current);
             if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
@@ -247,59 +242,51 @@ function MainMenu() {
         };
     }, []);
 
-    const handleValidationCountChange = useCallback(
-        (newCount: number) => {
-            setLocalValidationCount(newCount);
+    const handleValidationCountChange = useCallback((newCount: number) => {
+        setLocalValidationCount(newCount);
 
-            if (validationCountDebounceRef.current)
-                clearTimeout(validationCountDebounceRef.current);
-            if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
+        if (validationCountDebounceRef.current) clearTimeout(validationCountDebounceRef.current);
+        if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
 
-            validationCountDebounceRef.current = setTimeout(() => {
-                try {
-                    vscode.postMessage({
-                        command: "setValidationCountDirect",
-                        data: { count: newCount },
-                    });
-                } catch (error) {
-                    console.error("Could not send validation count:", error);
-                }
-            }, 150);
+        validationCountDebounceRef.current = setTimeout(() => {
+            try {
+                vscode.postMessage({
+                    command: "setValidationCountDirect",
+                    data: { count: newCount },
+                });
+            } catch (error) {
+                console.error("Could not send validation count:", error);
+            }
+        }, 150);
 
-            // Safety net: clear optimistic state after 5s in case server never confirms
-            localCountFallbackRef.current = setTimeout(() => {
-                setLocalValidationCount(null);
-            }, 5000);
-        },
-        []
-    );
+        // Safety net: clear optimistic state after 5s in case server never confirms
+        localCountFallbackRef.current = setTimeout(() => {
+            setLocalValidationCount(null);
+        }, 5000);
+    }, []);
 
-    const handleValidationCountAudioChange = useCallback(
-        (newCount: number) => {
-            setLocalValidationCountAudio(newCount);
+    const handleValidationCountAudioChange = useCallback((newCount: number) => {
+        setLocalValidationCountAudio(newCount);
 
-            if (validationCountAudioDebounceRef.current)
-                clearTimeout(validationCountAudioDebounceRef.current);
-            if (localCountAudioFallbackRef.current)
-                clearTimeout(localCountAudioFallbackRef.current);
+        if (validationCountAudioDebounceRef.current)
+            clearTimeout(validationCountAudioDebounceRef.current);
+        if (localCountAudioFallbackRef.current) clearTimeout(localCountAudioFallbackRef.current);
 
-            validationCountAudioDebounceRef.current = setTimeout(() => {
-                try {
-                    vscode.postMessage({
-                        command: "setValidationCountAudioDirect",
-                        data: { count: newCount },
-                    });
-                } catch (error) {
-                    console.error("Could not send audio validation count:", error);
-                }
-            }, 150);
+        validationCountAudioDebounceRef.current = setTimeout(() => {
+            try {
+                vscode.postMessage({
+                    command: "setValidationCountAudioDirect",
+                    data: { count: newCount },
+                });
+            } catch (error) {
+                console.error("Could not send audio validation count:", error);
+            }
+        }, 150);
 
-            localCountAudioFallbackRef.current = setTimeout(() => {
-                setLocalValidationCountAudio(null);
-            }, 5000);
-        },
-        []
-    );
+        localCountAudioFallbackRef.current = setTimeout(() => {
+            setLocalValidationCountAudio(null);
+        }, 5000);
+    }, []);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -787,7 +774,8 @@ function MainMenu() {
                                                                 onClick={() => {
                                                                     if (displayValidationCount > 1)
                                                                         handleValidationCountChange(
-                                                                            displayValidationCount - 1
+                                                                            displayValidationCount -
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Decrease"
@@ -802,7 +790,8 @@ function MainMenu() {
                                                                 onClick={() => {
                                                                     if (displayValidationCount < 15)
                                                                         handleValidationCountChange(
-                                                                            displayValidationCount + 1
+                                                                            displayValidationCount +
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Increase"
@@ -1170,11 +1159,13 @@ function MainMenu() {
                                     <>
                                         <p>
                                             Enabling session recording is a debugging tool that will
-                                            record your screen while you work for the dev team (only)
-                                            to support you better. While sensitive information such as
-                                            project name, cell text and labels, and filenames will be
-                                            blurred out, we can't guarantee this for all data on your
-                                            screen.
+                                            take snapshots of your screen and load them locally
+                                            while you work. In the event that an error is triggered
+                                            the most current snapshot will be sent to the dev team
+                                            to support you better. While sensitive information such
+                                            as project name, cell text and labels, and filenames
+                                            will be blurred out, we can't guarantee this for all
+                                            data on your screen.
                                         </p>
                                         <p>The project will reload upon proceeding.</p>
                                     </>
