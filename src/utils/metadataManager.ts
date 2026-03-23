@@ -333,7 +333,7 @@ export class MetadataManager {
                 // Only update codexEditor if new version is greater or missing,
                 // AND no codex-editor pin is active (the Conductor owns the floor while active).
                 if (versions.codexEditor !== undefined) {
-                    if (!pinnedExtensions["project-accelerate.codex-editor-extension"]?.version) {
+                    if (!pinnedExtensions["project-accelerate.codex-editor-extension"]) {
                         const existingVersion = metadata.meta.requiredExtensions.codexEditor;
                         if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
                             metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
@@ -344,7 +344,7 @@ export class MetadataManager {
                 // Only update frontierAuthentication if new version is greater or missing,
                 // AND no frontier-authentication pin is active.
                 if (versions.frontierAuthentication !== undefined) {
-                    if (!pinnedExtensions["frontier-rnd.frontier-authentication"]?.version) {
+                    if (!pinnedExtensions["frontier-rnd.frontier-authentication"]) {
                         const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
                         if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
                             metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
@@ -406,18 +406,17 @@ export class MetadataManager {
             const codexEditorVersion = this.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
             const frontierAuthVersion = this.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
 
-            // Read current metadata versions
-            const currentVersions = await this.getExtensionVersions(workspaceUri);
-            if (!currentVersions.success) {
+            // Read metadata once to keep requiredExtensions and pinnedExtensions consistent.
+            const metadataResult = await this.safeReadMetadata<ProjectMetadata>(workspaceUri);
+            if (!metadataResult.success) {
                 return; // No metadata file yet, or can't read it
             }
 
-            const existingVersions = currentVersions.versions || {};
+            const existingVersions = metadataResult.metadata?.meta?.requiredExtensions || {};
             const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
 
             // Suppress ratchet if a pin exists (The Conductor is in charge)
-            const fullMetadata = await this.safeReadMetadata(workspaceUri);
-            const pinnedExtensions = fullMetadata.metadata?.meta?.pinnedExtensions || {};
+            const pinnedExtensions = metadataResult.metadata?.meta?.pinnedExtensions || {};
 
             // Check codexEditor - update if missing or if installed version is newer
             if (codexEditorVersion && !pinnedExtensions['project-accelerate.codex-editor-extension']) {
