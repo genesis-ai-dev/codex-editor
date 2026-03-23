@@ -1,28 +1,17 @@
-import JSZip from "jszip";
+import archiver from "archiver";
 import * as fs from "fs";
-import * as path from "path";
+import { basename } from "path";
 
-function addDirToZip(zip: JSZip, dirPath: string, zipRoot: string): void {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        const zipPath = path.join(zipRoot, entry.name).replace(/\\/g, "/");
-        if (entry.isDirectory()) {
-            addDirToZip(zip, fullPath, zipPath);
-        } else {
-            zip.file(zipPath, fs.readFileSync(fullPath));
-        }
-    }
-}
+export const zipDirectory = (sourceDir: string, destZipPath: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(destZipPath);
+        const archive = archiver("zip", { zlib: { level: 9 } });
 
-export const zipDirectory = async (sourceDir: string, destZipPath: string): Promise<void> => {
-    const zip = new JSZip();
-    const rootName = path.basename(sourceDir);
-    addDirToZip(zip, sourceDir, rootName);
-    const buffer = await zip.generateAsync({
-        type: "nodebuffer",
-        compression: "DEFLATE",
-        compressionOptions: { level: 9 },
+        output.on("close", resolve);
+        archive.on("error", reject);
+
+        archive.pipe(output);
+        archive.directory(sourceDir, basename(sourceDir));
+        archive.finalize();
     });
-    await fs.promises.writeFile(destZipPath, buffer);
 };
