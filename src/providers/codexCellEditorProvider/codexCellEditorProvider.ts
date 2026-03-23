@@ -1562,7 +1562,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             </head>
             <body>
                 <div id="root"></div>
-                ${getPostHogWebviewScript(nonce)}
+                ${getPostHogWebviewScript(nonce, "CodexCellEditor")}
                 <script nonce="${nonce}" src="${scriptUriWithBuster}"></script>
                 
                 <style>

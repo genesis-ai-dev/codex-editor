@@ -4,7 +4,7 @@ interface PostHogConfig {
     token: string;
     host: string;
     distinctId: string;
-    sessionRecordingEnabled: boolean;
+    enableRecording: boolean;
 }
 
 const config = (window as any).__POSTHOG_CONFIG__ as PostHogConfig | undefined;
@@ -16,10 +16,12 @@ if (config?.token) {
         rageclick: false,
         capture_pageview: false,
         capture_pageleave: false,
-        disable_session_recording: !config.sessionRecordingEnabled,
+        disable_session_recording: !config.enableRecording,
         session_recording: {
             maskAllInputs: false,
             maskTextSelector: ".ph-no-capture",
+            collectFonts: false,
+            recordCrossOriginIframes: false,
         },
         persistence: "localStorage",
     });

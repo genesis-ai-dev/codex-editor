@@ -9,6 +9,7 @@ interface WebviewTemplateOptions {
     initialData?: any;
     inlineStyles?: string;
     customScript?: string;
+    webviewName?: string;
 }
 
 export function getWebviewHtml(
@@ -51,7 +52,7 @@ export function getWebviewHtml(
 </head>
 <body>
     <div id="root"></div>
-    ${getPostHogWebviewScript(nonce)}
+    ${getPostHogWebviewScript(nonce, options.webviewName ?? options.scriptPath[0])}
     ${options.initialData ? `<script nonce="${nonce}">window.initialData = ${JSON.stringify(options.initialData)};</script>` : ""}
     ${options.customScript ? `<script nonce="${nonce}">${options.customScript}</script>` : ""}
     <script nonce="${nonce}" src="${scriptUri}"></script>

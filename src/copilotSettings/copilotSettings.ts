@@ -69,7 +69,7 @@ export async function openSystemMessageEditor() {
       </head>
       <body>
         <div id="root"></div>
-        ${getPostHogWebviewScript(nonce)}
+        ${getPostHogWebviewScript(nonce, "CopilotSettings")}
         <script nonce="${nonce}" src="${scriptUri}"></script>
       </body>
     </html>`;

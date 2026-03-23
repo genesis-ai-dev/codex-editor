@@ -138,7 +138,7 @@ async function getHtmlForCellLabelImporterView(
         </head>
         <body>
             <div id="root"></div>
-            ${getPostHogWebviewScript(nonce)}
+            ${getPostHogWebviewScript(nonce, "CellLabelImporter")}
             <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
         </html>`;

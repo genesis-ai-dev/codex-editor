@@ -61,7 +61,7 @@ async function getHtmlForCodexMigrationToolView(
         </head>
         <body>
             <div id="root"></div>
-            ${getPostHogWebviewScript(nonce)}
+            ${getPostHogWebviewScript(nonce, "CodexMigrationTool")}
             <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
         </html>`;

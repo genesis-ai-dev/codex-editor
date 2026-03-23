@@ -138,7 +138,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
         </head>
         <body>
             <div id="root"></div>
-            ${getPostHogWebviewScript(nonce)}
+            ${getPostHogWebviewScript(nonce, this.getScriptPath()[0])}
             <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
         </html>`;

@@ -111,17 +111,27 @@ export const shutdownTelemetry = async (): Promise<void> => {
     }
 };
 
-export const getPostHogWebviewScript = (nonce: string): string => {
-    const enabled = vscode.workspace
+const SESSION_RECORDING_WEBVIEWS = new Set([
+    "CodexCellEditor",
+    "NavigationView",
+    "MainMenu",
+    "CommentsView",
+    "ParallelView",
+]);
+
+export const getPostHogWebviewScript = (nonce: string, webviewName?: string): string => {
+    const userEnabled = vscode.workspace
         .getConfiguration("codex-editor-extension")
         .get<boolean>("sessionRecordingEnabled", true);
+
+    const enableRecording = userEnabled && SESSION_RECORDING_WEBVIEWS.has(webviewName ?? "");
 
     return `<script nonce="${nonce}">
         window.__POSTHOG_CONFIG__ = ${JSON.stringify({
             token: POSTHOG_PROJECT_TOKEN,
             host: POSTHOG_HOST,
             distinctId: buildDistinctId(),
-            sessionRecordingEnabled: enabled,
+            enableRecording,
         })};
     </script>`;
 };
