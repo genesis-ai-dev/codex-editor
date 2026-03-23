@@ -46,6 +46,13 @@ function debug(...args: any[]) {
     }
 }
 
+function sanitizeFileComponent(input: string): string {
+    return input
+        .replace(/\s+/g, "_")
+        .replace(/[^a-zA-Z0-9._-]/g, "-")
+        .replace(/_+/g, "_");
+}
+
 /**
  * Validates USFM content for common structural issues
  * @param usfmContent The USFM content to validate
@@ -1620,8 +1627,9 @@ export async function exportCodexContent(
         const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
         const projectName = projectConfig.get<string>("projectName", "") ||
             basename(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "export");
+        const sanitizedProjectName = sanitizeFileComponent(projectName);
         const dateStamp = new Date().toISOString().slice(0, 10);
-        const baseName = `${projectName}-${format}-${dateStamp}`;
+        const baseName = `${sanitizedProjectName}-${format}-${dateStamp}`;
         let candidate = path.join(userSelectedPath, baseName);
         let suffix = 1;
         while (fs.existsSync(candidate) || fs.existsSync(`${candidate}.zip`)) {
