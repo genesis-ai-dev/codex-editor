@@ -1225,6 +1225,14 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        /** Pin specific extension versions for this project */
+        pinnedExtensions?: Record<string, {
+            version: string;
+            url?: string;
+            reason: string;
+            expiry?: string;
+            setBy?: string;
+        }>;
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
