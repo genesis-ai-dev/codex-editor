@@ -3340,6 +3340,7 @@ const CodexCellEditor: React.FC = () => {
                                 tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
                             }
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
+                            enforceHtmlStructure={metadata?.enforceHtmlStructure ?? false}
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}

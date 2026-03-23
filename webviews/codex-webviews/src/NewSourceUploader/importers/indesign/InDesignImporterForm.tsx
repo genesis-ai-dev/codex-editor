@@ -6,6 +6,7 @@
 import React, { useState, useCallback } from 'react';
 import { ImporterComponentProps } from '../../types/plugin';
 import { Button } from '../../../components/ui/button';
+import EnforceStructureCheckbox from '../../components/EnforceStructureCheckbox';
 import {
     Card,
     CardContent,
@@ -86,6 +87,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
     const [debugLogs, setDebugLogs] = useState<string[]>([]);
     const [importResult, setImportResult] = useState<any>(null);
     const [showCompleteButton, setShowCompleteButton] = useState(false);
+    const [enforceHtmlStructure, setEnforceHtmlStructure] = useState(true);
 
     const addDebugLog = useCallback((message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -242,7 +244,8 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                                 storyCount: document.stories.length,
                                 originalHash: document.originalHash,
                                 totalCells: simplifiedCells.length,
-                                fileType: 'indesign'
+                                fileType: 'indesign',
+                                enforceHtmlStructure,
                             }
                         },
                         codex: { 
@@ -274,7 +277,8 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                                 originalHash: document.originalHash,
                                 totalCells: simplifiedCells.length,
                                 fileType: 'indesign',
-                                isCodex: true
+                                isCodex: true,
+                                enforceHtmlStructure,
                             }
                         }
                     };
@@ -511,6 +515,11 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                     </CardContent>
                 </Card>
             )}
+
+            <EnforceStructureCheckbox
+                checked={enforceHtmlStructure}
+                onCheckedChange={setEnforceHtmlStructure}
+            />
 
             <div className="flex justify-end gap-3">
                 <Button

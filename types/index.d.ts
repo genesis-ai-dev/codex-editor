@@ -569,6 +569,7 @@ export type EditorPostMessages =
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
+    | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
     | { command: "pickVideoFile"; }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
@@ -1027,6 +1028,11 @@ export interface CustomNotebookMetadata {
         originalUsfmContent: string;
         lineMappings?: Array<{ lineIndex: number; cellId?: string;[key: string]: unknown; }>;
     };
+    /**
+     * When true, translated cells are validated against the source HTML structure.
+     * Mismatches are flagged in the editor and warned about during round-trip export.
+     */
+    enforceHtmlStructure?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -2203,6 +2209,7 @@ type EditorReceiveMessages =
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
+    | { type: "providerSendsResolvedHtmlStructure"; content: { cellId: string; resolvedContent: string; }; }
     | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; abProbability?: number; }; }
     | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }

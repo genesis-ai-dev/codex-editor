@@ -253,7 +253,7 @@ Codex Cells → Extract Translations → Locate Original Paragraphs → Replace 
 ### Import a DOCX File
 
 ```typescript
-import { validateFile, parseFile } from './experiment/index';
+import { validateFile, parseFile } from './index';
 
 // Validate
 const validation = await validateFile(file);
@@ -281,7 +281,7 @@ if (result.success) {
 ### Export with Translations
 
 ```typescript
-import { exportDocxWithTranslations } from './experiment/docxExporter';
+import { exportDocxWithTranslations } from './docxExporter';
 
 // Export (use original template DOCX bytes, e.g. read from `.project/attachments/originals/<originalFileName>`)
 const exportedDocx = await exportDocxWithTranslations(
