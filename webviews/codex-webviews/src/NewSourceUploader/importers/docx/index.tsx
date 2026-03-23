@@ -1,10 +1,9 @@
 import { ImporterPlugin } from "../../types/plugin";
 import { FileText } from "lucide-react";
 import { DocxImporterForm } from "./DocxImporterForm";
-import { validateFile, parseFile } from "./index";
 
 // Re-export for convenience
-export { validateFile, parseFile, docxImporter } from "./index";
+export { validateFile, parseFile, docxImporter } from "./index.ts";
 
 export const docxRoundtripImporterPlugin: ImporterPlugin = {
     id: "docx",

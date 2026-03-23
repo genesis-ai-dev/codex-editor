@@ -109,6 +109,27 @@ function getFullBookName(bookCode: string): string {
     return bookCodeToName[upperCode] || bookCode;
 }
 
+const BRACKETED_USFM_MARKER_PATTERN = /\\(?:\+?[a-z0-9]+)\*?/i;
+const BRACKETED_USFM_START_PATTERN = /^\s*\\/;
+const BRACKETED_USFM_END_PATTERN =
+    /^[\d:;,\-.\s]+\s*\\(?:\+?[a-z0-9]+)\*?\s*$/i;
+
+function stripBracketedUsfmMarkers(content: string): string {
+    return content.replace(/<([^>]+)>/g, (match, innerContent: string) => {
+        const normalizedContent = innerContent.trim();
+        if (!BRACKETED_USFM_MARKER_PATTERN.test(normalizedContent)) {
+            return match;
+        }
+        if (
+            BRACKETED_USFM_START_PATTERN.test(normalizedContent) ||
+            BRACKETED_USFM_END_PATTERN.test(normalizedContent)
+        ) {
+            return innerContent;
+        }
+        return match;
+    });
+}
+
 function convertHtmlToUsfm(html: string): string {
     if (!html) return "";
 
@@ -145,7 +166,7 @@ function convertHtmlToUsfm(html: string): string {
     });
 
     // Strip bracket-format footnotes (literal angle brackets) before HTML tag cleanup
-    content = content.replace(/<([^>]*\\[^>]*)>/g, "$1");
+    content = stripBracketedUsfmMarkers(content);
 
     content = content.replace(/<[^>]*>/g, "");
     content = content.replace(/&nbsp;/g, " ");
@@ -156,7 +177,7 @@ function convertHtmlToUsfm(html: string): string {
     content = content.replace(/&apos;/g, "'");
 
     // Strip entity-encoded bracket-format footnotes too
-    content = content.replace(/<([^>]*\\[^>]*)>/g, "$1");
+    content = stripBracketedUsfmMarkers(content);
 
     return content;
 }
