@@ -17,7 +17,7 @@ interface ProjectMetadata {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
-        pinnedExtensions?: Record<string, { version: string; url?: string; reason?: string; expiry?: string; setBy?: string }>;
+        pinnedExtensions?: Record<string, { version: string; url: string }>;
         [key: string]: unknown;
     };
     edits?: any[];
