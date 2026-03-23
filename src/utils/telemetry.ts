@@ -60,6 +60,43 @@ export const initTelemetry = (): void => {
     });
 };
 
+export const captureException = (
+    error: Error | unknown,
+    context?: Record<string, unknown>
+): void => {
+    if (!client || !distinctId) {
+        return;
+    }
+
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    client.capture({
+        distinctId,
+        event: "$exception",
+        properties: {
+            $exception_type: err.name,
+            $exception_message: err.message,
+            $exception_stack_trace_raw: err.stack,
+            ...context,
+        },
+    });
+};
+
+export const captureEvent = (
+    event: string,
+    properties?: Record<string, unknown>
+): void => {
+    if (!client || !distinctId) {
+        return;
+    }
+
+    client.capture({
+        distinctId,
+        event,
+        properties,
+    });
+};
+
 export const shutdownTelemetry = async (): Promise<void> => {
     if (!client) {
         return;

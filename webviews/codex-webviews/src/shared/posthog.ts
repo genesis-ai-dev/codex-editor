@@ -29,4 +29,29 @@ if (config?.token) {
     }
 }
 
+export const captureException = (
+    error: Error | unknown,
+    context?: Record<string, string>
+): void => {
+    if (!config?.token) {
+        return;
+    }
+
+    const err = error instanceof Error ? error : new Error(String(error));
+    posthog.captureException(err, context);
+};
+
+window.addEventListener("error", (event) => {
+    captureException(event.error ?? event.message, {
+        source: "window.onerror",
+        filename: event.filename ?? "",
+        lineno: String(event.lineno ?? ""),
+        colno: String(event.colno ?? ""),
+    });
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+    captureException(event.reason, { source: "unhandledrejection" });
+});
+
 export { posthog };

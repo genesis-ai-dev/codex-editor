@@ -59,7 +59,7 @@ import {
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
-import { initTelemetry, shutdownTelemetry } from "./utils/telemetry";
+import { initTelemetry, shutdownTelemetry, captureException } from "./utils/telemetry";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
@@ -326,6 +326,16 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     initTelemetry();
+
+    process.on("uncaughtException", (error) => {
+        console.error("[Extension] Uncaught exception:", error);
+        captureException(error, { source: "uncaughtException" });
+    });
+
+    process.on("unhandledRejection", (reason) => {
+        console.error("[Extension] Unhandled rejection:", reason);
+        captureException(reason, { source: "unhandledRejection" });
+    });
 
     let stepStart = activationStart;
 

@@ -872,7 +872,7 @@
                         "title": "Session Recording",
                         "type": "boolean",
                         "default": true,
-                        "description": "Enable PostHog session recording in webviews for product analytics."
+                        "description": "When enabled, session replays are buffered locally and only sent when an error occurs, to help diagnose issues."
                     },
                     "codex-editor-extension.debugMode": {
                         "title": "Debugging Mode",

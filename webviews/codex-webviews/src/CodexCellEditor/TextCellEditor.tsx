@@ -1859,6 +1859,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     );
 
     const displayEditableLabel = () => {
+        throw new Error("test");
         if (editableLabel !== "") {
             return editableLabel;
         }

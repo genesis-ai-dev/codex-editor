@@ -1,6 +1,7 @@
 import "../shared/posthog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -1199,4 +1200,8 @@ function MainMenu() {
 }
 
 const root = createRoot(document.getElementById("root")!);
-root.render(<MainMenu />);
+root.render(
+    <ErrorBoundary>
+        <MainMenu />
+    </ErrorBoundary>
+);
