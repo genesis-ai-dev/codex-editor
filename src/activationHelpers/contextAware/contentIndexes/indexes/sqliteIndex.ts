@@ -15,7 +15,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 15; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
+export const CURRENT_SCHEMA_VERSION = 16; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
