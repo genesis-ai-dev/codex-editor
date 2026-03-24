@@ -9,9 +9,7 @@ import semver from "semver";
 import { LocalProject, ProjectMetadata, ProjectOverview, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
-import git from "isomorphic-git";
-import fs from "fs";
-import http from "isomorphic-git/http/web";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
@@ -456,11 +454,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         // Check if git is already initialized
         let isGitInitialized = false;
         try {
-            await git.resolveRef({
-                fs,
-                dir: workspaceFolder,
-                ref: "HEAD",
-            });
+            await dugiteGit.resolveRef(workspaceFolder, "HEAD");
             isGitInitialized = true;
         } catch (error) {
             // Git is not initialized
@@ -469,11 +463,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         if (!isGitInitialized) {
             // Initialize git repository
             try {
-                await git.init({
-                    fs,
-                    dir: workspaceFolder,
-                    defaultBranch: "main",
-                });
+                await dugiteGit.init(workspaceFolder);
 
                 // Ensure git configuration files are present and up-to-date
                 await ensureGitConfigsAreUpToDate();
@@ -482,28 +472,16 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 await ensureGitDisabledInSettings();
 
                 // Add files to git
-                await git.add({
-                    fs,
-                    dir: workspaceFolder,
-                    filepath: "metadata.json",
-                });
+                await dugiteGit.add(workspaceFolder, "metadata.json");
 
                 try {
-                    await git.add({
-                        fs,
-                        dir: workspaceFolder,
-                        filepath: ".gitignore",
-                    });
+                    await dugiteGit.add(workspaceFolder, ".gitignore");
                 } catch (error) {
                     debug("Unable to add .gitignore to git index:", error);
                 }
 
                 try {
-                    await git.add({
-                        fs,
-                        dir: workspaceFolder,
-                        filepath: ".gitattributes",
-                    });
+                    await dugiteGit.add(workspaceFolder, ".gitattributes");
                 } catch (error) {
                     debug("Unable to add .gitattributes to git index:", error);
                 }
@@ -533,18 +511,17 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                         "unknown",
                 };
 
-                await git.commit({
-                    fs,
-                    dir: workspaceFolder,
-                    message: "Initial commit: Add project metadata",
-                    author,
-                });
+                await dugiteGit.commit(
+                    workspaceFolder,
+                    "Initial commit: Add project metadata",
+                    { name: author.name, email: author.email },
+                );
 
-                vscode.window.showInformationMessage("Git repository initialized successfully");
+                vscode.window.showInformationMessage("Project sync has been set up.");
             } catch (error) {
                 console.error("Failed to initialize git repository:", error);
                 vscode.window.showErrorMessage(
-                    `Failed to initialize git repository: ${error instanceof Error ? error.message : String(error)}`
+                    `Failed to set up sync for this project: ${error instanceof Error ? error.message : String(error)}`
                 );
             }
         }
@@ -608,7 +585,6 @@ export async function updateMetadataFile() {
             const originalGenerator = project.meta?.generator ? { ...project.meta.generator } : undefined;
             const originalAbbreviation = project.meta?.abbreviation;
             const originalLanguages = project.languages ? [...project.languages] : undefined;
-            const originalSpellcheckIsEnabled = project.spellcheckIsEnabled;
             const originalValidationCount = project.meta?.validationCount;
             const originalValidationCountAudio = project.meta?.validationCountAudio;
 
@@ -661,9 +637,6 @@ export async function updateMetadataFile() {
             const newAbbreviation = projectSettings.get("abbreviation", "");
             project.meta.abbreviation = newAbbreviation;
 
-            const newSpellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
-            project.spellcheckIsEnabled = newSpellcheckIsEnabled;
-
             // Track edits for changed user-editable fields
             // Ensure edits array exists
             if (!project.edits) {
@@ -699,11 +672,6 @@ export async function updateMetadataFile() {
                 JSON.stringify(originalLanguages) !== JSON.stringify(newLanguages);
             if (languagesChanged) {
                 addProjectMetadataEdit(project, EditMapUtils.languages(), newLanguages, author);
-            }
-
-            // Track spellcheckIsEnabled changes
-            if (originalSpellcheckIsEnabled !== newSpellcheckIsEnabled) {
-                addProjectMetadataEdit(project, EditMapUtils.spellcheckIsEnabled(), newSpellcheckIsEnabled, author);
             }
 
             debug("Project settings loaded, preparing to write to metadata.json");
@@ -873,7 +841,6 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             targetTexts,
             targetFont: metadata.targetFont || "Default Font",
             isAuthenticated,
-            spellcheckIsEnabled: metadata.spellcheckIsEnabled || false,
         };
     } catch (error) {
         console.error("Failed to read project metadata:", error);
@@ -1029,11 +996,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
 
     try {
         // Check git repository
-        await git.resolveRef({
-            fs,
-            dir: workspaceFolder.uri.fsPath,
-            ref: "HEAD",
-        });
+        await dugiteGit.resolveRef(workspaceFolder.uri.fsPath, "HEAD");
         gitExists = true;
 
         // If both metadata and git exist, ensure git configuration files are up-to-date
@@ -1830,11 +1793,8 @@ export async function writeDisplayedProjectName(projectPath: string, displayedPr
  */
 async function getGitOriginUrl(projectPath: string): Promise<string | undefined> {
     try {
-        const config = await git.listRemotes({
-            fs,
-            dir: projectPath,
-        });
-        const origin = config.find((remote: any) => remote.remote === "origin");
+        const config = await dugiteGit.listRemotes(projectPath);
+        const origin = config.find((remote) => remote.remote === "origin");
         if (origin?.url) {
             const urlObj = new URL(origin.url);
             return `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
@@ -2101,25 +2061,42 @@ export async function ensureGitDisabledInSettings(): Promise<void> {
 }
 
 /**
+ * Regex for characters allowed in project names during user input.
+ * Allows word chars, spaces, hyphens, and dots. Spaces/dots get
+ * sanitized to hyphens later, but are acceptable input.
+ */
+export const PROJECT_NAME_INPUT_PATTERN = /^[\w\s.-]+$/;
+
+/**
+ * Returns a validation error string if the project name contains forbidden
+ * characters, or null if the name is valid. Intended for use in input
+ * validation callbacks (VS Code showInputBox, React forms, etc.).
+ */
+export const validateProjectNameCharacters = (value: string): string | null => {
+    if (!PROJECT_NAME_INPUT_PATTERN.test(value)) {
+        return "Project name can only contain letters, numbers, spaces, hyphens (-), underscores (_), and dots (.)";
+    }
+    return null;
+};
+
+/**
  * Sanitizes a project name to be used as a folder name.
  * Ensure name is safe for:
- * - Windows
- * - Mac
- * - Linux
+ * - Windows / Mac / Linux filesystems
  * - Git
+ * - GitLab project names
  */
 export function sanitizeProjectName(name: string): string {
-    // Replace invalid characters with hyphens
-    // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
     return (
         name
-            .trim() // Remove leading/trailing whitespace first
-            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$|^git$/i, "-") // Invalid/reserved chars and names
-            .replace(/\s+/g, "-") // Replace spaces with hyphens
-            .replace(/\.+/g, "-") // Replace periods with hyphens
-            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
-            .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
-        "new-project" // Fallback if name becomes empty after sanitization
+            .trim()
+            .replace(/[^\w\s.-]/g, "-") // Replace any character not allowed in project names
+            .replace(/\.lock$|^git$/i, "-") // Reserved names
+            .replace(/\s+/g, "-") // Spaces → hyphens
+            .replace(/\.+/g, "-") // Dots → hyphens
+            .replace(/-+/g, "-") // Collapse multiple hyphens
+            .replace(/^-|-$/g, "") || // Strip leading/trailing hyphens
+        "new-project"
     );
 }
 

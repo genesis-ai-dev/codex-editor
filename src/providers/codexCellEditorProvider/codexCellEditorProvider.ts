@@ -27,7 +27,7 @@ import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getNonce } from "../../utils/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";
@@ -845,9 +845,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                         if (ws) {
                             const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteUpdatingManager");
-                            const git = await import("isomorphic-git");
-                            const fs = await import("fs");
-                            const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
+                            const dugiteGitModule = await import("../../utils/dugiteGit");
+                            const remotes = await dugiteGitModule.listRemotes(ws.uri.fsPath);
                             const origin = remotes.find((r) => r.remote === "origin");
 
                             if (origin?.url) {

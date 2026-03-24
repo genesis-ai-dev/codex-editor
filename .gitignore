@@ -5,7 +5,6 @@ node_modules
 /package-lock.json
 pnpm-lock.yaml
 __pycache__
-webviews/editable-react-table/node_modules
 /webviews/commentsWebview
 .DS_Store
 package-lock.json

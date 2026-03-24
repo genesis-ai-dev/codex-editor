@@ -2,7 +2,6 @@ import {
     EditorCellContent,
     EditorPostMessages,
     QuillCellContent,
-    SpellCheckResponse,
     MilestoneIndex,
 } from "../../../../types";
 import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
@@ -25,7 +24,6 @@ import { sanitizeQuillHtml } from "./utils";
 import { compareHtmlStructure, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
 
 export interface CellListProps {
-    spellCheckResponse: SpellCheckResponse | null;
     translationUnits: QuillCellContent[];
     fullDocumentTranslationUnits: QuillCellContent[]; // Full document for global line numbering
     contentBeingUpdated: EditorCellContent;
@@ -37,7 +35,6 @@ export interface CellListProps {
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
-    alertColorCodes: { [cellId: string]: number };
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
     translationQueue?: string[]; // Queue of cells waiting for translation
@@ -98,8 +95,6 @@ const CellList: React.FC<CellListProps> = ({
     isSourceText,
     windowHeight,
     headerHeight,
-    spellCheckResponse,
-    alertColorCodes,
     highlightedCellId,
     scrollSyncEnabled,
     translationQueue = [],
@@ -846,7 +841,6 @@ const CellList: React.FC<CellListProps> = ({
                                 textDirection={textDirection}
                                 isSourceText={isSourceText}
                                 hasDuplicateId={hasDuplicateId}
-                                alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -883,7 +877,6 @@ const CellList: React.FC<CellListProps> = ({
             duplicateCellIds,
             highlightedCellId,
             scrollSyncEnabled,
-            alertColorCodes,
             generateLineNumber,
             isCellInTranslationProcess,
             getCellTranslationState,
@@ -946,7 +939,6 @@ const CellList: React.FC<CellListProps> = ({
                         <CellEditor
                             cell={workingTranslationUnits[i]}
                             editHistory={editHistory}
-                            spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}
                             cellContent={sanitizeQuillHtml(cellContent)}
@@ -1017,7 +1009,6 @@ const CellList: React.FC<CellListProps> = ({
                                 textDirection={textDirection}
                                 isSourceText={isSourceText}
                                 hasDuplicateId={false}
-                                alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -1061,7 +1052,6 @@ const CellList: React.FC<CellListProps> = ({
         isCorrectionEditorMode,
         contentBeingUpdated,
         generateLineNumber,
-        spellCheckResponse,
         setContentBeingUpdated,
         handleCloseEditor,
         handleSaveHtml,
@@ -1074,7 +1064,6 @@ const CellList: React.FC<CellListProps> = ({
         renderCellGroup,
         lineNumbersEnabled,
         vscode,
-        alertColorCodes,
         scrollSyncEnabled,
         isCellInTranslationProcess,
         getCellTranslationState,

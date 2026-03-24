@@ -20,7 +20,7 @@ export const WorkspaceStep: React.FC<WorkspaceStepProps> = ({ onOpenWorkspace, o
                 </div>
                 <div className="option">
                     <h3>Create New Project</h3>
-                    <p>Start a new Codex project in a fresh directory</p>
+                    <p>Start a new Codex project in a new folder</p>
                     <VSCodeButton onClick={onCreateNew}>
                         Create New Project
                     </VSCodeButton>

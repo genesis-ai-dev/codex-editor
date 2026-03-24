@@ -34,7 +34,7 @@ suite("Milestone-Based Pagination Test Suite", () => {
         // Stub background tasks
         sinon.restore();
         sinon.stub((CodexCellDocument as any).prototype, "addCellToIndexImmediately").callsFake(() => { });
-        sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").resolves();
+        sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").resolves();
         sinon.stub((CodexCellDocument as any).prototype, "populateSourceCellMapFromIndex").resolves();
     });
 

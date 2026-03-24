@@ -637,29 +637,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
-    const toggleSpellcheckCommand = vscode.commands.registerCommand(
-        "codex-project-manager.toggleSpellcheck",
-        executeWithRedirecting(async () => {
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const currentSpellcheckIsEnabledValue = config.get("spellcheckIsEnabled", false);
-
-            const newSpellcheckIsEnabledValue = !currentSpellcheckIsEnabledValue;
-
-            console.log("currentSpellcheckIsEnabledValue", currentSpellcheckIsEnabledValue);
-            console.log("newSpellcheckIsEnabledValue", newSpellcheckIsEnabledValue);
-
-            await config.update(
-                "spellcheckIsEnabled",
-                newSpellcheckIsEnabledValue,
-                vscode.ConfigurationTarget.Workspace
-            );
-            vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
-            vscode.window.showInformationMessage(
-                `Spellcheck is now ${newSpellcheckIsEnabledValue ? "enabled" : "disabled"}.`
-            );
-        })
-    );
-
     const updateMetadataFileCommand = vscode.commands.registerCommand(
         "codex-project-manager.updateMetadataFile",
         updateMetadataFile
@@ -704,7 +681,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
             try {
                 const workspaceFolders = vscode.workspace.workspaceFolders;
                 if (!workspaceFolders || workspaceFolders.length === 0) {
-                    vscode.window.showWarningMessage("No workspace folder open");
+                    vscode.window.showWarningMessage("No project folder is open.");
                     return;
                 }
 
@@ -747,8 +724,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         changeUserEmailCommand,
         validateProjectIdCommand,
         onDidChangeConfigurationListener,
-        onDidChangeExtensionsListener,
-        toggleSpellcheckCommand
+        onDidChangeExtensionsListener
     );
 
     // Prompt user to install recommended extensions

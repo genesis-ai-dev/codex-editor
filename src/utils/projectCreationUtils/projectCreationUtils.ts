@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
-import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
+import { initializeProjectMetadataAndGit, syncMetadataToConfiguration, isValidCodexProject, generateProjectId, ProjectDetails, sanitizeProjectName, extractProjectIdFromFolderName, validateProjectNameCharacters } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
@@ -43,7 +43,7 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
             if (value.length > 100) {
                 return "Project name is too long (max 100 characters)";
             }
-            return null;
+            return validateProjectNameCharacters(value);
         },
         ignoreFocusOut: true,
     });
@@ -81,7 +81,18 @@ export async function createNewWorkspaceAndProject(context?: vscode.ExtensionCon
         await context.globalState.update("pendingProjectCreateName", fullProjectName);
         await context.globalState.update("pendingProjectCreateId", projectId);
     }
-    await createProjectInNewFolder(projectName, projectId);
+    try {
+        await createProjectInNewFolder(projectName, projectId);
+    } catch (error) {
+        // Clear stale flags if folder creation/opening failed so subsequent
+        // window reloads don't mistakenly re-trigger project creation
+        if (context) {
+            await context.globalState.update("pendingProjectCreate", undefined);
+            await context.globalState.update("pendingProjectCreateName", undefined);
+            await context.globalState.update("pendingProjectCreateId", undefined);
+        }
+        throw error;
+    }
 }
 
 /**

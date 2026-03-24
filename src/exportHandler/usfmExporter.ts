@@ -12,7 +12,7 @@ const VERSE_REF_REGEX = /\b[A-Z0-9]{2,4}\s+\d+:\d+\b/;
  * Gets the verse reference for a cell, from globalReferences (preferred) or metadata.id (legacy).
  * Returns null if no verse-ref format found.
  */
-function getVerseRefForCell(cell: { metadata?: any }): string | null {
+function getVerseRefForCell(cell: { metadata?: any; }): string | null {
     const meta = cell.metadata as any;
     const globalRefs = meta?.data?.globalReferences;
     if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
@@ -170,7 +170,7 @@ export async function exportCodexContentAsUsfm(
         debug("Starting exportCodexContentAsUsfm function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -300,7 +300,7 @@ export async function exportCodexContentAsUsfm(
                                     (cell.kind === 2 || cell.kind === 1) &&
                                     cell.metadata?.type &&
                                     cell.metadata?.type !==
-                                        CodexCellTypes.MILESTONE &&
+                                    CodexCellTypes.MILESTONE &&
                                     cell.value.trim().length > 0 &&
                                     !metadata?.merged
                                 );
@@ -309,14 +309,14 @@ export async function exportCodexContentAsUsfm(
 
                         totalCells += relevantCells.length;
 
-                        const chapterCells: { [key: string]: number } = {};
+                        const chapterCells: { [key: string]: number; } = {};
                         for (const cell of relevantCells) {
                             const cellMetadata = cell.metadata;
                             const cellContent = cell.value.trim();
 
                             if (
                                 cellMetadata.type ===
-                                    CodexCellTypes.PARATEXT &&
+                                CodexCellTypes.PARATEXT &&
                                 cellContent.startsWith("<h1>")
                             ) {
                                 const chapterTitle = cellContent

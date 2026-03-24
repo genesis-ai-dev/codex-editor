@@ -225,7 +225,7 @@ async function exportCodexContentAsIdmlRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -303,7 +303,7 @@ async function exportCodexContentAsIdmlRoundtrip(
                         const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
                             throw new Error(
-                                `Original IDML file "${originalFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                `Original IDML file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
                                 (lfsResult.error ?? 'Unknown error')
                             );
                         }
@@ -368,7 +368,7 @@ async function exportCodexContentAsDocxRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -426,7 +426,7 @@ async function exportCodexContentAsDocxRoundtrip(
                         const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
                             throw new Error(
-                                `Original DOCX file "${originalFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                `Original DOCX file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
                                 (lfsResult.error ?? 'Unknown error')
                             );
                         }
@@ -466,7 +466,7 @@ async function exportCodexContentAsPdfRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -536,7 +536,7 @@ async function exportCodexContentAsPdfRoundtrip(
                         const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
                             throw new Error(
-                                `Converted DOCX file "${convertedDocxFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                `Converted DOCX file "${convertedDocxFileName}" is an LFS pointer that could not be resolved. ` +
                                 (lfsResult.error ?? 'Unknown error')
                             );
                         }
@@ -755,7 +755,7 @@ async function exportCodexContentAsObsRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -857,7 +857,7 @@ async function exportCodexContentAsUsfmRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1042,7 +1042,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1185,7 +1185,7 @@ async function exportCodexContentAsTmsRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1311,7 +1311,7 @@ async function exportCodexContentAsRebuild(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1707,7 +1707,7 @@ export const exportCodexContentAsSubtitlesSrt = async (
         debug("Starting exportCodexContentAsSubtitlesSrt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1782,7 +1782,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
         debug("Starting exportCodexContentAsSubtitlesVtt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1958,7 +1958,7 @@ async function exportCodexContentAsDelimited(
         debug(`Starting exportCodexContentAs${formatName} function`);
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -2192,7 +2192,7 @@ async function exportCodexContentAsBacktranslations(
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
