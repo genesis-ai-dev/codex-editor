@@ -222,7 +222,7 @@ export async function createNoteBookPair({
             console.log(`[CODEX FILE CREATE] Non-biblical import: adding id "${uniqueId}" to filename`);
             
             // IMPORTANT: Do NOT modify originalFileName here.
-            // originalFileName must point to the actual file stored in attachments/originals/
+            // originalFileName must point to the actual file stored in attachments/files/originals/
             // (which may be deduplicated). The notebook filename uses UUIDs for uniqueness,
             // but the original file reference should remain unchanged for round-trip export.
 
