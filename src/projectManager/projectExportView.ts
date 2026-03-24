@@ -1,4 +1,5 @@
 import { CodexExportFormat } from "../exportHandler/exportHandler";
+import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 import {
@@ -6,6 +7,26 @@ import {
     EXPORT_OPTIONS_BY_FILE_TYPE,
     type FileGroup,
 } from "./utils/exportViewUtils";
+
+const LAST_EXPORT_FOLDER_KEY = "projectExport.lastFolder";
+
+function getLastExportFolderUri(context: vscode.ExtensionContext): vscode.Uri | undefined {
+    const lastPath = context.workspaceState.get<string>(LAST_EXPORT_FOLDER_KEY);
+    if (!lastPath) {
+        return undefined;
+    }
+    try {
+        if (!fs.existsSync(lastPath)) {
+            return undefined;
+        }
+        if (!fs.statSync(lastPath).isDirectory()) {
+            return undefined;
+        }
+        return vscode.Uri.file(lastPath);
+    } catch {
+        return undefined;
+    }
+}
 
 export async function openProjectExportView(context: vscode.ExtensionContext) {
     const panel = vscode.window.createWebviewPanel(
@@ -35,27 +56,32 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
     const codexFiles = await vscode.workspace.findFiles("**/*.codex");
     const fileGroups = await groupCodexFilesByImporterType(codexFiles);
 
+    const initialExportFolder = getLastExportFolderUri(context)?.fsPath ?? null;
     panel.webview.html = getWebviewContent(
         sourceLanguage,
         targetLanguage,
         codiconsUri,
-        fileGroups
+        fileGroups,
+        initialExportFolder
     );
 
     panel.webview.onDidReceiveMessage(async (message) => {
         let result: vscode.Uri[] | undefined;
 
         switch (message.command) {
-            case "selectExportPath":
+            case "selectExportPath": {
+                const defaultUri = getLastExportFolderUri(context);
                 result = await vscode.window.showOpenDialog({
                     canSelectFiles: false,
                     canSelectFolders: true,
                     canSelectMany: false,
                     title: "Select Export Location",
                     openLabel: "Select Folder",
+                    ...(defaultUri ? { defaultUri } : {}),
                 });
 
                 if (result && result[0]) {
+                    await context.workspaceState.update(LAST_EXPORT_FOLDER_KEY, result[0].fsPath);
                     safePostMessageToPanel(
                         panel,
                         {
@@ -66,6 +92,7 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                     );
                 }
                 break;
+            }
             case "openProjectSettings":
                 await vscode.commands.executeCommand(
                     "codex-project-manager.openProjectSettings"
@@ -107,12 +134,14 @@ function getWebviewContent(
     sourceLanguage: unknown,
     targetLanguage: unknown,
     codiconsUri: vscode.Uri,
-    fileGroups: FileGroup[]
+    fileGroups: FileGroup[],
+    initialExportFolder: string | null
 ) {
     const hasLanguages = sourceLanguage && targetLanguage;
 
     const groupsJson = JSON.stringify(fileGroups);
     const exportOptionsConfigJson = JSON.stringify(EXPORT_OPTIONS_BY_FILE_TYPE);
+    const initialExportFolderJson = JSON.stringify(initialExportFolder);
 
     return `<!DOCTYPE html>
     <html>
@@ -532,7 +561,7 @@ function getWebviewContent(
                 let currentStep = 1;
                 let selectedFormat = null;
                 let selectedAudio = false;
-                let exportPath = null;
+                let exportPath = ${initialExportFolderJson};
                 let selectedFiles = new Set();
                 let selectedGroupKey = null;
 
@@ -740,6 +769,10 @@ function getWebviewContent(
                 document.addEventListener('DOMContentLoaded', () => {
                     renderFileGroups();
                     updateStep1Button();
+                    if (exportPath) {
+                        const pathEl = document.getElementById('exportPath');
+                        if (pathEl) pathEl.textContent = exportPath;
+                    }
 
                     document.querySelectorAll('#step2 .format-option').forEach(option => {
                         option.addEventListener('click', (e) => {
