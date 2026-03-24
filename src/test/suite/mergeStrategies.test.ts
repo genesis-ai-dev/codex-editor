@@ -49,10 +49,10 @@ suite("Merge Strategies Test Suite", () => {
         assert.strictEqual(strategy5, ConflictResolutionStrategy.IGNORE);
     });
 
-    test("should default to OVERRIDE for unknown file types", () => {
+    test("should default to SIMPLE_3WAY for unknown file types", () => {
         const unknownFile = "unknown_file.txt";
         const strategy = determineStrategy(unknownFile);
-        assert.strictEqual(strategy, ConflictResolutionStrategy.OVERRIDE);
+        assert.strictEqual(strategy, ConflictResolutionStrategy.SIMPLE_3WAY);
     });
 
     test("should handle path separators correctly", () => {

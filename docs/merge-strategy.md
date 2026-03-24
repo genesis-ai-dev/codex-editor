@@ -56,7 +56,7 @@ This document outlines the strategy for resolving merge conflicts in Codex proje
 
 ### 6. Codex Cell Files (`files/*.codex`)
 
-- **Strategy**: 
+- **Strategy**:
     1. Parse both versions as JSON
     2. Take the newest `metadata` object
     3. Merge cells array from both versions
@@ -66,6 +66,19 @@ This document outlines the strategy for resolving merge conflicts in Codex proje
         - Preserve cell IDs and metadata
     5. Complete the merge and sync the entire project.
     6. This approach will trigger the merge conflict view of the codex cell editor. The user will be forced to resolve the cell-level conflicts manually when they open the file.
+
+### 7. Unrecognized Files (Default: Simple 3-Way)
+
+- **Files**: Any file not matching the patterns above (e.g., `.yaml`, `.py`, `.txt`, etc.)
+- **Strategy**: `SIMPLE_3WAY` — 3-way base comparison
+    1. Compare `ours` (local) against `base` (common ancestor)
+    2. Compare `theirs` (remote) against `base`
+    3. Resolution:
+        - If only remote changed from base → accept remote version
+        - If only local changed from base → keep local version
+        - If both changed from base → keep local version (local wins)
+        - If neither changed → keep local version
+- **Rationale**: Prevents silent data loss when remote-only changes to unrecognized file types are discarded during diverged merges. Previously, the `OVERRIDE` strategy was used as the default, which unconditionally kept the local version regardless of whether it had actually changed.
 
 Note: we also need to just ignore some files, like `complete_drafts.txt`, as they are auto-generated and not meant to be merged.
 

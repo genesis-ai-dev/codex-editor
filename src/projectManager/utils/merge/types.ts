@@ -9,6 +9,7 @@ export enum ConflictResolutionStrategy {
     CODEX_CUSTOM_MERGE = "codex", // Special merge process for cell arrays
     JSONL = "jsonl", // Combine and deduplicate JSONL files
     JSON_MERGE_3WAY = "json-merge-3way", // 3-way merge for JSON settings with chatSystemMessage tie-breaker
+    SIMPLE_3WAY = "simple-3way", // 3-way base comparison: accept remote-only changes, keep local-only changes, local wins on true conflicts
 }
 
 export interface SmartEdit {
