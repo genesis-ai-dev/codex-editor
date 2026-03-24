@@ -79,7 +79,10 @@ const App: React.FC = () => {
             selectedColumns: persistedState?.selectedColumns || [],
             useMultiColumns: persistedState?.useMultiColumns || false,
             importSource: persistedState?.importSource || "",
-            availableSourceFiles: persistedState?.availableSourceFiles || [],
+            availableSourceFiles:
+                persistedState?.availableSourceFiles.sort(
+                    (a: SourceFileUIData, b: SourceFileUIData) => a.name.localeCompare(b.name)
+                ) || [],
             selectedTargetFilePath: persistedState?.selectedTargetFilePath || null,
             metadataFields: persistedState?.metadataFields || [],
             selectedMatchColumn: persistedState?.selectedMatchColumn || null,
@@ -194,7 +197,10 @@ const App: React.FC = () => {
                         headers: message.headers || [],
                         importSource: message.importSource || "",
                         availableSourceFiles:
-                            message.availableSourceFiles || prev.availableSourceFiles, // Extension should send these
+                            message.availableSourceFiles.sort(
+                                (a: SourceFileUIData, b: SourceFileUIData) =>
+                                    a.name.localeCompare(b.name)
+                            ) || prev.availableSourceFiles, // Extension should send these
                         selectedColumn:
                             message.headers && message.headers.includes(prev.selectedColumn)
                                 ? prev.selectedColumn
@@ -536,7 +542,10 @@ const App: React.FC = () => {
                         ))}
                     </VSCodeDropdown>
                     <h4>Match Settings (optional)</h4>
-                    <p>Map a column to a metadata field for matching (e.g. START → metadata.data.startTime).</p>
+                    <p>
+                        Map a column to a metadata field for matching (e.g. START →
+                        metadata.data.startTime).
+                    </p>
                     <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                         <VSCodeDropdown
                             value={state.selectedMatchColumn || ""}
@@ -555,7 +564,9 @@ const App: React.FC = () => {
                             value={state.selectedMatchField || ""}
                             onChange={handleMatchFieldChange}
                             style={{ maxWidth: "320px" }}
-                            disabled={!state.selectedTargetFilePath || state.metadataFields.length === 0}
+                            disabled={
+                                !state.selectedTargetFilePath || state.metadataFields.length === 0
+                            }
                         >
                             <VSCodeOption value="">-- Metadata field --</VSCodeOption>
                             {state.metadataFields.map((field) => (
