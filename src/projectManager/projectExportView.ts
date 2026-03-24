@@ -489,12 +489,8 @@ function getWebviewContent(
                             </button>
                         </div>
                         <div id="exportOutputOptions" style="margin-top: 16px;">
-                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                                <input type="checkbox" id="wrapInFolder" onchange="onWrapInFolderChange()">
-                                <label for="wrapInFolder" style="margin-left: 8px;">Wrap exported files in a folder</label>
-                            </div>
                             <div style="display: flex; align-items: center;">
-                                <input type="checkbox" id="zipOutput" onchange="onZipOutputChange()">
+                                <input type="checkbox" id="zipOutput">
                                 <label for="zipOutput" style="margin-left: 8px;">Zip output</label>
                             </div>
                         </div>
@@ -568,7 +564,6 @@ function getWebviewContent(
                     if (headerCb) headerCb.checked = !allChecked;
                     updateSelectedGroup();
                     updateStep1Button();
-                    autoCheckWrapIfNeeded();
                 }
 
                 function onGroupCheckboxChange(groupKey) {
@@ -585,7 +580,6 @@ function getWebviewContent(
                     });
                     updateSelectedGroup();
                     updateStep1Button();
-                    autoCheckWrapIfNeeded();
                 }
 
                 function onFileCheckboxChange() {
@@ -602,7 +596,6 @@ function getWebviewContent(
                     });
                     updateSelectedGroup();
                     updateStep1Button();
-                    autoCheckWrapIfNeeded();
                 }
 
                 function updateSelectedGroup() {
@@ -752,7 +745,7 @@ function getWebviewContent(
                                     option.style.borderColor = '';
                                 }
                                 selectedAudio = willSelect;
-                                try { updateStep2Button(); updateExportButton(); updateOutputOptionsVisibility(); autoCheckWrapIfNeeded(); } catch (e) {}
+                                try { updateStep2Button(); updateExportButton(); } catch (e) {}
                                 return;
                             }
 
@@ -763,8 +756,6 @@ function getWebviewContent(
                                 const usfmOptions = document.getElementById('usfmOptions');
                                 if (usfmOptions) usfmOptions.style.display = 'none';
                                 updateStep2Button();
-                                updateOutputOptionsVisibility();
-                                autoCheckWrapIfNeeded();
                                 return;
                             }
 
@@ -780,8 +771,6 @@ function getWebviewContent(
                             const usfmOptions = document.getElementById('usfmOptions');
                             if (usfmOptions) usfmOptions.style.display = selectedFormat === 'usfm' ? 'block' : 'none';
                             updateStep2Button();
-                            updateOutputOptionsVisibility();
-                            autoCheckWrapIfNeeded();
                         });
                     });
 
@@ -791,47 +780,6 @@ function getWebviewContent(
 
                 });
 
-                const selfManagedFormats = ['rebuild-export'];
-
-                function isSelfManagedFormat() {
-                    const fmt = selectedFormat || (selectedAudio ? 'audio' : null);
-                    return fmt && selfManagedFormats.includes(fmt);
-                }
-
-                function updateOutputOptionsVisibility() {
-                    const container = document.getElementById('exportOutputOptions');
-                    if (container) {
-                        container.style.display = isSelfManagedFormat() ? 'none' : '';
-                    }
-                }
-
-                function autoCheckWrapIfNeeded() {
-                    if (isSelfManagedFormat()) return;
-                    const wrapCb = document.getElementById('wrapInFolder');
-                    const zipCb = document.getElementById('zipOutput');
-                    if (!wrapCb || zipCb?.checked) return;
-                    wrapCb.checked = selectedFiles.size >= 3;
-                }
-
-                function onWrapInFolderChange() {
-                    const wrapCb = document.getElementById('wrapInFolder');
-                    const zipCb = document.getElementById('zipOutput');
-                    if (!wrapCb?.checked && zipCb?.checked) {
-                        zipCb.checked = false;
-                    }
-                }
-
-                function onZipOutputChange() {
-                    const wrapCb = document.getElementById('wrapInFolder');
-                    const zipCb = document.getElementById('zipOutput');
-                    if (zipCb?.checked && wrapCb) {
-                        wrapCb.checked = true;
-                        wrapCb.disabled = true;
-                    } else if (wrapCb) {
-                        wrapCb.disabled = false;
-                    }
-                }
-
                 function exportProject() {
                     const formatToSend = selectedFormat || (selectedAudio ? 'audio' : null);
                     if (!formatToSend || !exportPath || selectedFiles.size === 0) return;
@@ -840,7 +788,6 @@ function getWebviewContent(
                     // Audio is now a separate toggle that may be combined with other export formats
                     if (selectedAudio) options.includeAudio = true;
                     if (selectedAudio) options.includeTimestamps = document.getElementById('audioIncludeTimestamps')?.checked;
-                    if (document.getElementById('wrapInFolder')?.checked) options.wrapInFolder = true;
                     if (document.getElementById('zipOutput')?.checked) options.zipOutput = true;
                     vscode.postMessage({
                         command: 'export',
