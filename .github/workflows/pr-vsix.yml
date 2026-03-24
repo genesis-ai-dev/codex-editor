@@ -1,0 +1,63 @@
+name: PR VSIX Build
+
+on:
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: "PR number (for manual testing)"
+                required: true
+                type: string
+
+permissions:
+    contents: write
+
+jobs:
+    build-vsix:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+
+            - name: Determine version
+              id: version
+              run: |
+                  set -euo pipefail
+                  BASE_VERSION=$(jq -r '.version' package.json)
+                  PR_NUMBER="${{ github.event.pull_request.number || inputs.pr_number }}"
+                  PR_VERSION="${BASE_VERSION}.pr${PR_NUMBER}"
+                  echo "version=${PR_VERSION}" >> "$GITHUB_OUTPUT"
+
+            - name: Install dependencies and build VSIX
+              env:
+                  VERSION: ${{ steps.version.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  npm install --no-audit --no-fund
+                  npx vsce package --no-dependencies -o "codex-editor-extension-${VERSION}.vsix"
+
+            - name: Delete prior pre-release for this PR
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  VERSION: ${{ steps.version.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  if gh release view "${VERSION}" >/dev/null 2>&1; then
+                    gh release delete "${VERSION}" --yes --cleanup-tag
+                  fi
+
+            - name: Create pre-release with VSIX
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  VERSION: ${{ steps.version.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  gh release create "${VERSION}" \
+                    "codex-editor-extension-${VERSION}.vsix" \
+                    --title "${VERSION}" \
+                    --notes "Pre-release build for PR #${{ github.event.pull_request.number || inputs.pr_number }}" \
+                    --prerelease
