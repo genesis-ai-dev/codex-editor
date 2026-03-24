@@ -10,6 +10,8 @@ const execFile = promisify(execFileCb);
 
 export interface ToolCheckResult {
     git: boolean;
+    /** True only when the native dugite binary is available (false when using isomorphic-git fallback). */
+    nativeGitAvailable: boolean;
     sqlite: boolean;
     ffmpeg: boolean;
 }
@@ -24,8 +26,10 @@ export async function checkTools(
     frontierApi: FrontierAPI | undefined,
 ): Promise<ToolCheckResult> {
     let git = false;
+    let nativeGitAvailable = false;
     try {
-        git = frontierApi?.isGitBinaryAvailable?.() ?? false;
+        git = frontierApi?.isGitAvailable?.() ?? frontierApi?.isGitBinaryAvailable?.() ?? false;
+        nativeGitAvailable = frontierApi?.isGitBinaryAvailable?.() ?? false;
     } catch (e) {
         console.error("[toolsManager] git check threw:", e);
     }
@@ -44,7 +48,7 @@ export async function checkTools(
         console.error("[toolsManager] ffmpeg check threw:", e);
     }
 
-    return { git, sqlite, ffmpeg };
+    return { git, nativeGitAvailable, sqlite, ffmpeg };
 }
 
 /**

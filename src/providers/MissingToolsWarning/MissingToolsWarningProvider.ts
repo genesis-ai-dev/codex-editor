@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { ToolCheckResult } from "../../utils/toolsManager";
-import { getAudioToolMode } from "../../utils/toolPreferences";
+import { getAudioToolMode, getGitToolMode } from "../../utils/toolPreferences";
 import type {
     MessagesToMissingToolsWarning,
     MessagesFromMissingToolsWarning,
@@ -171,6 +171,9 @@ export class MissingToolsWarningProvider {
                         case "toggleAudioMode":
                             await this._handleToggleAudioMode();
                             break;
+                        case "toggleGitMode":
+                            await this._handleToggleGitMode();
+                            break;
                         case "openDownloadPage":
                             vscode.env.openExternal(
                                 vscode.Uri.parse("https://codexeditor.app")
@@ -205,6 +208,26 @@ export class MissingToolsWarningProvider {
         this._notifyMainMenuToolsChanged();
     }
 
+    private async _handleToggleGitMode(): Promise<void> {
+        const { setGitToolMode } = await import("../../utils/toolPreferences");
+        const current = getGitToolMode();
+        const next = current === "auto" ? "builtin" : "auto";
+        await setGitToolMode(next);
+
+        const { checkTools } = await import("../../utils/toolsManager");
+        const { getAuthApi } = await import("../../extension");
+        const result = await checkTools(this._context, getAuthApi());
+
+        const message: MessagesToMissingToolsWarning = {
+            command: "gitModeChanged",
+            gitToolMode: next,
+            git: result.git,
+            nativeGitAvailable: result.nativeGitAvailable,
+        };
+        safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+        this._notifyMainMenuToolsChanged();
+    }
+
     private async _handleDownloadTool(tool: "sqlite" | "git" | "ffmpeg"): Promise<void> {
         if (this._downloadInProgress) {
             return;
@@ -225,10 +248,14 @@ export class MissingToolsWarningProvider {
                 case "git": {
                     const { getAuthApi } = await import("../../extension");
                     const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    const { setNativeGitAvailable } = await import("../../utils/toolPreferences");
                     const frontierApi = getAuthApi();
                     if (frontierApi?.retryGitBinaryDownload) {
                         resetGitBinaryPath();
                         success = await frontierApi.retryGitBinaryDownload();
+                        if (success) {
+                            setNativeGitAvailable(true);
+                        }
                     }
                     break;
                 }
@@ -255,9 +282,11 @@ export class MissingToolsWarningProvider {
             tool,
             success,
             git: updated.git,
+            nativeGitAvailable: updated.nativeGitAvailable,
             sqlite: updated.sqlite,
             ffmpeg: updated.ffmpeg,
             audioToolMode: getAudioToolMode(),
+            gitToolMode: getGitToolMode(),
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
         this._notifyMainMenuToolsChanged();
@@ -282,6 +311,7 @@ export class MissingToolsWarningProvider {
         const message: MessagesToMissingToolsWarning = {
             command,
             git: result.git,
+            nativeGitAvailable: result.nativeGitAvailable,
             sqlite: result.sqlite,
             ffmpeg: result.ffmpeg,
         };
@@ -292,9 +322,11 @@ export class MissingToolsWarningProvider {
         const message: MessagesToMissingToolsWarning = {
             command: "showToolsStatus",
             git: result.git,
+            nativeGitAvailable: result.nativeGitAvailable,
             sqlite: result.sqlite,
             ffmpeg: result.ffmpeg,
             audioToolMode: getAudioToolMode(),
+            gitToolMode: getGitToolMode(),
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -313,6 +345,7 @@ export class MissingToolsWarningProvider {
 
         const initialData: Record<string, unknown> = {
             git: result.git,
+            nativeGitAvailable: result.nativeGitAvailable,
             sqlite: result.sqlite,
             ffmpeg: result.ffmpeg,
             mode,
@@ -320,6 +353,7 @@ export class MissingToolsWarningProvider {
 
         if (mode === "status") {
             initialData.audioToolMode = getAudioToolMode();
+            initialData.gitToolMode = getGitToolMode();
         }
 
         return getWebviewHtml(

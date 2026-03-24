@@ -60,7 +60,7 @@ import {
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { initToolPreferences } from "./utils/toolPreferences";
+import { initToolPreferences, setNativeGitAvailable } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
@@ -391,6 +391,9 @@ export async function activate(context: vscode.ExtensionContext) {
         if (extension?.isActive) {
             authApi = extension.exports;
         }
+        const gitAvailable = authApi?.isGitBinaryAvailable?.() ?? false;
+        setNativeGitAvailable(gitAvailable);
+        console.log(`[codex] Git backend: ${gitAvailable ? "native (dugite)" : "fallback (isomorphic-git)"}`);
         stepStart = finishRealtimeStep();
 
         // If metadata.json is missing but the workspace has a .git with a remote,
@@ -514,7 +517,7 @@ export async function activate(context: vscode.ExtensionContext) {
             unavailableTools = getUnavailableTools(toolCheckResult);
         } catch (error) {
             console.error("[Extension] checkTools() threw unexpectedly:", error);
-            toolCheckResult = { git: false, sqlite: false, ffmpeg: false };
+            toolCheckResult = { git: false, nativeGitAvailable: false, sqlite: false, ffmpeg: false };
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
         stepStart = trackTiming("Checking tool availability", toolCheckStart);

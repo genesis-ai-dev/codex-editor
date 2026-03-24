@@ -1475,7 +1475,7 @@ type ProjectManagerMessageToWebview =
     | { command: "asrSettings"; data: { endpoint: string; }; }
     | { command: "asrModels"; data: string[]; }
     | { command: "asrSettingsSaved"; }
-    | { command: "toolsStatusSummary"; data: { sqlite: boolean; git: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode } };
+    | { command: "toolsStatusSummary"; data: { sqlite: boolean; git: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode } };
 
 // Ensure the Project type is correctly defined
 interface LocalProject {
@@ -2239,13 +2239,15 @@ type EditorReceiveMessages =
     };
 
 export type AudioToolMode = "auto" | "builtin";
+export type GitToolMode = "auto" | "builtin";
 
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean }
-    | { command: "updateWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean }
-    | { command: "showToolsStatus"; git: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode }
-    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode }
-    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean };
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode }
+    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
+    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean };
 
 export type MessagesFromMissingToolsWarning =
     | { command: "retry" }
@@ -2253,4 +2255,5 @@ export type MessagesFromMissingToolsWarning =
     | { command: "openDownloadPage" }
     | { command: "close" }
     | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
-    | { command: "toggleAudioMode" };
+    | { command: "toggleAudioMode" }
+    | { command: "toggleGitMode" };

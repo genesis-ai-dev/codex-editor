@@ -191,5 +191,7 @@ export interface FrontierAPI {
 
     getGitBinaryPath?: () => { localGitDir: string; execPath: string; } | undefined;
     isGitBinaryAvailable?: () => boolean;
+    /** Returns true when git operations can succeed (native binary OR isomorphic-git fallback). */
+    isGitAvailable?: () => boolean;
     retryGitBinaryDownload?: () => Promise<boolean>;
 }

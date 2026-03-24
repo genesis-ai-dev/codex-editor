@@ -12,17 +12,20 @@ const vscode = acquireVsCodeApi();
 
 interface ToolStatus {
     git: boolean;
+    nativeGitAvailable: boolean;
     sqlite: boolean;
     ffmpeg: boolean;
 }
 
 type ViewMode = "warnings" | "status";
 type AudioToolMode = "auto" | "builtin";
+type GitToolMode = "auto" | "builtin";
 
 interface InitialState {
     status: ToolStatus;
     mode: ViewMode;
     audioToolMode: AudioToolMode;
+    gitToolMode: GitToolMode;
 }
 
 function getInitialState(): InitialState | null {
@@ -32,11 +35,13 @@ function getInitialState(): InitialState | null {
             return {
                 status: {
                     git: data.git,
+                    nativeGitAvailable: data.nativeGitAvailable ?? data.git,
                     sqlite: data.sqlite,
                     ffmpeg: data.ffmpeg ?? false,
                 },
                 mode: data.mode === "status" ? "status" : "warnings",
                 audioToolMode: data.audioToolMode ?? "auto",
+                gitToolMode: data.gitToolMode ?? "auto",
             };
         }
     } catch {
@@ -52,6 +57,7 @@ export const MissingToolsWarning: React.FC = () => {
     const [status, setStatus] = useState<ToolStatus | null>(initial?.status ?? null);
     const [mode, setMode] = useState<ViewMode>(initial?.mode ?? "warnings");
     const [audioToolMode, setAudioToolMode] = useState<AudioToolMode>(initial?.audioToolMode ?? "auto");
+    const [gitToolMode, setGitToolMode] = useState<GitToolMode>(initial?.gitToolMode ?? "auto");
     const [retrying, setRetrying] = useState(false);
     const [downloading, setDownloading] = useState<Record<ToolKey, boolean>>({
         sqlite: false,
@@ -70,6 +76,7 @@ export const MissingToolsWarning: React.FC = () => {
             ) {
                 setStatus({
                     git: message.git,
+                    nativeGitAvailable: message.nativeGitAvailable ?? message.git,
                     sqlite: message.sqlite,
                     ffmpeg: message.ffmpeg,
                 });
@@ -78,24 +85,37 @@ export const MissingToolsWarning: React.FC = () => {
             } else if (message?.command === "showToolsStatus") {
                 setStatus({
                     git: message.git,
+                    nativeGitAvailable: message.nativeGitAvailable ?? message.git,
                     sqlite: message.sqlite,
                     ffmpeg: message.ffmpeg,
                 });
                 setAudioToolMode(message.audioToolMode ?? "auto");
+                setGitToolMode(message.gitToolMode ?? "auto");
                 setMode("status");
             } else if (message?.command === "toolDownloadResult") {
                 setStatus({
                     git: message.git,
+                    nativeGitAvailable: message.nativeGitAvailable ?? message.git,
                     sqlite: message.sqlite,
                     ffmpeg: message.ffmpeg,
                 });
                 if (message.audioToolMode) {
                     setAudioToolMode(message.audioToolMode);
                 }
+                if (message.gitToolMode) {
+                    setGitToolMode(message.gitToolMode);
+                }
                 setDownloading((prev) => ({ ...prev, [message.tool]: false }));
             } else if (message?.command === "audioModeChanged") {
                 setAudioToolMode(message.audioToolMode);
                 setStatus((prev) => prev ? { ...prev, ffmpeg: message.ffmpeg } : prev);
+            } else if (message?.command === "gitModeChanged") {
+                setGitToolMode(message.gitToolMode);
+                setStatus((prev) => prev ? {
+                    ...prev,
+                    git: message.git,
+                    nativeGitAvailable: message.nativeGitAvailable ?? prev.nativeGitAvailable,
+                } : prev);
             }
         };
 
@@ -130,6 +150,10 @@ export const MissingToolsWarning: React.FC = () => {
         vscode.postMessage({ command: "toggleAudioMode" });
     }, []);
 
+    const handleToggleGitMode = useCallback(() => {
+        vscode.postMessage({ command: "toggleGitMode" });
+    }, []);
+
     if (!status) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -143,10 +167,12 @@ export const MissingToolsWarning: React.FC = () => {
             <ToolsStatusView
                 status={status}
                 audioToolMode={audioToolMode}
+                gitToolMode={gitToolMode}
                 downloading={downloading}
                 onClose={handleClose}
                 onDownloadTool={handleDownloadTool}
                 onToggleAudioMode={handleToggleAudioMode}
+                onToggleGitMode={handleToggleGitMode}
             />
         );
     }
@@ -170,7 +196,8 @@ const TOOL_INFO = {
         iconMissing: "codicon-warning",
         descriptions: {
             available: "Syncing and collaboration features are fully operational.",
-            missing: "Sync tools could not be set up. You can still work offline, but syncing and collaboration features are unavailable.",
+            limited: "Using fallback sync tools. Full sync tools are installed but not active.",
+            builtinActive: "Syncing and collaboration features are operational using the built-in engine.",
         },
     },
     ffmpeg: {
@@ -179,8 +206,8 @@ const TOOL_INFO = {
         iconMissing: "codicon-warning",
         descriptions: {
             available: "Full audio format support is available for import and export.",
-            limited: "Audio import works with basic format support (.wav). Install the full audio tools for additional format support.",
-            missing: "Audio tools could not be set up. Audio import works with basic format support (.wav only).",
+            limited: "Using fallback audio processing (.wav format). Install the full audio tools for additional format support.",
+            missing: "Audio tools could not be set up. Using fallback audio processing (.wav only).",
         },
     },
 } as const;
@@ -188,29 +215,34 @@ const TOOL_INFO = {
 interface ToolsStatusViewProps {
     status: ToolStatus;
     audioToolMode: AudioToolMode;
+    gitToolMode: GitToolMode;
     downloading: Record<ToolKey, boolean>;
     onClose: () => void;
     onDownloadTool: (tool: ToolKey) => void;
     onToggleAudioMode: () => void;
+    onToggleGitMode: () => void;
 }
 
 const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     status,
     audioToolMode,
+    gitToolMode,
     downloading,
     onClose,
     onDownloadTool,
     onToggleAudioMode,
+    onToggleGitMode,
 }) => {
     const audioUsingBuiltIn = audioToolMode === "builtin" || !status.ffmpeg;
-    const allOk = status.sqlite && status.git && status.ffmpeg;
+    const gitUsingBuiltIn = gitToolMode === "builtin" || !status.nativeGitAvailable;
+    const allOk = status.sqlite && status.nativeGitAvailable && status.ffmpeg;
 
     const audioDescription = (() => {
         if (audioToolMode === "builtin" && status.ffmpeg) {
-            return "Using built-in audio processing. Full audio tools are installed but not active.";
+            return "Using fallback audio processing. Full audio tools are installed but not active.";
         }
         if (audioToolMode === "builtin" && !status.ffmpeg) {
-            return "Using built-in audio processing (.wav format). Full audio tools are not installed.";
+            return "Using fallback audio processing (.wav format). Full audio tools are not installed.";
         }
         if (status.ffmpeg) {
             return TOOL_INFO.ffmpeg.descriptions.available;
@@ -226,7 +258,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
         if (!audioUsingBuiltIn) {
             return "Installed";
         }
-        return status.ffmpeg ? "Installed – Using Basic Only" : "Not Installed – Basic Only";
+        return status.ffmpeg ? "Installed – Using Fallback" : "Not Installed – Using Fallback";
     })();
 
     return (
@@ -264,14 +296,29 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
 
                     <StatusCard
                         title={TOOL_INFO.git.name}
-                        description={
-                            status.git
-                                ? TOOL_INFO.git.descriptions.available
-                                : TOOL_INFO.git.descriptions.missing
-                        }
-                        severity={status.git ? "ok" : "warning"}
+                        description={(() => {
+                            if (gitToolMode === "builtin" && status.nativeGitAvailable) {
+                                return TOOL_INFO.git.descriptions.limited;
+                            }
+                            if (!status.nativeGitAvailable) {
+                                return TOOL_INFO.git.descriptions.builtinActive;
+                            }
+                            return TOOL_INFO.git.descriptions.available;
+                        })()}
+                        severity={gitUsingBuiltIn ? "ok" : "ok"}
+                        statusLabelOverride={(() => {
+                            if (status.nativeGitAvailable && !gitUsingBuiltIn) {
+                                return "Installed";
+                            }
+                            if (status.nativeGitAvailable && gitUsingBuiltIn) {
+                                return "Installed \u2013 Using Built-in Engine";
+                            }
+                            return "Using Built-in Engine";
+                        })()}
                         downloading={downloading.git}
-                        onDownload={!status.git ? () => onDownloadTool("git") : undefined}
+                        onDownload={!status.nativeGitAvailable ? () => onDownloadTool("git") : undefined}
+                        toggleLabel={status.nativeGitAvailable ? (gitUsingBuiltIn ? "Switch to Full" : "Switch to Built-in") : undefined}
+                        onToggle={status.nativeGitAvailable ? onToggleGitMode : undefined}
                     />
 
                     <StatusCard
@@ -281,7 +328,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         statusLabelOverride={audioStatusLabel}
                         downloading={downloading.ffmpeg}
                         onDownload={!status.ffmpeg ? () => onDownloadTool("ffmpeg") : undefined}
-                        toggleLabel={status.ffmpeg ? (audioUsingBuiltIn ? "Switch to Full" : "Switch to Basic Only") : undefined}
+                        toggleLabel={status.ffmpeg ? (audioUsingBuiltIn ? "Switch to Full" : "Switch to Fallback") : undefined}
                         onToggle={status.ffmpeg ? onToggleAudioMode : undefined}
                     />
                 </div>
@@ -546,7 +593,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
     const statusLabel = statusLabelOverride ?? (
         severity === "ok"
             ? "Installed"
-            : "Not Installed – Basic Only"
+            : "Not Installed – Using Fallback"
     );
 
     return (

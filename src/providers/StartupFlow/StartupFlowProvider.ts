@@ -612,10 +612,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const content = await vscode.workspace.fs.readFile(metadataUri);
             const metadata = JSON.parse(content.toString());
             const hasSource = metadata.languages?.some(
-                (l: { projectStatus?: string }) => l.projectStatus === "source"
+                (l: { projectStatus?: string; }) => l.projectStatus === "source"
             );
             const hasTarget = metadata.languages?.some(
-                (l: { projectStatus?: string }) => l.projectStatus === "target"
+                (l: { projectStatus?: string; }) => l.projectStatus === "target"
             );
             return !!metadata.projectName && !!hasSource && !!hasTarget;
         } catch {

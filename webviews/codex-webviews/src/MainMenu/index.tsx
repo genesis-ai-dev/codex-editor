@@ -204,6 +204,7 @@ function MainMenu() {
         git: boolean;
         ffmpeg: boolean;
         audioToolMode: "auto" | "builtin";
+        gitToolMode: "auto" | "builtin";
     } | null>(null);
 
     // Optimistic local state for validation counters so rapid clicks work correctly.
@@ -998,17 +999,30 @@ function MainMenu() {
                                                 label: "Tools Status",
                                                 action: () =>
                                                     executeCommand("openToolsStatus"),
-                                                suffix: toolsStatus ? (
+                                                suffix: (
                                                     <span className="flex items-center gap-1 ml-auto">
-                                                        <ToolDot status={toolsStatus.sqlite ? "ok" : "missing"} />
-                                                        <ToolDot status={toolsStatus.git ? "ok" : "missing"} />
-                                                        <ToolDot status={
-                                                            !toolsStatus.ffmpeg ? "missing"
-                                                                : toolsStatus.audioToolMode === "builtin" ? "fallback"
-                                                                    : "ok"
-                                                        } />
+                                                        {toolsStatus ? (
+                                                            <>
+                                                                <ToolDot status={toolsStatus.sqlite ? "ok" : "missing"} />
+                                                                <ToolDot status={
+                                                                    !toolsStatus.git ? "missing"
+                                                                        : toolsStatus.gitToolMode === "builtin" ? "fallback"
+                                                                            : "ok"
+                                                                } />
+                                                                <ToolDot status={
+                                                                    !toolsStatus.ffmpeg ? "missing"
+                                                                        : toolsStatus.audioToolMode === "builtin" ? "fallback"
+                                                                            : "ok"
+                                                                } />
+                                                            </>
+                                                        ) : (
+                                                            <i
+                                                                className="codicon codicon-loading codicon-modifier-spin"
+                                                                style={{ color: "var(--muted-foreground)", fontSize: "14px" }}
+                                                            />
+                                                        )}
                                                     </span>
-                                                ) : null,
+                                                ),
                                             },
                                             {
                                                 icon: "codicon-extensions",

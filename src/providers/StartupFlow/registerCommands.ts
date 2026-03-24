@@ -26,7 +26,7 @@ export const registerStartupFlowCommands = (context: vscode.ExtensionContext) =>
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-project-manager.openStartupFlow", (options?: { forceLogin?: boolean }) => {
+        vscode.commands.registerCommand("codex-project-manager.openStartupFlow", (options?: { forceLogin?: boolean; }) => {
             // Default to forcing login if options are undefined (manual invocation)
             // If options are provided, respect the flag
             const shouldForce = options?.forceLogin ?? true;

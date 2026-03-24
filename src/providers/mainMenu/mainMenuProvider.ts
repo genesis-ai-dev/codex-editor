@@ -473,6 +473,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
     protected onWebviewReady(): void {
         this.sendProjectStateToWebview();
+        this.sendToolsStatusSummary();
     }
 
     private async executeCommandAndNotify(commandName: string) {
@@ -497,7 +498,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             if (frontierApi) {
                 const authStatus = frontierApi.getAuthStatus();
                 isAuthenticated = authStatus?.isAuthenticated ?? false;
-                isGitAvailable = frontierApi.isGitBinaryAvailable?.() ?? false;
+                isGitAvailable = frontierApi.isGitAvailable?.() ?? frontierApi.isGitBinaryAvailable?.() ?? false;
             }
         } catch (error) {
             console.debug("Could not get authentication status:", error);
@@ -520,7 +521,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
     public async sendToolsStatusSummary(): Promise<void> {
         try {
             const { checkTools } = await import("../../utils/toolsManager");
-            const { getAudioToolMode } = await import("../../utils/toolPreferences");
+            const { getAudioToolMode, getGitToolMode } = await import("../../utils/toolPreferences");
             const authApi = getAuthApi();
             const result = await checkTools(this._context, authApi);
             if (this._view) {
@@ -531,6 +532,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                         git: result.git,
                         ffmpeg: result.ffmpeg,
                         audioToolMode: getAudioToolMode(),
+                        gitToolMode: getGitToolMode(),
                     },
                 } as ProjectManagerMessageToWebview, "MainMenu");
             }
@@ -878,9 +880,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 const frontierApi = getAuthApi();
                 if (frontierApi?.retryGitBinaryDownload) {
                     const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    const { setNativeGitAvailable } = await import("../../utils/toolPreferences");
                     resetGitBinaryPath();
                     const success = await frontierApi.retryGitBinaryDownload();
                     if (success) {
+                        setNativeGitAvailable(true);
                         vscode.window.showInformationMessage("Sync setup completed successfully.");
                     }
                     await this.sendSyncSettings();
