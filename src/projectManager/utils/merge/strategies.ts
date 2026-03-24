@@ -37,6 +37,10 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
 
     // JSON settings files - 3-way merge with intelligent conflict resolution
     [ConflictResolutionStrategy.JSON_MERGE_3WAY]: [".vscode/settings.json"],
+
+    // Simple 3-way merge for unrecognized files (used as the default fallback)
+    // If only one side changed from base, take that side; if both changed, local wins
+    [ConflictResolutionStrategy.SIMPLE_3WAY]: [],
 };
 
 export function determineStrategy(filePath: string): ConflictResolutionStrategy {
@@ -75,7 +79,7 @@ export function determineStrategy(filePath: string): ConflictResolutionStrategy 
     console.warn(
         "No merge strategy found for file:",
         filePath,
-        "defaulting to OVERRIDE (take the newest version)"
+        "defaulting to SIMPLE_3WAY (3-way base comparison)"
     );
-    return ConflictResolutionStrategy.OVERRIDE;
+    return ConflictResolutionStrategy.SIMPLE_3WAY;
 }

@@ -124,7 +124,7 @@ function mergeValidatedByLists(
  * - Rule 1: Preserve local isOldProject in each entry (never overwrite from remote)
  * - Rule 2: Merge swapEntries by swapUUID (unique identifier for each swap)
  * - Rule 3: For matching entries, merge swappedUsers arrays
- * 
+ *
  * All swap info is now contained in each entry (swapUUID, isOldProject, oldProjectUrl, etc.)
  */
 function mergeProjectSwap(
@@ -237,10 +237,10 @@ function mergeProjectSwap(
  * Union by hash: combine all entries. For same hash, merge referencedBy and originalNames.
  */
 export function mergeOriginalFilesHashes(
-    base: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
-    ours: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
-    theirs: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined
-): { version: number; files: Record<string, any>; fileNameToHash: Record<string, string> } | undefined {
+    base: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string>; } | undefined,
+    ours: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string>; } | undefined,
+    theirs: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string>; } | undefined
+): { version: number; files: Record<string, any>; fileNameToHash: Record<string, string>; } | undefined {
     const ourFiles = ours?.files || {};
     const theirFiles = theirs?.files || {};
     const baseFiles = base?.files || {};
@@ -601,6 +601,32 @@ export async function resolveConflictFile(
                 debugLog("Resolving JSON 3-way merge for:", conflict.filepath);
                 resolvedContent = await resolveSettingsJsonConflict(conflict);
                 debugLog("Successfully merged settings.json with 3-way merge");
+                break;
+            }
+
+            // SIMPLE_3WAY = "simple-3way", // 3-way base comparison for unknown file types
+            case ConflictResolutionStrategy.SIMPLE_3WAY: {
+                debugLog("Resolving with simple 3-way merge for:", conflict.filepath);
+                const oursMatchesBase = conflict.ours === conflict.base;
+                const theirsMatchesBase = conflict.theirs === conflict.base;
+
+                if (oursMatchesBase && !theirsMatchesBase) {
+                    // Only remote changed from base — accept remote version
+                    debugLog("Only remote changed, taking theirs for:", conflict.filepath);
+                    resolvedContent = conflict.theirs;
+                } else if (!oursMatchesBase && theirsMatchesBase) {
+                    // Only local changed from base — keep our version
+                    debugLog("Only local changed, keeping ours for:", conflict.filepath);
+                    resolvedContent = conflict.ours;
+                } else if (oursMatchesBase && theirsMatchesBase) {
+                    // Neither changed from base (shouldn't be a conflict, but handle gracefully)
+                    debugLog("Neither side changed from base, keeping ours for:", conflict.filepath);
+                    resolvedContent = conflict.ours;
+                } else {
+                    // Both changed from base — local wins (safe default)
+                    debugLog("Both sides changed from base, keeping ours for:", conflict.filepath);
+                    resolvedContent = conflict.ours;
+                }
                 break;
             }
 
@@ -1434,7 +1460,7 @@ export async function resolveCommentThreadsConflict(
             );
         }
 
-        // Convert to relative paths  
+        // Convert to relative paths
         migratedTheirThread = convertThreadToRelativePaths(migratedTheirThread);
 
         if (!existingThread) {
@@ -1618,7 +1644,7 @@ export async function resolveCommentThreadsConflict(
 /**
  * Merges audio attachments from two cell versions, preserving all recordings
  * @param ourAttachments Our version of attachments
- * @param theirAttachments Their version of attachments  
+ * @param theirAttachments Their version of attachments
  * @returns Merged attachments object
  */
 export function mergeAttachments(
