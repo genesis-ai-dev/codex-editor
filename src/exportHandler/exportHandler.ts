@@ -225,7 +225,7 @@ async function exportCodexContentAsIdmlRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -241,9 +241,10 @@ async function exportCodexContentAsIdmlRoundtrip(
         async (progress) => {
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-            // Import both exporters
+            // Import exporters
             const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
             const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
+            // const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
 
             // For each selected codex file, find its original attachment and create a translated copy in export folder
             for (const [index, filePath] of filesToExport.entries()) {
@@ -256,7 +257,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                     // Read codex notebook
                     const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Detect if this is a Biblica file based on corpusMarker metadata (more reliable than filename)
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
                     const importerType = (codexNotebook.metadata as any)?.importerType || '';
                     const fileType = (codexNotebook.metadata as any)?.fileType || '';
@@ -265,9 +265,13 @@ async function exportCodexContentAsIdmlRoundtrip(
                         corpusMarker === 'biblica-idml' ||
                         importerType === 'biblica' ||
                         fileType === 'biblica' ||
-                        importerType === 'biblica-experimental' || // Backward compatibility
-                        fileType === 'biblica-experimental'; // Backward compatibility
-                    // Note: We no longer check filename suffix since importer type is stored in metadata
+                        importerType === 'biblica-experimental' ||
+                        fileType === 'biblica-experimental';
+                    // const isReach4LifeFile =
+                    //     corpusMarker === 'reach4life' ||
+                    //     corpusMarker === 'reach4life-idml' ||
+                    //     importerType === 'reach4life' ||
+                    //     fileType === 'reach4life';
                     const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
 
                     console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
@@ -299,7 +303,7 @@ async function exportCodexContentAsIdmlRoundtrip(
                         const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
                             throw new Error(
-                                `Original IDML file "${originalFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                `Original IDML file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
                                 (lfsResult.error ?? 'Unknown error')
                             );
                         }
@@ -331,7 +335,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                     }
                     console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
 
-                    // Use the appropriate exporter based on file type
                     let updatedIdmlData: Uint8Array;
                     if (isBiblicaFile) {
                         updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
@@ -339,7 +342,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                         updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
                     }
 
-                    // Save duplicated, injected IDML into the chosen export folder
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
                     const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
                     const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
@@ -366,7 +368,7 @@ async function exportCodexContentAsDocxRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -400,9 +402,9 @@ async function exportCodexContentAsDocxRoundtrip(
 
                     // Check if this is a round-trip DOCX file
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    if (corpusMarker !== 'docx-roundtrip') {
-                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with round-trip importer (corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX round-trip importer`);
+                    if (corpusMarker !== 'docx' && corpusMarker !== 'docx-roundtrip') {
+                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with DOCX importer (corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX importer`);
                         continue;
                     }
 
@@ -424,7 +426,7 @@ async function exportCodexContentAsDocxRoundtrip(
                         const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
                             throw new Error(
-                                `Original DOCX file "${originalFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                `Original DOCX file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
                                 (lfsResult.error ?? 'Unknown error')
                             );
                         }
@@ -464,7 +466,7 @@ async function exportCodexContentAsPdfRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -534,7 +536,7 @@ async function exportCodexContentAsPdfRoundtrip(
                         const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
                         if (lfsResult.error || !lfsResult.data) {
                             throw new Error(
-                                `Converted DOCX file "${convertedDocxFileName}" is a Git LFS pointer that could not be resolved. ` +
+                                `Converted DOCX file "${convertedDocxFileName}" is an LFS pointer that could not be resolved. ` +
                                 (lfsResult.error ?? 'Unknown error')
                             );
                         }
@@ -753,7 +755,7 @@ async function exportCodexContentAsObsRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -855,7 +857,7 @@ async function exportCodexContentAsUsfmRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1040,7 +1042,7 @@ async function exportCodexContentAsSpreadsheetRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1183,7 +1185,7 @@ async function exportCodexContentAsTmsRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1309,7 +1311,7 @@ async function exportCodexContentAsRebuild(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1343,21 +1345,24 @@ async function exportCodexContentAsRebuild(
                     console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}"`);
 
                     // Group by supported types
-                    if (corpusMarker === 'docx-roundtrip') {
+                    if (corpusMarker === 'docx' || corpusMarker === 'docx-roundtrip') {
                         filesByType['docx'] = filesByType['docx'] || [];
                         filesByType['docx'].push(filePath);
                     } else if (
                         corpusMarker === 'biblica' ||
                         corpusMarker === 'biblica-idml' ||
+                        corpusMarker === 'reach4life' ||
+                        corpusMarker === 'reach4life-idml' ||
                         corpusMarker === 'idml-roundtrip' ||
                         (corpusMarker && corpusMarker.startsWith('idml-')) ||
                         importerType === 'biblica' ||
                         fileType === 'biblica' ||
+                        importerType === 'reach4life' ||
+                        fileType === 'reach4life' ||
                         importerType === 'biblica-experimental' || // Backward compatibility
                         fileType === 'biblica-experimental' // Backward compatibility
                     ) {
-                        // Biblica files and IDML files both use the IDML exporter
-                        // Includes Biblica importer which uses the same IDML format
+                        // Biblica/Reach4Life files and IDML files both use the IDML exporter
                         filesByType['idml'] = filesByType['idml'] || [];
                         filesByType['idml'].push(filePath);
                     } else if (
@@ -1589,7 +1594,7 @@ async function exportCodexContentAsRebuild(
                     .join('\n');
 
                 vscode.window.showWarningMessage(
-                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, PDF, OBS, TMS, USFM, CSV/TSV`,
+                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, TMS, USFM, CSV/TSV`,
                     { modal: false }
                 );
             }
@@ -1702,7 +1707,7 @@ export const exportCodexContentAsSubtitlesSrt = async (
         debug("Starting exportCodexContentAsSubtitlesSrt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1777,7 +1782,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
         debug("Starting exportCodexContentAsSubtitlesVtt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1953,7 +1958,7 @@ async function exportCodexContentAsDelimited(
         debug(`Starting exportCodexContentAs${formatName} function`);
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -2187,7 +2192,7 @@ async function exportCodexContentAsBacktranslations(
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 

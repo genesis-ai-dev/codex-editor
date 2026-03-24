@@ -182,14 +182,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         e.stopPropagation();
         if (isDisabled) return;
 
-        ignoreHoverRef.current = true;
-        window.setTimeout(() => {
-            ignoreHoverRef.current = false;
-        }, 200);
-
+        // Mark that this was a mouse click, not keyboard navigation
         wasKeyboardNavigationRef.current = false;
         setIsKeyboardFocused(false);
 
+        // Blur the button after mouse click to remove focus (prevents pulse from continuing)
         window.setTimeout(() => {
             if (buttonRef.current) {
                 const buttonElement = buttonRef.current.querySelector(
@@ -202,8 +199,22 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         }, 0);
 
         if (!isValidatedByCurrentUser) {
+            // Briefly ignore hover so the popover can't re-open immediately after validating.
+            ignoreHoverRef.current = true;
+            window.setTimeout(() => {
+                ignoreHoverRef.current = false;
+            }, 200);
+
             handleValidate(e);
             closePopover();
+        } else {
+            // Already validated — toggle the popover so the user can see validators / unvalidate
+            if (showPopover) {
+                closePopover();
+            } else {
+                setShowPopover(true);
+                textPopoverTracker.setActivePopover(uniqueId.current);
+            }
         }
     };
 

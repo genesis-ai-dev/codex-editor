@@ -131,7 +131,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
             
             // Validate ZIP signature (PK)
             if (firstBytes !== 'PK\u0003\u0004') {
-                throw new Error('The selected file does not appear to be a valid IDML file. IDML files should be ZIP-compressed starting with PK');
+                throw new Error('The selected file does not appear to be a valid InDesign (IDML) file. Please make sure you selected the correct file.');
             }
             
             // Step 2: Parse IDML
@@ -395,7 +395,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                 // Default: one cell per paragraph (non-verse or unmatched structure)
                 // Create cell metadata (generates UUID internally)
                 const { cellId, metadata: cellMetadata } = createIndesignParagraphCellMetadata({
-                    cellLabel: (globalCellIndex + 1).toString(),
+                    cellLabel: undefined,
                     originalContent: cleanText,
                     storyId: story.id || '',
                     paragraphId: paragraph.id || '',

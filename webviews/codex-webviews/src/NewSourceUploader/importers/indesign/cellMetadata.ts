@@ -29,7 +29,7 @@ export interface IndesignVerseCellMetadataParams {
  * Parameters for creating InDesign regular paragraph cell metadata
  */
 export interface IndesignParagraphCellMetadataParams {
-    cellLabel: string;
+    cellLabel?: string;
     originalContent: string;
     storyId: string;
     paragraphId: string;

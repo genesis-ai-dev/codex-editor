@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Dispatch, SetStateAction } from "react";
-import { QuillCellContent, SpellCheckResponse, MilestoneIndex } from "../../../../../types";
+import { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
 
 type AudioAvailability = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
@@ -56,7 +56,6 @@ interface UseVSCodeMessageHandlerProps {
         isSourceText: boolean,
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
     ) => void;
-    setSpellCheckResponse: Dispatch<SetStateAction<SpellCheckResponse | null>>;
     jumpToCell: (cellId: string) => void;
     jumpToCellWithPosition?: (cellId: string, milestoneIndex: number, subsectionIndex: number) => void;
     updateCell: (data: { cellId: string; newContent: string; progress: number; }) => void;
@@ -64,8 +63,6 @@ interface UseVSCodeMessageHandlerProps {
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
-    setAlertColorCodes: Dispatch<SetStateAction<{ [cellId: string]: number; }>>;
-    recheckAlertCodes: () => void;
 
     // New handlers for provider-centric state management
     updateAutocompletionState?: (state: {
@@ -131,7 +128,6 @@ interface UseVSCodeMessageHandlerProps {
 
 export const useVSCodeMessageHandler = ({
     setContent,
-    setSpellCheckResponse,
     jumpToCell,
     jumpToCellWithPosition,
     updateCell,
@@ -139,8 +135,6 @@ export const useVSCodeMessageHandler = ({
     updateTextDirection,
     updateNotebookMetadata,
     updateVideoUrl,
-    setAlertColorCodes,
-    recheckAlertCodes,
 
     // New handlers
     updateAutocompletionState,
@@ -195,8 +189,6 @@ export const useVSCodeMessageHandler = ({
                     } catch { console.error("Error deriving audio attachment availability"); }
                     try { updateNotebookMetadata(message.content); } catch { console.error("Error updating notebook metadata"); }
                     break;
-                case "providerSendsSpellCheckResponse":
-                    setSpellCheckResponse(message.content);
                     break;
                 case "jumpToSection":
                     // Use pre-computed position from extension if available
@@ -225,12 +217,6 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
-                    break;
-                case "providerSendsgetAlertCodeResponse":
-                    setAlertColorCodes(message.content);
-                    break;
-                case "wordAdded":
-                    recheckAlertCodes();
                     break;
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
@@ -416,7 +402,6 @@ export const useVSCodeMessageHandler = ({
         };
     }, [
         setContent,
-        setSpellCheckResponse,
         jumpToCell,
         jumpToCellWithPosition,
         updateCell,
@@ -424,8 +409,6 @@ export const useVSCodeMessageHandler = ({
         updateTextDirection,
         updateNotebookMetadata,
         updateVideoUrl,
-        setAlertColorCodes,
-        recheckAlertCodes,
         updateAutocompletionState,
         updateSingleCellTranslationState,
         updateSingleCellQueueState,

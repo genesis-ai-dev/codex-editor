@@ -13,22 +13,12 @@ import {
     ProjectManagerState,
 } from "../../../types";
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
-import git from "isomorphic-git";
-// Note: avoid top-level http(s) imports to keep test bundling simple
-import * as fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
-import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
-const DEBUG_MODE = false; // Set to true to enable debug logging
-
-function debugLog(...args: any[]): void {
-    if (DEBUG_MODE) {
-        console.log("[MainMenuProvider]", ...args);
-    }
-}
 
 class ProjectManagerStore {
     private preflightState: ProjectManagerState = {
@@ -303,10 +293,7 @@ class ProjectManagerStore {
                 return false;
             }
 
-            const remotes = await git.listRemotes({
-                fs,
-                dir: workspacePath,
-            });
+            const remotes = await dugiteGit.listRemotes(workspacePath);
 
             // Send publish status message
             if (this._view) {
@@ -345,7 +332,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.setupSyncStatusListener();
 
         // Subscribe to state changes to update webview
-        this.store.subscribe((state) => {
+        const unsubscribe = this.store.subscribe((state) => {
             if (this._view) {
                 safePostMessageToView(this._view, {
                     command: "stateUpdate",
@@ -353,6 +340,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 }, "MainMenu");
             }
         });
+        this.disposables.push(new vscode.Disposable(unsubscribe));
     }
 
     protected getWebviewId(): string {
@@ -385,15 +373,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.disposables.push(
             vscode.workspace.onDidChangeWorkspaceFolders(async () => {
                 this.store.refreshState();
-
-                // Trigger migration when workspace changes
-                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                    try {
-                        await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
-                    } catch (error) {
-                        console.error("[MainMenu] Error during workspace change migration:", error);
-                    }
-                }
             })
         );
 
@@ -477,6 +456,17 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         // Get app version
         this.updateAppVersion();
+
+        // Re-push current state when webview becomes visible again
+        // (catches sync status changes that occurred while hidden)
+        this.disposables.push(
+            webviewView.onDidChangeVisibility(() => {
+                if (webviewView.visible) {
+                    this.sendProjectStateToWebview();
+                    this.sendSyncSettings();
+                }
+            })
+        );
     }
 
     protected onWebviewReady(): void {
@@ -490,32 +480,22 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 
     private async sendSyncSettings() {
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
-
-        // Ensure minimum sync delay is 5 minutes
-        if (syncDelayMinutes < 5) {
-            syncDelayMinutes = 5;
-            // Update the configuration to persist the corrected value
-            await config.update(
-                "syncDelayMinutes",
-                syncDelayMinutes,
-                vscode.ConfigurationTarget.Workspace
-            );
-        }
+        const { getSyncSettings } = await import("../../utils/localProjectSettings");
+        const { autoSyncEnabled, syncDelayMinutes } = await getSyncSettings();
 
         // Check if Frontier Authentication extension is enabled
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
 
-        // Check authentication status
+        // Check authentication and git binary status
         let isAuthenticated = false;
+        let isGitAvailable = false;
         try {
             const frontierApi = getAuthApi();
             if (frontierApi) {
                 const authStatus = frontierApi.getAuthStatus();
                 isAuthenticated = authStatus?.isAuthenticated ?? false;
+                isGitAvailable = frontierApi.isGitBinaryAvailable?.() ?? false;
             }
         } catch (error) {
             console.debug("Could not get authentication status:", error);
@@ -529,6 +509,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     syncDelayMinutes,
                     isFrontierExtensionEnabled,
                     isAuthenticated,
+                    isGitAvailable,
                 },
             } as ProjectManagerMessageToWebview, "MainMenu");
         }
@@ -587,6 +568,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "refreshState":
                 await this.store.refreshState();
                 break;
+            case "publishStatusUpdate":
+                this.sendPublishStatusUpdate(
+                    message.data?.isPublishingInProgress ?? false,
+                    message.data?.publishingStage ?? "",
+                );
+                break;
             case "webviewReady":
                 await this.updateProjectOverview();
                 await this.updateWebviewState();
@@ -613,7 +600,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "downloadSourceText":
             case "openAISettings":
             case "openSourceUpload":
-            case "toggleSpellcheck":
             case "openExportView":
             case "openLicenseSettings":
                 await this.executeCommandAndNotify(message.command);
@@ -801,20 +787,28 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     baseUrl.search = '';
                     const urlStr = baseUrl.toString();
 
-                    // Prefer global fetch (available in recent VS Code/Node); fallback to http(s)
+                    const ASR_FETCH_TIMEOUT_MS = 10_000;
                     let res: string;
                     if (typeof (globalThis as any).fetch === 'function') {
-                        const r = await (globalThis as any).fetch(urlStr);
-                        res = await r.text();
+                        const controller = new AbortController();
+                        const timer = setTimeout(() => controller.abort(), ASR_FETCH_TIMEOUT_MS);
+                        try {
+                            const r = await (globalThis as any).fetch(urlStr, { signal: controller.signal });
+                            res = await r.text();
+                        } finally {
+                            clearTimeout(timer);
+                        }
                     } else {
-                        // Lazy-require to avoid bundler resolving node: scheme
                         const lib = urlStr.startsWith('https') ? require('https') : require('http');
                         res = await new Promise<string>((resolve, reject) => {
-                            lib.get(urlStr, (resp: any) => {
+                            const req = lib.get(urlStr, (resp: any) => {
                                 let data = '';
                                 resp.on('data', (chunk: any) => (data += chunk));
                                 resp.on('end', () => resolve(data));
                             }).on('error', (err: any) => reject(err));
+                            req.setTimeout(ASR_FETCH_TIMEOUT_MS, () => {
+                                req.destroy(new Error('ASR models request timed out'));
+                            });
                         });
                     }
                     let models: any[] = [];
@@ -841,31 +835,36 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "updateSyncSettings": {
                 const { autoSyncEnabled, syncDelayMinutes } = message.data;
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
 
-                // Update configuration
-                await config.update(
-                    "autoSyncEnabled",
-                    autoSyncEnabled,
-                    vscode.ConfigurationTarget.Workspace
-                );
-
-                await config.update(
-                    "syncDelayMinutes",
-                    syncDelayMinutes,
-                    vscode.ConfigurationTarget.Workspace
-                );
+                const { setSyncSettings } = await import("../../utils/localProjectSettings");
+                await setSyncSettings(autoSyncEnabled, syncDelayMinutes);
 
                 // Notify SyncManager about the changes
                 const syncManager = SyncManager.getInstance();
-                syncManager.updateFromConfiguration();
+                await syncManager.updateFromConfiguration();
 
                 break;
             }
             case "triggerSync": {
                 const syncManager = SyncManager.getInstance();
-                // Don't manually set sync status - let SyncManager handle it through listeners
                 await syncManager.executeSync("Manual sync triggered from main menu", true, undefined, true);
+                break;
+            }
+            case "downloadSyncRuntime": {
+                const frontierApi = getAuthApi();
+                if (frontierApi?.retryGitBinaryDownload) {
+                    const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    resetGitBinaryPath();
+                    const success = await frontierApi.retryGitBinaryDownload();
+                    if (success) {
+                        vscode.window.showInformationMessage("Sync setup completed successfully.");
+                    }
+                    await this.sendSyncSettings();
+                } else {
+                    vscode.window.showErrorMessage(
+                        "Cannot set up sync — please make sure Frontier Authentication is installed and enabled."
+                    );
+                }
                 break;
             }
             case "openCellLabelImporter":
@@ -1724,7 +1723,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private async handleChangeProjectName(newProjectName: string): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1776,7 +1775,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             if (!result.success) {
                 console.error("Failed to update metadata:", result.error);
                 vscode.window.showErrorMessage(
-                    `Failed to update project name in metadata.json: ${result.error}`
+                    `Failed to update project name. Please try again.`
                 );
                 return;
             }
