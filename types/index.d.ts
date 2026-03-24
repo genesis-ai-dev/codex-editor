@@ -1474,7 +1474,8 @@ type ProjectManagerMessageToWebview =
     }
     | { command: "asrSettings"; data: { endpoint: string; }; }
     | { command: "asrModels"; data: string[]; }
-    | { command: "asrSettingsSaved"; };
+    | { command: "asrSettingsSaved"; }
+    | { command: "toolsStatusSummary"; data: { sqlite: boolean; git: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode } };
 
 // Ensure the Project type is correctly defined
 interface LocalProject {
@@ -2237,11 +2238,19 @@ type EditorReceiveMessages =
         error?: string;
     };
 
+export type AudioToolMode = "auto" | "builtin";
+
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean; ffprobe: boolean }
-    | { command: "updateWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean; ffprobe: boolean };
+    | { command: "showWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean }
+    | { command: "updateWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean }
+    | { command: "showToolsStatus"; git: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode }
+    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean };
 
 export type MessagesFromMissingToolsWarning =
     | { command: "retry" }
     | { command: "continue" }
-    | { command: "openDownloadPage" };
+    | { command: "openDownloadPage" }
+    | { command: "close" }
+    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "toggleAudioMode" };

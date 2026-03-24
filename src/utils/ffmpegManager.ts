@@ -1,6 +1,5 @@
 /**
- * FFmpeg/FFprobe manager that prefers system binaries and only downloads as fallback.
- * Supports independent download of FFmpeg and FFprobe.
+ * FFmpeg manager that prefers system binaries and only downloads as fallback.
  */
 
 import * as vscode from "vscode";
@@ -19,15 +18,14 @@ interface BinaryInfo {
 }
 
 let ffmpegInfo: BinaryInfo | null = null;
-let ffprobeInfo: BinaryInfo | null = null;
 
-const PLATFORM_MAP: Record<string, { ffmpeg: string; ffprobe: string }> = {
-    "win32-x64": { ffmpeg: "4.1.0", ffprobe: "5.0.0" },
-    "darwin-arm64": { ffmpeg: "4.1.5", ffprobe: "5.0.1" },
-    "darwin-x64": { ffmpeg: "4.1.0", ffprobe: "5.0.0" },
-    "linux-x64": { ffmpeg: "4.1.0", ffprobe: "5.0.0" },
-    "linux-arm64": { ffmpeg: "4.1.4", ffprobe: "5.0.0" },
-    "linux-arm": { ffmpeg: "4.1.3", ffprobe: "5.0.0" },
+const PLATFORM_MAP: Record<string, string> = {
+    "win32-x64": "4.1.0",
+    "darwin-arm64": "4.1.5",
+    "darwin-x64": "4.1.0",
+    "linux-x64": "4.1.0",
+    "linux-arm64": "4.1.4",
+    "linux-arm": "4.1.3",
 };
 
 const PLATFORM_FALLBACK: Record<string, string> = {
@@ -55,13 +53,10 @@ async function isCommandAvailable(command: string): Promise<boolean> {
     }
 }
 
-function getBinaryPath(
-    tool: "ffmpeg" | "ffprobe",
-    context: vscode.ExtensionContext
-): string {
+function getBinaryPath(context: vscode.ExtensionContext): string {
     const storagePath = context.globalStorageUri.fsPath;
-    const binaryName = process.platform === "win32" ? `${tool}.exe` : tool;
-    return path.join(storagePath, tool, binaryName);
+    const binaryName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+    return path.join(storagePath, "ffmpeg", binaryName);
 }
 
 function getEffectivePlatformKey(): string {
@@ -72,9 +67,8 @@ function getEffectivePlatformKey(): string {
     return PLATFORM_FALLBACK[native] ?? native;
 }
 
-function getPlatformVersion(tool: "ffmpeg" | "ffprobe"): string | null {
-    const versions = PLATFORM_MAP[getEffectivePlatformKey()];
-    return versions?.[tool] ?? null;
+function getPlatformVersion(): string | null {
+    return PLATFORM_MAP[getEffectivePlatformKey()] ?? null;
 }
 
 /**
@@ -82,20 +76,11 @@ function getPlatformVersion(tool: "ffmpeg" | "ffprobe"): string | null {
  * Returns the binary path on success, null on failure.
  */
 export async function downloadFFmpeg(
-    context: vscode.ExtensionContext
+    context: vscode.ExtensionContext,
 ): Promise<string | null> {
-    return downloadSingleBinary("ffmpeg", context);
+    return downloadFFmpegBinary(context);
 }
 
-/**
- * Download only FFprobe. Checks system install first, then downloads if needed.
- * Returns the binary path on success, null on failure.
- */
-export async function downloadFFprobe(
-    context: vscode.ExtensionContext
-): Promise<string | null> {
-    return downloadSingleBinary("ffprobe", context);
-}
 
 async function canExecute(binaryPath: string): Promise<boolean> {
     try {
@@ -106,38 +91,36 @@ async function canExecute(binaryPath: string): Promise<boolean> {
     }
 }
 
-async function downloadSingleBinary(
-    tool: "ffmpeg" | "ffprobe",
-    context: vscode.ExtensionContext
+async function downloadFFmpegBinary(
+    context: vscode.ExtensionContext,
 ): Promise<string | null> {
-    const systemPath = await getSystemBinaryPath(tool);
+    const systemPath = await getSystemBinaryPath("ffmpeg");
     if (systemPath && (await canExecute(systemPath))) {
-        console.log(`[ffmpegManager] System ${tool} verified: ${systemPath}`);
+        console.log(`[ffmpegManager] System ffmpeg verified: ${systemPath}`);
         return systemPath;
     } else if (systemPath) {
-        console.warn(`[ffmpegManager] System ${tool} found at ${systemPath} but failed execution check`);
+        console.warn(`[ffmpegManager] System ffmpeg found at ${systemPath} but failed execution check`);
     }
 
-    const binaryPath = getBinaryPath(tool, context);
+    const binaryPath = getBinaryPath(context);
     if (fs.existsSync(binaryPath) && (await canExecute(binaryPath))) {
-        console.log(`[ffmpegManager] Downloaded ${tool} verified: ${binaryPath}`);
+        console.log(`[ffmpegManager] Downloaded ffmpeg verified: ${binaryPath}`);
         return binaryPath;
     } else if (fs.existsSync(binaryPath)) {
-        console.warn(`[ffmpegManager] Downloaded ${tool} exists at ${binaryPath} but failed execution check — re-downloading`);
+        console.warn(`[ffmpegManager] Downloaded ffmpeg exists at ${binaryPath} but failed execution check — re-downloading`);
     }
 
-    const version = getPlatformVersion(tool);
+    const version = getPlatformVersion();
     if (!version) {
         console.warn(
-            `[ffmpegManager] Platform ${process.platform}-${process.arch} not supported for ${tool}`
+            `[ffmpegManager] Platform ${process.platform}-${process.arch} not supported for ffmpeg`,
         );
         return null;
     }
 
     const effectiveKey = getEffectivePlatformKey();
-    const installerScope = tool === "ffmpeg" ? "@ffmpeg-installer" : "@ffprobe-installer";
-    const packageName = `${installerScope}/${effectiveKey}`;
-    const destDir = path.join(context.globalStorageUri.fsPath, tool);
+    const packageName = `@ffmpeg-installer/${effectiveKey}`;
+    const destDir = path.join(context.globalStorageUri.fsPath, "ffmpeg");
 
     try {
         await vscode.workspace.fs.createDirectory(context.globalStorageUri);
@@ -150,33 +133,29 @@ async function downloadSingleBinary(
         if (process.platform !== "win32" && fs.existsSync(binaryPath)) {
             fs.chmodSync(binaryPath, 0o755);
         }
-        console.log(`[ffmpegManager] Successfully downloaded ${tool}: ${binaryPath}`);
+        console.log(`[ffmpegManager] Successfully downloaded ffmpeg: ${binaryPath}`);
         return fs.existsSync(binaryPath) ? binaryPath : null;
     } catch (error) {
         console.error(
-            `[ffmpegManager] Failed to download ${tool}:`,
-            error instanceof Error ? error.message : String(error)
+            `[ffmpegManager] Failed to download ffmpeg:`,
+            error instanceof Error ? error.message : String(error),
         );
         return null;
     }
 }
 
 /**
- * Download both binaries together (legacy convenience wrapper).
+ * Download FFmpeg with a progress notification.
  */
-async function downloadBinaries(
-    context: vscode.ExtensionContext
-): Promise<{ ffmpeg: string; ffprobe: string } | null> {
-    const storagePath = context.globalStorageUri.fsPath;
-    const platform = process.platform;
-    const ffmpegBinaryPath = path.join(storagePath, "ffmpeg", platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-    const ffprobeBinaryPath = path.join(storagePath, "ffprobe", platform === "win32" ? "ffprobe.exe" : "ffprobe");
-
-    if (fs.existsSync(ffmpegBinaryPath) && fs.existsSync(ffprobeBinaryPath)) {
-        return { ffmpeg: ffmpegBinaryPath, ffprobe: ffprobeBinaryPath };
+async function downloadWithProgress(
+    context: vscode.ExtensionContext,
+): Promise<string | null> {
+    const binaryPath = getBinaryPath(context);
+    if (fs.existsSync(binaryPath)) {
+        return binaryPath;
     }
 
-    return await vscode.window.withProgress(
+    return vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
             title: "Downloading audio processing tools...",
@@ -186,21 +165,14 @@ async function downloadBinaries(
             progress.report({ message: "This only happens once" });
             try {
                 progress.report({ message: "Downloading FFmpeg..." });
-                const ffmpegPath = await downloadSingleBinary("ffmpeg", context);
-                progress.report({ message: "Downloading FFprobe..." });
-                const ffprobePath = await downloadSingleBinary("ffprobe", context);
-
-                if (ffmpegPath && ffprobePath) {
-                    return { ffmpeg: ffmpegPath, ffprobe: ffprobePath };
-                }
-                return null;
+                return await downloadFFmpegBinary(context);
             } catch (error) {
                 vscode.window.showErrorMessage(
-                    `Failed to download audio processing tools: ${error instanceof Error ? error.message : String(error)}`
+                    `Failed to download audio processing tools: ${error instanceof Error ? error.message : String(error)}`,
                 );
                 return null;
             }
-        }
+        },
     );
 }
 
@@ -313,13 +285,11 @@ export async function getFFmpegPath(
     }
 
     if (context) {
-        const downloaded = await downloadBinaries(context);
+        const downloaded = await downloadWithProgress(context);
         if (downloaded) {
-            ffmpegInfo = { path: downloaded.ffmpeg, source: "downloaded" };
-            console.log(
-                `[audioProcessor] Downloaded FFmpeg: ${downloaded.ffmpeg}`
-            );
-            return downloaded.ffmpeg;
+            ffmpegInfo = { path: downloaded, source: "downloaded" };
+            console.log(`[ffmpegManager] Downloaded FFmpeg: ${downloaded}`);
+            return downloaded;
         }
     }
 
@@ -344,64 +314,11 @@ export async function getFFmpegPath(
 }
 
 /**
- * Initialize and get FFprobe binary path.
- * Resolution order: system → downloaded → bundled.
- */
-export async function getFFprobePath(
-    context?: vscode.ExtensionContext
-): Promise<string> {
-    if (ffprobeInfo) {
-        return ffprobeInfo.path;
-    }
-
-    const systemPath = await getSystemBinaryPath("ffprobe");
-    if (systemPath) {
-        ffprobeInfo = { path: systemPath, source: "system" };
-        console.log(`[audioProcessor] Using system FFprobe: ${systemPath}`);
-        return systemPath;
-    }
-
-    if (context) {
-        const downloaded = await downloadBinaries(context);
-        if (downloaded) {
-            ffprobeInfo = { path: downloaded.ffprobe, source: "downloaded" };
-            console.log(
-                `[audioProcessor] Downloaded FFprobe: ${downloaded.ffprobe}`
-            );
-            return downloaded.ffprobe;
-        }
-    }
-
-    try {
-        const req = eval("require") as any;
-        const ffprobeInstaller = req("@ffprobe-installer/ffprobe");
-        if (ffprobeInstaller.path) {
-            ffprobeInfo = { path: ffprobeInstaller.path, source: "bundled" };
-            console.log(
-                `[audioProcessor] Using bundled FFprobe: ${ffprobeInstaller.path}`
-            );
-            return ffprobeInstaller.path;
-        }
-    } catch {
-        // No bundled version available
-    }
-
-    throw new Error(
-        "FFprobe not found. Audio features are unavailable. " +
-            "Download the Codex application from codexeditor.app for full audio support."
-    );
-}
-
-/**
- * Check if FFmpeg/FFprobe are available on the system.
+ * Check if FFmpeg is available on the system PATH.
  */
 export async function checkAudioToolsAvailable(): Promise<boolean> {
     try {
-        const [ffmpegAvail, ffprobeAvail] = await Promise.all([
-            isCommandAvailable("ffmpeg"),
-            isCommandAvailable("ffprobe"),
-        ]);
-        return ffmpegAvail && ffprobeAvail;
+        return await isCommandAvailable("ffmpeg");
     } catch {
         return false;
     }
@@ -412,5 +329,4 @@ export async function checkAudioToolsAvailable(): Promise<boolean> {
  */
 export function resetBinaryCache(): void {
     ffmpegInfo = null;
-    ffprobeInfo = null;
 }

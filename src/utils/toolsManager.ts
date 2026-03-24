@@ -12,19 +12,16 @@ export interface ToolCheckResult {
     git: boolean;
     sqlite: boolean;
     ffmpeg: boolean;
-    ffprobe: boolean;
 }
 
 const REQUIRED_TOOLS_FFMPEG_KEY = "requiredTools.ffmpeg";
-const REQUIRED_TOOLS_FFPROBE_KEY = "requiredTools.ffprobe";
 
 /**
  * Run a fresh availability check for all required tools.
- * All four tools (git, sqlite, ffmpeg, ffprobe) are always checked.
  */
 export async function checkTools(
     context: vscode.ExtensionContext,
-    frontierApi: FrontierAPI | undefined
+    frontierApi: FrontierAPI | undefined,
 ): Promise<ToolCheckResult> {
     let git = false;
     try {
@@ -47,14 +44,7 @@ export async function checkTools(
         console.error("[toolsManager] ffmpeg check threw:", e);
     }
 
-    let ffprobe = false;
-    try {
-        ffprobe = await verifyBinaryAvailable("ffprobe", context);
-    } catch (e) {
-        console.error("[toolsManager] ffprobe check threw:", e);
-    }
-
-    return { git, sqlite, ffmpeg, ffprobe };
+    return { git, sqlite, ffmpeg };
 }
 
 /**
@@ -71,34 +61,27 @@ export function getUnavailableTools(result: ToolCheckResult): string[] {
     if (!result.ffmpeg) {
         unavailable.push("ffmpeg");
     }
-    if (!result.ffprobe) {
-        unavailable.push("ffprobe");
-    }
     return unavailable;
 }
 
 /**
- * Permanently mark an audio tool as required. Once set, it stays set forever.
+ * Permanently mark FFmpeg as required. Once set, it stays set forever.
  * On subsequent startups the tool will be checked and downloaded if missing.
  */
 export async function markAudioToolRequired(
     context: vscode.ExtensionContext,
-    tool: "ffmpeg" | "ffprobe"
 ): Promise<void> {
-    const key = tool === "ffmpeg" ? REQUIRED_TOOLS_FFMPEG_KEY : REQUIRED_TOOLS_FFPROBE_KEY;
-    await context.globalState.update(key, true);
+    await context.globalState.update(REQUIRED_TOOLS_FFMPEG_KEY, true);
 }
 
 /**
- * Check whether an audio tool has been marked as required by a previous
+ * Check whether FFmpeg has been marked as required by a previous
  * audio operation.
  */
 export function isAudioToolRequired(
     context: vscode.ExtensionContext,
-    tool: "ffmpeg" | "ffprobe"
 ): boolean {
-    const key = tool === "ffmpeg" ? REQUIRED_TOOLS_FFMPEG_KEY : REQUIRED_TOOLS_FFPROBE_KEY;
-    return context.globalState.get<boolean>(key) ?? false;
+    return context.globalState.get<boolean>(REQUIRED_TOOLS_FFMPEG_KEY) ?? false;
 }
 
 /**
@@ -111,8 +94,8 @@ export function isAudioToolRequired(
  * Each candidate is confirmed by running `<binary> -version` with a timeout.
  */
 async function verifyBinaryAvailable(
-    tool: "ffmpeg" | "ffprobe",
-    context: vscode.ExtensionContext
+    tool: "ffmpeg",
+    context: vscode.ExtensionContext,
 ): Promise<boolean> {
     const systemPath = await getSystemBinaryPath(tool);
     if (systemPath && (await canExecute(systemPath))) {
@@ -139,13 +122,12 @@ async function getSystemBinaryPath(command: string): Promise<string | null> {
 }
 
 function getDownloadedBinaryPath(
-    tool: "ffmpeg" | "ffprobe",
-    context: vscode.ExtensionContext
+    tool: "ffmpeg",
+    context: vscode.ExtensionContext,
 ): string | null {
     const storagePath = context.globalStorageUri.fsPath;
     const binaryName = process.platform === "win32" ? `${tool}.exe` : tool;
-    const binaryPath = path.join(storagePath, tool, binaryName);
-    return binaryPath;
+    return path.join(storagePath, tool, binaryName);
 }
 
 async function canExecute(binaryPath: string): Promise<boolean> {

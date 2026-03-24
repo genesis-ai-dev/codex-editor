@@ -60,7 +60,8 @@ import {
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { downloadFFmpeg, downloadFFprobe } from "./utils/ffmpegManager";
+import { initToolPreferences } from "./utils/toolPreferences";
+import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
@@ -303,6 +304,8 @@ export async function activate(context: vscode.ExtensionContext) {
         console.warn("[Extension] Could not ensure temp directory exists:", e);
     }
 
+    initToolPreferences(context);
+
     // Save tab layout and close all editors before showing splash screen
     try {
         await saveTabLayout(context);
@@ -486,16 +489,13 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
 
-        // Download audio tools (ffmpeg/ffprobe) if not already present.
-        // downloadFFmpeg/downloadFFprobe check local cache first, only
+        // Download FFmpeg if not already present.
+        // downloadFFmpeg checks local cache first, only
         // hitting the network if the binary isn't present on disk.
         const audioToolsStart = globalThis.performance.now();
         try {
             updateSplashScreenSync(0, "Setting up audio tools...");
-            await Promise.all([
-                downloadFFmpeg(context),
-                downloadFFprobe(context),
-            ]);
+            await downloadFFmpeg(context);
         } catch (error) {
             if (!networkAvailable) {
                 console.log("[Extension] Offline — audio tools not cached locally, audio features unavailable until online");
@@ -514,14 +514,14 @@ export async function activate(context: vscode.ExtensionContext) {
             unavailableTools = getUnavailableTools(toolCheckResult);
         } catch (error) {
             console.error("[Extension] checkTools() threw unexpectedly:", error);
-            toolCheckResult = { git: false, sqlite: false, ffmpeg: false, ffprobe: false };
+            toolCheckResult = { git: false, sqlite: false, ffmpeg: false };
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
         stepStart = trackTiming("Checking tool availability", toolCheckStart);
 
         const ok = (v: boolean) => v ? "ok" : "MISSING";
         console.info(
-            `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}, ffprobe: ${ok(toolCheckResult.ffprobe)}`
+            `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}`
         );
 
         // When offline, non-critical tools (git, audio) being unavailable is
@@ -578,11 +578,6 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (!current.ffmpeg) {
                         try { await downloadFFmpeg(context); } catch (e) {
                             console.error("[Extension] FFmpeg retry failed:", e);
-                        }
-                    }
-                    if (!current.ffprobe) {
-                        try { await downloadFFprobe(context); } catch (e) {
-                            console.error("[Extension] FFprobe retry failed:", e);
                         }
                     }
                     return checkTools(context, authApi).catch(() => current);
@@ -941,6 +936,12 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand("codex-editor.openCodexMigrationTool", () =>
             openCodexMigrationTool(context)
         )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openToolsStatus", async () => {
+            const provider = new MissingToolsWarningProvider(context);
+            await provider.showToolsStatus();
+        })
     );
 
     // Command: Migrate validations for user edits across project

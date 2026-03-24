@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { ToolCheckResult } from "../../utils/toolsManager";
+import { getAudioToolMode } from "../../utils/toolPreferences";
 import type {
     MessagesToMissingToolsWarning,
     MessagesFromMissingToolsWarning,
@@ -12,11 +13,14 @@ export class MissingToolsWarningProvider {
 
     private _panel?: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
+    private readonly _context: vscode.ExtensionContext;
     private _disposables: vscode.Disposable[] = [];
     private _resolveUserAction?: (action: "continue" | "blocked") => void;
     private _retryInProgress = false;
+    private _downloadInProgress = false;
 
     constructor(context: vscode.ExtensionContext) {
+        this._context = context;
         this._extensionUri = context.extensionUri;
     }
 
@@ -42,9 +46,39 @@ export class MissingToolsWarningProvider {
             return this._waitForUserAction();
         }
 
+        this._createPanel("Codex — Missing Tools", result, "warnings");
+        this._setupMessageHandler(retryCallback);
+
+        return this._waitForUserAction();
+    }
+
+    /**
+     * Open a read-only "Tools Status" view showing all tools and their
+     * current availability. Called from the project settings menu.
+     */
+    public async showToolsStatus(): Promise<void> {
+        const { checkTools } = await import("../../utils/toolsManager");
+        const { getAuthApi } = await import("../../extension");
+        const result = await checkTools(this._context, getAuthApi());
+
+        if (this._panel) {
+            this._panel.reveal(vscode.ViewColumn.One);
+            this._sendStatus(result);
+            return;
+        }
+
+        this._createPanel("Codex — Tools Status", result, "status");
+        this._setupStatusMessageHandler();
+    }
+
+    private _createPanel(
+        title: string,
+        result: ToolCheckResult,
+        mode: "warnings" | "status",
+    ): void {
         this._panel = vscode.window.createWebviewPanel(
             MissingToolsWarningProvider.viewType,
-            "Codex — Missing Tools",
+            title,
             { viewColumn: vscode.ViewColumn.One, preserveFocus: false },
             {
                 enableScripts: true,
@@ -58,9 +92,7 @@ export class MissingToolsWarningProvider {
             localResourceRoots: [this._extensionUri],
         };
 
-        // Bake the tool status into the HTML so the React app can render
-        // immediately without waiting for a postMessage round-trip.
-        this._panel.webview.html = this._getHtmlForWebview(result);
+        this._panel.webview.html = this._getHtmlForWebview(result, mode);
         this._panel.reveal(vscode.ViewColumn.One, false);
 
         this._panel.onDidDispose(
@@ -71,8 +103,12 @@ export class MissingToolsWarningProvider {
             null,
             this._disposables
         );
+    }
 
-        this._panel.webview.onDidReceiveMessage(
+    private _setupMessageHandler(
+        retryCallback: () => Promise<ToolCheckResult>,
+    ): void {
+        this._panel!.webview.onDidReceiveMessage(
             async (message: MessagesFromMissingToolsWarning) => {
                 try {
                     switch (message.command) {
@@ -99,6 +135,12 @@ export class MissingToolsWarningProvider {
                             this._resolveUserAction?.("continue");
                             this._panel?.dispose();
                             break;
+                        case "close":
+                            this._panel?.dispose();
+                            break;
+                        case "downloadTool":
+                            await this._handleDownloadTool(message.tool);
+                            break;
                         case "openDownloadPage":
                             vscode.env.openExternal(
                                 vscode.Uri.parse("https://codexeditor.app")
@@ -113,8 +155,124 @@ export class MissingToolsWarningProvider {
             null,
             this._disposables
         );
+    }
 
-        return this._waitForUserAction();
+    private _setupStatusMessageHandler(): void {
+        this._panel!.webview.onDidReceiveMessage(
+            async (message: MessagesFromMissingToolsWarning) => {
+                try {
+                    switch (message.command) {
+                        case "close":
+                            this._panel?.dispose();
+                            break;
+                        case "downloadTool":
+                            await this._handleDownloadTool(message.tool);
+                            break;
+                        case "toggleAudioMode":
+                            await this._handleToggleAudioMode();
+                            break;
+                        case "openDownloadPage":
+                            vscode.env.openExternal(
+                                vscode.Uri.parse("https://codexeditor.app")
+                            );
+                            break;
+                    }
+                } catch (error) {
+                    console.error("[MissingToolsWarning] Error handling status message:", error);
+                }
+            },
+            null,
+            this._disposables
+        );
+    }
+
+    private async _handleToggleAudioMode(): Promise<void> {
+        const { setAudioToolMode } = await import("../../utils/toolPreferences");
+        const current = getAudioToolMode();
+        const next = current === "auto" ? "builtin" : "auto";
+        await setAudioToolMode(next);
+
+        const { checkTools } = await import("../../utils/toolsManager");
+        const { getAuthApi } = await import("../../extension");
+        const result = await checkTools(this._context, getAuthApi());
+
+        const message: MessagesToMissingToolsWarning = {
+            command: "audioModeChanged",
+            audioToolMode: next,
+            ffmpeg: result.ffmpeg,
+        };
+        safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+        this._notifyMainMenuToolsChanged();
+    }
+
+    private async _handleDownloadTool(tool: "sqlite" | "git" | "ffmpeg"): Promise<void> {
+        if (this._downloadInProgress) {
+            return;
+        }
+        this._downloadInProgress = true;
+
+        let success = false;
+        try {
+            switch (tool) {
+                case "sqlite": {
+                    const { ensureSqliteNativeBinary } = await import("../../utils/sqliteNativeBinaryManager");
+                    const { initNativeSqlite } = await import("../../utils/nativeSqlite");
+                    const binaryPath = await ensureSqliteNativeBinary(this._context);
+                    initNativeSqlite(binaryPath);
+                    success = true;
+                    break;
+                }
+                case "git": {
+                    const { getAuthApi } = await import("../../extension");
+                    const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    const frontierApi = getAuthApi();
+                    if (frontierApi?.retryGitBinaryDownload) {
+                        resetGitBinaryPath();
+                        success = await frontierApi.retryGitBinaryDownload();
+                    }
+                    break;
+                }
+                case "ffmpeg": {
+                    const { downloadFFmpeg } = await import("../../utils/ffmpegManager");
+                    const result = await downloadFFmpeg(this._context);
+                    success = result !== null;
+                    break;
+                }
+            }
+        } catch (error) {
+            console.error(`[MissingToolsWarning] Failed to download ${tool}:`, error);
+            success = false;
+        } finally {
+            this._downloadInProgress = false;
+        }
+
+        const { checkTools } = await import("../../utils/toolsManager");
+        const { getAuthApi } = await import("../../extension");
+        const updated = await checkTools(this._context, getAuthApi());
+
+        const message: MessagesToMissingToolsWarning = {
+            command: "toolDownloadResult",
+            tool,
+            success,
+            git: updated.git,
+            sqlite: updated.sqlite,
+            ffmpeg: updated.ffmpeg,
+            audioToolMode: getAudioToolMode(),
+        };
+        safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+        this._notifyMainMenuToolsChanged();
+    }
+
+    private async _notifyMainMenuToolsChanged(): Promise<void> {
+        try {
+            const { GlobalProvider } = await import("../../globalProvider");
+            const provider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu") as
+                | { sendToolsStatusSummary?: () => void }
+                | undefined;
+            provider?.sendToolsStatusSummary?.();
+        } catch {
+            // MainMenu may not be available yet; silently ignore
+        }
     }
 
     private _sendWarnings(
@@ -126,7 +284,17 @@ export class MissingToolsWarningProvider {
             git: result.git,
             sqlite: result.sqlite,
             ffmpeg: result.ffmpeg,
-            ffprobe: result.ffprobe,
+        };
+        safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+    }
+
+    private _sendStatus(result: ToolCheckResult): void {
+        const message: MessagesToMissingToolsWarning = {
+            command: "showToolsStatus",
+            git: result.git,
+            sqlite: result.sqlite,
+            ffmpeg: result.ffmpeg,
+            audioToolMode: getAudioToolMode(),
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -137,21 +305,30 @@ export class MissingToolsWarningProvider {
         });
     }
 
-    private _getHtmlForWebview(result: ToolCheckResult): string {
+    private _getHtmlForWebview(
+        result: ToolCheckResult,
+        mode: "warnings" | "status" = "warnings",
+    ): string {
         const webview = this._panel!.webview;
+
+        const initialData: Record<string, unknown> = {
+            git: result.git,
+            sqlite: result.sqlite,
+            ffmpeg: result.ffmpeg,
+            mode,
+        };
+
+        if (mode === "status") {
+            initialData.audioToolMode = getAudioToolMode();
+        }
 
         return getWebviewHtml(
             webview,
             { extensionUri: this._extensionUri } as vscode.ExtensionContext,
             {
-                title: "Codex — Missing Tools",
+                title: mode === "status" ? "Codex — Tools Status" : "Codex — Missing Tools",
                 scriptPath: ["MissingToolsWarning", "index.js"],
-                initialData: {
-                    git: result.git,
-                    sqlite: result.sqlite,
-                    ffmpeg: result.ffmpeg,
-                    ffprobe: result.ffprobe,
-                },
+                initialData,
                 inlineStyles: `
                     body { margin: 0; padding: 0; min-height: 100vh; width: 100vw; overflow-y: auto; background-color: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); }
                     #root { min-height: 100%; width: 100%; }
