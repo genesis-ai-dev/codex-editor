@@ -1225,10 +1225,11 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
-        /** Pin specific extension versions for this project */
+        /** Pin specific extension versions for this project. Version "stable" means unpinned. */
         pinnedExtensions?: Record<string, {
             version: string;
             url: string;
+            updatedAt: number;
         }>;
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
