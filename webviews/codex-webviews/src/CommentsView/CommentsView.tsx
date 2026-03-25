@@ -35,7 +35,6 @@ import {
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import bibleBooksData from "../assets/bible-books-lookup.json";
-import { getCellDisplayLabel } from "../utils/cellDisplayUtils";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 const vscode = acquireVsCodeApi();

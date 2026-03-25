@@ -564,10 +564,10 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
         return (
             <span className="floating-search-bar-match-count-lines">
                 <span>
-                    {localIndex} of {pageMatchCount} (page)
+                    Page {localIndex} of {pageMatchCount}
                 </span>
                 <span>
-                    {globalMatchIndex} of {totalDocumentMatches} (file)
+                    File {globalMatchIndex} of {totalDocumentMatches}
                 </span>
             </span>
         );

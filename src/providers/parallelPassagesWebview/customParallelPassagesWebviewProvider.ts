@@ -159,6 +159,8 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 const sourceUri = isSource ? parsedUri : getCorrespondingSourceUri(parsedUri);
                 const codexUri = isSource ? getCorrespondingCodexUri(parsedUri) : parsedUri;
 
+                let opened = false;
+
                 if (sourceUri) {
                     try {
                         await vscode.workspace.fs.stat(sourceUri);
@@ -166,6 +168,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             "vscode.openWith", sourceUri, "codex.cellEditor",
                             { viewColumn: vscode.ViewColumn.One }
                         );
+                        opened = true;
                     } catch { /* file doesn't exist */ }
                 }
 
@@ -176,13 +179,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             "vscode.openWith", codexUri, "codex.cellEditor",
                             { viewColumn: vscode.ViewColumn.Two }
                         );
+                        opened = true;
                     } catch { /* file doesn't exist */ }
                 }
 
-                updateWorkspaceState(this._context, {
-                    key: "cellToJumpTo",
-                    value: cellId,
-                });
+                if (opened) {
+                    updateWorkspaceState(this._context, {
+                        key: "cellToJumpTo",
+                        value: cellId,
+                    });
+                }
             }
         } catch (error) {
             console.error(`Failed to open file: ${uri}`, error);
