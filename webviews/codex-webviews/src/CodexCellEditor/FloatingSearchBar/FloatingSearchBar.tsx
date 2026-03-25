@@ -493,7 +493,7 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
             const cell = translationUnits[cellIndex];
             if (!cell) continue;
 
-            let plainText = stripHtml(cell.cellContent);
+            const plainText = stripHtml(cell.cellContent);
             const searchRegex = new RegExp(escapeRegex(query), matchCase ? "g" : "gi");
             const newContent = plainText.replace(searchRegex, replaceText);
 

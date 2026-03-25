@@ -330,15 +330,15 @@ function SearchTab({
                         </div>
 
                         {/* Options row - all search options in one organized row */}
-                        <div className="flex items-center gap-2 border-t pt-3 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
                             {/* Search scope toggle */}
                             <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
                                 <button
                                     type="button"
                                     onClick={() => onSearchScopeChange("both")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    className={`px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
                                         searchScope === "both"
-                                            ? "bg-background shadow-sm font-medium"
+                                            ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
                                     }`}
                                 >
@@ -349,7 +349,7 @@ function SearchTab({
                                     onClick={() => onSearchScopeChange("source")}
                                     className={`px-2 py-1 text-xs rounded transition-colors ${
                                         searchScope === "source"
-                                            ? "bg-background shadow-sm font-medium"
+                                            ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
                                     }`}
                                 >
@@ -360,7 +360,7 @@ function SearchTab({
                                     onClick={() => onSearchScopeChange("target")}
                                     className={`px-2 py-1 text-xs rounded transition-colors ${
                                         searchScope === "target"
-                                            ? "bg-background shadow-sm font-medium"
+                                            ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
                                     }`}
                                 >
@@ -387,9 +387,11 @@ function SearchTab({
                                 <>
                                     <div className="h-4 w-px bg-border" />
                                     <div className="file-selector-container relative">
-                                        <button
+                                        <Button
                                             type="button"
-                                            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                                            variant={showFileSelector ? "secondary" : "ghost"}
+                                            size="sm"
+                                            className="flex items-center gap-1 text-xs h-7 px-2"
                                             onClick={() => setShowFileSelector(!showFileSelector)}
                                         >
                                             <span className="codicon codicon-files"></span>
@@ -403,84 +405,90 @@ function SearchTab({
                                                     showFileSelector ? "up" : "down"
                                                 } text-[10px]`}
                                             ></span>
-                                        </button>
-                                    {showFileSelector && (
-                                        <Card className="absolute top-full left-0 mt-1 z-20 max-h-64 overflow-hidden flex flex-col min-w-[200px]">
-                                            <CardContent className="p-0 flex flex-col">
-                                                <div className="p-2 border-b flex gap-2">
-                                                    <Input
-                                                        type="text"
-                                                        placeholder="Search files..."
-                                                        value={fileSearchQuery}
-                                                        onChange={(e) =>
-                                                            setFileSearchQuery(e.target.value)
-                                                        }
-                                                        className="flex-1 h-7 text-xs"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={handleSelectAllFiles}
-                                                        className="text-xs h-7 px-2"
-                                                    >
-                                                        All
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={handleDeselectAllFiles}
-                                                        className="text-xs h-7 px-2"
-                                                    >
-                                                        None
-                                                    </Button>
-                                                </div>
-                                                <div className="overflow-y-auto max-h-48">
-                                                    {filteredFiles.length === 0 ? (
-                                                        <div className="p-4 text-sm text-muted-foreground text-center">
-                                                            No files found
-                                                        </div>
-                                                    ) : (
-                                                        filteredFiles.map((file) => {
-                                                            const isSelected =
-                                                                selectedFiles.includes(file.uri);
-                                                            return (
-                                                                <div
-                                                                    key={file.uri}
-                                                                    className="flex items-center space-x-2 p-2 hover:bg-muted cursor-pointer"
-                                                                    onClick={() =>
-                                                                        handleFileToggle(file.uri)
-                                                                    }
-                                                                >
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={isSelected}
-                                                                        onChange={() =>
-                                                                            handleFileToggle(file.uri)
+                                        </Button>
+                                        {showFileSelector && (
+                                            <Card className="absolute top-full left-0 mt-1 z-20 max-h-64 overflow-hidden flex flex-col min-w-[200px]">
+                                                <CardContent className="p-0 flex flex-col">
+                                                    <div className="p-2 border-b flex gap-2">
+                                                        <Input
+                                                            type="text"
+                                                            placeholder="Search files..."
+                                                            value={fileSearchQuery}
+                                                            onChange={(e) =>
+                                                                setFileSearchQuery(e.target.value)
+                                                            }
+                                                            className="flex-1 h-7 text-xs"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        />
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={handleSelectAllFiles}
+                                                            className="text-xs h-7 px-2"
+                                                        >
+                                                            All
+                                                        </Button>
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={handleDeselectAllFiles}
+                                                            className="text-xs h-7 px-2"
+                                                        >
+                                                            None
+                                                        </Button>
+                                                    </div>
+                                                    <div className="overflow-y-auto max-h-48">
+                                                        {filteredFiles.length === 0 ? (
+                                                            <div className="p-4 text-sm text-muted-foreground text-center">
+                                                                No files found
+                                                            </div>
+                                                        ) : (
+                                                            filteredFiles.map((file) => {
+                                                                const isSelected =
+                                                                    selectedFiles.includes(
+                                                                        file.uri
+                                                                    );
+                                                                return (
+                                                                    <div
+                                                                        key={file.uri}
+                                                                        className="flex items-center space-x-2 p-2 hover:bg-muted cursor-pointer"
+                                                                        onClick={() =>
+                                                                            handleFileToggle(
+                                                                                file.uri
+                                                                            )
                                                                         }
-                                                                        className="h-4 w-4 rounded border border-input"
-                                                                    />
-                                                                    <span className="text-sm flex-1">
-                                                                        {file.name}
-                                                                    </span>
-                                                                    <Badge
-                                                                        variant="outline"
-                                                                        className="text-xs"
                                                                     >
-                                                                        {file.type === "source"
-                                                                            ? "Source"
-                                                                            : "Target"}
-                                                                    </Badge>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    )}
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={() =>
+                                                                                handleFileToggle(
+                                                                                    file.uri
+                                                                                )
+                                                                            }
+                                                                            className="h-4 w-4 rounded border border-input"
+                                                                        />
+                                                                        <span className="text-sm flex-1">
+                                                                            {file.name}
+                                                                        </span>
+                                                                        <Badge
+                                                                            variant="outline"
+                                                                            className="text-xs"
+                                                                        >
+                                                                            {file.type === "source"
+                                                                                ? "Source"
+                                                                                : "Target"}
+                                                                        </Badge>
+                                                                    </div>
+                                                                );
+                                                            })
+                                                        )}
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        )}
                                     </div>
                                 </>
                             )}
@@ -660,7 +668,6 @@ function SearchTab({
                                 )}
                             </div>
                         )}
-
                     </form>
                 </CardContent>
             </Card>
