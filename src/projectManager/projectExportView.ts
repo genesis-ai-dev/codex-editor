@@ -214,7 +214,7 @@ function getWebviewContent(
                     border-radius: 4px;
                     cursor: pointer;
                     display: flex;
-                    align-items: center;
+                    align-items: flex-start;
                     gap: 12px;
                 }
                 .format-option:hover { background-color: var(--vscode-list-hoverBackground); }
@@ -298,12 +298,17 @@ function getWebviewContent(
                     background-color: var(--vscode-editor-background);
                     border-top: 1px solid var(--vscode-input-border);
                 }
-                .format-section-content .format-option { margin-bottom: 8px; padding: 12px; }
-                .format-section-content .format-option:last-child { margin-bottom: 0; }
+                .format-section-content {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 8px;
+                }
+                .format-section-content .format-option { padding: 12px; }
                 .format-option-row { display: flex; gap: 1rem; }
                 .format-option[data-option].hidden { display: none !important; }
                 .format-section[data-option].hidden { display: none !important; }
                 .format-option-row[data-option].hidden { display: none !important; }
+                .format-option p, .format-option-content p { line-height: 1.45; margin: 4px 0 0 0; }
                 .format-option-content { display: flex; flex-direction: column; gap: 4px; }
                 .format-tag {
                     display: inline-block;
@@ -371,23 +376,43 @@ function getWebviewContent(
                 <!-- STEP 2: Export Format -->
                 <div id="step2" class="step-panel">
                     <div class="step-content">
-                        <h3>Audio Export</h3>
-                        <div style="margin-bottom: 12px;">
-                            <div class="format-option" id="audio-format" data-format="audio" data-option="audio" style="display:flex; gap:12px; padding:12px;">
-                                <i class="codicon codicon-mic" style="align-self:flex-start; margin-top:6px;"></i>
-                                <div style="flex:1;">
-                                    <strong>Audio</strong>
-                                    <p style="margin:4px 0 0 0; color: var(--vscode-descriptionForeground);">Export per-cell audio attachments alongside the selected export format</p>
-                                    <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
-                                        <input type="checkbox" id="audioIncludeTimestamps" />
-                                        <label for="audioIncludeTimestamps">Embed timestamps in audio metadata (WAV, WebM, M4A)</label>
+                        <h3>Select Export Format</h3>
+                        <div id="formatOptionsContainer" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
+                            <!-- Text and markup export: plaintext, XLIFF, USFM, HTML -->
+                            <div class="format-section" id="text-export-section">
+                                <div class="format-section-header">
+                                    <i class="codicon codicon-file-code"></i>
+                                    <h4>Text and Markup Export Options</h4>
+                                </div>
+                                <div id="text-export-formats" class="format-section-content">
+                                    <div class="format-option" data-format="plaintext" data-option="plaintext">
+                                        <div class="format-option-content">
+                                            <strong>Generate Plaintext</strong>
+                                            <p>Export as plain text files with minimal formatting</p>
+                                        </div>
+                                    </div>
+                                    <div class="format-option" data-format="xliff" data-option="xliff">
+                                        <div class="format-option-content">
+                                            <strong>Generate XLIFF</strong>
+                                            <p>Export in XML Localization Interchange File Format (XLIFF) for translation workflows</p>
+                                            <span class="format-tag">Translation Ready</span>
+                                        </div>
+                                    </div>
+                                    <div class="format-option" data-format="usfm" data-option="usfm">
+                                        <div class="format-option-content">
+                                            <strong>Generate USFM</strong>
+                                            <p>Export in Universal Standard Format Markers</p>
+                                        </div>
+                                    </div>
+                                    <div class="format-option" data-format="html" data-option="html">
+                                        <div class="format-option-content">
+                                            <strong>Generate HTML</strong>
+                                            <p>Export as web pages with chapter navigation</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        <h3>Select Export Format</h3>
-                        <div id="formatOptionsContainer" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
-                            <!-- Subtitle options: first, only for subtitles, always open -->
+                            <!-- Subtitle options -->
                             <div class="format-section" id="subtitle-section" data-option="subtitles">
                                 <div class="format-section-header">
                                     <i class="codicon codicon-symbol-event"></i>
@@ -442,43 +467,6 @@ function getWebviewContent(
                                     </div>
                                 </div>
                             </div>
-                            <!-- First row: Generate Plaintext + Generate XLIFF -->
-                            <div style="display: flex; gap: 1rem;">
-                                <div class="format-option" data-format="plaintext" data-option="plaintext" style="flex: 1;">
-                                    <i class="codicon codicon-file-text"></i>
-                                    <div>
-                                        <strong>Generate Plaintext</strong>
-                                        <p>Export as plain text files with minimal formatting</p>
-                                    </div>
-                                </div>
-                                <div class="format-option" data-format="xliff" data-option="xliff" style="flex: 1;">
-                                    <i class="codicon codicon-symbol-interface"></i>
-                                    <div>
-                                        <strong>Generate XLIFF</strong>
-                                        <p>Export in XML Localization Interchange File Format (XLIFF) for translation workflows</p>
-                                        <span class="format-tag">Translation Ready</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- Second row (only shown for eBible and USFM groups): Generate USFM + Generate HTML -->
-                            <div class="format-option-row" style="display: flex; gap: 1rem;" data-option="usfm">
-                                <div class="format-option" data-format="usfm" data-option="usfm" style="flex: 1;">
-                                    <i class="codicon codicon-file-code"></i>
-                                    <div>
-                                        <strong>Generate USFM</strong>
-                                        <p>Export in Universal Standard Format Markers</p>
-                                    </div>
-                                </div>
-                                <div class="format-option" data-format="html" data-option="html" style="flex: 1;">
-                                    <i class="codicon codicon-browser"></i>
-                                    <div>
-                                        <strong>Generate HTML</strong>
-                                        <p>Export as web pages with chapter navigation</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- Audio moved to its own section above -->
-                            <!-- Backtranslations removed from here and moved into Data Export section -->
                             <!-- Data Export: all, always open -->
                             <div class="format-section" data-option="dataExport">
                                 <div class="format-section-header">
@@ -505,6 +493,29 @@ function getWebviewContent(
                                             <strong>Backtranslations (CSV)</strong>
                                             <p>Export backtranslations as CSV with ID, source text, translation, and backtranslation columns</p>
                                             <span class="format-tag">Quality Assurance</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <h3 style="margin-top: 1.5rem;">Select Audio Export Format</h3>
+                        <div id="audioOptionsContainer" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
+                            <div class="format-section" id="audio-export-section" data-option="audio">
+                                <div class="format-section-header">
+                                    <i class="codicon codicon-mic"></i>
+                                    <h4>Audio Export Options</h4>
+                                </div>
+                                <div id="audio-formats" class="format-section-content">
+                                    <div class="format-option audio-option" data-audio-mode="audio">
+                                        <div class="format-option-content">
+                                            <strong>Include Audio</strong>
+                                            <p>Export per-cell audio attachments alongside the selected export format</p>
+                                        </div>
+                                    </div>
+                                    <div class="format-option audio-option" data-audio-mode="audio-timestamps">
+                                        <div class="format-option-content">
+                                            <strong>Include Audio with Timestamps</strong>
+                                            <p>Export per-cell audio attachments alongside the selected export format, and embed timestamps in audio metadata (WAV, WebM, M4A)</p>
                                         </div>
                                     </div>
                                 </div>
@@ -560,7 +571,7 @@ function getWebviewContent(
                 const exportOptionsConfig = ${exportOptionsConfigJson};
                 let currentStep = 1;
                 let selectedFormat = null;
-                let selectedAudio = false;
+                let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps'
                 let exportPath = ${initialExportFolderJson};
                 let selectedFiles = new Set();
                 let selectedGroupKey = null;
@@ -677,10 +688,8 @@ function getWebviewContent(
                     // Visibility for HTML/USFM is controlled by data-option and exportOptionsConfig
                     selectedFormat = null;
                     // Clear previous selected state for format options but keep audio selection intact
-                    document.querySelectorAll('#step2 .format-option').forEach(opt => {
-                        if (opt.id === 'audio-format' || opt.dataset.format === 'audio') return;
+                    document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(opt => {
                         opt.classList.remove('selected');
-                        // remove any inline visual overrides that may have been applied
                         opt.style.backgroundColor = '';
                         opt.style.borderColor = '';
                     });
@@ -734,13 +743,13 @@ function getWebviewContent(
                 function updateStep2Button() {
                     const btn = document.getElementById('nextStep2');
                     // Allow moving forward if a format is selected OR audio-only is selected
-                    if (btn) btn.disabled = !(selectedFormat || selectedAudio);
+                    if (btn) btn.disabled = !(selectedFormat || selectedAudioMode);
                 }
 
                 function updateExportButton() {
                     const btn = document.getElementById('exportButton');
                     // Export allowed if a format or audio is selected
-                    const hasAnyFormat = !!(selectedFormat || selectedAudio);
+                    const hasAnyFormat = !!(selectedFormat || selectedAudioMode);
                     if (btn) btn.disabled = !hasAnyFormat || !exportPath || selectedFiles.size === 0;
                 }
 
@@ -774,30 +783,32 @@ function getWebviewContent(
                         if (pathEl) pathEl.textContent = exportPath;
                     }
 
-                    document.querySelectorAll('#step2 .format-option').forEach(option => {
+                    // Audio option click handler (mutually exclusive toggle)
+                    document.querySelectorAll('#step2 .audio-option').forEach(option => {
                         option.addEventListener('click', (e) => {
                             if (e.target.closest('.format-section-header')) return;
-                            // If this is the audio block, toggle audio selection instead of treating as format
-                            if (option.id === 'audio-format' || option.dataset.format === 'audio') {
-                                const willSelect = !selectedAudio;
-                                if (willSelect) {
-                                    option.classList.add('selected');
-                                    try {
-                                        const root = document.documentElement;
-                                        const bg = getComputedStyle(root).getPropertyValue('--vscode-list-activeSelectionBackground') || '';
-                                        const border = getComputedStyle(root).getPropertyValue('--vscode-focusBorder') || '';
-                                        if (bg) option.style.backgroundColor = bg.trim();
-                                        if (border) option.style.borderColor = border.trim();
-                                    } catch (e) { }
-                                } else {
-                                    option.classList.remove('selected');
-                                    option.style.backgroundColor = '';
-                                    option.style.borderColor = '';
-                                }
-                                selectedAudio = willSelect;
-                                try { updateStep2Button(); updateExportButton(); } catch (e) {}
-                                return;
+                            const mode = option.dataset.audioMode;
+                            const wasSelected = selectedAudioMode === mode;
+                            // Clear all audio options
+                            document.querySelectorAll('#step2 .audio-option').forEach(opt => {
+                                opt.classList.remove('selected');
+                                opt.style.backgroundColor = '';
+                                opt.style.borderColor = '';
+                            });
+                            if (wasSelected) {
+                                selectedAudioMode = null;
+                            } else {
+                                selectedAudioMode = mode;
+                                option.classList.add('selected');
                             }
+                            try { updateStep2Button(); updateExportButton(); } catch (e) {}
+                        });
+                    });
+
+                    // Format option click handler (non-audio)
+                    document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(option => {
+                        option.addEventListener('click', (e) => {
+                            if (e.target.closest('.format-section-header')) return;
 
                             // If clicking the already-selected format, deselect it
                             if (option.classList.contains('selected')) {
@@ -810,8 +821,7 @@ function getWebviewContent(
                             }
 
                             // Select this format and clear other non-audio format selections
-                            document.querySelectorAll('#step2 .format-option').forEach(opt => {
-                                if (opt.id === 'audio-format' || opt.dataset.format === 'audio') return;
+                            document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(opt => {
                                 opt.classList.remove('selected');
                                 opt.style.backgroundColor = '';
                                 opt.style.borderColor = '';
@@ -824,20 +834,17 @@ function getWebviewContent(
                         });
                     });
 
-                    // audio toggling handled in the format-option click handler above; no separate toggleAudio needed
-
-                    // audio-format is handled by the general format-option click handler above
-
                 });
 
                 function exportProject() {
-                    const formatToSend = selectedFormat || (selectedAudio ? 'audio' : null);
+                    const formatToSend = selectedFormat || (selectedAudioMode ? 'audio' : null);
                     if (!formatToSend || !exportPath || selectedFiles.size === 0) return;
                     const options = {};
                     if (formatToSend === 'usfm') options.skipValidation = document.getElementById('skipValidation')?.checked;
-                    // Audio is now a separate toggle that may be combined with other export formats
-                    if (selectedAudio) options.includeAudio = true;
-                    if (selectedAudio) options.includeTimestamps = document.getElementById('audioIncludeTimestamps')?.checked;
+                    if (selectedAudioMode) {
+                        options.includeAudio = true;
+                        options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
+                    }
                     if (document.getElementById('zipOutput')?.checked) options.zipOutput = true;
                     vscode.postMessage({
                         command: 'export',
