@@ -201,6 +201,7 @@ export const MissingToolsWarning: React.FC = () => {
         return (
             <ToolsStatusView
                 status={status}
+                isOnline={isOnline}
                 audioToolMode={audioToolMode}
                 gitToolMode={gitToolMode}
                 sqliteToolMode={sqliteToolMode}
@@ -221,14 +222,14 @@ export const MissingToolsWarning: React.FC = () => {
 
 const TOOL_INFO = {
     sqlite: {
-        name: "AI Learning and Search Engine",
+        name: "AI Learning and Search Tools",
         iconOk: "codicon-check",
         iconMissing: "codicon-error",
         descriptions: {
-            available: "The native AI learning and search engine is installed and running.",
-            limited: "Using fallback engine. Native engine is installed but not active.",
-            builtinActive: "Using fallback engine. Full functionality is available with slightly different performance characteristics.",
-            missing: "The AI learning and search engine could not be set up. Projects cannot be opened or created without this component.",
+            available: "The native AI learning and search tools are installed and running.",
+            limited: "Using fallback tools. Native tools are installed but not active.",
+            builtinActive: "Using fallback tools. Full functionality is available but less performant.",
+            missing: "The AI learning and search tools could not be set up. Projects cannot be opened or created without this component.",
         },
     },
     git: {
@@ -236,9 +237,9 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-warning",
         descriptions: {
-            available: "Native sync tools are active. Syncing and collaboration features are fully operational.",
+            available: "Native sync tools are active. Syncing and collaboration are fully operational.",
             limited: "Using fallback sync tools. Native sync tools are installed but not active.",
-            builtinActive: "Using fallback sync tools. Syncing and collaboration will work with limited functionality.",
+            builtinActive: "Using fallback sync tools. Syncing and collaboration may be limited.",
         },
     },
     ffmpeg: {
@@ -246,8 +247,8 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-warning",
         descriptions: {
-            available: "Native audio tools are active. Full audio format support is available for import and export.",
-            limited: "Using fallback audio tools (.wav format). Install the native audio tools for additional format support.",
+            available: "Native audio tools are active. Full audio format support is available for import/export.",
+            limited: "Using fallback audio tools (.wav format). Full audio format support requires native audio tools.",
             missing: "Native audio tools could not be set up. Using fallback audio tools (.wav only).",
         },
     },
@@ -255,6 +256,7 @@ const TOOL_INFO = {
 
 interface ToolsStatusViewProps {
     status: ToolStatus;
+    isOnline: boolean;
     audioToolMode: AudioToolMode;
     gitToolMode: GitToolMode;
     sqliteToolMode: SqliteToolMode;
@@ -270,6 +272,7 @@ interface ToolsStatusViewProps {
 
 const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     status,
+    isOnline,
     audioToolMode,
     gitToolMode,
     sqliteToolMode,
@@ -292,7 +295,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
             return "Using fallback audio tools. Native audio tools are installed but not active.";
         }
         if (audioToolMode === "builtin" && !status.ffmpeg) {
-            return "Using fallback audio tools (.wav format). Native audio tools are not installed.";
+            return "Using fallback audio tools (.wav format). Full audio format support requires native audio tools.";
         }
         if (status.ffmpeg) {
             return TOOL_INFO.ffmpeg.descriptions.available;
@@ -300,15 +303,17 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
         return TOOL_INFO.ffmpeg.descriptions.limited;
     })();
 
-    const audioSeverity: "ok" | "warning" = audioUsingBuiltIn
-        ? (status.ffmpeg ? "ok" : "warning")
-        : "ok";
+    const audioSeverity: "ok" | "warning" | "error" = !status.ffmpeg
+        ? "error"
+        : audioToolMode === "builtin"
+          ? "warning"
+          : "ok";
 
     const audioStatusLabel = (() => {
         if (!audioUsingBuiltIn) {
-            return "Installed and Running";
+            return "Installed and Running Native Tools";
         }
-        return status.ffmpeg ? "Installed – Using Fallback Tools" : "Not Installed – Using Fallback Tools";
+        return status.ffmpeg ? "Installed and Running Fallback Tools" : "Not Installed – Running Fallback Tools";
     })();
 
     return (
@@ -319,14 +324,14 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         className="text-2xl font-bold"
                         style={{ color: "var(--foreground)" }}
                     >
-                        Tools Status
+                        Status
                     </h1>
                     <p
                         className="text-sm"
                         style={{ color: "var(--muted-foreground)" }}
                     >
                         {allOk
-                            ? "All native tools and engines are installed and running."
+                            ? "All native tools are installed and running."
                             : "Some native tools are not fully configured. Codex is using fallback alternatives where needed."}
                     </p>
                 </div>
@@ -346,20 +351,21 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                             }
                             return TOOL_INFO.sqlite.descriptions.available;
                         })()}
-                        severity={!status.sqlite ? "error" : sqliteUsingBuiltIn ? "warning" : "ok"}
+                        severity={(!status.sqlite || !status.nativeSqliteAvailable) ? "error" : sqliteToolMode === "builtin" ? "warning" : "ok"}
                         statusLabelOverride={(() => {
                             if (!status.sqlite) return undefined;
                             if (status.nativeSqliteAvailable && !sqliteUsingBuiltIn) {
-                                return "Installed and Running";
+                                return "Installed and Running Native Tools";
                             }
                             if (status.nativeSqliteAvailable && sqliteUsingBuiltIn) {
-                                return "Installed \u2013 Using Fallback Engine";
+                                return "Installed and Running Fallback Tools";
                             }
-                            return "Using Fallback Engine";
+                            return "Not Installed \u2013 Running Fallback Tools";
                         })()}
+                        isOnline={isOnline}
                         downloading={downloading.sqlite}
                         onDownload={!status.nativeSqliteAvailable ? () => onDownloadTool("sqlite") : undefined}
-                        toggleLabel={status.nativeSqliteAvailable ? (sqliteUsingBuiltIn ? "Use Native Engine" : "Use Fallback Engine") : undefined}
+                        toggleLabel={status.nativeSqliteAvailable ? (sqliteUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
                         onToggle={status.nativeSqliteAvailable ? onToggleSqliteMode : undefined}
                     />
 
@@ -374,16 +380,17 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                             }
                             return TOOL_INFO.git.descriptions.available;
                         })()}
-                        severity={gitUsingBuiltIn ? "warning" : "ok"}
+                        severity={!status.nativeGitAvailable ? "error" : gitToolMode === "builtin" ? "warning" : "ok"}
                         statusLabelOverride={(() => {
                             if (status.nativeGitAvailable && !gitUsingBuiltIn) {
-                                return "Installed and Running";
+                                return "Installed and Running Native Tools";
                             }
                             if (status.nativeGitAvailable && gitUsingBuiltIn) {
-                                return "Installed \u2013 Using Fallback Tools";
+                                return "Installed and Running Fallback Tools";
                             }
-                            return "Using Fallback Tools";
+                            return "Not Installed \u2013 Running Fallback Tools";
                         })()}
+                        isOnline={isOnline}
                         downloading={downloading.git}
                         onDownload={!status.nativeGitAvailable ? () => onDownloadTool("git") : undefined}
                         toggleLabel={status.nativeGitAvailable ? (gitUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
@@ -396,6 +403,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         description={audioDescription}
                         severity={audioSeverity}
                         statusLabelOverride={audioStatusLabel}
+                        isOnline={isOnline}
                         downloading={downloading.ffmpeg}
                         onDownload={!status.ffmpeg ? () => onDownloadTool("ffmpeg") : undefined}
                         toggleLabel={status.ffmpeg ? (audioUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
@@ -468,8 +476,8 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                         <ToolCard
                             icon="codicon-error"
                             iconColor="var(--destructive)"
-                            title="AI Learning and Search Engine"
-                            description="The native AI learning and search engine could not be set up. Projects cannot be opened or created without this component."
+                            title="AI Learning and Search Tools"
+                            description="The AI learning and search tools could not be set up. Projects cannot be opened or created without this component."
                             severity="error"
                         />
                     )}
@@ -522,7 +530,7 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                 {!canContinue && (
                     <Alert variant="destructive">
                         <AlertDescription className="text-center">
-                            Codex cannot start without the search engine.
+                            Codex cannot start without the search tools.
                             Please download the Codex application from{" "}
                             <button
                                 onClick={onDownload}
@@ -629,6 +637,7 @@ interface StatusCardProps {
     description: string;
     severity: "ok" | "warning" | "error";
     statusLabelOverride?: string;
+    isOnline?: boolean;
     downloading?: boolean;
     onDownload?: () => void;
     toggleLabel?: string;
@@ -641,6 +650,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
     description,
     severity,
     statusLabelOverride,
+    isOnline = true,
     downloading = false,
     onDownload,
     toggleLabel,
@@ -665,8 +675,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
     const statusLabel = statusLabelOverride ?? (
         severity === "ok"
-            ? "Installed and Running"
-            : "Not Installed – Using Fallback Engine"
+            ? "Installed and Running Native Tools"
+            : "Not Installed \u2013 Running Fallback Tools"
     );
 
     return (
@@ -701,8 +711,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={onDownload}
-                            disabled={downloading}
+                            onClick={isOnline ? onDownload : undefined}
+                            disabled={!isOnline || downloading}
                             className="h-7 text-xs"
                         >
                             {downloading ? (
@@ -710,10 +720,15 @@ const StatusCard: React.FC<StatusCardProps> = ({
                                     <i className="codicon codicon-loading codicon-modifier-spin mr-1.5" />
                                     Downloading…
                                 </>
+                            ) : !isOnline ? (
+                                <>
+                                    <i className="codicon codicon-globe mr-1.5" />
+                                    Offline
+                                </>
                             ) : (
                                 <>
                                     <i className="codicon codicon-cloud-download mr-1.5" />
-                                    Download
+                                    Download and Install
                                 </>
                             )}
                         </Button>

@@ -195,7 +195,7 @@
             },
             {
                 "command": "codex-editor.openToolsStatus",
-                "title": "Tools Status",
+                "title": "Status",
                 "category": "Codex Editor"
             },
             {

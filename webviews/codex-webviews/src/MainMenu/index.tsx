@@ -4,6 +4,7 @@ import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { SyncSettings } from "../components/SyncSettings";
 import {
     TextDisplaySettingsModal,
@@ -114,13 +115,88 @@ const TOOL_DOT_STYLES: Record<string, { icon: string; color: string }> = {
     fallback: { icon: "codicon-warning", color: "#f59e0b" },
 };
 
-const ToolDot: React.FC<{ status: "ok" | "missing" | "fallback" }> = ({ status }) => {
+type ToolDotStatus = "ok" | "missing" | "fallback";
+
+const ToolDot: React.FC<{ status: ToolDotStatus }> = ({ status }) => {
     const { icon, color } = TOOL_DOT_STYLES[status];
     return (
         <i
             className={`codicon ${icon}`}
             style={{ color, fontSize: "14px" }}
         />
+    );
+};
+
+interface ToolsStatusData {
+    sqlite: boolean;
+    nativeSqliteAvailable: boolean;
+    git: boolean;
+    nativeGitAvailable: boolean;
+    ffmpeg: boolean;
+    audioToolMode: "auto" | "builtin";
+    gitToolMode: "auto" | "builtin";
+    sqliteToolMode: "auto" | "builtin";
+}
+
+const getToolStatuses = (ts: ToolsStatusData) => {
+    const sqlite: ToolDotStatus = !ts.nativeSqliteAvailable ? "missing"
+        : ts.sqliteToolMode === "builtin" ? "fallback" : "ok";
+    const git: ToolDotStatus = !ts.nativeGitAvailable ? "missing"
+        : ts.gitToolMode === "builtin" ? "fallback" : "ok";
+    const audio: ToolDotStatus = !ts.ffmpeg ? "missing"
+        : ts.audioToolMode === "builtin" ? "fallback" : "ok";
+    return { sqlite, git, audio };
+};
+
+const getGlobalStatus = (statuses: { sqlite: ToolDotStatus; git: ToolDotStatus; audio: ToolDotStatus }): ToolDotStatus => {
+    const vals = [statuses.sqlite, statuses.git, statuses.audio];
+    if (vals.includes("missing")) return "missing";
+    if (vals.includes("fallback")) return "fallback";
+    return "ok";
+};
+
+type TooltipDisplayStatus = "ok" | "fallback";
+
+const TOOLTIP_STYLES: Record<TooltipDisplayStatus, { icon: string; color: string; label: string }> = {
+    ok: { icon: "codicon-pass-filled", color: "#22c55e", label: "Native" },
+    fallback: { icon: "codicon-warning", color: "#f59e0b", label: "Fallback" },
+};
+
+const StatusTooltip: React.FC<{ toolsStatus: ToolsStatusData }> = ({ toolsStatus }) => {
+    const statuses = getToolStatuses(toolsStatus);
+    const global = getGlobalStatus(statuses);
+
+    const toDisplay = (s: ToolDotStatus): TooltipDisplayStatus => s === "ok" ? "ok" : "fallback";
+
+    const tools = [
+        { label: "AI & Search", status: toDisplay(statuses.sqlite) },
+        { label: "Sync", status: toDisplay(statuses.git) },
+        { label: "Audio", status: toDisplay(statuses.audio) },
+    ];
+
+    return (
+        <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="flex items-center cursor-default">
+                        <ToolDot status={global === "missing" ? "fallback" : global} />
+                    </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="end" sideOffset={4} className="p-0 bg-popover text-popover-foreground border border-border shadow-md rounded-lg z-50">
+                    <div className="flex flex-col gap-1 py-2 px-3">
+                        {tools.map(({ label, status }) => (
+                            <div key={label} className="flex items-center justify-between gap-4 text-xs">
+                                <span className="text-muted-foreground">{label}</span>
+                                <span className="flex items-center gap-1.5 font-medium" style={{ color: TOOLTIP_STYLES[status].color }}>
+                                    <i className={`codicon ${TOOLTIP_STYLES[status].icon}`} style={{ fontSize: "12px" }} />
+                                    {TOOLTIP_STYLES[status].label}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </TooltipContent>
+            </Tooltip>
+        </span>
     );
 };
 
@@ -201,11 +277,13 @@ function MainMenu() {
 
     const [toolsStatus, setToolsStatus] = useState<{
         sqlite: boolean;
+        nativeSqliteAvailable: boolean;
         git: boolean;
         nativeGitAvailable: boolean;
         ffmpeg: boolean;
         audioToolMode: "auto" | "builtin";
         gitToolMode: "auto" | "builtin";
+        sqliteToolMode: "auto" | "builtin";
     } | null>(null);
 
     // Optimistic local state for validation counters so rapid clicks work correctly.
@@ -997,35 +1075,17 @@ function MainMenu() {
                                             },
                                             {
                                                 icon: "codicon-circuit-board",
-                                                label: "Tools Status",
+                                                label: "Status",
                                                 action: () =>
                                                     executeCommand("openToolsStatus"),
-                                                suffix: (
-                                                    <span className="flex items-center gap-1 ml-auto">
-                                                        {toolsStatus ? (
-                                                            <>
-                                                                <ToolDot status={
-                                                                    !toolsStatus.sqlite ? "missing"
-                                                                        : (!toolsStatus.nativeSqliteAvailable || toolsStatus.sqliteToolMode === "builtin") ? "fallback"
-                                                                            : "ok"
-                                                                } />
-                                                                <ToolDot status={
-                                                                    !toolsStatus.git ? "missing"
-                                                                        : (!toolsStatus.nativeGitAvailable || toolsStatus.gitToolMode === "builtin") ? "fallback"
-                                                                            : "ok"
-                                                                } />
-                                                                <ToolDot status={
-                                                                    !toolsStatus.ffmpeg ? "missing"
-                                                                        : toolsStatus.audioToolMode === "builtin" ? "fallback"
-                                                                            : "ok"
-                                                                } />
-                                                            </>
-                                                        ) : (
-                                                            <i
-                                                                className="codicon codicon-loading codicon-modifier-spin"
-                                                                style={{ color: "var(--muted-foreground)", fontSize: "14px" }}
-                                                            />
-                                                        )}
+                                                suffix: toolsStatus ? (
+                                                    <StatusTooltip toolsStatus={toolsStatus} />
+                                                ) : (
+                                                    <span className="flex items-center ml-auto">
+                                                        <i
+                                                            className="codicon codicon-loading codicon-modifier-spin"
+                                                            style={{ color: "var(--muted-foreground)", fontSize: "14px" }}
+                                                        />
                                                     </span>
                                                 ),
                                             },

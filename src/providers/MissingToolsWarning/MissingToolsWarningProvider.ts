@@ -17,7 +17,7 @@ export class MissingToolsWarningProvider {
     private _disposables: vscode.Disposable[] = [];
     private _resolveUserAction?: (action: "continue" | "blocked") => void;
     private _retryInProgress = false;
-    private _downloadInProgress = false;
+    private _downloadsInProgress = new Set<"sqlite" | "git" | "ffmpeg">();
     private _sqliteSwitchInProgress = false;
     private readonly _onDispose?: () => void;
 
@@ -71,12 +71,12 @@ export class MissingToolsWarningProvider {
             return;
         }
 
-        await this._createPanel("Codex — Tools Status", result, "status");
+        await this._createPanel("Codex — Status", result, "status");
         this._setupStatusMessageHandler();
         this._subscribeSyncStatus();
     }
 
-    private async _getOperationFlags(): Promise<{ syncInProgress: boolean; audioProcessingInProgress: boolean }> {
+    private async _getOperationFlags(): Promise<{ syncInProgress: boolean; audioProcessingInProgress: boolean; }> {
         try {
             const { SyncManager } = await import("../../projectManager/syncManager");
             const status = SyncManager.getInstance().getSyncStatus();
@@ -304,7 +304,7 @@ export class MissingToolsWarningProvider {
 
         await setSqliteToolMode(next);
 
-        const backendLabel = next === "builtin" ? "Fallback AI Learning and Search Engine" : "Native AI Learning and Search Engine";
+        const backendLabel = next === "builtin" ? "Fallback AI Learning and Search Tools" : "Native AI Learning and Search Tools";
 
         // Live-switch the database connection.  reopenWithCurrentBackend()
         // acquires the transaction lock internally, so any in-flight writes
@@ -341,10 +341,10 @@ export class MissingToolsWarningProvider {
     }
 
     private async _handleDownloadTool(tool: "sqlite" | "git" | "ffmpeg"): Promise<void> {
-        if (this._downloadInProgress) {
+        if (this._downloadsInProgress.has(tool)) {
             return;
         }
-        this._downloadInProgress = true;
+        this._downloadsInProgress.add(tool);
 
         let success = false;
         try {
@@ -354,6 +354,15 @@ export class MissingToolsWarningProvider {
                     const { initNativeSqlite } = await import("../../utils/nativeSqlite");
                     const binaryPath = await ensureSqliteNativeBinary(this._context);
                     initNativeSqlite(binaryPath);
+
+                    const { getSQLiteIndexManager } = await import(
+                        "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+                    );
+                    const manager = getSQLiteIndexManager();
+                    if (manager && !manager.isClosed) {
+                        await manager.reopenWithCurrentBackend();
+                    }
+
                     success = true;
                     break;
                 }
@@ -382,7 +391,7 @@ export class MissingToolsWarningProvider {
             console.error(`[MissingToolsWarning] Failed to download ${tool}:`, error);
             success = false;
         } finally {
-            this._downloadInProgress = false;
+            this._downloadsInProgress.delete(tool);
         }
 
         const { checkTools } = await import("../../utils/toolsManager");
@@ -410,7 +419,7 @@ export class MissingToolsWarningProvider {
         try {
             const { GlobalProvider } = await import("../../globalProvider");
             const provider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu") as
-                | { sendToolsStatusSummary?: () => void }
+                | { sendToolsStatusSummary?: () => void; }
                 | undefined;
             provider?.sendToolsStatusSummary?.();
         } catch {
@@ -459,7 +468,7 @@ export class MissingToolsWarningProvider {
     private _getHtmlForWebview(
         result: ToolCheckResult,
         mode: "warnings" | "status" = "warnings",
-        flags: { syncInProgress: boolean; audioProcessingInProgress: boolean } = { syncInProgress: false, audioProcessingInProgress: false },
+        flags: { syncInProgress: boolean; audioProcessingInProgress: boolean; } = { syncInProgress: false, audioProcessingInProgress: false },
     ): string {
         const webview = this._panel!.webview;
 
@@ -484,7 +493,7 @@ export class MissingToolsWarningProvider {
             webview,
             { extensionUri: this._extensionUri } as vscode.ExtensionContext,
             {
-                title: mode === "status" ? "Codex — Tools Status" : "Codex — Missing Tools",
+                title: mode === "status" ? "Codex — Status" : "Codex — Missing Tools",
                 scriptPath: ["MissingToolsWarning", "index.js"],
                 initialData,
                 inlineStyles: `

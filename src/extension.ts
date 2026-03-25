@@ -512,7 +512,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
         }
-        stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
+        stepStart = trackTiming("Setting up search tools", sqliteBinaryStart);
 
         // Download FFmpeg if not already present.
         // downloadFFmpeg checks local cache first, only
