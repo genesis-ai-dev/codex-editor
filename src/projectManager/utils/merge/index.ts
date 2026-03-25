@@ -29,6 +29,43 @@ function debug(...args: any[]): void {
     }
 }
 
+/**
+ * Scans all .codex files in the workspace after saveAll(). If any file now
+ * has 0 cells but the last committed (HEAD) version has cells, the file is
+ * restored from HEAD to prevent data loss before the commit is created.
+ */
+async function auditCodexFilesBeforeSync(workspaceFolder: string): Promise<void> {
+    const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+    for (const fileUri of codexFiles) {
+        try {
+            const rawContent = await vscode.workspace.fs.readFile(fileUri);
+            const parsed = JSON.parse(new TextDecoder().decode(rawContent));
+            if (!Array.isArray(parsed.cells) || parsed.cells.length > 0) {
+                continue;
+            }
+
+            const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+            const headOid = await git.resolveRef({ fs, dir: workspaceFolder, ref: "HEAD" });
+            const { blob } = await git.readBlob({
+                fs,
+                dir: workspaceFolder,
+                oid: headOid,
+                filepath: relativePath,
+            });
+            const gitParsed = JSON.parse(new TextDecoder().decode(blob));
+            if (Array.isArray(gitParsed.cells) && gitParsed.cells.length > 0) {
+                console.warn(
+                    `[SYNC AUDIT] Restoring ${relativePath}: ` +
+                    `file on disk has 0 cells but HEAD has ${gitParsed.cells.length} cells`
+                );
+                await vscode.workspace.fs.writeFile(fileUri, blob);
+            }
+        } catch {
+            // Skip files that can't be read, parsed, or have no git history
+        }
+    }
+}
+
 export interface SyncResult {
     success: boolean;
     changedFiles: string[];
@@ -60,6 +97,11 @@ export async function stageAndCommitAllAndSync(
 
     // Save all files before syncing
     await vscode.workspace.saveAll();
+
+    // Guard 4: Audit .codex files for accidental wipes before committing.
+    // If saveAll() wrote a 0-cell file over a non-empty one, restore from HEAD.
+    await auditCodexFilesBeforeSync(workspaceFolder);
+
     // Enforce Frontier version requirement for sync operations (Git LFS safety gate)
     // Note: Check before constructing syncResult to avoid using before declaration
     const versionStatus = await getFrontierVersionStatus();

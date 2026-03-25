@@ -34,42 +34,19 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         token: vscode.CancellationToken
     ): Promise<CodexNotebookAsJSONData> {
         debug("Deserializing notebook data");
-        const contents = new TextDecoder().decode(data); // convert to String
+        const contents = new TextDecoder().decode(data);
         debug("Contents:", contents);
-        // Read file contents
+
         let raw: RawNotebookData;
         try {
             raw = <RawNotebookData>JSON.parse(contents);
-            debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
-            return raw as CodexNotebookAsJSONData;
-        } catch {
-            debug("Failed to parse notebook contents, creating empty notebook");
-            raw = { cells: [], metadata: {} };
-        }
-        // Create array of Notebook cells for the VS Code API from file contents
-        const cells = raw.cells.map((item) => {
-            debug("Processing cell", { id: item.metadata?.id, kind: item.kind });
-            const cell = new vscode.NotebookCellData(
-                item.kind,
-                item.value,
-                item.languageId || "html"
-            );
-            cell.metadata = item.metadata || {}; // Ensure metadata is included if available
-            if (item.metadata && item.metadata.id) {
-                cell.metadata.id = item.metadata.id;
-            }
-            return cell;
-        });
-        const notebookData = new vscode.NotebookData(cells);
-        notebookData.metadata = raw.metadata || {};
-
-        // Ensure metadata.edits array exists for backward compatibility
-        if (!notebookData.metadata.edits) {
-            notebookData.metadata.edits = [];
+        } catch (error) {
+            console.error("Failed to parse codex notebook contents:", error);
+            throw new Error(`Failed to deserialize codex notebook: ${error}`);
         }
 
-        debug("Notebook deserialization complete", { cellCount: cells.length });
-        return notebookData as CodexNotebookAsJSONData;
+        debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
+        return raw as CodexNotebookAsJSONData;
     }
 
     async serializeNotebook(

@@ -62,6 +62,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Track when we last saved to prevent file watcher from reverting our own saves
     private _lastSaveTimestamp: number = 0;
 
+    // Tracks whether the initial JSON parse failed, producing a fallback empty document.
+    // When true, save() must not overwrite a non-empty file on disk.
+    private _loadFailed = false;
+    public get loadFailed(): boolean {
+        return this._loadFailed;
+    }
+
     // Cache for immediate indexing optimization
     private _cachedFileId: number | null = null;
     private _indexManager = getSQLiteIndexManager();
@@ -111,6 +118,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
         } catch (error) {
             console.error("Error parsing document content:", error);
+            this._loadFailed = true;
             this._documentData = {
                 cells: [],
                 metadata: {
@@ -675,7 +683,29 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const ourContent = formatJsonForNotebookFile(this.getDocumentDataForSerialization());
+        const ourData = this.getDocumentDataForSerialization();
+
+        // Guard 2: Refuse to overwrite a non-empty file when in-memory has 0 cells.
+        // This prevents the exact data-loss scenario where a stale/failed-load document
+        // wipes a good file on disk during saveAll().
+        if (ourData.cells.length === 0) {
+            const diskCheck = await readExistingFileOrThrow(this.uri);
+            if (diskCheck.kind === "readable") {
+                try {
+                    const diskData = JSON.parse(diskCheck.content);
+                    if (Array.isArray(diskData.cells) && diskData.cells.length > 0) {
+                        console.warn(
+                            `[SAVE GUARD] Refusing to save ${this.uri.fsPath}: ` +
+                            `in-memory has 0 cells but disk has ${diskData.cells.length} cells. ` +
+                            `Load failed: ${this._loadFailed}`
+                        );
+                        return;
+                    }
+                } catch { /* disk content unparseable, allow save to proceed */ }
+            }
+        }
+
+        const ourContent = formatJsonForNotebookFile(ourData);
 
         // If a file exists but can't be read, we must not overwrite (this can permanently nuke data).
         const existing = await readExistingFileOrThrow(this.uri);
@@ -705,6 +735,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
             } catch {
                 candidate = normalizeNotebookFileText(ourContent);
             }
+
+            // Guard 3: Post-merge cell-count validation.
+            // If the merge produced 0 cells but disk has cells, fall back to disk content
+            // to avoid data loss from a broken merge.
+            try {
+                const candidateParsed = JSON.parse(candidate);
+                const diskParsed = JSON.parse(existing.content);
+                if (
+                    Array.isArray(diskParsed.cells) && diskParsed.cells.length > 0 &&
+                    (!Array.isArray(candidateParsed.cells) || candidateParsed.cells.length === 0)
+                ) {
+                    console.warn(
+                        `[SAVE GUARD] Merge produced 0 cells but disk has ${diskParsed.cells.length}. ` +
+                        `Falling back to disk content for ${this.uri.fsPath}`
+                    );
+                    candidate = normalizeNotebookFileText(existing.content);
+                }
+            } catch { /* parse error in validation, proceed with candidate */ }
 
             await atomicWriteUriText(this.uri, candidate);
         }
