@@ -132,21 +132,21 @@ function ParallelView() {
         prevSearchScopeRef.current = searchScope;
     }, [searchScope, lastQuery, verses.length, replaceText]);
 
-    // Re-search when selectedFiles changes (if we already have search results)
+    // Re-search when selectedFiles changes and there is an active query
     const prevSelectedFilesRef = useRef<string[]>([]);
     useEffect(() => {
         const filesChanged =
             JSON.stringify(prevSelectedFilesRef.current) !== JSON.stringify(selectedFiles);
         const hasQuery = lastQuery.trim().length > 0;
-        const hasResults = verses.length > 0;
 
-        // Auto-search if files changed and we have an active search
-        if (filesChanged && hasQuery && hasResults) {
+        // Auto-search if files changed and there is an active query.
+        // Do not depend on existing results, so toggling files can restore matches.
+        if (filesChanged && hasQuery) {
             searchBoth(lastQuery, replaceText);
         }
 
         prevSelectedFilesRef.current = selectedFiles;
-    }, [selectedFiles, lastQuery, verses.length, replaceText]);
+    }, [selectedFiles, lastQuery, replaceText]);
 
     // Request project files on mount and clear replace text
     useEffect(() => {
