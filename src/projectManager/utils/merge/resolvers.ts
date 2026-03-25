@@ -2205,6 +2205,20 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 const oVal = ourObj?.[key];
                 const tVal = theirObj?.[key];
 
+                // Pin conflict resolution: when both sides changed the same pin,
+                // the entry with the latest updatedAt wins (including stable entries).
+                if (path.length === 2 && path[0] === 'meta' && path[1] === 'pinnedExtensions') {
+                    const bStr = JSON.stringify(bVal);
+                    const oStr = JSON.stringify(oVal);
+                    const tStr = JSON.stringify(tVal);
+                    if (oStr !== bStr && tStr !== bStr) {
+                        const oTime = oVal?.updatedAt ?? 0;
+                        const tTime = tVal?.updatedAt ?? 0;
+                        result[key] = tTime > oTime ? tVal : oVal;
+                        continue;
+                    }
+                }
+
                 // Recurse for objects
                 const isObj = (v: any) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
