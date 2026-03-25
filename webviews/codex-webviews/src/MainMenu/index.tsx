@@ -1004,7 +1004,11 @@ function MainMenu() {
                                                     <span className="flex items-center gap-1 ml-auto">
                                                         {toolsStatus ? (
                                                             <>
-                                                                <ToolDot status={toolsStatus.sqlite ? "ok" : "missing"} />
+                                                                <ToolDot status={
+                                                                    !toolsStatus.sqlite ? "missing"
+                                                                        : (!toolsStatus.nativeSqliteAvailable || toolsStatus.sqliteToolMode === "builtin") ? "fallback"
+                                                                            : "ok"
+                                                                } />
                                                                 <ToolDot status={
                                                                     !toolsStatus.git ? "missing"
                                                                         : (!toolsStatus.nativeGitAvailable || toolsStatus.gitToolMode === "builtin") ? "fallback"

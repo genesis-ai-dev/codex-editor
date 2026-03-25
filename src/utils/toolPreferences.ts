@@ -90,3 +90,45 @@ export const shouldUseNativeGit = (): boolean => {
     }
     return _nativeGitAvailable;
 };
+
+// ---------------------------------------------------------------------------
+// SQLite tool preferences
+// ---------------------------------------------------------------------------
+
+export type SqliteToolMode = "auto" | "builtin";
+
+const SQLITE_TOOL_MODE_KEY = "toolPreferences.sqliteToolMode";
+
+export const getSqliteToolMode = (): SqliteToolMode => {
+    if (!cachedContext) {
+        return "auto";
+    }
+    return cachedContext.globalState.get<SqliteToolMode>(SQLITE_TOOL_MODE_KEY) ?? "auto";
+};
+
+export const setSqliteToolMode = async (mode: SqliteToolMode): Promise<void> => {
+    if (!cachedContext) {
+        return;
+    }
+    await cachedContext.globalState.update(SQLITE_TOOL_MODE_KEY, mode);
+};
+
+/**
+ * Determines whether to use the native SQLite (node_sqlite3) backend.
+ * Returns true only when the preference is "auto" AND the native binary
+ * has been loaded.  When mode is "builtin", always returns false so the
+ * fts5-sql-bundle (sql.js WASM) fallback is used.
+ *
+ * Similar to the git pattern: the stored preference stays "auto" even when
+ * native is unavailable, so it kicks back in automatically once the binary
+ * is downloaded.
+ */
+export const shouldUseNativeSqlite = (): boolean => {
+    if (getSqliteToolMode() === "builtin") {
+        return false;
+    }
+    // Lazy import to avoid circular dependency at module load time
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { isNativeSqliteReady } = require("./nativeSqlite");
+    return isNativeSqliteReady();
+};

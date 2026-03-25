@@ -20,8 +20,10 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
-import { initNativeSqlite, isNativeSqliteReady } from "./utils/nativeSqlite";
+import { initNativeSqlite } from "./utils/nativeSqlite";
 import { ensureSqliteNativeBinary } from "./utils/sqliteNativeBinaryManager";
+import { initFts5Sqlite } from "./utils/fts5Sqlite";
+import { isDatabaseReady } from "./utils/sqliteDatabaseFactory";
 import { isOnline } from "./utils/connectivityChecker";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
@@ -60,7 +62,7 @@ import {
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { initToolPreferences, setNativeGitAvailable, getGitToolMode } from "./utils/toolPreferences";
+import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
@@ -475,21 +477,39 @@ export async function activate(context: vscode.ExtensionContext) {
             console.log("[Extension] Offline — will skip tool downloads and use cached binaries if available");
         }
 
-        // Download the native SQLite binary if not already present.
-        // ensureSqliteNativeBinary returns instantly from local cache/disk,
-        // and only attempts a network download if the binary isn't present locally.
+        // Set up the SQLite backend.
+        // Always try to load the native binary (so it's available if the user
+        // toggles back to "auto").  Then, if the preference is "builtin" OR if
+        // native failed, also initialize fts5-sql-bundle so the active backend
+        // is ready to go.
         const sqliteBinaryStart = globalThis.performance.now();
+        const sqliteMode = getSqliteToolMode();
+        let nativeLoaded = false;
         try {
             const binaryPath = await ensureSqliteNativeBinary(context);
             console.log("[SQLite] Binary path resolved:", binaryPath);
             initNativeSqlite(binaryPath);
             console.log("[SQLite] Native module initialized successfully");
-        } catch (error: any) {
+            nativeLoaded = true;
+        } catch (nativeError: any) {
             if (!networkAvailable) {
-                console.log("[SQLite] Offline — binary not cached locally, search unavailable until online");
+                console.log("[SQLite] Offline — native binary not cached locally");
             } else {
-                console.error("[SQLite] Failed to set up native binary:", error?.message || error);
-                console.error("[SQLite] Stack:", error?.stack);
+                console.warn("[SQLite] Failed to set up native binary:", nativeError?.message || nativeError);
+            }
+        }
+
+        if (sqliteMode === "builtin" || !nativeLoaded) {
+            try {
+                await initFts5Sqlite(context);
+                const reason = sqliteMode === "builtin" ? "user preference" : "native unavailable";
+                console.log(`[SQLite] fts5-sql-bundle (WASM) initialized (${reason})`);
+            } catch (fallbackError: any) {
+                if (!nativeLoaded) {
+                    console.error("[SQLite] Both native and fts5 fallback failed:", fallbackError?.message || fallbackError);
+                } else {
+                    console.warn("[SQLite] fts5-sql-bundle init failed (native available as fallback):", fallbackError?.message || fallbackError);
+                }
             }
         }
         stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
@@ -519,7 +539,7 @@ export async function activate(context: vscode.ExtensionContext) {
             unavailableTools = getUnavailableTools(toolCheckResult);
         } catch (error) {
             console.error("[Extension] checkTools() threw unexpectedly:", error);
-            toolCheckResult = { git: false, nativeGitAvailable: false, sqlite: false, ffmpeg: false };
+            toolCheckResult = { git: false, nativeGitAvailable: false, sqlite: false, nativeSqliteAvailable: false, ffmpeg: false };
             unavailableTools = getUnavailableTools(toolCheckResult);
         }
         stepStart = trackTiming("Checking tool availability", toolCheckStart);
@@ -576,8 +596,13 @@ export async function activate(context: vscode.ExtensionContext) {
                         try {
                             const binaryPath = await ensureSqliteNativeBinary(context);
                             initNativeSqlite(binaryPath);
-                        } catch (e) {
-                            console.error("[Extension] SQLite retry failed:", e);
+                        } catch {
+                            // Native retry failed — try fts5 fallback
+                            try {
+                                await initFts5Sqlite(context);
+                            } catch (e) {
+                                console.error("[Extension] SQLite retry failed (both native and fts5):", e);
+                            }
                         }
                     }
                     if (!current.ffmpeg) {
@@ -1145,12 +1170,12 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
-        if (isNativeSqliteReady()) {
+        if (isDatabaseReady()) {
             startRealtimeStep("AI learning your project structure");
             await createIndexWithContext(context);
             finishRealtimeStep();
         } else {
-            console.warn("[Extension] Skipping content index creation — SQLite native module not available");
+            console.warn("[Extension] Skipping content index creation — no SQLite backend available");
         }
 
         // Don't track "Total Index Creation" since it would show cumulative time

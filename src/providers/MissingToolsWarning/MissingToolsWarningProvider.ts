@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { ToolCheckResult } from "../../utils/toolsManager";
-import { getAudioToolMode, getGitToolMode } from "../../utils/toolPreferences";
+import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "../../utils/toolPreferences";
 import type {
     MessagesToMissingToolsWarning,
     MessagesFromMissingToolsWarning,
@@ -18,6 +18,7 @@ export class MissingToolsWarningProvider {
     private _resolveUserAction?: (action: "continue" | "blocked") => void;
     private _retryInProgress = false;
     private _downloadInProgress = false;
+    private _sqliteSwitchInProgress = false;
     private readonly _onDispose?: () => void;
 
     constructor(context: vscode.ExtensionContext, onDispose?: () => void) {
@@ -218,6 +219,9 @@ export class MissingToolsWarningProvider {
                         case "toggleGitMode":
                             await this._handleToggleGitMode();
                             break;
+                        case "toggleSqliteMode":
+                            await this._handleToggleSqliteMode();
+                            break;
                         case "openDownloadPage":
                             vscode.env.openExternal(
                                 vscode.Uri.parse("https://codexeditor.app")
@@ -267,6 +271,70 @@ export class MissingToolsWarningProvider {
             gitToolMode: next,
             git: result.git,
             nativeGitAvailable: result.nativeGitAvailable,
+        };
+        safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+        this._notifyMainMenuToolsChanged();
+    }
+
+    private async _handleToggleSqliteMode(): Promise<void> {
+        if (this._sqliteSwitchInProgress) {
+            return;
+        }
+        this._sqliteSwitchInProgress = true;
+
+        try {
+            await this._doToggleSqliteMode();
+        } finally {
+            this._sqliteSwitchInProgress = false;
+        }
+    }
+
+    private async _doToggleSqliteMode(): Promise<void> {
+        const { setSqliteToolMode } = await import("../../utils/toolPreferences");
+        const current = getSqliteToolMode();
+        const next = current === "auto" ? "builtin" : "auto";
+
+        // If switching to the WASM fallback, ensure it's initialized
+        if (next === "builtin") {
+            const { isFts5SqliteReady, initFts5Sqlite } = await import("../../utils/fts5Sqlite");
+            if (!isFts5SqliteReady()) {
+                await initFts5Sqlite(this._context);
+            }
+        }
+
+        await setSqliteToolMode(next);
+
+        const backendLabel = next === "builtin" ? "Fallback AI Learning and Search Engine" : "Native AI Learning and Search Engine";
+
+        // Live-switch the database connection.  reopenWithCurrentBackend()
+        // acquires the transaction lock internally, so any in-flight writes
+        // complete before the switch happens.
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Switching to ${backendLabel}\u2026`,
+                cancellable: false,
+            },
+            async () => {
+                const { getSQLiteIndexManager } = await import(
+                    "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+                );
+                const manager = getSQLiteIndexManager();
+                if (manager && !manager.isClosed) {
+                    await manager.reopenWithCurrentBackend();
+                }
+            },
+        );
+
+        const { checkTools } = await import("../../utils/toolsManager");
+        const { getAuthApi } = await import("../../extension");
+        const result = await checkTools(this._context, getAuthApi());
+
+        const message: MessagesToMissingToolsWarning = {
+            command: "sqliteModeChanged",
+            sqliteToolMode: next,
+            sqlite: result.sqlite,
+            nativeSqliteAvailable: result.nativeSqliteAvailable,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
         this._notifyMainMenuToolsChanged();
@@ -328,9 +396,11 @@ export class MissingToolsWarningProvider {
             git: updated.git,
             nativeGitAvailable: updated.nativeGitAvailable,
             sqlite: updated.sqlite,
+            nativeSqliteAvailable: updated.nativeSqliteAvailable,
             ffmpeg: updated.ffmpeg,
             audioToolMode: getAudioToolMode(),
             gitToolMode: getGitToolMode(),
+            sqliteToolMode: getSqliteToolMode(),
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
         this._notifyMainMenuToolsChanged();
@@ -357,6 +427,7 @@ export class MissingToolsWarningProvider {
             git: result.git,
             nativeGitAvailable: result.nativeGitAvailable,
             sqlite: result.sqlite,
+            nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
@@ -369,9 +440,11 @@ export class MissingToolsWarningProvider {
             git: result.git,
             nativeGitAvailable: result.nativeGitAvailable,
             sqlite: result.sqlite,
+            nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
             audioToolMode: getAudioToolMode(),
             gitToolMode: getGitToolMode(),
+            sqliteToolMode: getSqliteToolMode(),
             ...flags,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
@@ -394,6 +467,7 @@ export class MissingToolsWarningProvider {
             git: result.git,
             nativeGitAvailable: result.nativeGitAvailable,
             sqlite: result.sqlite,
+            nativeSqliteAvailable: result.nativeSqliteAvailable,
             ffmpeg: result.ffmpeg,
             mode,
         };
@@ -401,6 +475,7 @@ export class MissingToolsWarningProvider {
         if (mode === "status") {
             initialData.audioToolMode = getAudioToolMode();
             initialData.gitToolMode = getGitToolMode();
+            initialData.sqliteToolMode = getSqliteToolMode();
             initialData.syncInProgress = flags.syncInProgress;
             initialData.audioProcessingInProgress = flags.audioProcessingInProgress;
         }

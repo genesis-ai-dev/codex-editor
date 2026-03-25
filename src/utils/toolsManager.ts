@@ -4,6 +4,7 @@ import { promisify } from "util";
 import * as path from "path";
 import * as fs from "fs";
 import { isNativeSqliteReady } from "./nativeSqlite";
+import { isDatabaseReady } from "./sqliteDatabaseFactory";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 
 const execFile = promisify(execFileCb);
@@ -12,7 +13,10 @@ export interface ToolCheckResult {
     git: boolean;
     /** True only when the native dugite binary is available (false when using isomorphic-git fallback). */
     nativeGitAvailable: boolean;
+    /** True when any SQLite backend (native or fts5 WASM fallback) is operational. */
     sqlite: boolean;
+    /** True only when the native node_sqlite3 binary is loaded. */
+    nativeSqliteAvailable: boolean;
     ffmpeg: boolean;
 }
 
@@ -35,8 +39,10 @@ export async function checkTools(
     }
 
     let sqlite = false;
+    let nativeSqliteAvailable = false;
     try {
-        sqlite = isNativeSqliteReady();
+        nativeSqliteAvailable = isNativeSqliteReady();
+        sqlite = isDatabaseReady();
     } catch (e) {
         console.error("[toolsManager] sqlite check threw:", e);
     }
@@ -48,7 +54,7 @@ export async function checkTools(
         console.error("[toolsManager] ffmpeg check threw:", e);
     }
 
-    return { git, nativeGitAvailable, sqlite, ffmpeg };
+    return { git, nativeGitAvailable, sqlite, nativeSqliteAvailable, ffmpeg };
 }
 
 /**

@@ -14,18 +14,21 @@ interface ToolStatus {
     git: boolean;
     nativeGitAvailable: boolean;
     sqlite: boolean;
+    nativeSqliteAvailable: boolean;
     ffmpeg: boolean;
 }
 
 type ViewMode = "warnings" | "status";
 type AudioToolMode = "auto" | "builtin";
 type GitToolMode = "auto" | "builtin";
+type SqliteToolMode = "auto" | "builtin";
 
 interface InitialState {
     status: ToolStatus;
     mode: ViewMode;
     audioToolMode: AudioToolMode;
     gitToolMode: GitToolMode;
+    sqliteToolMode: SqliteToolMode;
     syncInProgress: boolean;
     audioProcessingInProgress: boolean;
 }
@@ -39,11 +42,13 @@ function getInitialState(): InitialState | null {
                     git: data.git,
                     nativeGitAvailable: data.nativeGitAvailable ?? data.git,
                     sqlite: data.sqlite,
+                    nativeSqliteAvailable: data.nativeSqliteAvailable ?? data.sqlite,
                     ffmpeg: data.ffmpeg ?? false,
                 },
                 mode: data.mode === "status" ? "status" : "warnings",
                 audioToolMode: data.audioToolMode ?? "auto",
                 gitToolMode: data.gitToolMode ?? "auto",
+                sqliteToolMode: data.sqliteToolMode ?? "auto",
                 syncInProgress: data.syncInProgress ?? false,
                 audioProcessingInProgress: data.audioProcessingInProgress ?? false,
             };
@@ -62,6 +67,7 @@ export const MissingToolsWarning: React.FC = () => {
     const [mode, setMode] = useState<ViewMode>(initial?.mode ?? "warnings");
     const [audioToolMode, setAudioToolMode] = useState<AudioToolMode>(initial?.audioToolMode ?? "auto");
     const [gitToolMode, setGitToolMode] = useState<GitToolMode>(initial?.gitToolMode ?? "auto");
+    const [sqliteToolMode, setSqliteToolMode] = useState<SqliteToolMode>(initial?.sqliteToolMode ?? "auto");
     const [syncInProgress, setSyncInProgress] = useState(initial?.syncInProgress ?? false);
     const [audioProcessingInProgress, setAudioProcessingInProgress] = useState(initial?.audioProcessingInProgress ?? false);
     const [retrying, setRetrying] = useState(false);
@@ -84,6 +90,7 @@ export const MissingToolsWarning: React.FC = () => {
                     git: message.git,
                     nativeGitAvailable: message.nativeGitAvailable ?? message.git,
                     sqlite: message.sqlite,
+                    nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
                 });
                 setMode("warnings");
@@ -93,10 +100,12 @@ export const MissingToolsWarning: React.FC = () => {
                     git: message.git,
                     nativeGitAvailable: message.nativeGitAvailable ?? message.git,
                     sqlite: message.sqlite,
+                    nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
                 });
                 setAudioToolMode(message.audioToolMode ?? "auto");
                 setGitToolMode(message.gitToolMode ?? "auto");
+                setSqliteToolMode(message.sqliteToolMode ?? "auto");
                 setSyncInProgress(message.syncInProgress ?? false);
                 setAudioProcessingInProgress(message.audioProcessingInProgress ?? false);
                 setMode("status");
@@ -105,6 +114,7 @@ export const MissingToolsWarning: React.FC = () => {
                     git: message.git,
                     nativeGitAvailable: message.nativeGitAvailable ?? message.git,
                     sqlite: message.sqlite,
+                    nativeSqliteAvailable: message.nativeSqliteAvailable ?? message.sqlite,
                     ffmpeg: message.ffmpeg,
                 });
                 if (message.audioToolMode) {
@@ -112,6 +122,9 @@ export const MissingToolsWarning: React.FC = () => {
                 }
                 if (message.gitToolMode) {
                     setGitToolMode(message.gitToolMode);
+                }
+                if (message.sqliteToolMode) {
+                    setSqliteToolMode(message.sqliteToolMode);
                 }
                 setDownloading((prev) => ({ ...prev, [message.tool]: false }));
             } else if (message?.command === "audioModeChanged") {
@@ -123,6 +136,13 @@ export const MissingToolsWarning: React.FC = () => {
                     ...prev,
                     git: message.git,
                     nativeGitAvailable: message.nativeGitAvailable ?? prev.nativeGitAvailable,
+                } : prev);
+            } else if (message?.command === "sqliteModeChanged") {
+                setSqliteToolMode(message.sqliteToolMode);
+                setStatus((prev) => prev ? {
+                    ...prev,
+                    sqlite: message.sqlite,
+                    nativeSqliteAvailable: message.nativeSqliteAvailable ?? prev.nativeSqliteAvailable,
                 } : prev);
             } else if (message?.command === "operationStatusChanged") {
                 setSyncInProgress(message.syncInProgress);
@@ -165,6 +185,10 @@ export const MissingToolsWarning: React.FC = () => {
         vscode.postMessage({ command: "toggleGitMode" });
     }, []);
 
+    const handleToggleSqliteMode = useCallback(() => {
+        vscode.postMessage({ command: "toggleSqliteMode" });
+    }, []);
+
     if (!status) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -179,6 +203,7 @@ export const MissingToolsWarning: React.FC = () => {
                 status={status}
                 audioToolMode={audioToolMode}
                 gitToolMode={gitToolMode}
+                sqliteToolMode={sqliteToolMode}
                 syncInProgress={syncInProgress}
                 audioProcessingInProgress={audioProcessingInProgress}
                 downloading={downloading}
@@ -186,6 +211,7 @@ export const MissingToolsWarning: React.FC = () => {
                 onDownloadTool={handleDownloadTool}
                 onToggleAudioMode={handleToggleAudioMode}
                 onToggleGitMode={handleToggleGitMode}
+                onToggleSqliteMode={handleToggleSqliteMode}
             />
         );
     }
@@ -200,6 +226,8 @@ const TOOL_INFO = {
         iconMissing: "codicon-error",
         descriptions: {
             available: "The native AI learning and search engine is installed and running.",
+            limited: "Using fallback engine. Native engine is installed but not active.",
+            builtinActive: "Using fallback engine. Full functionality is available with slightly different performance characteristics.",
             missing: "The AI learning and search engine could not be set up. Projects cannot be opened or created without this component.",
         },
     },
@@ -229,6 +257,7 @@ interface ToolsStatusViewProps {
     status: ToolStatus;
     audioToolMode: AudioToolMode;
     gitToolMode: GitToolMode;
+    sqliteToolMode: SqliteToolMode;
     syncInProgress: boolean;
     audioProcessingInProgress: boolean;
     downloading: Record<ToolKey, boolean>;
@@ -236,12 +265,14 @@ interface ToolsStatusViewProps {
     onDownloadTool: (tool: ToolKey) => void;
     onToggleAudioMode: () => void;
     onToggleGitMode: () => void;
+    onToggleSqliteMode: () => void;
 }
 
 const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     status,
     audioToolMode,
     gitToolMode,
+    sqliteToolMode,
     syncInProgress,
     audioProcessingInProgress,
     downloading,
@@ -249,10 +280,12 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     onDownloadTool,
     onToggleAudioMode,
     onToggleGitMode,
+    onToggleSqliteMode,
 }) => {
     const audioUsingBuiltIn = audioToolMode === "builtin" || !status.ffmpeg;
     const gitUsingBuiltIn = gitToolMode === "builtin" || !status.nativeGitAvailable;
-    const allOk = status.sqlite && status.nativeGitAvailable && status.ffmpeg;
+    const sqliteUsingBuiltIn = sqliteToolMode === "builtin" || !status.nativeSqliteAvailable;
+    const allOk = status.nativeSqliteAvailable && sqliteToolMode !== "builtin" && status.nativeGitAvailable && status.ffmpeg;
 
     const audioDescription = (() => {
         if (audioToolMode === "builtin" && status.ffmpeg) {
@@ -301,14 +334,33 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                 <div className="space-y-3">
                     <StatusCard
                         title={TOOL_INFO.sqlite.name}
-                        description={
-                            status.sqlite
-                                ? TOOL_INFO.sqlite.descriptions.available
-                                : TOOL_INFO.sqlite.descriptions.missing
-                        }
-                        severity={status.sqlite ? "ok" : "error"}
+                        description={(() => {
+                            if (sqliteToolMode === "builtin" && status.nativeSqliteAvailable) {
+                                return TOOL_INFO.sqlite.descriptions.limited;
+                            }
+                            if (!status.nativeSqliteAvailable && status.sqlite) {
+                                return TOOL_INFO.sqlite.descriptions.builtinActive;
+                            }
+                            if (!status.sqlite) {
+                                return TOOL_INFO.sqlite.descriptions.missing;
+                            }
+                            return TOOL_INFO.sqlite.descriptions.available;
+                        })()}
+                        severity={!status.sqlite ? "error" : sqliteUsingBuiltIn ? "warning" : "ok"}
+                        statusLabelOverride={(() => {
+                            if (!status.sqlite) return undefined;
+                            if (status.nativeSqliteAvailable && !sqliteUsingBuiltIn) {
+                                return "Installed and Running";
+                            }
+                            if (status.nativeSqliteAvailable && sqliteUsingBuiltIn) {
+                                return "Installed \u2013 Using Fallback Engine";
+                            }
+                            return "Using Fallback Engine";
+                        })()}
                         downloading={downloading.sqlite}
-                        onDownload={!status.sqlite ? () => onDownloadTool("sqlite") : undefined}
+                        onDownload={!status.nativeSqliteAvailable ? () => onDownloadTool("sqlite") : undefined}
+                        toggleLabel={status.nativeSqliteAvailable ? (sqliteUsingBuiltIn ? "Use Native Engine" : "Use Fallback Engine") : undefined}
+                        onToggle={status.nativeSqliteAvailable ? onToggleSqliteMode : undefined}
                     />
 
                     <StatusCard
