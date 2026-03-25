@@ -719,9 +719,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "selectAudioFile") {
-                    await handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginAudioProcessing();
+                    try {
+                        await handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
+                    } finally {
+                        syncManager.endAudioProcessing();
+                    }
                 } else if (message.command === "reprocessAudioFile") {
-                    await handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginAudioProcessing();
+                    try {
+                        await handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
+                    } finally {
+                        syncManager.endAudioProcessing();
+                    }
                 } else if (message.command === "requestAudioSegment") {
                     await handleRequestAudioSegment(message as RequestAudioSegmentMessage, webviewPanel);
                 } else if (message.command === "updateAudioSegments") {
@@ -729,20 +741,25 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "audioProcessingComplete") {
                     handleAudioProcessingComplete(message as AudioProcessingCompleteMessage);
                 } else if (message.command === "finalizeAudioImport") {
-                    await handleFinalizeAudioImport(
-                        message as FinalizeAudioImportMessage,
-                        token,
-                        webviewPanel,
-                        async (msg, tok, pan) => {
-                            const syncManager = SyncManager.getInstance();
-                            syncManager.beginImportInProgress();
-                            try {
-                                await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
-                            } finally {
-                                syncManager.endImportInProgress();
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginAudioProcessing();
+                    try {
+                        await handleFinalizeAudioImport(
+                            message as FinalizeAudioImportMessage,
+                            token,
+                            webviewPanel,
+                            async (msg, tok, pan) => {
+                                syncManager.beginImportInProgress();
+                                try {
+                                    await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
+                                } finally {
+                                    syncManager.endImportInProgress();
+                                }
                             }
-                        }
-                    );
+                        );
+                    } finally {
+                        syncManager.endAudioProcessing();
+                    }
                 } else if (message.command === "openDownloadPage") {
                     vscode.env.openExternal(vscode.Uri.parse("https://codexeditor.app"));
                 } else if (message.command === "saveFile") {

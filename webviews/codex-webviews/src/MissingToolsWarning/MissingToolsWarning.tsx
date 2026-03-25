@@ -26,6 +26,8 @@ interface InitialState {
     mode: ViewMode;
     audioToolMode: AudioToolMode;
     gitToolMode: GitToolMode;
+    syncInProgress: boolean;
+    audioProcessingInProgress: boolean;
 }
 
 function getInitialState(): InitialState | null {
@@ -42,6 +44,8 @@ function getInitialState(): InitialState | null {
                 mode: data.mode === "status" ? "status" : "warnings",
                 audioToolMode: data.audioToolMode ?? "auto",
                 gitToolMode: data.gitToolMode ?? "auto",
+                syncInProgress: data.syncInProgress ?? false,
+                audioProcessingInProgress: data.audioProcessingInProgress ?? false,
             };
         }
     } catch {
@@ -58,6 +62,8 @@ export const MissingToolsWarning: React.FC = () => {
     const [mode, setMode] = useState<ViewMode>(initial?.mode ?? "warnings");
     const [audioToolMode, setAudioToolMode] = useState<AudioToolMode>(initial?.audioToolMode ?? "auto");
     const [gitToolMode, setGitToolMode] = useState<GitToolMode>(initial?.gitToolMode ?? "auto");
+    const [syncInProgress, setSyncInProgress] = useState(initial?.syncInProgress ?? false);
+    const [audioProcessingInProgress, setAudioProcessingInProgress] = useState(initial?.audioProcessingInProgress ?? false);
     const [retrying, setRetrying] = useState(false);
     const [downloading, setDownloading] = useState<Record<ToolKey, boolean>>({
         sqlite: false,
@@ -91,6 +97,8 @@ export const MissingToolsWarning: React.FC = () => {
                 });
                 setAudioToolMode(message.audioToolMode ?? "auto");
                 setGitToolMode(message.gitToolMode ?? "auto");
+                setSyncInProgress(message.syncInProgress ?? false);
+                setAudioProcessingInProgress(message.audioProcessingInProgress ?? false);
                 setMode("status");
             } else if (message?.command === "toolDownloadResult") {
                 setStatus({
@@ -116,6 +124,9 @@ export const MissingToolsWarning: React.FC = () => {
                     git: message.git,
                     nativeGitAvailable: message.nativeGitAvailable ?? prev.nativeGitAvailable,
                 } : prev);
+            } else if (message?.command === "operationStatusChanged") {
+                setSyncInProgress(message.syncInProgress);
+                setAudioProcessingInProgress(message.audioProcessingInProgress);
             }
         };
 
@@ -168,6 +179,8 @@ export const MissingToolsWarning: React.FC = () => {
                 status={status}
                 audioToolMode={audioToolMode}
                 gitToolMode={gitToolMode}
+                syncInProgress={syncInProgress}
+                audioProcessingInProgress={audioProcessingInProgress}
                 downloading={downloading}
                 onClose={handleClose}
                 onDownloadTool={handleDownloadTool}
@@ -186,7 +199,7 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-error",
         descriptions: {
-            available: "The AI learning and search engine is working correctly.",
+            available: "The native AI learning and search engine is installed and running.",
             missing: "The AI learning and search engine could not be set up. Projects cannot be opened or created without this component.",
         },
     },
@@ -195,9 +208,9 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-warning",
         descriptions: {
-            available: "Syncing and collaboration features are fully operational.",
-            limited: "Using fallback sync tools. Full sync tools are installed but not active.",
-            builtinActive: "Syncing and collaboration features are operational using the built-in engine.",
+            available: "Native sync tools are active. Syncing and collaboration features are fully operational.",
+            limited: "Using fallback sync tools. Native sync tools are installed but not active.",
+            builtinActive: "Using fallback sync tools. Syncing and collaboration will work with limited functionality.",
         },
     },
     ffmpeg: {
@@ -205,9 +218,9 @@ const TOOL_INFO = {
         iconOk: "codicon-check",
         iconMissing: "codicon-warning",
         descriptions: {
-            available: "Full audio format support is available for import and export.",
-            limited: "Using fallback audio processing (.wav format). Install the full audio tools for additional format support.",
-            missing: "Audio tools could not be set up. Using fallback audio processing (.wav only).",
+            available: "Native audio tools are active. Full audio format support is available for import and export.",
+            limited: "Using fallback audio tools (.wav format). Install the native audio tools for additional format support.",
+            missing: "Native audio tools could not be set up. Using fallback audio tools (.wav only).",
         },
     },
 } as const;
@@ -216,6 +229,8 @@ interface ToolsStatusViewProps {
     status: ToolStatus;
     audioToolMode: AudioToolMode;
     gitToolMode: GitToolMode;
+    syncInProgress: boolean;
+    audioProcessingInProgress: boolean;
     downloading: Record<ToolKey, boolean>;
     onClose: () => void;
     onDownloadTool: (tool: ToolKey) => void;
@@ -227,6 +242,8 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     status,
     audioToolMode,
     gitToolMode,
+    syncInProgress,
+    audioProcessingInProgress,
     downloading,
     onClose,
     onDownloadTool,
@@ -239,10 +256,10 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
 
     const audioDescription = (() => {
         if (audioToolMode === "builtin" && status.ffmpeg) {
-            return "Using fallback audio processing. Full audio tools are installed but not active.";
+            return "Using fallback audio tools. Native audio tools are installed but not active.";
         }
         if (audioToolMode === "builtin" && !status.ffmpeg) {
-            return "Using fallback audio processing (.wav format). Full audio tools are not installed.";
+            return "Using fallback audio tools (.wav format). Native audio tools are not installed.";
         }
         if (status.ffmpeg) {
             return TOOL_INFO.ffmpeg.descriptions.available;
@@ -256,9 +273,9 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
 
     const audioStatusLabel = (() => {
         if (!audioUsingBuiltIn) {
-            return "Installed";
+            return "Installed and Running";
         }
-        return status.ffmpeg ? "Installed – Using Fallback" : "Not Installed – Using Fallback";
+        return status.ffmpeg ? "Installed – Using Fallback Tools" : "Not Installed – Using Fallback Tools";
     })();
 
     return (
@@ -276,8 +293,8 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         style={{ color: "var(--muted-foreground)" }}
                     >
                         {allOk
-                            ? "All tools are installed and working properly."
-                            : "Some tools are not fully configured. Codex can still work with reduced functionality."}
+                            ? "All native tools and engines are installed and running."
+                            : "Some native tools are not fully configured. Codex is using fallback alternatives where needed."}
                     </p>
                 </div>
 
@@ -305,20 +322,21 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                             }
                             return TOOL_INFO.git.descriptions.available;
                         })()}
-                        severity={gitUsingBuiltIn ? "ok" : "ok"}
+                        severity={gitUsingBuiltIn ? "warning" : "ok"}
                         statusLabelOverride={(() => {
                             if (status.nativeGitAvailable && !gitUsingBuiltIn) {
-                                return "Installed";
+                                return "Installed and Running";
                             }
                             if (status.nativeGitAvailable && gitUsingBuiltIn) {
-                                return "Installed \u2013 Using Built-in Engine";
+                                return "Installed \u2013 Using Fallback Tools";
                             }
-                            return "Using Built-in Engine";
+                            return "Using Fallback Tools";
                         })()}
                         downloading={downloading.git}
                         onDownload={!status.nativeGitAvailable ? () => onDownloadTool("git") : undefined}
-                        toggleLabel={status.nativeGitAvailable ? (gitUsingBuiltIn ? "Switch to Full" : "Switch to Built-in") : undefined}
+                        toggleLabel={status.nativeGitAvailable ? (gitUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
                         onToggle={status.nativeGitAvailable ? onToggleGitMode : undefined}
+                        toggleDisabled={syncInProgress}
                     />
 
                     <StatusCard
@@ -328,8 +346,9 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         statusLabelOverride={audioStatusLabel}
                         downloading={downloading.ffmpeg}
                         onDownload={!status.ffmpeg ? () => onDownloadTool("ffmpeg") : undefined}
-                        toggleLabel={status.ffmpeg ? (audioUsingBuiltIn ? "Switch to Full" : "Switch to Fallback") : undefined}
+                        toggleLabel={status.ffmpeg ? (audioUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
                         onToggle={status.ffmpeg ? onToggleAudioMode : undefined}
+                        toggleDisabled={audioProcessingInProgress}
                     />
                 </div>
 
@@ -387,8 +406,8 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                         className="text-sm"
                         style={{ color: "var(--muted-foreground)" }}
                     >
-                        The following tools could not be set up. Codex needs them to
-                        work properly.
+                        Some native tools could not be set up. Codex will use
+                        fallback alternatives where available.
                     </p>
                 </div>
 
@@ -397,8 +416,8 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                         <ToolCard
                             icon="codicon-error"
                             iconColor="var(--destructive)"
-                            title="Search Engine (SQLite)"
-                            description="The search and AI learning engine could not be set up. Projects cannot be opened or created without this component."
+                            title="AI Learning and Search Engine"
+                            description="The native AI learning and search engine could not be set up. Projects cannot be opened or created without this component."
                             severity="error"
                         />
                     )}
@@ -407,8 +426,8 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                         <ToolCard
                             icon="codicon-warning"
                             iconColor="var(--chart-4)"
-                            title="Sync Tools (Git)"
-                            description="Sync tools could not be set up. You can still work offline, but syncing and collaboration features are unavailable. Your work will be saved locally."
+                            title="Sync Tools"
+                            description="Native sync tools could not be set up. Fallback sync tools are active, but syncing and collaboration features may be limited. Your work will be saved locally."
                             severity="warning"
                         />
                     )}
@@ -418,7 +437,7 @@ const WarningsView: React.FC<WarningsViewProps> = ({
                             icon="codicon-warning"
                             iconColor="var(--chart-4)"
                             title="Audio Tools"
-                            description="Audio tools could not be set up. Audio import will work but is limited to .wav export. Install the tools for full format support."
+                            description="Native audio tools could not be set up. Fallback audio tools are active with limited format support (.wav only)."
                             severity="warning"
                         />
                     )}
@@ -562,6 +581,7 @@ interface StatusCardProps {
     onDownload?: () => void;
     toggleLabel?: string;
     onToggle?: () => void;
+    toggleDisabled?: boolean;
 }
 
 const StatusCard: React.FC<StatusCardProps> = ({
@@ -573,6 +593,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
     onDownload,
     toggleLabel,
     onToggle,
+    toggleDisabled = false,
 }) => {
     const borderColor =
         severity === "ok"
@@ -592,8 +613,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
     const statusLabel = statusLabelOverride ?? (
         severity === "ok"
-            ? "Installed"
-            : "Not Installed – Using Fallback"
+            ? "Installed and Running"
+            : "Not Installed – Using Fallback Engine"
     );
 
     return (
@@ -650,6 +671,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
                             variant="outline"
                             size="sm"
                             onClick={onToggle}
+                            disabled={toggleDisabled}
                             className="h-7 text-xs"
                         >
                             <i className="codicon codicon-arrow-swap mr-1.5" />

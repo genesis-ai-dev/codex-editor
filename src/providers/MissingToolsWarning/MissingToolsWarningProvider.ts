@@ -18,15 +18,18 @@ export class MissingToolsWarningProvider {
     private _resolveUserAction?: (action: "continue" | "blocked") => void;
     private _retryInProgress = false;
     private _downloadInProgress = false;
+    private readonly _onDispose?: () => void;
 
-    constructor(context: vscode.ExtensionContext) {
+    constructor(context: vscode.ExtensionContext, onDispose?: () => void) {
         this._context = context;
         this._extensionUri = context.extensionUri;
+        this._onDispose = onDispose;
     }
 
     public dispose(): void {
         this._panel?.dispose();
         this._disposables.forEach((d) => d.dispose());
+        this._onDispose?.();
     }
 
     /**
@@ -46,7 +49,7 @@ export class MissingToolsWarningProvider {
             return this._waitForUserAction();
         }
 
-        this._createPanel("Codex — Missing Tools", result, "warnings");
+        await this._createPanel("Codex — Missing Tools", result, "warnings");
         this._setupMessageHandler(retryCallback);
 
         return this._waitForUserAction();
@@ -67,15 +70,54 @@ export class MissingToolsWarningProvider {
             return;
         }
 
-        this._createPanel("Codex — Tools Status", result, "status");
+        await this._createPanel("Codex — Tools Status", result, "status");
         this._setupStatusMessageHandler();
+        this._subscribeSyncStatus();
     }
 
-    private _createPanel(
+    private async _getOperationFlags(): Promise<{ syncInProgress: boolean; audioProcessingInProgress: boolean }> {
+        try {
+            const { SyncManager } = await import("../../projectManager/syncManager");
+            const status = SyncManager.getInstance().getSyncStatus();
+            return {
+                syncInProgress: status.isSyncInProgress,
+                audioProcessingInProgress: status.isAudioProcessingInProgress,
+            };
+        } catch {
+            return { syncInProgress: false, audioProcessingInProgress: false };
+        }
+    }
+
+    private async _subscribeSyncStatus(): Promise<void> {
+        try {
+            const { SyncManager } = await import("../../projectManager/syncManager");
+            const manager = SyncManager.getInstance();
+            const syncDisposable = manager.addSyncStatusListener(() => {
+                this._sendOperationStatus();
+            });
+            const audioDisposable = manager.addAudioProcessingListener(() => {
+                this._sendOperationStatus();
+            });
+            this._disposables.push(syncDisposable, audioDisposable);
+        } catch {
+            // SyncManager may not be available
+        }
+    }
+
+    private async _sendOperationStatus(): Promise<void> {
+        const flags = await this._getOperationFlags();
+        const message: MessagesToMissingToolsWarning = {
+            command: "operationStatusChanged",
+            ...flags,
+        };
+        safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+    }
+
+    private async _createPanel(
         title: string,
         result: ToolCheckResult,
         mode: "warnings" | "status",
-    ): void {
+    ): Promise<void> {
         this._panel = vscode.window.createWebviewPanel(
             MissingToolsWarningProvider.viewType,
             title,
@@ -92,13 +134,15 @@ export class MissingToolsWarningProvider {
             localResourceRoots: [this._extensionUri],
         };
 
-        this._panel.webview.html = this._getHtmlForWebview(result, mode);
+        const flags = mode === "status" ? await this._getOperationFlags() : { syncInProgress: false, audioProcessingInProgress: false };
+        this._panel.webview.html = this._getHtmlForWebview(result, mode, flags);
         this._panel.reveal(vscode.ViewColumn.One, false);
 
         this._panel.onDidDispose(
             () => {
                 this._panel = undefined;
                 this._resolveUserAction?.("blocked");
+                this._onDispose?.();
             },
             null,
             this._disposables
@@ -318,7 +362,8 @@ export class MissingToolsWarningProvider {
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
 
-    private _sendStatus(result: ToolCheckResult): void {
+    private async _sendStatus(result: ToolCheckResult): Promise<void> {
+        const flags = await this._getOperationFlags();
         const message: MessagesToMissingToolsWarning = {
             command: "showToolsStatus",
             git: result.git,
@@ -327,6 +372,7 @@ export class MissingToolsWarningProvider {
             ffmpeg: result.ffmpeg,
             audioToolMode: getAudioToolMode(),
             gitToolMode: getGitToolMode(),
+            ...flags,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
@@ -340,6 +386,7 @@ export class MissingToolsWarningProvider {
     private _getHtmlForWebview(
         result: ToolCheckResult,
         mode: "warnings" | "status" = "warnings",
+        flags: { syncInProgress: boolean; audioProcessingInProgress: boolean } = { syncInProgress: false, audioProcessingInProgress: false },
     ): string {
         const webview = this._panel!.webview;
 
@@ -354,6 +401,8 @@ export class MissingToolsWarningProvider {
         if (mode === "status") {
             initialData.audioToolMode = getAudioToolMode();
             initialData.gitToolMode = getGitToolMode();
+            initialData.syncInProgress = flags.syncInProgress;
+            initialData.audioProcessingInProgress = flags.audioProcessingInProgress;
         }
 
         return getWebviewHtml(

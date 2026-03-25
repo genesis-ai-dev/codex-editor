@@ -688,6 +688,20 @@
                 }
             },
             {
+                "title": "Codex Editor: Tool Preferences",
+                "properties": {
+                    "codex-editor.gitBackendMode": {
+                        "type": "string",
+                        "enum": [
+                            "auto",
+                            "builtin"
+                        ],
+                        "default": "auto",
+                        "description": "Git backend: 'auto' uses the native dugite binary when available, 'builtin' always uses the bundled isomorphic-git."
+                    }
+                }
+            },
+            {
                 "title": "Codex Extension",
                 "properties": {
                     "codex-editor-extension.api_key": {

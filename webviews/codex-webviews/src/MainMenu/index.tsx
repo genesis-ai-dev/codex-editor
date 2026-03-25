@@ -202,6 +202,7 @@ function MainMenu() {
     const [toolsStatus, setToolsStatus] = useState<{
         sqlite: boolean;
         git: boolean;
+        nativeGitAvailable: boolean;
         ffmpeg: boolean;
         audioToolMode: "auto" | "builtin";
         gitToolMode: "auto" | "builtin";
@@ -1006,7 +1007,7 @@ function MainMenu() {
                                                                 <ToolDot status={toolsStatus.sqlite ? "ok" : "missing"} />
                                                                 <ToolDot status={
                                                                     !toolsStatus.git ? "missing"
-                                                                        : toolsStatus.gitToolMode === "builtin" ? "fallback"
+                                                                        : (!toolsStatus.nativeGitAvailable || toolsStatus.gitToolMode === "builtin") ? "fallback"
                                                                             : "ok"
                                                                 } />
                                                                 <ToolDot status={

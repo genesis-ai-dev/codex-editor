@@ -48,22 +48,24 @@ export const shouldUseNativeAudio = (ffmpegAvailable: boolean): boolean => {
 
 export type GitToolMode = "auto" | "builtin";
 
-const GIT_TOOL_MODE_KEY = "toolPreferences.gitToolMode";
-
 let _nativeGitAvailable = false;
 
+/**
+ * Read the git backend preference from the shared VS Code setting.
+ * Both codex-editor and frontier-authentication read this same setting
+ * so they always agree on which git backend to use.
+ */
 export const getGitToolMode = (): GitToolMode => {
-    if (!cachedContext) {
-        return "auto";
-    }
-    return cachedContext.globalState.get<GitToolMode>(GIT_TOOL_MODE_KEY) ?? "auto";
+    const mode = vscode.workspace
+        .getConfiguration("codex-editor")
+        .get<GitToolMode>("gitBackendMode");
+    return mode ?? "auto";
 };
 
 export const setGitToolMode = async (mode: GitToolMode): Promise<void> => {
-    if (!cachedContext) {
-        return;
-    }
-    await cachedContext.globalState.update(GIT_TOOL_MODE_KEY, mode);
+    await vscode.workspace
+        .getConfiguration("codex-editor")
+        .update("gitBackendMode", mode, vscode.ConfigurationTarget.Global);
 };
 
 export const setNativeGitAvailable = (available: boolean): void => {
@@ -75,10 +77,12 @@ export const setNativeGitAvailable = (available: boolean): void => {
  * - "builtin" mode -> always isomorphic-git
  * - "auto" mode -> dugite if native binary is available, else isomorphic-git
  *
- * The preference is persisted in globalState. If the user has "auto" but the
- * native binary is unavailable, isomorphic-git is used at runtime while the
- * stored preference stays "auto" -- so when the binary becomes available
- * (e.g. user downloads it), dugite kicks back in automatically.
+ * The preference is stored in the VS Code setting `codex-editor.gitBackendMode`,
+ * which is also read by frontier-authentication so both extensions use the same
+ * backend. If the user has "auto" but the native binary is unavailable,
+ * isomorphic-git is used at runtime while the stored preference stays "auto" —
+ * so when the binary becomes available (e.g. user downloads it), dugite kicks
+ * back in automatically.
  */
 export const shouldUseNativeGit = (): boolean => {
     if (getGitToolMode() === "builtin") {

@@ -1475,7 +1475,7 @@ type ProjectManagerMessageToWebview =
     | { command: "asrSettings"; data: { endpoint: string; }; }
     | { command: "asrModels"; data: string[]; }
     | { command: "asrSettingsSaved"; }
-    | { command: "toolsStatusSummary"; data: { sqlite: boolean; git: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode } };
+    | { command: "toolsStatusSummary"; data: { sqlite: boolean; git: boolean; nativeGitAvailable: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode } };
 
 // Ensure the Project type is correctly defined
 interface LocalProject {
@@ -2244,10 +2244,11 @@ export type GitToolMode = "auto" | "builtin";
 export type MessagesToMissingToolsWarning =
     | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean }
     | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean }
-    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean }
     | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode }
     | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
-    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean };
+    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
+    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean };
 
 export type MessagesFromMissingToolsWarning =
     | { command: "retry" }

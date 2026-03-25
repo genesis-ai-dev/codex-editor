@@ -490,18 +490,23 @@ export class MainMenuProvider extends BaseWebviewProvider {
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
 
-        // Check authentication and git binary status
+        // Check authentication and git binary status independently so a
+        // failure in one doesn't zero out the other.
         let isAuthenticated = false;
         let isGitAvailable = false;
-        try {
-            const frontierApi = getAuthApi();
-            if (frontierApi) {
+        const frontierApi = getAuthApi();
+        if (frontierApi) {
+            try {
                 const authStatus = frontierApi.getAuthStatus();
                 isAuthenticated = authStatus?.isAuthenticated ?? false;
-                isGitAvailable = frontierApi.isGitAvailable?.() ?? frontierApi.isGitBinaryAvailable?.() ?? false;
+            } catch (error) {
+                console.debug("Could not get authentication status:", error);
             }
-        } catch (error) {
-            console.debug("Could not get authentication status:", error);
+            try {
+                isGitAvailable = frontierApi.isGitAvailable?.() ?? frontierApi.isGitBinaryAvailable?.() ?? false;
+            } catch (error) {
+                console.debug("Could not get git availability:", error);
+            }
         }
 
         if (this._view) {
@@ -530,6 +535,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     data: {
                         sqlite: result.sqlite,
                         git: result.git,
+                        nativeGitAvailable: result.nativeGitAvailable,
                         ffmpeg: result.ffmpeg,
                         audioToolMode: getAudioToolMode(),
                         gitToolMode: getGitToolMode(),
@@ -869,6 +875,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 const syncManager = SyncManager.getInstance();
                 await syncManager.updateFromConfiguration();
 
+                await this.sendSyncSettings();
                 break;
             }
             case "triggerSync": {

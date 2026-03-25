@@ -60,7 +60,7 @@ import {
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { initToolPreferences, setNativeGitAvailable } from "./utils/toolPreferences";
+import { initToolPreferences, setNativeGitAvailable, getGitToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
@@ -393,7 +393,9 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         const gitAvailable = authApi?.isGitBinaryAvailable?.() ?? false;
         setNativeGitAvailable(gitAvailable);
-        console.log(`[codex] Git backend: ${gitAvailable ? "native (dugite)" : "fallback (isomorphic-git)"}`);
+        const gitMode = getGitToolMode();
+        const effectiveBackend = gitMode === "builtin" ? "isomorphic-git (forced)" : gitAvailable ? "dugite (native)" : "isomorphic-git (no binary)";
+        console.log(`[codex] Git backend mode: ${gitMode}, effective: ${effectiveBackend}`);
         stepStart = finishRealtimeStep();
 
         // If metadata.json is missing but the workspace has a .git with a remote,
@@ -705,6 +707,12 @@ export async function activate(context: vscode.ExtensionContext) {
                         // still doesn't exist
                     }
                 }
+
+                // The Startup Flow panel may have opened (via preflight) before the
+                // pending project was created, leaving it stuck on the "Restore
+                // Project Configuration" screen with stale state.  Tell it to
+                // re-read metadata.json and auto-close if the project is now ready.
+                vscode.commands.executeCommand("codex-project-manager.refreshStartupFlowState");
             }
 
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
@@ -940,10 +948,15 @@ export async function activate(context: vscode.ExtensionContext) {
             openCodexMigrationTool(context)
         )
     );
+    let toolsStatusProvider: MissingToolsWarningProvider | undefined;
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor.openToolsStatus", async () => {
-            const provider = new MissingToolsWarningProvider(context);
-            await provider.showToolsStatus();
+            if (!toolsStatusProvider) {
+                toolsStatusProvider = new MissingToolsWarningProvider(context, () => {
+                    toolsStatusProvider = undefined;
+                });
+            }
+            await toolsStatusProvider.showToolsStatus();
         })
     );
 
