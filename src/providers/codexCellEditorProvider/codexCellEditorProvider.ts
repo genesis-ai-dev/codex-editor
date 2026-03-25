@@ -1122,7 +1122,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             debug("Jump to cell event received:", value);
-            navigateToSection(value);
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                navigateToSection(value);
+            });
         });
 
         // Set up document change listeners
@@ -2416,6 +2418,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             safePostMessageToPanel(webviewPanel, message);
         } catch (error) {
             console.error("Failed to post message to webview:", error);
+        }
+    }
+
+    public scrollOtherPanelsToCell(cellId: string, senderPanel: vscode.WebviewPanel) {
+        for (const [, panel] of this.webviewPanels.entries()) {
+            if (panel !== senderPanel) {
+                safePostMessageToPanel(panel, {
+                    type: "scrollToCell",
+                    cellId,
+                } as any);
+            }
         }
     }
 

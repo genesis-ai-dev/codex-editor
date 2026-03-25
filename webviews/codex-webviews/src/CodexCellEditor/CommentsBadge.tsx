@@ -22,7 +22,6 @@ const CommentsBadge: React.FC<CommentsBadgeProps> = ({
             command: "openCommentsForCell",
             content: {
                 cellId: cellId,
-                openCurrentTab: true,
             },
         });
     };

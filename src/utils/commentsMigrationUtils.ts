@@ -3,6 +3,7 @@ import { NotebookCommentThread, NotebookComment } from "../../types";
 import { writeSerializedData } from "./fileUtils";
 
 const DEBUG_COMMENTS_MIGRATION = false;
+const COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE = new Date("2026-02-27");
 function debug(message: string, ...args: any[]): void {
     if (DEBUG_COMMENTS_MIGRATION) {
         console.log(`[CommentsMigrator] ${message}`, ...args);
@@ -697,18 +698,27 @@ export class CommentsMigrator {
 
         const result = { ...thread };
 
-        // Before cutoff - migrate if needed
-        if (result.cellId?.cellId && !isUuidFormat(result.cellId.cellId)) {
-            const oldId = result.cellId.cellId;
-            const newUuid = await generateCellIdFromHash(oldId);
+        if (Date.now() < COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.getTime()) {
+            // Before cutoff - migrate if needed
+            if (result.cellId?.cellId && !isUuidFormat(result.cellId.cellId)) {
+                const oldId = result.cellId.cellId;
+                const newUuid = await generateCellIdFromHash(oldId);
 
-            debug(`Migrating cell ID: "${oldId}" → "${newUuid}"`);
+                debug(`Migrating cell ID: "${oldId}" → "${newUuid}"`);
 
-            result.cellId = {
-                ...result.cellId,
-                cellId: newUuid,
-                globalReferences: result.cellId.globalReferences || [oldId]
-            };
+                result.cellId = {
+                    ...result.cellId,
+                    cellId: newUuid,
+                    globalReferences: result.cellId.globalReferences || [oldId]
+                };
+            }
+        } else {
+            // Migration period has passed - show warning
+            console.warn(
+                "[CommentsMigrator] Cell ID migration cutoff date has passed!" + " (" +
+                COMMENTS_CELL_ID_MIGRATION_CUTOFF_DATE.toISOString() + ") " +
+                "This migration code should be removed if all users have updated."
+            );
         }
 
         return result;
