@@ -227,12 +227,12 @@ function SearchTab({
         }
     };
 
-    const handleSelectAllFiles = () => {
+    const handleToggleAllFiles = () => {
+        if (allSelected) {
+            onSelectedFilesChange([]);
+            return;
+        }
         onSelectedFilesChange(projectFiles.map((f) => f.uri));
-    };
-
-    const handleDeselectAllFiles = () => {
-        onSelectedFilesChange([]);
     };
 
     const filteredFiles = projectFiles.filter((file) =>
@@ -240,7 +240,6 @@ function SearchTab({
     );
 
     const allSelected = projectFiles.length > 0 && selectedFiles.length === projectFiles.length;
-    const noneSelected = selectedFiles.length === 0;
 
     const sortedVerses = useMemo(() => {
         const filtered = showPinnedOnly
@@ -395,10 +394,8 @@ function SearchTab({
                                             onClick={() => setShowFileSelector(!showFileSelector)}
                                         >
                                             <span className="codicon codicon-files"></span>
-                                            {allSelected
-                                                ? "All files"
-                                                : noneSelected
-                                                ? "No files"
+                                            {allSelected || selectedFiles.length === 0
+                                                ? "All Files"
                                                 : `${selectedFiles.length}/${projectFiles.length}`}
                                             <span
                                                 className={`codicon codicon-chevron-${
@@ -409,7 +406,7 @@ function SearchTab({
                                         {showFileSelector && (
                                             <Card className="absolute top-full left-0 mt-1 z-20 max-h-64 overflow-hidden flex flex-col min-w-[200px]">
                                                 <CardContent className="p-0 flex flex-col">
-                                                    <div className="p-2 border-b flex gap-2">
+                                                    <div className="p-2 border-b flex items-center gap-2">
                                                         <Input
                                                             type="text"
                                                             placeholder="Search files..."
@@ -420,24 +417,15 @@ function SearchTab({
                                                             className="flex-1 h-7 text-xs"
                                                             onClick={(e) => e.stopPropagation()}
                                                         />
-                                                        <Button
-                                                            type="button"
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={handleSelectAllFiles}
-                                                            className="text-xs h-7 px-2"
-                                                        >
-                                                            All
-                                                        </Button>
-                                                        <Button
-                                                            type="button"
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={handleDeselectAllFiles}
-                                                            className="text-xs h-7 px-2"
-                                                        >
-                                                            None
-                                                        </Button>
+                                                        <label className="flex items-center gap-1.5 text-xs cursor-pointer px-1 whitespace-nowrap">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={allSelected}
+                                                                onChange={handleToggleAllFiles}
+                                                                className="h-3.5 w-3.5 rounded border border-input"
+                                                            />
+                                                            All Files
+                                                        </label>
                                                     </div>
                                                     <div className="overflow-y-auto max-h-48">
                                                         {filteredFiles.length === 0 ? (
