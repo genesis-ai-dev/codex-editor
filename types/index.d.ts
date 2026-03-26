@@ -185,11 +185,21 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
-    | { command: "reload"; data?: { cellId: string; globalReferences: string[]; uri?: string; }; }
+    | {
+        command: "reload";
+        data?: {
+            cellId: string;
+            globalReferences?: string[];
+            uri?: string;
+            openCurrentTab?: boolean;
+            openNewCommentIfNoComments?: boolean;
+        };
+    }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
     | { command: "undoCommentDeletion"; args: { commentId: string; commentThreadId: string; }; }
+    | { command: "updateSingleThread"; thread: NotebookCommentThread; }
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }
@@ -274,12 +284,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsSyncStatus"; }
     | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
-    | { command: "project.createEmpty"; }
-    | { command: "project.createEmptyWithName"; projectName: string; }
-    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; projectId?: string; }
+    | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
-    | { command: "metadata.check"; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
     | { command: "startup.dismiss"; }
@@ -373,20 +380,8 @@ export type MessagesFromStartupFlowProvider =
         isOpen: boolean;
         path?: string;
     }
-    | {
-        command: "metadata.checkResponse";
-        data: {
-            exists: boolean;
-            hasCriticalData: boolean;
-            sourceLanguage?: any;
-            targetLanguage?: any;
-            sourceTexts?: string[];
-            chatSystemMessage?: string | null;
-        };
-    }
     | { command: "setupIncompleteCriticalDataMissing"; }
     | { command: "setupComplete"; }
-    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
     | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
     | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
@@ -517,6 +512,7 @@ type MiniSearchVerseResult = {
 type MinimalCellResult = {
     cellId?: string;
     content?: string;
+    rawContent?: string;
     uri?: string;
     line?: number;
     notebookId?: string;
@@ -687,7 +683,14 @@ export type EditorPostMessages =
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
-    | { command: "openCommentsForCell"; content: { cellId: string; }; }
+    | {
+        command: "openCommentsForCell";
+        content: {
+            cellId: string;
+            openCurrentTab?: boolean;
+            openNewCommentIfNoComments?: boolean;
+        };
+    }
     | {
         command: "saveAudioAttachment";
         requestId?: string;
@@ -1042,7 +1045,6 @@ type FileImporterType =
     | "plaintext"
     | "audio"
     | "docx"
-    | "docx-roundtrip"
     | "markdown"
     | "subtitles"
     | "spreadsheet"
@@ -1058,6 +1060,7 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
+    | "reach4life"
     | "obs";
 
 /**
@@ -1199,8 +1202,8 @@ type ProjectMetadata = {
     /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
     originalFilesHashes?: {
         version: number;
-        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string } };
-        fileNameToHash: { [fileName: string]: string };
+        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string; }; };
+        fileNameToHash: { [fileName: string]: string; };
     };
     edits?: ProjectEditHistory[];
     meta: {
@@ -1222,6 +1225,11 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        /** Pin specific extension versions for this project */
+        pinnedExtensions?: Record<string, {
+            version: string;
+            url: string;
+        }>;
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
@@ -1617,7 +1625,7 @@ type ProjectManagerMessageFromWebview =
         content: {
             corpusLabel: string;
             displayName: string;
-            children: Array<{ uri: string; label: string; type: string }>;
+            children: Array<{ uri: string; label: string; type: string; }>;
         };
     }
     | { command: "openCellLabelImporter"; }
@@ -1636,7 +1644,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "saveAsrSettings"; data: { endpoint: string; }; }
     | { command: "fetchAsrModels"; data: { endpoint: string; }; }
     | { command: "setValidationCountDirect"; data: { count: number; }; }
-    | { command: "setValidationCountAudioDirect"; data: { count: number; }; };
+    | { command: "setValidationCountAudioDirect"; data: { count: number; }; }
+    | { command: "publishStatusUpdate"; data: { isPublishingInProgress: boolean; publishingStage: string; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1725,6 +1734,8 @@ interface LocalProject {
     hasFolderNameMismatch?: boolean;
     correctFolderName?: string;
     projectSwap?: ProjectSwapInfo;
+    /** Cached display name from GitLab API, persisted in localProjectSettings.json so it survives offline/orphaned states */
+    displayedProjectName?: string;
 }
 
 export interface BiblePreview extends BasePreview {
@@ -2470,7 +2481,7 @@ type EditorReceiveMessages =
     | {
         type: "searchMatchCounts";
         query: string;
-        milestoneMatchCounts: { [milestoneIdx: number]: number };
+        milestoneMatchCounts: { [milestoneIdx: number]: number; };
         totalMatches: number;
         error?: string;
     };

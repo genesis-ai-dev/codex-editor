@@ -18,11 +18,10 @@ import { findAllCodexProjects } from "../../../src/projectManager/utils/projectU
 import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import {
     createNewProject,
-    createNewWorkspaceAndProject,
     createWorkspaceWithProjectName,
     checkProjectNameExists,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
-import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName } from "../../projectManager/utils/projectUtils";
+import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName, writeDisplayedProjectName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { MetadataManager } from "../../utils/metadataManager";
 import { createMachine, assign, createActor } from "xstate";
@@ -85,7 +84,6 @@ export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
     OPEN_OR_CREATE_PROJECT = "createNewProject",
     PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
-    PROMPT_USER_TO_ADD_CRITICAL_DATA = "promptUserToAddCriticalData",
     ALREADY_WORKING = "alreadyWorking",
 }
 
@@ -434,7 +432,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             },
                         ],
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
                             StartupFlowStates.ALREADY_WORKING,
                     },
@@ -459,7 +457,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.NO_AUTH_EXTENSION]: {
                             target: StartupFlowStates.LOGIN_REGISTER,
                             actions: assign({
@@ -501,11 +499,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             },
                         ],
                         [StartupFlowEvents.INITIALIZE_PROJECT]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
                             StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
-                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                         [StartupFlowEvents.NO_AUTH_EXTENSION]: {
@@ -534,22 +532,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }),
                             }),
                         },
-                    },
-                },
-                [StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA]: {
-                    on: {
-                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
-                            {
-                                target: StartupFlowStates.LOGIN_REGISTER,
-                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
-                                actions: updateAuthStateAction,
-                            },
-                            {
-                                actions: updateAuthStateAction,
-                            },
-                        ],
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
-                            StartupFlowStates.ALREADY_WORKING,
                     },
                 },
                 [StartupFlowStates.ALREADY_WORKING]: {
@@ -1437,7 +1419,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
                         | undefined;
                     // Separate variable to hold the remote metadata for version checks
-                    let fetchedRemoteMetadata: { meta?: { requiredExtensions?: { codexEditor?: string; frontierAuthentication?: string }; [key: string]: unknown }; [key: string]: unknown } | undefined;
+                    let fetchedRemoteMetadata: { meta?: { requiredExtensions?: { codexEditor?: string; frontierAuthentication?: string; };[key: string]: unknown; };[key: string]: unknown; } | undefined;
                     try {
                         debugLog("Checking remote update requirement for project:", projectPath);
                         const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
@@ -1445,7 +1427,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         const remoteResult = await checkRemoteProjectRequirements(projectPath, undefined, true);
                         remoteProjectRequirements = remoteResult;
                         // Capture the remote metadata for version checks (available since remote was fetched)
-                        fetchedRemoteMetadata = (remoteResult as { remoteMetadata?: typeof fetchedRemoteMetadata }).remoteMetadata;
+                        fetchedRemoteMetadata = (remoteResult as { remoteMetadata?: typeof fetchedRemoteMetadata; }).remoteMetadata;
 
                         if (remoteProjectRequirements.updateRequired) {
                             debugLog("Remote update required for user:", remoteProjectRequirements.currentUsername);
@@ -1793,124 +1775,124 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                                 // Fall through to normal project open (skip swap)
                             } else {
-                            const activeEntry = swapCheck.activeEntry;
-                            const newProjectUrl = activeEntry.newProjectUrl;
-                            const newProjectName = activeEntry.newProjectName;
-                            const swapUUID = activeEntry.swapUUID || "unknown";
+                                const activeEntry = swapCheck.activeEntry;
+                                const newProjectUrl = activeEntry.newProjectUrl;
+                                const newProjectName = activeEntry.newProjectName;
+                                const swapUUID = activeEntry.swapUUID || "unknown";
 
-                            if (!newProjectUrl) {
-                                debugLog("No newProjectUrl found in swap info, skipping swap");
-                                // Cannot continue with swap, fall through to normal open
-                            } else {
-                                const swapDecision = await this.promptForProjectSwapAction(activeEntry);
-                                if (swapDecision === "cancel") {
-                                    return;
-                                }
-                                if (swapDecision === "openDeprecated") {
-                                    // Continue opening without swapping
+                                if (!newProjectUrl) {
+                                    debugLog("No newProjectUrl found in swap info, skipping swap");
+                                    // Cannot continue with swap, fall through to normal open
                                 } else {
-                                    // Re-validate swap is still active before executing
-                                    // (it could have been cancelled by another user since we checked)
-                                    try {
-                                        const recheck = await checkProjectSwapRequired(projectPath, remoteProjectRequirements?.currentUsername || undefined, true);
-                                        if (recheck.remoteUnreachable) {
-                                            debugLog("Server unreachable during re-validation - cannot perform swap");
-                                            await vscode.window.showWarningMessage(
-                                                "Server Unreachable\n\n" +
-                                                "The swap cannot be performed because the server is not reachable. " +
-                                                "Please check your internet connection or try again later.\n\n" +
-                                                "Opening project without swapping.",
-                                                { modal: true },
-                                                "OK"
-                                            );
-                                            break; // Fall through to normal open
-                                        }
-                                        if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
-                                            debugLog("Swap no longer required (cancelled or changed since check) - aborting swap");
-
-                                            // Update local metadata with merged data
-                                            if (recheck.swapInfo) {
-                                                try {
-                                                    const { sortSwapEntries: sortEntries, orderEntryFields: orderFields } = await import("../../utils/projectSwapManager");
-                                                    await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
-                                                        vscode.Uri.file(projectPath),
-                                                        (meta) => {
-                                                            if (!meta.meta) { meta.meta = {} as any; }
-                                                            const sorted = sortEntries(recheck.swapInfo!.swapEntries || []);
-                                                            meta.meta!.projectSwap = { swapEntries: sorted.map(orderFields) };
-                                                            return meta;
-                                                        }
-                                                    );
-                                                } catch { /* non-fatal */ }
-                                            }
-
-                                            // Clean up localProjectSwap.json
-                                            try {
-                                                const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
-                                                await deleteLocalProjectSwapFile(vscode.Uri.file(projectPath));
-                                            } catch { /* non-fatal */ }
-
-                                            await vscode.window.showWarningMessage(
-                                                "Swap Cancelled\n\n" +
-                                                "The project swap has been cancelled or is no longer required.\n\n" +
-                                                "Opening the project normally.",
-                                                { modal: true },
-                                                "OK"
-                                            );
-                                            // Fall through to normal open
-                                            break;
-                                        }
-                                    } catch (recheckErr) {
-                                        debugLog("Failed to re-validate swap (proceeding anyway):", recheckErr);
+                                    const swapDecision = await this.promptForProjectSwapAction(activeEntry);
+                                    if (swapDecision === "cancel") {
+                                        return;
                                     }
+                                    if (swapDecision === "openDeprecated") {
+                                        // Continue opening without swapping
+                                    } else {
+                                        // Re-validate swap is still active before executing
+                                        // (it could have been cancelled by another user since we checked)
+                                        try {
+                                            const recheck = await checkProjectSwapRequired(projectPath, remoteProjectRequirements?.currentUsername || undefined, true);
+                                            if (recheck.remoteUnreachable) {
+                                                debugLog("Server unreachable during re-validation - cannot perform swap");
+                                                await vscode.window.showWarningMessage(
+                                                    "Server Unreachable\n\n" +
+                                                    "The swap cannot be performed because the server is not reachable. " +
+                                                    "Please check your internet connection or try again later.\n\n" +
+                                                    "Opening project without swapping.",
+                                                    { modal: true },
+                                                    "OK"
+                                                );
+                                                break; // Fall through to normal open
+                                            }
+                                            if (!recheck.required || !recheck.activeEntry || recheck.activeEntry.swapUUID !== swapUUID) {
+                                                debugLog("Swap no longer required (cancelled or changed since check) - aborting swap");
 
-                                    swapWasPerformed = true;
+                                                // Update local metadata with merged data
+                                                if (recheck.swapInfo) {
+                                                    try {
+                                                        const { sortSwapEntries: sortEntries, orderEntryFields: orderFields } = await import("../../utils/projectSwapManager");
+                                                        await MetadataManager.safeUpdateMetadata<ProjectMetadata>(
+                                                            vscode.Uri.file(projectPath),
+                                                            (meta) => {
+                                                                if (!meta.meta) { meta.meta = {} as any; }
+                                                                const sorted = sortEntries(recheck.swapInfo!.swapEntries || []);
+                                                                meta.meta!.projectSwap = { swapEntries: sorted.map(orderFields) };
+                                                                return meta;
+                                                            }
+                                                        );
+                                                    } catch { /* non-fatal */ }
+                                                }
 
-                                    // Show notification and perform swap
-                                    await vscode.window.withProgress(
-                                        {
-                                            location: vscode.ProgressLocation.Notification,
-                                            title: `Swapping to ${newProjectName}`,
-                                            cancellable: false,
-                                        },
-                                        async (progress) => {
-                                            progress.report({ message: "Starting swap..." });
+                                                // Clean up localProjectSwap.json
+                                                try {
+                                                    const { deleteLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
+                                                    await deleteLocalProjectSwapFile(vscode.Uri.file(projectPath));
+                                                } catch { /* non-fatal */ }
 
-                                            const projectName = projectPath.split(/[\\/]/).pop() || "project";
-
-                                            // Import and perform swap
-                                            const { performProjectSwap } = await import("./performProjectSwap");
-
-                                            swappedProjectPath = await performProjectSwap(
-                                                progress,
-                                                projectName,
-                                                projectPath,
-                                                newProjectUrl,
-                                                swapUUID,
-                                                activeEntry.swapInitiatedAt,
-                                                activeEntry.swapInitiatedBy,
-                                                activeEntry.swapReason
-                                            );
-
-                                            debugLog("Project swap completed successfully");
-                                            progress.report({ message: "Swap complete!" });
+                                                await vscode.window.showWarningMessage(
+                                                    "Swap Cancelled\n\n" +
+                                                    "The project swap has been cancelled or is no longer required.\n\n" +
+                                                    "Opening the project normally.",
+                                                    { modal: true },
+                                                    "OK"
+                                                );
+                                                // Fall through to normal open
+                                                break;
+                                            }
+                                        } catch (recheckErr) {
+                                            debugLog("Failed to re-validate swap (proceeding anyway):", recheckErr);
                                         }
-                                    );
 
-                                    // Show success message
-                                    vscode.window.showInformationMessage(
-                                        `✅ Project swapped to ${newProjectName}\n\nOpening new project...`
-                                    );
-                                    if (swappedProjectPath) {
-                                        await vscode.commands.executeCommand(
-                                            "vscode.openFolder",
-                                            vscode.Uri.file(swappedProjectPath)
+                                        swapWasPerformed = true;
+
+                                        // Show notification and perform swap
+                                        await vscode.window.withProgress(
+                                            {
+                                                location: vscode.ProgressLocation.Notification,
+                                                title: `Swapping to ${newProjectName}`,
+                                                cancellable: false,
+                                            },
+                                            async (progress) => {
+                                                progress.report({ message: "Starting swap..." });
+
+                                                const projectName = projectPath.split(/[\\/]/).pop() || "project";
+
+                                                // Import and perform swap
+                                                const { performProjectSwap } = await import("./performProjectSwap");
+
+                                                swappedProjectPath = await performProjectSwap(
+                                                    progress,
+                                                    projectName,
+                                                    projectPath,
+                                                    newProjectUrl,
+                                                    swapUUID,
+                                                    activeEntry.swapInitiatedAt,
+                                                    activeEntry.swapInitiatedBy,
+                                                    activeEntry.swapReason
+                                                );
+
+                                                debugLog("Project swap completed successfully");
+                                                progress.report({ message: "Swap complete!" });
+                                            }
                                         );
-                                        return; // Stop the old open flow
+
+                                        // Show success message
+                                        vscode.window.showInformationMessage(
+                                            `✅ Project swapped to ${newProjectName}\n\nOpening new project...`
+                                        );
+                                        if (swappedProjectPath) {
+                                            await vscode.commands.executeCommand(
+                                                "vscode.openFolder",
+                                                vscode.Uri.file(swappedProjectPath)
+                                            );
+                                            return; // Stop the old open flow
+                                        }
                                     }
                                 }
-                            }
-                        } // end else (server reachable)
+                            } // end else (server reachable)
                         }
                     } catch (swapErr) {
                         debugLog("Project swap check/execution failed:", swapErr);
@@ -2422,51 +2404,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "project.showManager":
                 await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 break;
-            case "project.createEmpty": {
-                debugLog("Creating empty project");
-                await createNewWorkspaceAndProject(this.context);
-                break;
-            }
-            case "project.createEmptyWithName": {
+            case "project.createForUpload": {
                 try {
-                    const inputName = (message as any).projectName as string;
+                    const { projectName: inputName, sourceLanguage, targetLanguage } = message;
+                    const projectCategory = message.projectType?.trim() || "Translation";
                     const sanitized = sanitizeProjectName(inputName);
-                    if (sanitized !== inputName) {
-                        // Generate projectId when sanitization is needed (will be confirmed in modal)
-                        const projectId = generateProjectId();
-                        this.safeSendMessage({
-                            command: "project.nameWillBeSanitized",
-                            original: inputName,
-                            sanitized,
-                            projectId,
-                        } as MessagesFromStartupFlowProvider);
-                        // Optionally wait for confirm message from webview
-                    } else {
-                        // Generate projectId immediately if no sanitization needed
-                        const projectId = generateProjectId();
-                        await this.context.globalState.update("pendingProjectCreate", true);
-                        // Store sanitized name WITHOUT UUID for metadata.json
-                        // The folder name will still include the UUID via createWorkspaceWithProjectName
-                        await this.context.globalState.update("pendingProjectCreateName", sanitized);
-                        await this.context.globalState.update("pendingProjectCreateId", projectId);
-                        await createWorkspaceWithProjectName(sanitized, projectId);
-                    }
-                } catch (error) {
-                    console.error("Error creating project with name:", error);
-                }
-                break;
-            }
-            case "project.createEmpty.confirm": {
-                const { proceed, projectName, projectId } = message;
-                if (proceed && projectName) {
+                    const projectId = generateProjectId();
                     await this.context.globalState.update("pendingProjectCreate", true);
-                    // Use provided projectId or generate one if not provided (shouldn't happen in normal flow)
-                    const finalProjectId = projectId || generateProjectId();
-                    // Store sanitized name WITHOUT UUID for metadata.json
-                    // The folder name will still include the UUID via createWorkspaceWithProjectName
-                    await this.context.globalState.update("pendingProjectCreateName", projectName);
-                    await this.context.globalState.update("pendingProjectCreateId", finalProjectId);
-                    await createWorkspaceWithProjectName(projectName, finalProjectId);
+                    await this.context.globalState.update("pendingProjectCreateName", sanitized);
+                    await this.context.globalState.update("pendingProjectCreateId", projectId);
+                    await this.context.globalState.update("pendingProjectCreateSourceLanguage", JSON.stringify(sourceLanguage));
+                    await this.context.globalState.update("pendingProjectCreateTargetLanguage", JSON.stringify(targetLanguage));
+                    await this.context.globalState.update("pendingProjectCreateCategory", projectCategory);
+                    await this.context.globalState.update("pendingOpenSourceUploader", true);
+
+                    await createWorkspaceWithProjectName(sanitized, projectId);
+                } catch (error) {
+                    console.error("Error creating project for upload:", error);
                 }
                 break;
             }
@@ -2660,56 +2614,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "navigateToMainMenu": {
                 await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                break;
-            }
-            case "metadata.check": {
-                const workspaceFolders = vscode.workspace.workspaceFolders;
-                if (workspaceFolders) {
-                    try {
-                        const metadataUri = vscode.Uri.joinPath(
-                            workspaceFolders[0].uri,
-                            "metadata.json"
-                        );
-                        const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
-                        const metadata = JSON.parse(metadataContent.toString());
-
-                        const sourceLanguage = metadata.languages?.find(
-                            (l: any) => l.projectStatus === "source"
-                        );
-                        const targetLanguage = metadata.languages?.find(
-                            (l: any) => l.projectStatus === "target"
-                        );
-
-                        // Get source texts
-                        const sourceTexts = metadata.ingredients
-                            ? Object.keys(metadata.ingredients)
-                            : [];
-
-                        // Get chat system message if it exists
-                        const chatSystemMessage = metadata.chatSystemMessage;
-
-                        this.safeSendMessage({
-                            command: "metadata.checkResponse",
-                            data: {
-                                sourceLanguage,
-                                targetLanguage,
-                                sourceTexts,
-                                chatSystemMessage,
-                            },
-                        });
-                    } catch (error) {
-                        console.error("Error checking metadata:", error);
-                        this.safeSendMessage({
-                            command: "metadata.checkResponse",
-                            data: {
-                                sourceLanguage: null,
-                                targetLanguage: null,
-                                sourceTexts: [],
-                                chatSystemMessage: null,
-                            },
-                        });
-                    }
-                }
                 break;
             }
             case "systemMessage.generate": {
@@ -5406,6 +5310,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     gitOriginUrl: project.url,
                     description: project.description || "...",
                     syncStatus: "cloudOnlyNotSynced",
+                    displayedProjectName: project.name,
                 });
             }
 
@@ -5452,11 +5357,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 [...archivedRemoteUrls].map(normalizeUrl).filter(Boolean)
             );
 
+            // Build a lookup from normalized remote URL → GitLab API name
+            // so we can quickly find the authoritative name for any local project
+            const remoteNameByUrl = new Map<string, string>();
+            for (const rp of remoteProjects) {
+                if (!rp.isArchived && rp.name && rp.url) {
+                    remoteNameByUrl.set(normalizeUrl(rp.url), rp.name);
+                }
+            }
+
+            // Collect fire-and-forget metadata writes for displayedProjectName
+            const displayNameWritePromises: Promise<void>[] = [];
+
             // Process local projects and check for matches
             for (const project of localProjects) {
                 if (!project.gitOriginUrl) {
+                    // Local-only: cache folder name as displayedProjectName if not already set
+                    const effectiveDisplayName = project.displayedProjectName || project.name;
+                    if (project.path && effectiveDisplayName !== project.displayedProjectName) {
+                        displayNameWritePromises.push(
+                            writeDisplayedProjectName(project.path, effectiveDisplayName)
+                        );
+                    }
                     projectList.push({
                         ...project,
+                        displayedProjectName: effectiveDisplayName,
                         syncStatus: "localOnlyNotSynced",
                     });
                     continue;
@@ -5481,8 +5406,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 );
 
                 if (matchInRemoteIndex !== -1) {
+                    // Remote match found — use GitLab API name (remote wins)
+                    const remoteGitLabName = remoteNameByUrl.get(localNormalized);
+                    const effectiveDisplayName = remoteGitLabName || project.displayedProjectName || project.name;
+
+                    if (project.path && effectiveDisplayName !== project.displayedProjectName) {
+                        displayNameWritePromises.push(
+                            writeDisplayedProjectName(project.path, effectiveDisplayName)
+                        );
+                    }
+
                     projectList[matchInRemoteIndex] = {
                         ...project,
+                        displayedProjectName: effectiveDisplayName,
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
@@ -5503,11 +5439,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // This means the remote project was genuinely deleted/missing.
                         status = "orphaned";
                     }
+
+                    // For orphaned/serverUnreachable: use cached displayedProjectName or folder name
+                    const effectiveDisplayName = project.displayedProjectName || project.name;
+                    if (project.path && effectiveDisplayName !== project.displayedProjectName) {
+                        displayNameWritePromises.push(
+                            writeDisplayedProjectName(project.path, effectiveDisplayName)
+                        );
+                    }
+
                     projectList.push({
                         ...project,
+                        displayedProjectName: effectiveDisplayName,
                         syncStatus: status,
                     });
                 }
+            }
+
+            // Fire-and-forget: persist displayedProjectName updates to metadata.json
+            if (displayNameWritePromises.length > 0) {
+                Promise.allSettled(displayNameWritePromises).catch(() => {});
             }
 
             // ============================================================

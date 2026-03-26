@@ -2180,7 +2180,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const savedMsg = postedMessages.find((m) => m?.type === "audioAttachmentSaved");
         assert.ok(savedMsg, "Should post an audioAttachmentSaved message after saving audio");
         assert.strictEqual(savedMsg.content.cellId, cellId);
-        assert.strictEqual(savedMsg.content.success, true);
+        assert.strictEqual(savedMsg.content.success, true, `Expected success but got error: ${savedMsg.content?.error || "unknown"}`);
 
         // Assert metadata updated
         const parsed = JSON.parse(document.getText());
@@ -3075,9 +3075,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Then, perform search/replace with retainValidations=true (simulating updateCellContentDirect with retainValidations=true)
         await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
 
-        // Persist to disk to assert the stored structure
+        // Persist to disk to assert the stored structure (retry to handle Windows filesystem flush timing)
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
-        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskData = await readJsonFromDiskWithRetry(document.uri);
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
         // Latest value edit should have a NEW validation entry (not copied from old)

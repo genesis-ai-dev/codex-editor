@@ -117,7 +117,7 @@ export async function getBookDisplayName(usfmCode: string): Promise<string> {
 export function isBiblicalImporterType(importerType: string | undefined): boolean {
     if (!importerType) return false;
     const normalizedType = importerType.toLowerCase().trim();
-    
+
     // Exact matches for biblical importers
     const bibleTypeImporters = [
         'usfm',
@@ -134,15 +134,44 @@ export function isBiblicalImporterType(importerType: string | undefined): boolea
         // their original filenames rather than being converted to Bible book codes.
         // The importer type is stored in metadata, so filename suffixes are not needed.
     ];
-    
+
     // Check exact match first
     if (bibleTypeImporters.includes(normalizedType)) {
         return true;
     }
-    
+
     // Also check prefixes for variations (e.g., 'usfm-*' matches any USFM variant)
     const biblicalPrefixes = ['usfm', 'paratext', 'ebible', 'macula'];
     return biblicalPrefixes.some(prefix => normalizedType.startsWith(prefix));
+}
+
+/**
+ * Determines whether line numbers should be shown by default for a given importer type.
+ *
+ * Hidden only for verse-based Bible importers (USFM, Paratext, eBible, Macula) where
+ * verse labels serve as the natural reference. All other importers show line numbers.
+ */
+export function shouldShowLineNumbersByDefault(importerType: string | undefined): boolean {
+    if (!importerType) return true;
+
+    const verseBasedImporters = [
+        'usfm',
+        'usfm-experimental',
+        'paratext',
+        'ebiblecorpus',
+        'ebible',
+        'ebible-download',
+        'maculabible',
+        'macula',
+    ];
+
+    const normalized = importerType.toLowerCase().trim();
+    if (verseBasedImporters.includes(normalized)) {
+        return false;
+    }
+
+    const verseBasedPrefixes = ['usfm', 'paratext', 'ebible', 'macula'];
+    return !verseBasedPrefixes.some(prefix => normalized.startsWith(prefix));
 }
 
 /**

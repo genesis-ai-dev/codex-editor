@@ -17,7 +17,7 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 import { MetadataManager } from "../../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
-import { readLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
+import { readLocalProjectSettings, writeLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
 import { checkRemoteUpdatingRequired } from "../../utils/remoteUpdatingManager";
 
 const DEBUG = false;
@@ -402,40 +402,56 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             // File doesn't exist, we can proceed with creation
         }
 
-        // Use MetadataManager to safely create the project metadata
-        const createResult = await MetadataManager.safeUpdateMetadata(
-            WORKSPACE_FOLDER.uri,
-            () => {
-                // Add extension version requirements to the new project
-                const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
-                const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
+        // Build the full project metadata object with extension version requirements
+        const codexEditorVersion = MetadataManager.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
+        const frontierAuthVersion = MetadataManager.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
 
-                const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
-                if (codexEditorVersion) {
-                    requiredExtensions.codexEditor = codexEditorVersion;
-                }
-                if (frontierAuthVersion) {
-                    requiredExtensions.frontierAuthentication = frontierAuthVersion;
-                }
+        const requiredExtensions: { codexEditor?: string; frontierAuthentication?: string; } = {};
+        if (codexEditorVersion) {
+            requiredExtensions.codexEditor = codexEditorVersion;
+        }
+        if (frontierAuthVersion) {
+            requiredExtensions.frontierAuthentication = frontierAuthVersion;
+        }
 
-                const projectWithVersions = {
-                    ...newProject,
-                    meta: {
-                        ...newProject.meta,
-                        requiredExtensions
-                    }
-                };
-                return projectWithVersions;
+        const projectWithVersions = {
+            ...newProject,
+            meta: {
+                ...newProject.meta,
+                requiredExtensions
             }
-        );
+        };
 
-        if (!createResult.success) {
-            console.error("Failed to create project metadata:", createResult.error);
+        // Write metadata directly — safeUpdateMetadata requires an existing file, which
+        // doesn't exist yet for brand-new projects. A direct write is correct here.
+        try {
+            const jsonContent = JSON.stringify(projectWithVersions, null, 4);
+            await vscode.workspace.fs.writeFile(
+                projectFilePath,
+                new TextEncoder().encode(jsonContent)
+            );
+        } catch (writeError) {
+            console.error("Failed to create project metadata:", writeError);
             vscode.window.showErrorMessage("Failed to create project metadata. Check the output panel for details.");
             return;
         }
 
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
+
+        // Cache the project name (with UUID) in localProjectSettings.json so it's available offline
+        const resolvedProjectName = newProject.projectName;
+        if (resolvedProjectName && workspaceFolder) {
+            const sanitized = sanitizeProjectName(resolvedProjectName);
+            const fullDisplayName = sanitized ? `${sanitized}-${projectId}` : projectId;
+            try {
+                const { ensureLocalProjectSettingsExists } = await import("../../utils/localProjectSettings");
+                await ensureLocalProjectSettingsExists(vscode.Uri.file(workspaceFolder), {
+                    displayedProjectName: fullDisplayName,
+                });
+            } catch (e) {
+                debug("Failed to write displayedProjectName during project creation:", e);
+            }
+        }
 
         // Check if git is already initialized
         let isGitInitialized = false;
@@ -629,8 +645,17 @@ export async function updateMetadataFile() {
             project.meta.generator.userEmail = newUserEmail;
 
             const newLanguages = project.languages || [null, null];
-            newLanguages[0] = projectSettings.get("sourceLanguage", newLanguages[0] || "");
-            newLanguages[1] = projectSettings.get("targetLanguage", newLanguages[1] || "");
+            const configSource = projectSettings.get<any>("sourceLanguage");
+            const configTarget = projectSettings.get<any>("targetLanguage");
+            // Only overwrite from config if the config value has meaningful content.
+            // Accept strings (legacy) and non-empty objects (LanguageMetadata), but
+            // reject empty {} defaults from package.json that would destroy real data.
+            if (configSource && (typeof configSource === "string" || Object.keys(configSource).length > 0)) {
+                newLanguages[0] = configSource;
+            }
+            if (configTarget && (typeof configTarget === "string" || Object.keys(configTarget).length > 0)) {
+                newLanguages[1] = configTarget;
+            }
             project.languages = newLanguages;
 
             const newAbbreviation = projectSettings.get("abbreviation", "");
@@ -749,27 +774,27 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             }
         }
         try {
+            await vscode.workspace.fs.stat(sourceTextsPath);
             const sourceEntries = await vscode.workspace.fs.readDirectory(sourceTextsPath);
             for (const [name] of sourceEntries) {
                 if (name.endsWith("source")) {
                     sourceTexts.push(vscode.Uri.joinPath(sourceTextsPath, name));
                 }
             }
-        } catch (error) {
-            // Directory might not exist for new projects, which is fine
-            // console.error("Error reading source text Bibles:", error);
+        } catch {
+            // Directory doesn't exist for new projects — expected
         }
 
         try {
+            await vscode.workspace.fs.stat(targetTextsPath);
             const targetEntries = await vscode.workspace.fs.readDirectory(targetTextsPath);
             for (const [name] of targetEntries) {
                 if (name.endsWith("target")) {
                     targetTexts.push(vscode.Uri.joinPath(targetTextsPath, name));
                 }
             }
-        } catch (error) {
-            // Directory might not exist for new projects, which is fine
-            // console.error("Error reading target text Bibles:", error);
+        } catch {
+            // Directory doesn't exist for new projects — expected
         }
 
         const currentWorkspaceFolderName = workspaceFolder.name;
@@ -903,7 +928,8 @@ export async function syncMetadataToConfiguration() {
                 );
 
                 // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+                const { getSyncSettings } = await import("../../utils/localProjectSettings");
+                const { autoSyncEnabled } = await getSyncSettings();
 
                 if (autoSyncEnabled) {
                     SyncManager.getInstance().scheduleSyncOperation(
@@ -948,9 +974,10 @@ export async function syncMetadataToConfiguration() {
                 );
 
                 // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
-                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+                const { getSyncSettings: getSyncSettings2 } = await import("../../utils/localProjectSettings");
+                const syncSettings = await getSyncSettings2();
 
-                if (autoSyncEnabled) {
+                if (syncSettings.autoSyncEnabled) {
                     SyncManager.getInstance().scheduleSyncOperation(
                         "Update project configuration from metadata"
                     );
@@ -1523,86 +1550,78 @@ async function processProjectDirectory(
                 // Check if published (has git remote)
                 const gitOrigin = await getGitOriginUrl(projectPath);
 
-                // If it has NO git origin (local-only), check folder name consistency
-                if (!gitOrigin) {
+                // If it has NO git origin (local-only), check folder name consistency.
+                // Never rename the currently open workspace folder — it would break the active VS Code window.
+                const currentWorkspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                const isCurrentWorkspace = currentWorkspaceFolder && path.normalize(projectPath) === path.normalize(currentWorkspaceFolder);
+
+                if (!gitOrigin && !isCurrentWorkspace) {
                     const metadataProjectId = projectMetadata.projectId;
-                    const uuidsInFolder = findAllUuidSegments(currentName);
 
-                    // CRITICAL: Check for multiple UUIDs first (e.g., "project-uuid1-uuid2")
-                    // If found, use metadata.projectId as source of truth and fix the folder name
-                    // NOTE: This only runs for LOCAL-ONLY projects (no git remote)
-                    if (uuidsInFolder.length > 1) {
-                        debug(`MULTIPLE UUIDs detected in folder name: ${uuidsInFolder.join(', ')}`);
+                    // Use metadata as the source of truth: projectName is the user-chosen name,
+                    // projectId is the code-generated ID. The correct folder name is "{projectName}-{projectId}".
+                    const metadataProjectName = projectMetadata.projectName?.trim();
+                    const expectedBaseName = metadataProjectName
+                        ? sanitizeProjectName(metadataProjectName)
+                        : null;
+                    const expectedFolderName = expectedBaseName
+                        ? `${expectedBaseName}-${metadataProjectId}`
+                        : null;
 
-                        // Use metadata.projectId as the single source of truth
-                        // Fallback to FIRST UUID (the original) if metadata has none
-                        const correctId = metadataProjectId || uuidsInFolder[0] || generateProjectId();
-                        if (!metadataProjectId) {
-                            projectMetadata.projectId = correctId;
-                        }
-
-                        // Strip ALL UUIDs and append only the correct one
-                        const baseName = sanitizeProjectName(stripAllUuids(currentName));
-                        const newName = `${baseName}-${correctId}`;
-
-                        if (newName !== currentName) {
-                            const newPath = path.join(folder, newName);
+                    if (expectedFolderName && currentName === expectedFolderName) {
+                        debug(`Folder name matches metadata: ${currentName}`);
+                    } else if (currentName.endsWith(`-${metadataProjectId}`)) {
+                        // Folder ends with the correct projectId but the base name doesn't match metadata.
+                        // This covers duplicate-ID cases like "name-id-id-id" (still ends with "-id")
+                        // and simple base name mismatches.
+                        if (expectedFolderName && expectedFolderName !== currentName) {
+                            const newPath = path.join(folder, expectedFolderName);
                             try {
                                 await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
-                                debug(`Cannot fix duplicate UUIDs: target ${newName} already exists`);
+                                debug(`Cannot rename to ${expectedFolderName}: target already exists`);
                             } catch {
-                                await vscode.workspace.fs.writeFile(
-                                    metadataUri,
-                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
-                                );
                                 await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
-                                debug(`Fixed duplicate UUIDs: renamed ${currentName} to ${newName}`);
-                                currentName = newName;
+                                debug(`Renamed folder to match metadata: ${currentName} -> ${expectedFolderName}`);
+                                currentName = expectedFolderName;
                                 projectPath = newPath;
                             }
                         }
-                    }
-                    // Normal case: single or no UUID
-                    else if (metadataProjectId && currentName.endsWith(`-${metadataProjectId}`)) {
-                        debug(`Folder name already ends with projectId: ${metadataProjectId}`);
-                        // Nothing to do - folder and metadata are in sync
-                    } else if (uuidsInFolder.length === 1) {
-                        // Folder has exactly one UUID but it doesn't match metadata - sync metadata to folder
-                        const folderUuid = uuidsInFolder[0];
-                        if (folderUuid !== metadataProjectId) {
-                            projectMetadata.projectId = folderUuid;
+                    } else {
+                        // Folder doesn't end with metadata's projectId at all.
+                        // Check if it has a different ID suffix — if so, sync metadata to match folder
+                        // (the folder was created with that ID; renaming is more disruptive than syncing metadata).
+                        const folderSuffixId = extractProjectIdFromFolderName(currentName);
+
+                        if (folderSuffixId && folderSuffixId !== metadataProjectId) {
+                            projectMetadata.projectId = folderSuffixId;
                             await vscode.workspace.fs.writeFile(
                                 metadataUri,
                                 Buffer.from(JSON.stringify(projectMetadata, null, 4))
                             );
-                            debug(`Updated metadata projectId to match folder UUID: ${folderUuid}`);
-                        }
-                    } else {
-                        // Folder has NO UUID suffix - need to add one
-                        // Use metadata's projectId if available, otherwise generate new
-                        const idToUse = metadataProjectId || generateProjectId();
-                        if (!metadataProjectId) {
-                            projectMetadata.projectId = idToUse;
-                        }
+                            debug(`Updated metadata projectId to match folder suffix: ${folderSuffixId}`);
+                        } else {
+                            // No recognizable ID suffix — append metadata's projectId
+                            const baseName = expectedBaseName || sanitizeProjectName(currentName) || "untitled-project";
+                            if (!metadataProjectName) {
+                                projectMetadata.projectName = baseName;
+                            }
+                            const newName = `${baseName}-${metadataProjectId}`;
 
-                        // Get base name from folder (it has no UUID since we checked above)
-                        const baseName = sanitizeProjectName(currentName);
-                        const newName = `${baseName}-${idToUse}`;
-
-                        if (newName !== currentName) {
-                            const newPath = path.join(folder, newName);
-                            try {
-                                await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
-                                debug(`Cannot rename ${currentName} to ${newName} because target exists`);
-                            } catch {
-                                await vscode.workspace.fs.writeFile(
-                                    metadataUri,
-                                    Buffer.from(JSON.stringify(projectMetadata, null, 4))
-                                );
-                                await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
-                                debug(`Renamed local project folder from ${currentName} to ${newName}`);
-                                currentName = newName;
-                                projectPath = newPath;
+                            if (newName !== currentName) {
+                                const newPath = path.join(folder, newName);
+                                try {
+                                    await vscode.workspace.fs.stat(vscode.Uri.file(newPath));
+                                    debug(`Cannot rename ${currentName} to ${newName}: target already exists`);
+                                } catch {
+                                    await vscode.workspace.fs.writeFile(
+                                        metadataUri,
+                                        Buffer.from(JSON.stringify(projectMetadata, null, 4))
+                                    );
+                                    await vscode.workspace.fs.rename(vscode.Uri.file(projectPath), vscode.Uri.file(newPath));
+                                    debug(`Renamed local project folder: ${currentName} -> ${newName}`);
+                                    currentName = newName;
+                                    projectPath = newPath;
+                                }
                             }
                         }
                     }
@@ -1763,6 +1782,7 @@ async function processProjectDirectory(
             mediaStrategy: mediaStrategyResult,
             pendingUpdate: settingsResult?.pendingUpdate,
             projectSwap: projectSwapWithConvenience,
+            displayedProjectName: settingsResult?.displayedProjectName,
         };
     } catch (error) {
         debug(`Error processing project directory ${projectPath}:`, error);
@@ -1782,6 +1802,26 @@ async function getProjectNameFromMetadata(projectPath: string, fallbackName: str
     } catch (error) {
         debug(`Could not read metadata.json for ${projectPath}, using folder name`);
         return fallbackName;
+    }
+}
+
+/**
+ * Write displayedProjectName to localProjectSettings.json for a given project path
+ */
+export async function writeDisplayedProjectName(projectPath: string, displayedProjectName: string): Promise<void> {
+    try {
+        const projectUri = vscode.Uri.file(projectPath);
+        const settings = await readLocalProjectSettings(projectUri);
+
+        if (settings.displayedProjectName === displayedProjectName) {
+            return;
+        }
+
+        settings.displayedProjectName = displayedProjectName;
+        await writeLocalProjectSettings(settings, projectUri);
+        debug(`Wrote displayedProjectName "${displayedProjectName}" to ${projectPath}/.project/localProjectSettings.json`);
+    } catch (error) {
+        debug(`Failed to write displayedProjectName for ${projectPath}:`, error);
     }
 }
 

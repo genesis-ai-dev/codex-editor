@@ -214,21 +214,13 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         e.stopPropagation();
         if (isDisabled) return;
 
-        // briefly ignore hover so the popover can't re-open immediately
-        ignoreHoverRef.current = true;
-        window.setTimeout(() => {
-            ignoreHoverRef.current = false;
-        }, 200);
-
         // Mark that this was a mouse click, not keyboard navigation
         wasKeyboardNavigationRef.current = false;
         setIsKeyboardFocused(false);
 
         // Blur the button after mouse click to remove focus (prevents pulse from continuing)
-        // Use setTimeout to ensure blur happens after the click event completes
         window.setTimeout(() => {
             if (buttonRef.current) {
-                // Find the actual button element within the VSCodeButton component
                 const buttonElement = buttonRef.current.querySelector(
                     "button"
                 ) as HTMLButtonElement;
@@ -239,8 +231,22 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         }, 0);
 
         if (!isValidated) {
+            // Briefly ignore hover so the popover can't re-open immediately after validating.
+            ignoreHoverRef.current = true;
+            window.setTimeout(() => {
+                ignoreHoverRef.current = false;
+            }, 200);
+
             handleValidate(e);
             handleRequestClose();
+        } else {
+            // Already validated — toggle the popover so the user can see validators / unvalidate
+            if (showPopover) {
+                handleRequestClose();
+            } else {
+                setShowPopover(true);
+                audioPopoverTracker.setActivePopover(uniqueId.current);
+            }
         }
     };
 

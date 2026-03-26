@@ -5,14 +5,6 @@ import * as fs from 'fs';
 import { MetadataManager } from '../../utils/metadataManager';
 
 suite('MetadataManager Tests', () => {
-    // Temporarily disable these tests until VS Code test environment issues are resolved
-    test('MetadataManager integration tests temporarily disabled', () => {
-        console.log('MetadataManager tests are temporarily disabled due to VS Code test environment compatibility issues.');
-        console.log('The MetadataManager system is fully integrated and functional in production.');
-        console.log('These tests can be run in a standalone Node.js environment for validation.');
-    });
-    return; // Exit early to skip all tests in this suite
-
     let testWorkspaceUri: vscode.Uri;
     let metadataPath: vscode.Uri;
 
@@ -220,6 +212,84 @@ suite('MetadataManager Tests', () => {
 
             assert.ok(text.includes('    '), 'Should have 4-space indentation');
             assert.ok(text.includes('{\n'), 'Should have proper line breaks');
+        });
+    });
+
+    suite('Pin-aware ratchet', () => {
+        test('ratchet works normally when no pin is active', async () => {
+            const initial = {
+                meta: { requiredExtensions: { codexEditor: '0.22.0' } }
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+            const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                codexEditor: '0.22.91'
+            });
+
+            assert.strictEqual(result.success, true);
+            const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+            assert.strictEqual(versions.versions?.codexEditor, '0.22.91');
+        });
+
+        test('ratchet is suppressed for codexEditor when pin is active', async () => {
+            const initial = {
+                meta: {
+                    requiredExtensions: { codexEditor: '0.22.90' },
+                    pinnedExtensions: { 'project-accelerate.codex-editor-extension': { version: '0.22.90' } }
+                }
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+            const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                codexEditor: '0.22.91'
+            });
+
+            assert.strictEqual(result.success, true);
+            const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+            // Should NOT have been bumped to .91
+            assert.strictEqual(versions.versions?.codexEditor, '0.22.90');
+        });
+
+        test('ratchet is suppressed for frontierAuthentication when frontier pin is active', async () => {
+            const initial = {
+                meta: {
+                    requiredExtensions: { frontierAuthentication: '0.4.0' },
+                    pinnedExtensions: { 'frontier-rnd.frontier-authentication': { version: '0.4.0' } }
+                }
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+            const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                frontierAuthentication: '0.4.25'
+            });
+
+            assert.strictEqual(result.success, true);
+            const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+            assert.strictEqual(versions.versions?.frontierAuthentication, '0.4.0');
+        });
+
+        test('frontierAuthentication ratchet is unaffected by a codex-editor pin', async () => {
+            const initial = {
+                meta: {
+                    requiredExtensions: { codexEditor: '0.22.90', frontierAuthentication: '0.4.0' },
+                    pinnedExtensions: { 'project-accelerate.codex-editor-extension': { version: '0.22.90' } }
+                }
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initial, null, 4)));
+
+            const result = await MetadataManager.updateExtensionVersions(testWorkspaceUri, {
+                codexEditor: '0.22.91',
+                frontierAuthentication: '0.4.25'
+            });
+
+            assert.strictEqual(result.success, true);
+            const versions = await MetadataManager.getExtensionVersions(testWorkspaceUri);
+            assert.strictEqual(versions.versions?.codexEditor, '0.22.90');       // suppressed
+            assert.strictEqual(versions.versions?.frontierAuthentication, '0.4.25'); // ratcheted
         });
     });
 

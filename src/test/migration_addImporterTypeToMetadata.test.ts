@@ -95,7 +95,7 @@ describe("migration_addImporterTypeToMetadata", () => {
             { corpusMarker: "macula-bible", expected: "macula" },
             { corpusMarker: "obs-story", expected: "obs" },
             { corpusMarker: "subtitle", expected: "subtitles" },
-            { corpusMarker: "docx", expected: "docx-roundtrip" },
+            { corpusMarker: "docx", expected: "docx" },
         ];
 
         for (const testCase of testCases) {

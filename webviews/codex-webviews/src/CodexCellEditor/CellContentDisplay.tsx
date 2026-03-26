@@ -512,6 +512,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 command: "openCommentsForCell",
                 content: {
                     cellId: cellId,
+                    openCurrentTab: true,
+                    openNewCommentIfNoComments: true,
                 },
             });
         };

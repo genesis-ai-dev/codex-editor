@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.22.0",
+    "version": "0.24.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -483,6 +483,11 @@
             {
                 "command": "codex-editor-extension.runVerseRangeLabelsAndPositionsMigration",
                 "title": "Codex: Fix Verse Range Labels and Positions",
+                "category": "Codex Maintenance"
+            },
+            {
+                "command": "codex-editor-extension.runCommentsMigration",
+                "title": "Codex: Migrate Legacy Comments",
                 "category": "Codex Maintenance"
             },
             {
