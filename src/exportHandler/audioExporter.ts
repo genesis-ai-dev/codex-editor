@@ -5,6 +5,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as os from "os";
 import * as fs from "fs";
+import { getFFmpegPath } from "../utils/ffmpegManager";
 
 const execAsync = promisify(exec);
 
@@ -351,34 +352,30 @@ function embedM4ATimecodes(original: Uint8Array, start?: number, end?: number): 
     }
 }
 
-// Convert audio to WAV format using ffmpeg (for WebM, M4A, etc.)
+// Convert audio to WAV format using the extension-owned FFmpeg binary.
 async function convertToWav(
     inputBytes: Uint8Array,
     originalExt: string,
     sampleRate: number = 48000
 ): Promise<Uint8Array> {
+    const ffmpegBinaryPath = await getFFmpegPath();
     const tempDir = os.tmpdir();
     const tempInputPath = `${tempDir}/codex-audio-input-${Date.now()}${originalExt}`;
     const tempOutputPath = `${tempDir}/codex-audio-output-${Date.now()}.wav`;
 
     try {
-        // Write input file
         fs.writeFileSync(tempInputPath, Buffer.from(inputBytes));
 
-        // Convert using ffmpeg with high-quality settings
-        // -ar: sample rate, -ac: mono, -sample_fmt: 16-bit PCM
         await execAsync(
-            `ffmpeg -i "${tempInputPath}" -ar ${sampleRate} -ac 1 -sample_fmt s16 "${tempOutputPath}"`
+            `"${ffmpegBinaryPath}" -i "${tempInputPath}" -ar ${sampleRate} -ac 1 -sample_fmt s16 "${tempOutputPath}"`
         );
 
-        // Read converted WAV file
         const wavBytes = fs.readFileSync(tempOutputPath);
         return new Uint8Array(wavBytes);
     } catch (error) {
         console.error("Error converting audio to WAV:", error);
         throw error;
     } finally {
-        // Cleanup temp files
         try {
             if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
             if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);

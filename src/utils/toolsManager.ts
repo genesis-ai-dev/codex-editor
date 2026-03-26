@@ -95,23 +95,14 @@ export function isAudioToolRequired(
 }
 
 /**
- * Verify that a binary is available and executable.
- *
- * Resolution order:
- *  1. System binary (via `which` / `where`)
- *  2. Downloaded binary in extension globalStorage
- *
- * Each candidate is confirmed by running `<binary> -version` with a timeout.
+ * Verify that the extension-owned FFmpeg binary is present and executable.
+ * Only checks the downloaded binary in extension globalStorage — never
+ * falls back to system-installed binaries on the PATH.
  */
 async function verifyBinaryAvailable(
     tool: "ffmpeg",
     context: vscode.ExtensionContext,
 ): Promise<boolean> {
-    const systemPath = await getSystemBinaryPath(tool);
-    if (systemPath && (await canExecute(systemPath))) {
-        return true;
-    }
-
     const downloadedPath = getDownloadedBinaryPath(tool, context);
     if (downloadedPath && fs.existsSync(downloadedPath) && (await canExecute(downloadedPath))) {
         return true;
@@ -120,21 +111,10 @@ async function verifyBinaryAvailable(
     return false;
 }
 
-async function getSystemBinaryPath(command: string): Promise<string | null> {
-    try {
-        const checkCmd = process.platform === "win32" ? "where" : "which";
-        const { stdout } = await execFile(checkCmd, [command], { timeout: 5000 });
-        const firstLine = stdout.trim().split(/\r?\n/)[0]?.trim();
-        return firstLine || null;
-    } catch {
-        return null;
-    }
-}
-
 function getDownloadedBinaryPath(
     tool: "ffmpeg",
     context: vscode.ExtensionContext,
-): string | null {
+): string {
     const storagePath = context.globalStorageUri.fsPath;
     const binaryName = process.platform === "win32" ? `${tool}.exe` : tool;
     return path.join(storagePath, tool, binaryName);

@@ -1,5 +1,6 @@
 /**
- * FFmpeg manager that prefers system binaries and only downloads as fallback.
+ * FFmpeg manager — always downloads and uses an extension-owned binary.
+ * Never falls back to system-installed FFmpeg on the PATH.
  */
 
 import * as vscode from "vscode";
@@ -13,7 +14,7 @@ const execFile = promisify(execFileCb);
 
 interface BinaryInfo {
     path: string;
-    source: "system" | "downloaded" | "bundled";
+    source: "downloaded" | "bundled";
     version?: string;
 }
 
@@ -31,27 +32,6 @@ const PLATFORM_MAP: Record<string, string> = {
 const PLATFORM_FALLBACK: Record<string, string> = {
     "win32-arm64": "win32-x64",
 };
-
-async function getSystemBinaryPath(command: string): Promise<string | null> {
-    try {
-        const checkCmd = process.platform === "win32" ? "where" : "which";
-        const { stdout } = await execFile(checkCmd, [command], { timeout: 5000 });
-        const firstLine = stdout.trim().split(/\r?\n/)[0]?.trim();
-        return firstLine || null;
-    } catch {
-        return null;
-    }
-}
-
-async function isCommandAvailable(command: string): Promise<boolean> {
-    try {
-        const checkCmd = process.platform === "win32" ? "where" : "which";
-        await execFile(checkCmd, [command], { timeout: 5000 });
-        return true;
-    } catch {
-        return false;
-    }
-}
 
 function getBinaryPath(context: vscode.ExtensionContext): string {
     const storagePath = context.globalStorageUri.fsPath;
@@ -72,7 +52,8 @@ function getPlatformVersion(): string | null {
 }
 
 /**
- * Download only FFmpeg. Checks system install first, then downloads if needed.
+ * Ensure the extension-owned FFmpeg binary is present.
+ * Downloads it if not already cached in extension global storage.
  * Returns the binary path on success, null on failure.
  */
 export async function downloadFFmpeg(
@@ -94,14 +75,6 @@ async function canExecute(binaryPath: string): Promise<boolean> {
 async function downloadFFmpegBinary(
     context: vscode.ExtensionContext,
 ): Promise<string | null> {
-    const systemPath = await getSystemBinaryPath("ffmpeg");
-    if (systemPath && (await canExecute(systemPath))) {
-        console.log(`[ffmpegManager] System ffmpeg verified: ${systemPath}`);
-        return systemPath;
-    } else if (systemPath) {
-        console.warn(`[ffmpegManager] System ffmpeg found at ${systemPath} but failed execution check`);
-    }
-
     const binaryPath = getBinaryPath(context);
     if (fs.existsSync(binaryPath) && (await canExecute(binaryPath))) {
         console.log(`[ffmpegManager] Downloaded ffmpeg verified: ${binaryPath}`);
@@ -268,20 +241,13 @@ async function downloadAndExtractPackage(
 
 /**
  * Initialize and get FFmpeg binary path.
- * Resolution order: system → downloaded → bundled.
+ * Resolution order: extension-owned downloaded binary → bundled.
  */
 export async function getFFmpegPath(
     context?: vscode.ExtensionContext
 ): Promise<string> {
     if (ffmpegInfo) {
         return ffmpegInfo.path;
-    }
-
-    const systemPath = await getSystemBinaryPath("ffmpeg");
-    if (systemPath) {
-        ffmpegInfo = { path: systemPath, source: "system" };
-        console.log(`[audioProcessor] Using system FFmpeg: ${systemPath}`);
-        return systemPath;
     }
 
     if (context) {
@@ -314,14 +280,12 @@ export async function getFFmpegPath(
 }
 
 /**
- * Check if FFmpeg is available on the system PATH.
+ * Check if the extension-owned FFmpeg binary has been resolved and cached.
+ * Returns true when `getFFmpegPath` (or `downloadFFmpeg`) has already
+ * successfully located the binary during this session.
  */
-export async function checkAudioToolsAvailable(): Promise<boolean> {
-    try {
-        return await isCommandAvailable("ffmpeg");
-    } catch {
-        return false;
-    }
+export function checkAudioToolsAvailable(): boolean {
+    return ffmpegInfo !== null;
 }
 
 /**

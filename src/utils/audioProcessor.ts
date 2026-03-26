@@ -68,8 +68,8 @@ export const isFFmpegAvailable = async (): Promise<boolean> => {
 };
 
 /**
- * Re-export for callers that need the raw tools-available check
- * (system PATH only, no download attempt).
+ * Re-export for callers that need a quick "has FFmpeg been resolved?" check
+ * (no download attempt, just checks if the binary path is cached).
  */
 export { checkAudioToolsAvailable };
 

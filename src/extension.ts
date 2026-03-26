@@ -61,6 +61,7 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
+import { initializeAudioExtractor } from "./utils/audioExtractor";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
 import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
@@ -316,10 +317,11 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error saving/closing tabs before splash screen:", e);
     }
 
-    // Initialize audio processor for on-demand FFmpeg downloads
+    // Initialize audio utilities with the extension context so they can
+    // resolve the extension-owned FFmpeg binary path on demand.
     initializeAudioProcessor(context);
-    // Initialize audio merger for merging audio files
     initializeAudioMerger(context);
+    initializeAudioExtractor(context);
 
     // Register and show splash screen immediately before anything else
     try {
