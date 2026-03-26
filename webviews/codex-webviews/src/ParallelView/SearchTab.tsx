@@ -258,7 +258,10 @@ function SearchTab({
     }, [verses, pinnedVerses, showPinnedOnly]);
 
     return (
-        <div className="flex flex-col h-full p-4 gap-4" onClick={handleClickOutside}>
+        <div
+            className="flex flex-col flex-1 min-h-0 p-4 gap-2 overflow-hidden"
+            onClick={handleClickOutside}
+        >
             <Card className="p-4">
                 <CardContent className="p-0">
                     <form onSubmit={handleSearch} className="flex flex-col gap-4">
@@ -389,7 +392,6 @@ function SearchTab({
                             {/* File selector */}
                             {projectFiles.length > 0 && (
                                 <>
-                                    <div className="h-4 w-px bg-border" />
                                     <div className="file-selector-container relative">
                                         <Button
                                             type="button"
@@ -676,7 +678,7 @@ function SearchTab({
             </Card>
 
             {verses.length > 0 && (
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between py-2">
                     <button
                         type="button"
                         className={`flex items-center gap-1 transition-opacity ${
