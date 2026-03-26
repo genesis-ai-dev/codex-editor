@@ -199,6 +199,11 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-editor.advancedToolSettings",
+                "title": "Advanced Tool Settings",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor-extension.forceReindex",
                 "title": "Force Reindex",
                 "icon": "$(refresh)",

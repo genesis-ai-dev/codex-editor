@@ -1,8 +1,11 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import type { ToolCheckResult } from "../../utils/toolsManager";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "../../utils/toolPreferences";
+import { resetRetryCount } from "../../utils/binaryIntegrityUtils";
 import type {
     MessagesToMissingToolsWarning,
     MessagesFromMissingToolsWarning,
@@ -19,6 +22,7 @@ export class MissingToolsWarningProvider {
     private _retryInProgress = false;
     private _downloadsInProgress = new Set<"sqlite" | "git" | "ffmpeg">();
     private _sqliteSwitchInProgress = false;
+    private _advancedStage: 0 | 1 | 2 = 0;
     private readonly _onDispose?: () => void;
 
     constructor(context: vscode.ExtensionContext, onDispose?: () => void) {
@@ -142,6 +146,7 @@ export class MissingToolsWarningProvider {
         this._panel.onDidDispose(
             () => {
                 this._panel = undefined;
+                this._advancedStage = 0;
                 this._resolveUserAction?.("blocked");
                 this._onDispose?.();
             },
@@ -202,6 +207,25 @@ export class MissingToolsWarningProvider {
         );
     }
 
+    /**
+     * Two-stage advanced tool settings:
+     *  Stage 0 → 1: reveal "Delete Binary" buttons
+     *  Stage 1 → 2: reveal "Force Fallback Only" buttons
+     * Called by the "Advanced Tool Settings" command.
+     */
+    public enableReinstallMode(): void {
+        if (!this._panel) {
+            return;
+        }
+        if (this._advancedStage === 0) {
+            this._advancedStage = 1;
+            safePostMessageToPanel(this._panel, { command: "showDeleteButtons" } as MessagesToMissingToolsWarning, "MissingToolsWarning");
+        } else if (this._advancedStage === 1) {
+            this._advancedStage = 2;
+            safePostMessageToPanel(this._panel, { command: "showForceBuiltinButtons" } as MessagesToMissingToolsWarning, "MissingToolsWarning");
+        }
+    }
+
     private _setupStatusMessageHandler(): void {
         this._panel!.webview.onDidReceiveMessage(
             async (message: MessagesFromMissingToolsWarning) => {
@@ -226,6 +250,15 @@ export class MissingToolsWarningProvider {
                             vscode.env.openExternal(
                                 vscode.Uri.parse("https://codexeditor.app")
                             );
+                            break;
+                        case "deleteTool":
+                            await this._handleDeleteTool(message.tool);
+                            break;
+                        case "forceBuiltinTool":
+                            await this._handleForceBuiltin(message.tool);
+                            break;
+                        case "reloadWindow":
+                            await vscode.commands.executeCommand("workbench.action.reloadWindow");
                             break;
                     }
                 } catch (error) {
@@ -350,17 +383,19 @@ export class MissingToolsWarningProvider {
                     const { ensureSqliteNativeBinary } = await import("../../utils/sqliteNativeBinaryManager");
                     const { initNativeSqlite } = await import("../../utils/nativeSqlite");
                     const binaryPath = await ensureSqliteNativeBinary(this._context);
-                    initNativeSqlite(binaryPath);
+                    if (binaryPath) {
+                        initNativeSqlite(binaryPath);
 
-                    const { getSQLiteIndexManager } = await import(
-                        "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
-                    );
-                    const manager = getSQLiteIndexManager();
-                    if (manager && !manager.isClosed) {
-                        await manager.reopenWithCurrentBackend();
+                        const { getSQLiteIndexManager } = await import(
+                            "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+                        );
+                        const manager = getSQLiteIndexManager();
+                        if (manager && !manager.isClosed) {
+                            await manager.reopenWithCurrentBackend();
+                        }
+
+                        success = true;
                     }
-
-                    success = true;
                     break;
                 }
                 case "git": {
@@ -411,6 +446,139 @@ export class MissingToolsWarningProvider {
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
     }
 
+
+    private async _handleDeleteTool(tool: "sqlite" | "git" | "ffmpeg"): Promise<void> {
+        const storageBase = this._context.globalStorageUri.fsPath;
+
+        try {
+            switch (tool) {
+                case "sqlite": {
+                    const dir = path.join(storageBase, "sqlite3-native");
+                    await fs.promises.rm(dir, { recursive: true, force: true });
+                    const { resetSqliteBinaryCache } = await import("../../utils/sqliteNativeBinaryManager");
+                    resetSqliteBinaryCache();
+                    await resetRetryCount(this._context, "sqlite");
+                    break;
+                }
+                case "ffmpeg": {
+                    const dir = path.join(storageBase, "ffmpeg");
+                    await fs.promises.rm(dir, { recursive: true, force: true });
+                    const { resetBinaryCache } = await import("../../utils/ffmpegManager");
+                    resetBinaryCache();
+                    await resetRetryCount(this._context, "ffmpeg");
+                    break;
+                }
+                case "git": {
+                    const { getAuthApi } = await import("../../extension");
+                    const frontierApi = getAuthApi();
+                    if (frontierApi?.deleteGitBinary) {
+                        await frontierApi.deleteGitBinary();
+                    } else {
+                        const gitDir = path.join(storageBase, "..", "frontier-rnd.frontier-authentication", "git");
+                        await fs.promises.rm(gitDir, { recursive: true, force: true });
+                    }
+                    await resetRetryCount(this._context, "git");
+                    break;
+                }
+            }
+
+            safePostMessageToPanel(
+                this._panel,
+                { command: "toolDeleted", tool } as MessagesToMissingToolsWarning,
+                "MissingToolsWarning",
+            );
+        } catch (error) {
+            console.error(`[MissingToolsWarning] Failed to delete ${tool} binary:`, error);
+            vscode.window.showErrorMessage(
+                `Failed to delete ${tool} binary: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+    }
+
+    private async _handleForceBuiltin(tool: "sqlite" | "git" | "ffmpeg"): Promise<void> {
+        try {
+            switch (tool) {
+                case "sqlite": {
+                    if (this._sqliteSwitchInProgress) {
+                        return;
+                    }
+                    this._sqliteSwitchInProgress = true;
+                    try {
+                        const { setSqliteToolMode } = await import("../../utils/toolPreferences");
+                        const { isFts5SqliteReady, initFts5Sqlite } = await import("../../utils/fts5Sqlite");
+                        if (!isFts5SqliteReady()) {
+                            await initFts5Sqlite(this._context);
+                        }
+                        await setSqliteToolMode("force-builtin");
+
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Switching to Fallback AI Learning and Search Engine\u2026",
+                                cancellable: false,
+                            },
+                            async () => {
+                                const { getSQLiteIndexManager } = await import(
+                                    "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+                                );
+                                const manager = getSQLiteIndexManager();
+                                if (manager && !manager.isClosed) {
+                                    await manager.reopenWithCurrentBackend();
+                                }
+                            },
+                        );
+
+                        const { checkTools } = await import("../../utils/toolsManager");
+                        const { getAuthApi } = await import("../../extension");
+                        const result = await checkTools(this._context, getAuthApi());
+                        const message: MessagesToMissingToolsWarning = {
+                            command: "sqliteModeChanged",
+                            sqliteToolMode: "force-builtin",
+                            sqlite: result.sqlite,
+                            nativeSqliteAvailable: result.nativeSqliteAvailable,
+                        };
+                        safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+                    } finally {
+                        this._sqliteSwitchInProgress = false;
+                    }
+                    break;
+                }
+                case "git": {
+                    const { setGitToolMode } = await import("../../utils/toolPreferences");
+                    await setGitToolMode("force-builtin");
+
+                    const { checkTools } = await import("../../utils/toolsManager");
+                    const { getAuthApi } = await import("../../extension");
+                    const result = await checkTools(this._context, getAuthApi());
+                    const message: MessagesToMissingToolsWarning = {
+                        command: "gitModeChanged",
+                        gitToolMode: "force-builtin",
+                        git: result.git,
+                        nativeGitAvailable: result.nativeGitAvailable,
+                    };
+                    safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+                    break;
+                }
+                case "ffmpeg": {
+                    const { setAudioToolMode } = await import("../../utils/toolPreferences");
+                    await setAudioToolMode("force-builtin");
+
+                    const { checkTools } = await import("../../utils/toolsManager");
+                    const { getAuthApi } = await import("../../extension");
+                    const result = await checkTools(this._context, getAuthApi());
+                    const message: MessagesToMissingToolsWarning = {
+                        command: "audioModeChanged",
+                        audioToolMode: "force-builtin",
+                        ffmpeg: result.ffmpeg,
+                    };
+                    safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
+                    break;
+                }
+            }
+        } catch (error) {
+            console.error(`[MissingToolsWarning] Failed to force-builtin for ${tool}:`, error);
+        }
+    }
 
     private _sendWarnings(
         result: ToolCheckResult,

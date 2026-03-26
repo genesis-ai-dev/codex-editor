@@ -30,12 +30,8 @@ export const initializeAudioExtractor = (context: vscode.ExtensionContext): void
  * Check if the extension-owned FFmpeg binary is available.
  */
 async function isFFmpegAvailable(): Promise<boolean> {
-    try {
-        await getFFmpegPath(extensionContext);
-        return true;
-    } catch {
-        return false;
-    }
+    const ffmpegPath = await getFFmpegPath(extensionContext);
+    return ffmpegPath !== null;
 }
 
 /**
@@ -47,6 +43,9 @@ async function extractAudioWithFFmpeg(
     endTime: number
 ): Promise<Buffer> {
     const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    if (!ffmpegBinaryPath) {
+        throw new Error('FFmpeg not available');
+    }
 
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();

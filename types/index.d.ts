@@ -2237,9 +2237,9 @@ type EditorReceiveMessages =
         error?: string;
     };
 
-export type AudioToolMode = "auto" | "builtin";
-export type GitToolMode = "auto" | "builtin";
-export type SqliteToolMode = "auto" | "builtin";
+export type AudioToolMode = "auto" | "builtin" | "force-builtin";
+export type GitToolMode = "auto" | "builtin" | "force-builtin";
+export type SqliteToolMode = "auto" | "builtin" | "force-builtin";
 
 export type MessagesToMissingToolsWarning =
     | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean }
@@ -2249,7 +2249,10 @@ export type MessagesToMissingToolsWarning =
     | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
     | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
     | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean }
-    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean };
+    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean }
+    | { command: "showDeleteButtons" }
+    | { command: "showForceBuiltinButtons" }
+    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg" };
 
 export type MessagesFromMissingToolsWarning =
     | { command: "retry" }
@@ -2259,4 +2262,7 @@ export type MessagesFromMissingToolsWarning =
     | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
     | { command: "toggleAudioMode" }
     | { command: "toggleGitMode" }
-    | { command: "toggleSqliteMode" };
+    | { command: "toggleSqliteMode" }
+    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "reloadWindow" };

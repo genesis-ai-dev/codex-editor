@@ -76,6 +76,9 @@ export const MissingToolsWarning: React.FC = () => {
         git: false,
         ffmpeg: false,
     });
+    const [deleteMode, setDeleteMode] = useState(false);
+    const [forceBuiltinMode, setForceBuiltinMode] = useState(false);
+    const [deletedTools, setDeletedTools] = useState<Set<ToolKey>>(new Set());
     const network = useNetworkState();
     const isOnline = network?.online ?? true;
 
@@ -147,6 +150,12 @@ export const MissingToolsWarning: React.FC = () => {
             } else if (message?.command === "operationStatusChanged") {
                 setSyncInProgress(message.syncInProgress);
                 setAudioProcessingInProgress(message.audioProcessingInProgress);
+            } else if (message?.command === "showDeleteButtons") {
+                setDeleteMode(true);
+            } else if (message?.command === "showForceBuiltinButtons") {
+                setForceBuiltinMode(true);
+            } else if (message?.command === "toolDeleted") {
+                setDeletedTools((prev) => new Set(prev).add(message.tool));
             }
         };
 
@@ -189,6 +198,18 @@ export const MissingToolsWarning: React.FC = () => {
         vscode.postMessage({ command: "toggleSqliteMode" });
     }, []);
 
+    const handleDeleteTool = useCallback((tool: ToolKey) => {
+        vscode.postMessage({ command: "deleteTool", tool });
+    }, []);
+
+    const handleForceBuiltinTool = useCallback((tool: ToolKey) => {
+        vscode.postMessage({ command: "forceBuiltinTool", tool });
+    }, []);
+
+    const handleReloadWindow = useCallback(() => {
+        vscode.postMessage({ command: "reloadWindow" });
+    }, []);
+
     if (!status) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -208,11 +229,17 @@ export const MissingToolsWarning: React.FC = () => {
                 syncInProgress={syncInProgress}
                 audioProcessingInProgress={audioProcessingInProgress}
                 downloading={downloading}
+                deleteMode={deleteMode}
+                forceBuiltinMode={forceBuiltinMode}
+                deletedTools={deletedTools}
                 onClose={handleClose}
                 onDownloadTool={handleDownloadTool}
                 onToggleAudioMode={handleToggleAudioMode}
                 onToggleGitMode={handleToggleGitMode}
                 onToggleSqliteMode={handleToggleSqliteMode}
+                onDeleteTool={handleDeleteTool}
+                onForceBuiltinTool={handleForceBuiltinTool}
+                onReloadWindow={handleReloadWindow}
             />
         );
     }
@@ -263,11 +290,17 @@ interface ToolsStatusViewProps {
     syncInProgress: boolean;
     audioProcessingInProgress: boolean;
     downloading: Record<ToolKey, boolean>;
+    deleteMode: boolean;
+    forceBuiltinMode: boolean;
+    deletedTools: Set<ToolKey>;
     onClose: () => void;
     onDownloadTool: (tool: ToolKey) => void;
     onToggleAudioMode: () => void;
     onToggleGitMode: () => void;
     onToggleSqliteMode: () => void;
+    onDeleteTool: (tool: ToolKey) => void;
+    onForceBuiltinTool: (tool: ToolKey) => void;
+    onReloadWindow: () => void;
 }
 
 const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
@@ -279,42 +312,52 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
     syncInProgress,
     audioProcessingInProgress,
     downloading,
+    deleteMode,
+    forceBuiltinMode,
+    deletedTools,
     onClose,
     onDownloadTool,
     onToggleAudioMode,
     onToggleGitMode,
     onToggleSqliteMode,
+    onDeleteTool,
+    onForceBuiltinTool,
+    onReloadWindow,
 }) => {
-    const audioUsingBuiltIn = audioToolMode === "builtin" || !status.ffmpeg;
-    const gitUsingBuiltIn = gitToolMode === "builtin" || !status.nativeGitAvailable;
-    const sqliteUsingBuiltIn = sqliteToolMode === "builtin" || !status.nativeSqliteAvailable;
-    const allOk = status.nativeSqliteAvailable && sqliteToolMode !== "builtin" && status.nativeGitAvailable && status.ffmpeg;
+    const isForced = (mode: string) => mode === "force-builtin";
+    const isBuiltinMode = (mode: string) => mode === "builtin" || mode === "force-builtin";
 
-    const audioDescription = (() => {
-        if (audioToolMode === "builtin" && status.ffmpeg) {
-            return "Using fallback audio tools. Native audio tools are installed but not active.";
-        }
-        if (audioToolMode === "builtin" && !status.ffmpeg) {
-            return "Using fallback audio tools (.wav format). Full audio format support requires native audio tools.";
-        }
-        if (status.ffmpeg) {
-            return TOOL_INFO.ffmpeg.descriptions.available;
-        }
-        return TOOL_INFO.ffmpeg.descriptions.limited;
-    })();
+    const allOk = status.nativeSqliteAvailable && !isBuiltinMode(sqliteToolMode)
+        && status.nativeGitAvailable && !isBuiltinMode(gitToolMode)
+        && status.ffmpeg && !isBuiltinMode(audioToolMode);
 
-    const audioSeverity: "ok" | "warning" | "error" = !status.ffmpeg
-        ? "error"
-        : audioToolMode === "builtin"
-          ? "warning"
-          : "ok";
+    const getToolState = (mode: string, nativeAvailable: boolean) => {
+        const forced = isForced(mode);
+        const usingBuiltIn = isBuiltinMode(mode) || !nativeAvailable;
+        const severity: "ok" | "warning" | "error" =
+            forced ? "warning"
+            : isBuiltinMode(mode) ? "warning"
+            : !nativeAvailable ? "error"
+            : "ok";
+        const statusLabel =
+            forced ? "Running Fallback Tools (locked)"
+            : nativeAvailable && !usingBuiltIn ? "Installed and Running Native Tools"
+            : nativeAvailable && usingBuiltIn ? "Installed and Running Fallback Tools"
+            : "Not Installed \u2013 Running Fallback Tools";
+        const toggleLabel =
+            forced ? "Unlock Native Tools"
+            : nativeAvailable && usingBuiltIn ? "Use Native Tools"
+            : nativeAvailable ? "Use Fallback Tools"
+            : undefined;
+        const showDownload = !isBuiltinMode(mode) && !nativeAvailable;
+        const showToggle = forced || nativeAvailable;
 
-    const audioStatusLabel = (() => {
-        if (!audioUsingBuiltIn) {
-            return "Installed and Running Native Tools";
-        }
-        return status.ffmpeg ? "Installed and Running Fallback Tools" : "Not Installed – Running Fallback Tools";
-    })();
+        return { forced, usingBuiltIn, severity, statusLabel, toggleLabel, showDownload, showToggle };
+    };
+
+    const sqlite = getToolState(sqliteToolMode, status.nativeSqliteAvailable);
+    const git = getToolState(gitToolMode, status.nativeGitAvailable);
+    const audio = getToolState(audioToolMode, status.ffmpeg);
 
     return (
         <div className="flex items-center justify-center min-h-screen p-6">
@@ -339,87 +382,85 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                 <div className="space-y-3">
                     <StatusCard
                         title={TOOL_INFO.sqlite.name}
-                        description={(() => {
-                            if (sqliteToolMode === "builtin" && status.nativeSqliteAvailable) {
-                                return TOOL_INFO.sqlite.descriptions.limited;
-                            }
-                            if (!status.nativeSqliteAvailable && status.sqlite) {
-                                return TOOL_INFO.sqlite.descriptions.builtinActive;
-                            }
-                            if (!status.sqlite) {
-                                return TOOL_INFO.sqlite.descriptions.missing;
-                            }
-                            return TOOL_INFO.sqlite.descriptions.available;
-                        })()}
-                        severity={(!status.sqlite || !status.nativeSqliteAvailable) ? "error" : sqliteToolMode === "builtin" ? "warning" : "ok"}
-                        statusLabelOverride={(() => {
-                            if (!status.sqlite) return undefined;
-                            if (status.nativeSqliteAvailable && !sqliteUsingBuiltIn) {
-                                return "Installed and Running Native Tools";
-                            }
-                            if (status.nativeSqliteAvailable && sqliteUsingBuiltIn) {
-                                return "Installed and Running Fallback Tools";
-                            }
-                            return "Not Installed \u2013 Running Fallback Tools";
-                        })()}
+                        description={
+                            sqlite.usingBuiltIn
+                                ? (status.sqlite ? TOOL_INFO.sqlite.descriptions.builtinActive : TOOL_INFO.sqlite.descriptions.missing)
+                                : TOOL_INFO.sqlite.descriptions.available
+                        }
+                        severity={!status.sqlite && !sqlite.forced ? "error" : sqlite.severity}
+                        statusLabelOverride={!status.sqlite && !sqlite.forced ? undefined : sqlite.statusLabel}
                         isOnline={isOnline}
                         downloading={downloading.sqlite}
-                        onDownload={!status.nativeSqliteAvailable ? () => onDownloadTool("sqlite") : undefined}
-                        toggleLabel={status.nativeSqliteAvailable ? (sqliteUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
-                        onToggle={status.nativeSqliteAvailable ? onToggleSqliteMode : undefined}
+                        onDownload={sqlite.showDownload ? () => onDownloadTool("sqlite") : undefined}
+                        toggleLabel={sqlite.toggleLabel}
+                        onToggle={sqlite.showToggle ? onToggleSqliteMode : undefined}
+                        onDelete={deleteMode ? () => onDeleteTool("sqlite") : undefined}
+                        onForceBuiltin={forceBuiltinMode && !sqlite.forced ? () => onForceBuiltinTool("sqlite") : undefined}
+                        deleted={deletedTools.has("sqlite")}
+                        nativeInstalled={status.nativeSqliteAvailable}
                     />
 
                     <StatusCard
                         title={TOOL_INFO.git.name}
-                        description={(() => {
-                            if (gitToolMode === "builtin" && status.nativeGitAvailable) {
-                                return TOOL_INFO.git.descriptions.limited;
-                            }
-                            if (!status.nativeGitAvailable) {
-                                return TOOL_INFO.git.descriptions.builtinActive;
-                            }
-                            return TOOL_INFO.git.descriptions.available;
-                        })()}
-                        severity={!status.nativeGitAvailable ? "error" : gitToolMode === "builtin" ? "warning" : "ok"}
-                        statusLabelOverride={(() => {
-                            if (status.nativeGitAvailable && !gitUsingBuiltIn) {
-                                return "Installed and Running Native Tools";
-                            }
-                            if (status.nativeGitAvailable && gitUsingBuiltIn) {
-                                return "Installed and Running Fallback Tools";
-                            }
-                            return "Not Installed \u2013 Running Fallback Tools";
-                        })()}
+                        description={
+                            git.usingBuiltIn
+                                ? TOOL_INFO.git.descriptions.builtinActive
+                                : TOOL_INFO.git.descriptions.available
+                        }
+                        severity={git.severity}
+                        statusLabelOverride={git.statusLabel}
                         isOnline={isOnline}
                         downloading={downloading.git}
-                        onDownload={!status.nativeGitAvailable ? () => onDownloadTool("git") : undefined}
-                        toggleLabel={status.nativeGitAvailable ? (gitUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
-                        onToggle={status.nativeGitAvailable ? onToggleGitMode : undefined}
+                        onDownload={git.showDownload ? () => onDownloadTool("git") : undefined}
+                        toggleLabel={git.toggleLabel}
+                        onToggle={git.showToggle ? onToggleGitMode : undefined}
                         toggleDisabled={syncInProgress}
+                        onDelete={deleteMode ? () => onDeleteTool("git") : undefined}
+                        onForceBuiltin={forceBuiltinMode && !git.forced ? () => onForceBuiltinTool("git") : undefined}
+                        deleted={deletedTools.has("git")}
+                        nativeInstalled={status.nativeGitAvailable}
                     />
 
                     <StatusCard
                         title={TOOL_INFO.ffmpeg.name}
-                        description={audioDescription}
-                        severity={audioSeverity}
-                        statusLabelOverride={audioStatusLabel}
+                        description={
+                            audio.usingBuiltIn
+                                ? TOOL_INFO.ffmpeg.descriptions.limited
+                                : TOOL_INFO.ffmpeg.descriptions.available
+                        }
+                        severity={audio.severity}
+                        statusLabelOverride={audio.statusLabel}
                         isOnline={isOnline}
                         downloading={downloading.ffmpeg}
-                        onDownload={!status.ffmpeg ? () => onDownloadTool("ffmpeg") : undefined}
-                        toggleLabel={status.ffmpeg ? (audioUsingBuiltIn ? "Use Native Tools" : "Use Fallback Tools") : undefined}
-                        onToggle={status.ffmpeg ? onToggleAudioMode : undefined}
+                        onDownload={audio.showDownload ? () => onDownloadTool("ffmpeg") : undefined}
+                        toggleLabel={audio.toggleLabel}
+                        onToggle={audio.showToggle ? onToggleAudioMode : undefined}
                         toggleDisabled={audioProcessingInProgress}
+                        onDelete={deleteMode ? () => onDeleteTool("ffmpeg") : undefined}
+                        onForceBuiltin={forceBuiltinMode && !audio.forced ? () => onForceBuiltinTool("ffmpeg") : undefined}
+                        deleted={deletedTools.has("ffmpeg")}
+                        nativeInstalled={status.ffmpeg}
                     />
                 </div>
 
-                <div className="flex justify-center">
+                <div className="flex justify-center gap-3">
                     <Button
-                        onClick={onClose}
+                        onClick={deletedTools.size > 0 ? undefined : onClose}
+                        disabled={deletedTools.size > 0}
                         variant="outline"
                         className="min-w-[120px]"
                     >
                         Close
                     </Button>
+                    {deletedTools.size > 0 && (
+                        <Button
+                            onClick={onReloadWindow}
+                            className="min-w-[160px]"
+                        >
+                            <i className="codicon codicon-refresh mr-2" />
+                            Reload to Apply
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>
@@ -643,6 +684,10 @@ interface StatusCardProps {
     toggleLabel?: string;
     onToggle?: () => void;
     toggleDisabled?: boolean;
+    onDelete?: () => void;
+    onForceBuiltin?: () => void;
+    deleted?: boolean;
+    nativeInstalled?: boolean;
 }
 
 const StatusCard: React.FC<StatusCardProps> = ({
@@ -656,6 +701,10 @@ const StatusCard: React.FC<StatusCardProps> = ({
     toggleLabel,
     onToggle,
     toggleDisabled = false,
+    onDelete,
+    onForceBuiltin,
+    deleted = false,
+    nativeInstalled = true,
 }) => {
     const borderColor =
         severity === "ok"
@@ -743,6 +792,29 @@ const StatusCard: React.FC<StatusCardProps> = ({
                         >
                             <i className="codicon codicon-arrow-swap mr-1.5" />
                             {toggleLabel}
+                        </Button>
+                    )}
+                    {onDelete && (
+                        <Button
+                            variant={deleted || !nativeInstalled ? "outline" : "destructive"}
+                            size="sm"
+                            onClick={deleted || !nativeInstalled ? undefined : onDelete}
+                            disabled={deleted || !nativeInstalled}
+                            className="h-7 text-xs"
+                        >
+                            <i className={`codicon ${deleted ? "codicon-check" : !nativeInstalled ? "codicon-circle-slash" : "codicon-trash"} mr-1.5`} />
+                            {deleted ? "Deleted" : !nativeInstalled ? "Not Installed" : "Delete Tools"}
+                        </Button>
+                    )}
+                    {onForceBuiltin && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onForceBuiltin}
+                            className="h-7 text-xs"
+                        >
+                            <i className="codicon codicon-lock mr-1.5" />
+                            Force Fallback Only
                         </Button>
                     )}
                 </div>

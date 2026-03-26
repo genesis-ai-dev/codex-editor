@@ -489,16 +489,13 @@ export async function activate(context: vscode.ExtensionContext) {
         let nativeLoaded = false;
         try {
             const binaryPath = await ensureSqliteNativeBinary(context);
-            console.log("[SQLite] Binary path resolved:", binaryPath);
-            initNativeSqlite(binaryPath);
-            console.log("[SQLite] Native module initialized successfully");
-            nativeLoaded = true;
-        } catch (nativeError: any) {
-            if (!networkAvailable) {
-                console.log("[SQLite] Offline — native binary not cached locally");
-            } else {
-                console.warn("[SQLite] Failed to set up native binary:", nativeError?.message || nativeError);
+            if (binaryPath) {
+                initNativeSqlite(binaryPath);
+                console.log("[SQLite] Native module initialized successfully");
+                nativeLoaded = true;
             }
+        } catch (nativeError: any) {
+            console.warn("[SQLite] Failed to set up native binary:", nativeError?.message || nativeError);
         }
 
         if (sqliteMode === "builtin" || !nativeLoaded) {
@@ -597,9 +594,12 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (!current.sqlite) {
                         try {
                             const binaryPath = await ensureSqliteNativeBinary(context);
-                            initNativeSqlite(binaryPath);
+                            if (binaryPath) {
+                                initNativeSqlite(binaryPath);
+                            } else {
+                                await initFts5Sqlite(context);
+                            }
                         } catch {
-                            // Native retry failed — try fts5 fallback
                             try {
                                 await initFts5Sqlite(context);
                             } catch (e) {
@@ -984,6 +984,17 @@ export async function activate(context: vscode.ExtensionContext) {
                 });
             }
             await toolsStatusProvider.showToolsStatus();
+        })
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.advancedToolSettings", async () => {
+            if (!toolsStatusProvider) {
+                vscode.window.showInformationMessage(
+                    "Open the Status panel first (Codex Editor: Status), then run this command."
+                );
+                return;
+            }
+            toolsStatusProvider.enableReinstallMode();
         })
     );
 

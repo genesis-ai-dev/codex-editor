@@ -59,12 +59,8 @@ export interface AudioSegment {
  * Returns true only if the binary can actually be resolved.
  */
 export const isFFmpegAvailable = async (): Promise<boolean> => {
-    try {
-        await getFFmpegPath(extensionContext);
-        return true;
-    } catch {
-        return false;
-    }
+    const ffmpegPath = await getFFmpegPath(extensionContext);
+    return ffmpegPath !== null;
 };
 
 /**
@@ -103,6 +99,9 @@ const detectSilenceWithDuration = async (
     minDuration: number = 0.5,
 ): Promise<SilenceDetectionResult> => {
     const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    if (!ffmpegBinaryPath) {
+        throw new Error("FFmpeg not available");
+    }
 
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
@@ -253,6 +252,9 @@ const generateWaveformPeaks = async (
     sampleRate: number = 8000,
 ): Promise<number[]> => {
     const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    if (!ffmpegBinaryPath) {
+        throw new Error("FFmpeg not available");
+    }
 
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
@@ -379,6 +381,9 @@ export const extractSegment = async (
     mode: SegmentExtractionMode = "wav",
 ): Promise<void> => {
     const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    if (!ffmpegBinaryPath) {
+        throw new Error("FFmpeg not available");
+    }
 
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();

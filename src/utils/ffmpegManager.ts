@@ -9,6 +9,15 @@ import * as fs from "fs";
 import * as os from "os";
 import { execFile as execFileCb } from "child_process";
 import { promisify } from "util";
+import {
+    computeFileHash,
+    writeHashMarker,
+    readHashMarker,
+    verifyIntegrity,
+    hasExceededRetries,
+    incrementRetryCount,
+    resetRetryCount,
+} from "./binaryIntegrityUtils";
 
 const execFile = promisify(execFileCb);
 
@@ -75,12 +84,33 @@ async function canExecute(binaryPath: string): Promise<boolean> {
 async function downloadFFmpegBinary(
     context: vscode.ExtensionContext,
 ): Promise<string | null> {
+    const { getAudioToolMode } = await import("./toolPreferences");
+    if (getAudioToolMode() === "force-builtin") {
+        console.log("[ffmpegManager] force-builtin mode — skipping native binary download");
+        return null;
+    }
+
     const binaryPath = getBinaryPath(context);
-    if (fs.existsSync(binaryPath) && (await canExecute(binaryPath))) {
-        console.log(`[ffmpegManager] Downloaded ffmpeg verified: ${binaryPath}`);
-        return binaryPath;
-    } else if (fs.existsSync(binaryPath)) {
-        console.warn(`[ffmpegManager] Downloaded ffmpeg exists at ${binaryPath} but failed execution check — re-downloading`);
+    const destDir = path.join(context.globalStorageUri.fsPath, "ffmpeg");
+
+    if (fs.existsSync(binaryPath)) {
+        const integrityOk = await verifyIntegrity(binaryPath, destDir);
+        const hasMarker = readHashMarker(destDir) !== null;
+
+        if (hasMarker && !integrityOk) {
+            console.warn(`[ffmpegManager] SHA-256 mismatch — binary may be corrupt, re-downloading`);
+        } else if (await canExecute(binaryPath)) {
+            console.log(`[ffmpegManager] Downloaded ffmpeg verified: ${binaryPath}`);
+            await resetRetryCount(context, "ffmpeg");
+            return binaryPath;
+        } else {
+            console.warn(`[ffmpegManager] Downloaded ffmpeg exists at ${binaryPath} but failed execution check — re-downloading`);
+        }
+    }
+
+    if (hasExceededRetries(context, "ffmpeg")) {
+        console.warn("[ffmpegManager] Retry limit reached — audio features will use fallback");
+        return null;
     }
 
     const version = getPlatformVersion();
@@ -93,7 +123,6 @@ async function downloadFFmpegBinary(
 
     const effectiveKey = getEffectivePlatformKey();
     const packageName = `@ffmpeg-installer/${effectiveKey}`;
-    const destDir = path.join(context.globalStorageUri.fsPath, "ffmpeg");
 
     try {
         await vscode.workspace.fs.createDirectory(context.globalStorageUri);
@@ -106,9 +135,17 @@ async function downloadFFmpegBinary(
         if (process.platform !== "win32" && fs.existsSync(binaryPath)) {
             fs.chmodSync(binaryPath, 0o755);
         }
-        console.log(`[ffmpegManager] Successfully downloaded ffmpeg: ${binaryPath}`);
-        return fs.existsSync(binaryPath) ? binaryPath : null;
+        if (fs.existsSync(binaryPath)) {
+            const hash = await computeFileHash(binaryPath);
+            writeHashMarker(destDir, hash);
+            console.log(`[ffmpegManager] SHA-256 of installed binary: ${hash}`);
+            await resetRetryCount(context, "ffmpeg");
+            console.log(`[ffmpegManager] Successfully downloaded ffmpeg: ${binaryPath}`);
+            return binaryPath;
+        }
+        return null;
     } catch (error) {
+        await incrementRetryCount(context, "ffmpeg");
         console.error(
             `[ffmpegManager] Failed to download ffmpeg:`,
             error instanceof Error ? error.message : String(error),
@@ -124,7 +161,8 @@ async function downloadWithProgress(
     context: vscode.ExtensionContext,
 ): Promise<string | null> {
     const binaryPath = getBinaryPath(context);
-    if (fs.existsSync(binaryPath)) {
+    if (fs.existsSync(binaryPath) && (await canExecute(binaryPath))) {
+        await resetRetryCount(context, "ffmpeg");
         return binaryPath;
     }
 
@@ -140,9 +178,7 @@ async function downloadWithProgress(
                 progress.report({ message: "Downloading FFmpeg..." });
                 return await downloadFFmpegBinary(context);
             } catch (error) {
-                vscode.window.showErrorMessage(
-                    `Failed to download audio processing tools: ${error instanceof Error ? error.message : String(error)}`,
-                );
+                console.warn(`[ffmpegManager] Download failed: ${error instanceof Error ? error.message : String(error)}`);
                 return null;
             }
         },
@@ -245,7 +281,7 @@ async function downloadAndExtractPackage(
  */
 export async function getFFmpegPath(
     context?: vscode.ExtensionContext
-): Promise<string> {
+): Promise<string | null> {
     if (ffmpegInfo) {
         return ffmpegInfo.path;
     }
@@ -273,10 +309,8 @@ export async function getFFmpegPath(
         // No bundled version available
     }
 
-    throw new Error(
-        "FFmpeg not found. Audio features are unavailable. " +
-            "Download the Codex application from codexeditor.app for full audio support."
-    );
+    console.warn("[ffmpegManager] FFmpeg unavailable — audio features will be limited");
+    return null;
 }
 
 /**

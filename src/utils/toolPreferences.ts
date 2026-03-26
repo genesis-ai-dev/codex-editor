@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 // Audio tool preferences
 // ---------------------------------------------------------------------------
 
-export type AudioToolMode = "auto" | "builtin";
+export type AudioToolMode = "auto" | "builtin" | "force-builtin";
 
 const AUDIO_TOOL_MODE_KEY = "toolPreferences.audioToolMode";
 
@@ -36,7 +36,7 @@ export const setAudioToolMode = async (mode: AudioToolMode): Promise<void> => {
  */
 export const shouldUseNativeAudio = (ffmpegAvailable: boolean): boolean => {
     const mode = getAudioToolMode();
-    if (mode === "builtin") {
+    if (mode === "builtin" || mode === "force-builtin") {
         return false;
     }
     return ffmpegAvailable;
@@ -46,7 +46,7 @@ export const shouldUseNativeAudio = (ffmpegAvailable: boolean): boolean => {
 // Git tool preferences
 // ---------------------------------------------------------------------------
 
-export type GitToolMode = "auto" | "builtin";
+export type GitToolMode = "auto" | "builtin" | "force-builtin";
 
 let _nativeGitAvailable = false;
 
@@ -85,7 +85,8 @@ export const setNativeGitAvailable = (available: boolean): void => {
  * back in automatically.
  */
 export const shouldUseNativeGit = (): boolean => {
-    if (getGitToolMode() === "builtin") {
+    const mode = getGitToolMode();
+    if (mode === "builtin" || mode === "force-builtin") {
         return false;
     }
     return _nativeGitAvailable;
@@ -95,7 +96,7 @@ export const shouldUseNativeGit = (): boolean => {
 // SQLite tool preferences
 // ---------------------------------------------------------------------------
 
-export type SqliteToolMode = "auto" | "builtin";
+export type SqliteToolMode = "auto" | "builtin" | "force-builtin";
 
 const SQLITE_TOOL_MODE_KEY = "toolPreferences.sqliteToolMode";
 
@@ -124,7 +125,8 @@ export const setSqliteToolMode = async (mode: SqliteToolMode): Promise<void> => 
  * is downloaded.
  */
 export const shouldUseNativeSqlite = (): boolean => {
-    if (getSqliteToolMode() === "builtin") {
+    const mode = getSqliteToolMode();
+    if (mode === "builtin" || mode === "force-builtin") {
         return false;
     }
     // Lazy import to avoid circular dependency at module load time

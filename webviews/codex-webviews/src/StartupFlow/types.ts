@@ -194,4 +194,6 @@ export interface FrontierAPI {
     /** Returns true when git operations can succeed (native binary OR isomorphic-git fallback). */
     isGitAvailable?: () => boolean;
     retryGitBinaryDownload?: () => Promise<boolean>;
+    /** Delete the downloaded git binary directory so it is re-downloaded on next reload. */
+    deleteGitBinary?: () => Promise<boolean>;
 }

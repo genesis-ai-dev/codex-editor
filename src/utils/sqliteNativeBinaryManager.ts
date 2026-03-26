@@ -12,6 +12,15 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
+import {
+    computeFileHash,
+    writeHashMarker,
+    readHashMarker,
+    verifyIntegrity,
+    hasExceededRetries,
+    incrementRetryCount,
+    resetRetryCount,
+} from "./binaryIntegrityUtils";
 
 /** Version of the TryGhost sqlite3 prebuilt binary we download */
 const SQLITE3_VERSION = "5.1.7";
@@ -38,7 +47,7 @@ const MAX_DOWNLOAD_ATTEMPTS = 3;
 let cachedBinaryPath: string | null = null;
 
 /** In-flight download promise — prevents concurrent download races */
-let downloadInProgress: Promise<string> | null = null;
+let downloadInProgress: Promise<string | null> | null = null;
 
 /**
  * Determine the platform key used in the prebuilt binary filename.
@@ -135,7 +144,6 @@ function shouldRedownload(binaryPath: string, versionFilePath: string): boolean 
             return true;
         }
     } catch {
-        // version.txt missing or unreadable → treat as outdated
         console.log("[SQLite] version.txt missing or unreadable — will re-download");
         return true;
     }
@@ -153,6 +161,20 @@ function shouldRedownload(binaryPath: string, versionFilePath: string): boolean 
         return true;
     }
 
+    return false;
+}
+
+/**
+ * Async integrity check: recomputes SHA-256 of the binary and compares to the
+ * stored marker. Returns true when re-download is needed.  Falls back to
+ * `false` (allow use) when no marker file exists yet (pre-integrity installs).
+ */
+async function shouldRedownloadAsync(binaryPath: string, storageDir: string): Promise<boolean> {
+    const ok = await verifyIntegrity(binaryPath, storageDir);
+    if (!ok && readHashMarker(storageDir) !== null) {
+        console.log("[SQLite] SHA-256 mismatch — binary may be corrupt, will re-download");
+        return true;
+    }
     return false;
 }
 
@@ -301,6 +323,11 @@ async function downloadBinary(
         // Write version marker so future startups know which version is cached
         writeVersionFile(versionFilePath);
 
+        // Write SHA-256 marker for startup integrity re-verification
+        const hash = await computeFileHash(binaryPath);
+        writeHashMarker(storageDir, hash);
+        console.log(`[SQLite] SHA-256 of installed binary: ${hash}`);
+
         console.log(`[SQLite] Native binary v${SQLITE3_VERSION} installed at: ${binaryPath}`);
         return binaryPath;
     } finally {
@@ -318,9 +345,16 @@ async function downloadBinary(
  */
 export async function ensureSqliteNativeBinary(
     context: vscode.ExtensionContext
-): Promise<string> {
+): Promise<string | null> {
+    const { getSqliteToolMode } = await import("./toolPreferences");
+    if (getSqliteToolMode() === "force-builtin") {
+        console.log("[SQLite] force-builtin mode — skipping native binary download");
+        return null;
+    }
+
     const binaryPath = getBinaryStoragePath(context);
     const versionFilePath = getVersionFilePath(context);
+    const storageDir = path.join(context.globalStorageUri.fsPath, SQLITE_STORAGE_DIR);
 
     // Fast path: in-memory cache still valid (same process, already verified)
     if (cachedBinaryPath && cachedBinaryPath === binaryPath && fs.existsSync(cachedBinaryPath)) {
@@ -329,23 +363,34 @@ export async function ensureSqliteNativeBinary(
 
     // Check if binary already exists in storage AND matches expected version/integrity
     if (fs.existsSync(binaryPath) && !shouldRedownload(binaryPath, versionFilePath)) {
-        cachedBinaryPath = binaryPath;
-        console.log(`[SQLite] Using cached native binary v${SQLITE3_VERSION}: ${binaryPath}`);
-        return binaryPath;
+        if (await shouldRedownloadAsync(binaryPath, storageDir)) {
+            if (hasExceededRetries(context, "sqlite")) {
+                console.warn("[SQLite] Retry limit reached — falling back to fts5-sql-bundle");
+                return null;
+            }
+            await incrementRetryCount(context, "sqlite");
+            console.warn("[SQLite] Integrity check failed — deleting cached binary for re-download");
+            try { fs.unlinkSync(binaryPath); } catch { /* best-effort */ }
+        } else {
+            await resetRetryCount(context, "sqlite");
+            cachedBinaryPath = binaryPath;
+            console.log(`[SQLite] Using cached native binary v${SQLITE3_VERSION}: ${binaryPath}`);
+            return binaryPath;
+        }
     }
 
-    // Determine platform
+    if (hasExceededRetries(context, "sqlite")) {
+        console.warn("[SQLite] Retry limit reached — falling back to fts5-sql-bundle");
+        return null;
+    }
+
     const platformKey = getPlatformKey();
     if (!platformKey) {
-        throw new Error(
-            `SQLite native binary not available for this platform: ` +
-            `${process.platform}-${process.arch}. ` +
-            `Supported: darwin-arm64, darwin-x64, linux-arm64, linux-x64, ` +
-            `linuxmusl-arm64, linuxmusl-x64, win32-ia32, win32-x64`
-        );
+        console.warn(`[SQLite] Platform ${process.platform}-${process.arch} not supported — falling back to fts5-sql-bundle`);
+        return null;
     }
 
-    // Fast-fail when offline: no point retrying downloads that cannot succeed.
+    // Fast-fail when offline
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
@@ -358,20 +403,15 @@ export async function ensureSqliteNativeBinary(
             throw new Error("GitHub unreachable");
         }
     } catch {
-        throw new Error(
-            "SQLite binary is not cached and the network is unavailable. Search features require an initial online setup."
-        );
+        console.warn("[SQLite] Offline — native binary unavailable, falling back to fts5-sql-bundle");
+        return null;
     }
 
-    // If another call is already downloading, piggyback on that promise
-    // to avoid concurrent extractions into the same directory
     if (downloadInProgress) {
         console.log("[SQLite] Download already in progress — waiting for it to finish");
         return downloadInProgress;
     }
 
-    // Download with blocking progress dialog.
-    // Wrap in Promise.resolve() because vscode.window.withProgress returns Thenable, not Promise.
     downloadInProgress = Promise.resolve(
         vscode.window.withProgress(
             {
@@ -386,12 +426,14 @@ export async function ensureSqliteNativeBinary(
 
                 try {
                     const downloadedPath = await downloadBinary(context, platformKey);
+                    await resetRetryCount(context, "sqlite");
                     progress.report({ message: "Search is ready!" });
                     return downloadedPath;
                 } catch (error) {
+                    await incrementRetryCount(context, "sqlite");
                     const msg = error instanceof Error ? error.message : String(error);
                     console.warn(`[SQLite] Binary download failed: ${msg}`);
-                    throw error;
+                    return null;
                 }
             }
         )
@@ -399,7 +441,9 @@ export async function ensureSqliteNativeBinary(
 
     try {
         const result = await downloadInProgress;
-        cachedBinaryPath = result;
+        if (result) {
+            cachedBinaryPath = result;
+        }
         return result;
     } finally {
         downloadInProgress = null;

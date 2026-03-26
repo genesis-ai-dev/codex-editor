@@ -5,6 +5,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { isNativeSqliteReady } from "./nativeSqlite";
 import { isDatabaseReady } from "./sqliteDatabaseFactory";
+import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "./toolPreferences";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 
 const execFile = promisify(execFileCb);
@@ -61,14 +62,15 @@ export async function checkTools(
  * Returns the list of tools that are currently unavailable.
  */
 export function getUnavailableTools(result: ToolCheckResult): string[] {
+    const isBuiltinMode = (mode: string) => mode === "builtin" || mode === "force-builtin";
     const unavailable: string[] = [];
-    if (!result.git) {
+    if (!result.git && !isBuiltinMode(getGitToolMode())) {
         unavailable.push("git");
     }
-    if (!result.sqlite) {
+    if (!result.sqlite && !isBuiltinMode(getSqliteToolMode())) {
         unavailable.push("sqlite");
     }
-    if (!result.ffmpeg) {
+    if (!result.ffmpeg && !isBuiltinMode(getAudioToolMode())) {
         unavailable.push("ffmpeg");
     }
     return unavailable;

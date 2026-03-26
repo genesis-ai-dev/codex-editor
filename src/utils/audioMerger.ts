@@ -75,6 +75,10 @@ const mergeWithFFmpeg = async (
 
     try {
         const ffmpegPath = await getFFmpegPath(extensionContext);
+        if (!ffmpegPath) {
+            console.warn("[audioMerger] FFmpeg not available — cannot merge audio");
+            return null;
+        }
 
         const outputDir = path.dirname(outputPath);
         if (!fs.existsSync(outputDir)) {

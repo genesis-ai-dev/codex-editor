@@ -359,6 +359,9 @@ async function convertToWav(
     sampleRate: number = 48000
 ): Promise<Uint8Array> {
     const ffmpegBinaryPath = await getFFmpegPath();
+    if (!ffmpegBinaryPath) {
+        throw new Error("FFmpeg not available");
+    }
     const tempDir = os.tmpdir();
     const tempInputPath = `${tempDir}/codex-audio-input-${Date.now()}${originalExt}`;
     const tempOutputPath = `${tempDir}/codex-audio-output-${Date.now()}.wav`;
