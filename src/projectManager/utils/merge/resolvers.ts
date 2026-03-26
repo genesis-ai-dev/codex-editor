@@ -1,7 +1,7 @@
 import { CodexCellDocument } from './../../../providers/codexCellEditorProvider/codexDocument';
 import * as vscode from "vscode";
 import * as path from "path";
-import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
+import { ConflictResolutionStrategy, ConflictFile } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
 import { checkProjectAdminPermissions } from "../../../utils/projectAdminPermissionChecker";
@@ -17,6 +17,7 @@ import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } fro
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
+import { ORPHANED_PROJECT_FILES } from "../../../utils/fileUtils";
 import {
     buildCellPositionContextMap,
     insertUniqueCellsPreservingRelativePositions,
@@ -229,6 +230,56 @@ function mergeProjectSwap(
 
     return {
         swapEntries: mergedEntries,
+    };
+}
+
+/**
+ * Merges originalFilesHashes registries from base, ours, and theirs.
+ * Union by hash: combine all entries. For same hash, merge referencedBy and originalNames.
+ */
+function mergeOriginalFilesHashes(
+    base: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
+    ours: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
+    theirs: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined
+): { version: number; files: Record<string, any>; fileNameToHash: Record<string, string> } | undefined {
+    const ourFiles = ours?.files || {};
+    const theirFiles = theirs?.files || {};
+    const baseFiles = base?.files || {};
+    if (Object.keys(ourFiles).length === 0 && Object.keys(theirFiles).length === 0) {
+        if (base?.files && Object.keys(baseFiles).length > 0) {
+            return { version: base.version ?? 1, files: base.files, fileNameToHash: base.fileNameToHash || {} };
+        }
+        return undefined;
+    }
+
+    const mergedFiles: Record<string, any> = {};
+    const mergedFileNameToHash: Record<string, string> = {};
+    const allHashes = new Set([...Object.keys(ourFiles), ...Object.keys(theirFiles)]);
+
+    for (const hash of allHashes) {
+        const ourEntry = ourFiles[hash];
+        const theirEntry = theirFiles[hash];
+
+        if (!ourEntry && theirEntry) {
+            mergedFiles[hash] = { ...theirEntry };
+        } else if (ourEntry && !theirEntry) {
+            mergedFiles[hash] = { ...ourEntry };
+        } else {
+            // Both have this hash - merge referencedBy and originalNames (union)
+            const mergedEntry = {
+                ...ourEntry,
+                referencedBy: [...new Set([...(ourEntry.referencedBy || []), ...(theirEntry.referencedBy || [])])],
+                originalNames: [...new Set([...(ourEntry.originalNames || []), ...(theirEntry.originalNames || [])])],
+            };
+            mergedFiles[hash] = mergedEntry;
+        }
+        mergedFileNameToHash[mergedFiles[hash].fileName] = hash;
+    }
+
+    return {
+        version: Math.max(ours?.version || 1, theirs?.version || 1),
+        files: mergedFiles,
+        fileNameToHash: mergedFileNameToHash,
     };
 }
 
@@ -468,7 +519,12 @@ export async function resolveConflictFile(
     options?: ResolveConflictOptions
 ): Promise<string | undefined> {
     try {
-        // No need to read files, we already have the content
+        // Guard against path-traversal: resolved path must stay inside the workspace
+        const resolvedTarget = path.resolve(workspaceDir, conflict.filepath);
+        if (!resolvedTarget.startsWith(path.resolve(workspaceDir) + path.sep) && resolvedTarget !== path.resolve(workspaceDir)) {
+            throw new Error(`Path traversal rejected: "${conflict.filepath}" escapes workspace`);
+        }
+
         const strategy = determineStrategy(conflict.filepath);
         debugLog("Strategy:", strategy);
         let resolvedContent: string;
@@ -496,24 +552,11 @@ export async function resolveConflictFile(
                 resolvedContent = conflict.ours; // Keep our version
                 break;
 
-            case ConflictResolutionStrategy.SOURCE:
             case ConflictResolutionStrategy.OVERRIDE: {
                 debugLog("Resolving conflict for:", conflict.filepath);
                 // TODO: Compare content timestamps if embedded in the content
                 // For now, default to our version
                 resolvedContent = conflict.ours;
-                break;
-            }
-
-            case ConflictResolutionStrategy.JSONL: {
-                debugLog("Resolving JSONL conflict for:", conflict.filepath);
-                // Parse and merge JSONL content
-                const ourLines = conflict.ours.split("\n").filter(Boolean);
-                const theirLines = conflict.theirs.split("\n").filter(Boolean);
-
-                // Combine and deduplicate
-                const allLines = new Set([...ourLines, ...theirLines]);
-                resolvedContent = Array.from(allLines).join("\n");
                 break;
             }
 
@@ -530,11 +573,7 @@ export async function resolveConflictFile(
             // SPECIAL = "special", // Merge based on timestamps/rules
             case ConflictResolutionStrategy.SPECIAL: {
                 debugLog("Resolving special conflict for:", conflict.filepath);
-                if (conflict.filepath === "metadata.json") {
-                    resolvedContent = await resolveMetadataJsonConflict(conflict);
-                } else {
-                    resolvedContent = await resolveSmartEditsConflict(conflict.ours, conflict.theirs);
-                }
+                resolvedContent = await resolveMetadataJsonConflict(conflict);
                 break;
             }
 
@@ -558,8 +597,7 @@ export async function resolveConflictFile(
                 resolvedContent = conflict.ours; // Default to our version
         }
 
-        // Write resolved content back to the actual file
-        const targetPath = vscode.Uri.file(path.join(workspaceDir, conflict.filepath));
+        const targetPath = vscode.Uri.file(resolvedTarget);
         debugLog("Writing resolved content to:", targetPath.fsPath);
         await vscode.workspace.fs.writeFile(targetPath, Buffer.from(resolvedContent));
         debugLog("Successfully wrote content for:", conflict.filepath);
@@ -785,9 +823,6 @@ function applyEditToMetadata(metadata: CustomNotebookMetadata, edit: FileEditHis
                     break;
                 case 'fileDisplayName':
                     metadata.fileDisplayName = value as string;
-                    break;
-                case 'cellDisplayMode':
-                    metadata.cellDisplayMode = value as "inline" | "one-line-per-cell";
                     break;
                 case 'audioOnly':
                     metadata.audioOnly = value as boolean;
@@ -1722,68 +1757,8 @@ function isValidSelection(selectedId: string, attachments?: { [key: string]: any
     const attachment = attachments[selectedId];
     return attachment &&
         attachment.type === "audio" &&
-        !attachment.isDeleted;
-}
-
-/**
- * Resolves conflicts in smart_edits.json files
- */
-async function resolveSmartEditsConflict(
-    ourContent: string,
-    theirContent: string
-): Promise<string> {
-    // Handle empty content cases
-    if (!ourContent.trim()) {
-        return theirContent.trim() || "{}";
-    }
-    if (!theirContent.trim()) {
-        return ourContent.trim() || "{}";
-    }
-
-    try {
-        const ourEdits = JSON.parse(ourContent);
-        const theirEdits = JSON.parse(theirContent);
-
-        // Merge the edits, preferring newer versions for same cellIds
-        const mergedEdits: Record<string, SmartEdit> = {};
-
-        // Process our edits
-        Object.entries(ourEdits).forEach(([cellId, edit]) => {
-            mergedEdits[cellId] = edit as SmartEdit;
-        });
-
-        // Process their edits, comparing timestamps for conflicts
-        Object.entries(theirEdits).forEach(([cellId, theirEdit]) => {
-            if (!mergedEdits[cellId]) {
-                mergedEdits[cellId] = theirEdit as SmartEdit;
-            } else {
-                const ourDate = new Date(mergedEdits[cellId].lastUpdatedDate);
-                const theirDate = new Date((theirEdit as SmartEdit).lastUpdatedDate);
-
-                if (theirDate > ourDate) {
-                    mergedEdits[cellId] = theirEdit as SmartEdit;
-                }
-
-                // Merge suggestions arrays and deduplicate
-                const allSuggestions = [
-                    ...mergedEdits[cellId].suggestions,
-                    ...(theirEdit as SmartEdit).suggestions,
-                ];
-
-                // Deduplicate suggestions based on oldString+newString combination
-                mergedEdits[cellId].suggestions = Array.from(
-                    new Map(
-                        allSuggestions.map((sugg) => [`${sugg.oldString}:${sugg.newString}`, sugg])
-                    ).values()
-                );
-            }
-        });
-
-        return JSON.stringify(mergedEdits, null, 2);
-    } catch (error) {
-        console.error("Error resolving smart_edits.json conflict:", error);
-        return "{}"; // Return empty object if parsing fails
-    }
+        !attachment.isDeleted &&
+        !attachment.isMissing;
 }
 
 /**
@@ -2101,6 +2076,14 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             theirs?.meta?.projectSwap
         );
 
+        // 1.6. Resolve originalFilesHashes (Union merge by hash)
+        // Merge registries: union of all entries by hash. For same hash, merge referencedBy and originalNames.
+        const mergedOriginalFilesHashes = mergeOriginalFilesHashes(
+            base?.originalFilesHashes,
+            ours?.originalFilesHashes,
+            theirs?.originalFilesHashes
+        );
+
         // 2. Generic 3-Way Merge for the rest of the file
         // This ensures we don't lose other metadata changes from remote
         const mergeObjects = (baseObj: any, ourObj: any, theirObj: any, path: string[] = []): any => {
@@ -2140,6 +2123,11 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                     continue; // Skip, already merged above
                 }
 
+                // Skip originalFilesHashes - handled by specialized merge below
+                if (key === 'originalFilesHashes' && path.length === 0) {
+                    continue;
+                }
+
                 const bVal = baseObj?.[key];
                 const oVal = ourObj?.[key];
                 const tVal = theirObj?.[key];
@@ -2175,19 +2163,24 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         const otherFieldsMerged = mergeObjects(base, ours, theirs);
 
         // Combine: use edit history result as base, then overlay other merged fields
-        // But preserve edits, initiateRemoteUpdatingFor, and projectSwap from our specialized merges
-        const finalResult = {
+        // But preserve edits, initiateRemoteUpdatingFor, projectSwap, and originalFilesHashes from our specialized merges
+        const otherMeta = (otherFieldsMerged as Record<string, unknown>).meta as Record<string, unknown> | undefined;
+        const finalResult: Record<string, unknown> = {
             ...otherFieldsMerged,
             edits: resolvedMetadata.edits, // From edit history merge
             meta: {
-                ...otherFieldsMerged.meta,
+                ...otherMeta,
                 initiateRemoteUpdatingFor: mergedUpdatingList, // From specialized merge (new field name)
                 projectSwap: mergedProjectSwap, // From specialized merge
             }
         };
+        if (mergedOriginalFilesHashes) {
+            finalResult.originalFilesHashes = mergedOriginalFilesHashes;
+        }
         // Remove projectSwap if it's undefined or null (mergeProjectSwap returns undefined when nothing to merge)
-        if (finalResult.meta && (finalResult.meta.projectSwap === undefined || finalResult.meta.projectSwap === null)) {
-            delete finalResult.meta.projectSwap;
+        const meta = finalResult.meta as Record<string, unknown> | undefined;
+        if (meta && (meta.projectSwap === undefined || meta.projectSwap === null)) {
+            delete meta.projectSwap;
         }
 
         return JSON.stringify(finalResult, null, 4);
@@ -2219,7 +2212,7 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
             ours = JSON.parse(conflict.ours || '{}');
             ours["git.enabled"] = false;
             vscode.window.showErrorMessage(
-                'Settings merge failed due to invalid JSON. Using local version.',
+                'Settings couldn\'t be combined properly. Your local version was kept.',
                 'Show Settings'
             ).then(choice => {
                 if (choice === 'Show Settings') {
@@ -2341,8 +2334,8 @@ async function resolveSettingsJsonConflict(conflict: ConflictFile): Promise<stri
         // Standard conflict notification
         const conflictKeys = conflicts.map(c => c.key).join(', ');
         vscode.window.showInformationMessage(
-            `Settings merge: ${conflicts.length} conflict(s) resolved (${conflictKeys}). ` +
-            `Check settings if needed.`,
+            `${conflicts.length} setting(s) had different values and were automatically resolved. ` +
+            `You may want to review them.`,
             'Show Settings'
         ).then(choice => {
             if (choice === 'Show Settings') {
@@ -2468,6 +2461,11 @@ export type ResolvedFile = {
     resolution: "deleted" | "created" | "modified";
 };
 
+export type ConflictResolutionResult = {
+    resolved: ResolvedFile[];
+    failed: Array<{ filepath: string; error: string }>;
+};
+
 /**
  * Main function to resolve all conflict files
  */
@@ -2475,26 +2473,27 @@ export async function resolveConflictFiles(
     conflicts: ConflictFile[],
     workspaceDir: string,
     options?: ResolveConflictOptions
-): Promise<ResolvedFile[]> {
+): Promise<ConflictResolutionResult> {
     debugLog("Starting conflict resolution with:", { conflicts, workspaceDir });
 
     // Validate inputs
     if (!Array.isArray(conflicts)) {
         console.error("Expected conflicts to be an array, got:", conflicts);
-        return [];
+        return { resolved: [], failed: [] };
     }
 
     if (conflicts.length === 0) {
         console.warn("No conflicts to resolve");
-        return [];
+        return { resolved: [], failed: [] };
     }
 
     const resolvedFiles: ResolvedFile[] = [];
+    const failedFiles: Array<{ filepath: string; error: string }> = [];
 
     await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: "Resolving conflicts...",
+            title: "Combining changes...",
             cancellable: false,
         },
         async (progress) => {
@@ -2503,7 +2502,7 @@ export async function resolveConflictFiles(
             const reportProgress = (): void => {
                 progress.report({
                     increment: (1 / totalConflicts) * 100,
-                    message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                    message: `File ${processedConflicts} of ${totalConflicts}`,
                 });
             };
 
@@ -2536,9 +2535,15 @@ export async function resolveConflictFiles(
             let nextIndex = 0;
 
             const processOne = async (conflict: ConflictFile): Promise<void> => {
+                const conflictPath = conflict?.filepath ?? "<unknown>";
+
                 // Validate conflict object structure
                 if (!isValidConflict(conflict)) {
                     console.error("Invalid conflict object:", conflict);
+                    failedFiles.push({
+                        filepath: conflictPath,
+                        error: "Invalid conflict object structure",
+                    });
                     return;
                 }
 
@@ -2548,18 +2553,39 @@ export async function resolveConflictFiles(
                     ...normalizedFilepath.split("/")
                 );
 
+                // Orphaned files from removed features should always resolve as deleted,
+                // even if the remote still has them. The local cleanup already deleted them.
+                const isOrphaned = ORPHANED_PROJECT_FILES.some(
+                    (orphan) => normalizedFilepath === orphan || normalizedFilepath.endsWith("/" + orphan)
+                );
+                if (isOrphaned) {
+                    debugLog(`Resolving orphaned file as deleted: ${conflict.filepath}`);
+                    try {
+                        await vscode.workspace.fs.delete(filePath);
+                    } catch {
+                        // Already deleted locally — expected
+                    }
+                    resolvedFiles.push({
+                        filepath: conflict.filepath,
+                        resolution: "deleted",
+                    });
+                    return;
+                }
+
                 // Handle deleted file
                 if (conflict.isDeleted) {
                     debugLog(`Deleting file: ${conflict.filepath}`);
                     try {
                         await vscode.workspace.fs.delete(filePath);
-                        resolvedFiles.push({
-                            filepath: conflict.filepath,
-                            resolution: "deleted",
-                        });
-                    } catch (e) {
-                        console.error(`Error deleting file ${conflict.filepath}:`, e);
+                    } catch {
+                        // File may already be deleted locally (e.g. both sides deleted it,
+                        // or local cleanup ran first). The desired end state — file gone —
+                        // is already achieved, so treat this as success.
                     }
+                    resolvedFiles.push({
+                        filepath: conflict.filepath,
+                        resolution: "deleted",
+                    });
                     return;
                 }
 
@@ -2596,6 +2622,11 @@ export async function resolveConflictFiles(
                                     filepath: resolvedPath,
                                     resolution: existedOnDisk ? "modified" : "created",
                                 });
+                            } else {
+                                failedFiles.push({
+                                    filepath: conflict.filepath,
+                                    error: "Conflict resolver returned no result for new file with differing sides",
+                                });
                             }
                         } else {
                             // Use non-empty content (prefer ours, fallback to theirs)
@@ -2607,7 +2638,9 @@ export async function resolveConflictFiles(
                             });
                         }
                     } catch (e) {
+                        const detail = e instanceof Error ? e.message : String(e);
                         console.error(`Error creating new file ${conflict.filepath}:`, e);
+                        failedFiles.push({ filepath: conflict.filepath, error: `Create failed: ${detail}` });
                     }
                     return;
                 }
@@ -2617,6 +2650,10 @@ export async function resolveConflictFiles(
                     await vscode.workspace.fs.stat(filePath);
                 } catch {
                     debugLog(`Skipping conflict resolution for missing file: ${conflict.filepath}`);
+                    failedFiles.push({
+                        filepath: conflict.filepath,
+                        error: "File does not exist on disk — cannot resolve conflict",
+                    });
                     return;
                 }
 
@@ -2625,6 +2662,11 @@ export async function resolveConflictFiles(
                     resolvedFiles.push({
                         filepath: resolvedFile,
                         resolution: "modified",
+                    });
+                } else {
+                    failedFiles.push({
+                        filepath: conflict.filepath,
+                        error: "Conflict resolver returned no result",
                     });
                 }
             };
@@ -2648,6 +2690,6 @@ export async function resolveConflictFiles(
         }
     );
 
-    return resolvedFiles;
+    return { resolved: resolvedFiles, failed: failedFiles };
 }
 

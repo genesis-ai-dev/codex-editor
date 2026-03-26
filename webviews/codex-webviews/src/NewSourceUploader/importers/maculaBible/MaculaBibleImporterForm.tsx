@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterComponentProps,
     AlignedCell,
@@ -32,6 +33,7 @@ import {
 import { notebookToImportedContent } from "../common/translationHelper";
 import { getCorpusMarkerForBook, isNewTestamentBook } from "../../utils/corpusUtils";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { createMaculaVerseCellMetadata } from "./cellMetadata";
 
 /**
@@ -225,7 +227,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     const notebookName = `${languagePrefix} ${fullBookName}`;
 
                     const sourceNotebook: ProcessedNotebook = {
-                        name: notebookName,
+                        name: bookCode,
                         cells: bookVerses.map((verse) => {
                             // Create cell metadata with UUID, globalReferences, and chapterNumber
                             const { cellId, metadata } = createMaculaVerseCellMetadata({
@@ -245,7 +247,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                             };
                         }),
                         metadata: {
-                            id: notebookName,
+                            id: uuidv4(),
                             originalFileName: `${fullBookName}.macula`, // Use full name instead of code
                             sourceFile: `${fullBookName}.macula`,
                             importerType: "macula",
@@ -263,11 +265,15 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
 
                     const codexNotebook: ProcessedNotebook = {
                         ...sourceNotebook,
-                        name: notebookName,
+                        name: bookCode,
                         cells: sourceNotebook.cells.map((cell) => ({
                             ...cell,
                             content: "", // Empty for codex
                         })),
+                        metadata: {
+                            ...sourceNotebook.metadata,
+                            id: uuidv4(),
+                        },
                     };
 
                     const notebookPair = {
@@ -312,6 +318,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
             return;
         }
 
+        notifyImportStarted();
         setIsDownloading(true);
         setError(null);
         setProgress({ stage: "downloading", message: "Initializing download...", progress: 0 });
@@ -335,6 +342,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
             console.error("Download failed:", err);
             setError(err instanceof Error ? err.message : "Unknown error occurred");
             setIsDownloading(false);
+            notifyImportEnded();
         }
     }, [downloadResource]);
 

@@ -5,7 +5,6 @@ import {
     QuillCellContent,
     EditorPostMessages,
     EditorCellContent,
-    SpellCheckResponse,
     CustomNotebookMetadata,
     EditorReceiveMessages,
     CellIdGlobalState,
@@ -17,10 +16,9 @@ import CellList from "./CellList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
-import registerQuillSpellChecker from "./react-quill-spellcheck";
-import { getCleanedHtml } from "./react-quill-spellcheck/SuggestionBoxes";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
@@ -30,22 +28,16 @@ import {
     cellHasAudioUsingAttachments,
     computeValidationStats,
     computeProgressPercents,
+    shouldExcludeQuillCellFromProgress,
 } from "@sharedUtils";
-import { isValidValidationEntry } from "./validationUtils";
 import "./TranslationAnimations.css";
-import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
-
-// eslint-disable-next-line react-refresh/only-export-components
-export enum CELL_DISPLAY_MODES {
-    INLINE = "inline",
-    ONE_LINE_PER_CELL = "one-line-per-cell",
-}
+import { FloatingSearchBar, SearchMatch } from "./FloatingSearchBar";
 
 const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
@@ -142,9 +134,6 @@ const CodexCellEditor: React.FC = () => {
     const [allCellsInCurrentMilestone, setAllCellsInCurrentMilestone] = useState<
         QuillCellContent[]
     >([]);
-    const [alertColorCodes, setAlertColorCodes] = useState<{
-        [cellId: string]: number;
-    }>({});
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
@@ -169,10 +158,6 @@ const CodexCellEditor: React.FC = () => {
     const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
         (window as any).initialData?.metadata?.textDirection || "ltr"
     );
-    const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
-        (window as any).initialData?.metadata?.cellDisplayMode ||
-            CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-    );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
 
@@ -188,6 +173,8 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    const { setContentToScrollTo } = useContext(ScrollToContentContext);
+    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
     // Backtranslation inline display state
     const [showInlineBacktranslations, setShowInlineBacktranslations] = useState<boolean>(
@@ -238,7 +225,6 @@ const CodexCellEditor: React.FC = () => {
     const singleCellProgress = singleCellTranslationState.progress;
 
     // Required state variables that were removed
-    const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
         {} as EditorCellContent
     );
@@ -333,6 +319,9 @@ const CodexCellEditor: React.FC = () => {
     // Track the latest request to ignore stale responses
     const latestRequestRef = useRef<{ milestoneIdx: number; subsectionIdx: number } | null>(null);
 
+    // Track pending scroll to cell after navigation (for jumpToCell with pagination)
+    const [pendingScrollToCellId, setPendingScrollToCellId] = useState<string | null>(null);
+
     // Refs to access current milestone/subsection indices in message handlers without dependencies
     const currentMilestoneIndexRef = useRef<number>(0);
     const currentSubsectionIndexRef = useRef<number>(0);
@@ -378,6 +367,15 @@ const CodexCellEditor: React.FC = () => {
         testId: "",
     });
     const abTestOriginalContentRef = useRef<Map<string, string>>(new Map());
+
+    // Floating search bar state
+    const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchCurrentMatchIndex, setSearchCurrentMatchIndex] = useState(0);
+    const [searchMilestoneMatchCounts, setSearchMilestoneMatchCounts] = useState<{
+        [milestoneIdx: number]: number;
+    }>({});
+    const [searchTotalDocumentMatches, setSearchTotalDocumentMatches] = useState(0);
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -593,6 +591,74 @@ const CodexCellEditor: React.FC = () => {
         []
     );
 
+    // Handle toggle search message from extension (Cmd+F)
+    useMessageHandler(
+        "codexCellEditor-toggleSearch",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "toggleSearch") {
+                setIsSearchOpen((prev) => !prev);
+            }
+        },
+        []
+    );
+
+    // Handle search match counts response from extension
+    useMessageHandler(
+        "codexCellEditor-searchMatchCounts",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "searchMatchCounts") {
+                setSearchMilestoneMatchCounts(message.milestoneMatchCounts || {});
+                setSearchTotalDocumentMatches(message.totalMatches || 0);
+            }
+        },
+        []
+    );
+
+    // Request search match counts from extension
+    const requestSearchMatchCounts = useCallback(
+        (query: string, matchCase: boolean) => {
+            vscode.postMessage({
+                command: "countMatchesInDocument",
+                content: { query, matchCase },
+            });
+        },
+        [vscode]
+    );
+
+    // Handle navigation to cell from search
+    const handleSearchNavigateToCell = useCallback(
+        (cellId: string) => {
+            setContentToScrollTo(cellId);
+        },
+        [setContentToScrollTo]
+    );
+
+    // Handle replace in cell from search
+    const handleSearchReplaceInCell = useCallback(
+        (cellId: string, oldContent: string, newContent: string) => {
+            vscode.postMessage({
+                command: "saveHtml",
+                content: {
+                    cellMarkers: [cellId],
+                    cellContent: newContent,
+                    cellChanged: true,
+                },
+            } as EditorPostMessages);
+        },
+        [vscode]
+    );
+
+    // Handle search close
+    const handleSearchClose = useCallback(() => {
+        setIsSearchOpen(false);
+        setSearchQuery("");
+        setSearchCurrentMatchIndex(0);
+        setSearchMilestoneMatchCounts({});
+        setSearchTotalDocumentMatches(0);
+    }, []);
+
     // A/B test variant selection handler
     const handleVariantSelected = (selectedIndex: number, selectionTimeMs: number) => {
         if (!abTestState.isActive) return;
@@ -781,12 +847,14 @@ const CodexCellEditor: React.FC = () => {
                 vscode.postMessage({ command: "getContent" } as EditorPostMessages);
             }
 
-            // Handle current page refresh (e.g., when a paratext cell is added or after sync)
+            // Handle current page refresh (e.g., when a paratext cell is added, after sync, or after migration)
             if (message.type === "refreshCurrentPage") {
-                // After sync, changes can occur in any cell range, not just the current page
-                // Clear ALL cached pages to ensure fresh data is loaded when navigating to any page
+                // After sync/migration, changes can occur in any cell range, not just the current page
+                // Clear ALL caches to ensure fresh data is loaded when navigating to any page
                 cellsCacheRef.current.clear();
                 loadedPagesRef.current.clear();
+                milestoneCellsCacheRef.current.clear();
+                progressCacheRef.current.clear();
 
                 // Prefer: 1) in-flight navigation (latestRequestRef), 2) refs (webview's current position).
                 // Always use refs over the provider message so our position wins when the provider sends a stale
@@ -909,18 +977,27 @@ const CodexCellEditor: React.FC = () => {
         [milestoneIndex]
     );
 
-    // Listen for subsection progress updates
+    // Listen for subsection progress updates (keeps MilestoneAccordion / ProgressDots in sync)
     useMessageHandler(
         "codexCellEditor-subsectionProgress",
         (event: MessageEvent) => {
             const message = event.data as EditorReceiveMessages;
-            if (message?.type === "providerSendsSubsectionProgress") {
-                // Remove from pending requests
-                pendingProgressRequestsRef.current.delete(message.milestoneIndex);
+            if (message?.type !== "providerSendsSubsectionProgress") return;
 
-                // Store in cache (handles LRU eviction)
-                setCachedProgress(message.milestoneIndex, message.subsectionProgress);
-            }
+            const idx = message.milestoneIndex;
+            const progress = message.subsectionProgress;
+            if (progress == null || typeof idx !== "number") return;
+
+            pendingProgressRequestsRef.current.delete(idx);
+
+            // Update cache (handles LRU eviction)
+            setCachedProgress(idx, progress);
+
+            // Force state merge so ProgressDots / MilestoneAccordion always re-render with new data
+            setSubsectionProgress((prev) => ({
+                ...prev,
+                [idx]: progress,
+            }));
         },
         [setCachedProgress]
     );
@@ -1071,32 +1148,6 @@ const CodexCellEditor: React.FC = () => {
         setContentBeingUpdated(content);
         setCurrentEditingCellId(content.cellMarkers?.[0] || null);
     };
-
-    // Add the removeHtmlTags function
-    const removeHtmlTags = (text: string) => {
-        const temp = document.createElement("div");
-        temp.innerHTML = text;
-        return temp.textContent || temp.innerText || "";
-    };
-
-    // Function to check alert codes
-    const checkAlertCodes = () => {
-        const cellContentAndId = translationUnits.map((unit) => ({
-            text: removeHtmlTags(unit.cellContent),
-            cellId: unit.cellMarkers[0],
-        }));
-
-        debug("alerts", "Checking alert codes for cells:", { count: cellContentAndId.length });
-        vscode.postMessage({
-            command: "getAlertCodes",
-            content: cellContentAndId,
-        } as EditorPostMessages);
-    };
-
-    // useEffect(() => {
-    // // TODO: we are removing spell check for now until someone needs it
-    //     checkAlertCodes();
-    // }, [translationUnits]);
 
     // Clear successful completions after a delay when all translations are complete
     useEffect(() => {
@@ -1398,17 +1449,101 @@ const CodexCellEditor: React.FC = () => {
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
         },
-        setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
+            if (!cellId) return;
+
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             const newChapterNumber = parseInt(chapter) || 1;
 
-            // Reset subsection index when jumping to a cell
-            if (newChapterNumber !== chapterNumber) {
-                setCurrentSubsectionIndex(0);
+            // Find the milestone index for this chapter number
+            // Each milestone has a 'value' that can be extracted to get the chapter number
+            let targetMilestoneIdx = 0;
+            if (milestoneIndex && milestoneIndex.milestones.length > 0) {
+                const foundIdx = milestoneIndex.milestones.findIndex((milestone) => {
+                    const milestoneChapter = extractChapterNumberFromMilestoneValue(milestone.value);
+                    return milestoneChapter === newChapterNumber;
+                });
+                if (foundIdx >= 0) {
+                    targetMilestoneIdx = foundIdx;
+                }
             }
 
+            // Calculate which subsection (page) contains this cell
+            // We need to find the cell's position within the milestone
+            let targetSubsectionIdx = 0;
+            if (milestoneIndex) {
+                const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
+                // Parse verse number from cellId to estimate position
+                // Format is typically "BOOK CHAPTER:VERSE" e.g., "GEN 1:5"
+                const versePart = cellId.split(":")[1];
+                if (versePart) {
+                    // Extract just the verse number (handle ranges like "1-2" by taking first number)
+                    const verseMatch = versePart.match(/^(\d+)/);
+                    if (verseMatch) {
+                        const verseNumber = parseInt(verseMatch[1], 10);
+                        // Verse numbers are 1-based, calculate 0-based cell index within milestone
+                        const cellIndexInMilestone = Math.max(0, verseNumber - 1);
+                        targetSubsectionIdx = Math.floor(cellIndexInMilestone / effectiveCellsPerPage);
+                    }
+                }
+            }
+
+            debug(
+                "navigation",
+                `jumpToCell: ${cellId} -> milestone ${targetMilestoneIdx}, subsection ${targetSubsectionIdx}`
+            );
+
+            // Store the cell ID to scroll to after loading completes
+            setPendingScrollToCellId(cellId);
+
+            // Update chapter number for display
             setChapterNumber(newChapterNumber);
+
+            // Request the correct milestone and subsection
+            if (requestCellsForMilestoneRef.current) {
+                requestCellsForMilestoneRef.current(targetMilestoneIdx, targetSubsectionIdx);
+            } else {
+                // Fallback: if ref not ready, just try to scroll after a delay
+                debug("navigation", "requestCellsForMilestoneRef not ready, using fallback");
+                setContentToScrollTo(null);
+                setTimeout(() => {
+                    setContentToScrollTo(cellId);
+                    setPendingScrollToCellId(null);
+                }, 300);
+            }
+        },
+        jumpToCellWithPosition: (cellId, milestoneIndex, subsectionIndex) => {
+            // Use the pre-computed position from the extension
+            // This is more accurate than computing position in the webview
+            debug(
+                "navigation",
+                `jumpToCellWithPosition: ${cellId} -> milestone ${milestoneIndex}, subsection ${subsectionIndex}`
+            );
+
+            // Store the cell ID to scroll to after loading completes
+            setPendingScrollToCellId(cellId);
+
+            // Update indices directly
+            setCurrentMilestoneIndex(milestoneIndex);
+            setCurrentSubsectionIndex(subsectionIndex);
+
+            // Extract chapter number for display (fallback from cellId parsing)
+            const chapter = cellId?.split(" ")[1]?.split(":")[0];
+            const newChapterNumber = parseInt(chapter) || 1;
+            setChapterNumber(newChapterNumber);
+
+            // Request the cells for this position
+            if (requestCellsForMilestoneRef.current) {
+                requestCellsForMilestoneRef.current(milestoneIndex, subsectionIndex);
+            } else {
+                // Fallback: if ref not ready, just try to scroll after a delay
+                debug("navigation", "requestCellsForMilestoneRef not ready, using fallback");
+                setContentToScrollTo(null);
+                setTimeout(() => {
+                    setContentToScrollTo(cellId);
+                    setPendingScrollToCellId(null);
+                }, 300);
+            }
         },
         updateCell: (data) => {
             if (
@@ -1541,10 +1676,6 @@ const CodexCellEditor: React.FC = () => {
         },
         updateVideoUrl: (url: string) => {
             setTempVideoUrl(url);
-        },
-        setAlertColorCodes: setAlertColorCodes,
-        recheckAlertCodes: () => {
-            // checkAlertCodes(); // TODO: we are removing spell check for now until someone needs it
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
@@ -1708,6 +1839,16 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+            // Clear any stale dirty state so navigation is not blocked after loading new content.
+            // If the current editing cell is still on this page (e.g. initial load with editor open), preserve it.
+            const currentEditingCellId = contentBeingUpdated.cellMarkers?.[0];
+            const editingCellIsOnPage =
+                currentEditingCellId &&
+                cells.some((c) => c.cellMarkers?.[0] === currentEditingCellId);
+            if (!editingCellIsOnPage) {
+                setContentBeingUpdated({} as EditorCellContent);
+                setUnsavedChanges(false);
+            }
         },
 
         handleCellPage: (
@@ -1757,6 +1898,32 @@ const CodexCellEditor: React.FC = () => {
             loadedPagesRef.current.add(pageKey);
             setCachedCells(pageKey, cells);
             setIsLoadingCells(false);
+            // Clear any stale dirty state so navigation is not blocked after loading new content.
+            // If the current editing cell is still on this page (e.g. after sparkle LLM refresh), preserve the editor.
+            const currentEditingCellId = contentBeingUpdated.cellMarkers?.[0];
+            const editingCellIsOnPage =
+                currentEditingCellId &&
+                cells.some((c) => c.cellMarkers?.[0] === currentEditingCellId);
+            if (editingCellIsOnPage) {
+                // Keep editor open. Only sync label and timestamps from the page; do NOT overwrite
+                // cellContent — the Editor (Quill) has the authoritative content (LLM + user edits),
+                // and the provider's page may have been built before the cell was updated, so overwriting
+                // would clobber the in-editor content and cause save to persist empty/stale content.
+                setContentBeingUpdated((prev) => {
+                    const cellId = prev.cellMarkers?.[0];
+                    if (!cellId) return prev;
+                    const match = cells.find((c) => c.cellMarkers?.[0] === cellId);
+                    if (!match) return prev;
+                    return {
+                        ...prev,
+                        cellLabel: match.cellLabel ?? prev.cellLabel,
+                        cellTimestamps: match.timestamps ?? prev.cellTimestamps,
+                    };
+                });
+            } else {
+                setContentBeingUpdated({} as EditorCellContent);
+                setUnsavedChanges(false);
+            }
         },
     });
 
@@ -1781,11 +1948,6 @@ const CodexCellEditor: React.FC = () => {
             }
         });
         return () => window.removeEventListener("focus", () => {});
-    }, []);
-
-    useEffect(() => {
-        // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill as any, vscode);
     }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
@@ -1861,6 +2023,18 @@ const CodexCellEditor: React.FC = () => {
             const { cellCount, value } = milestone;
             const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
 
+            // When milestone has 0 cells, return a single empty subsection (avoid invalid "1-0" label)
+            if (cellCount === 0) {
+                return [
+                    {
+                        id: `milestone-${milestoneIdx}-page-0`,
+                        label: "0",
+                        startIndex: 0,
+                        endIndex: 0,
+                    },
+                ];
+            }
+
             // Calculate number of pages based on content cells
             const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;
             const subsections: Subsection[] = [];
@@ -1885,6 +2059,13 @@ const CodexCellEditor: React.FC = () => {
     // Request cells for a specific milestone/subsection
     const requestCellsForMilestone = useCallback(
         (milestoneIdx: number, subsectionIdx: number = 0) => {
+            // Validate milestone index to prevent invalid requests
+            const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+            if (milestoneIdx < 0 || (milestoneCount > 0 && milestoneIdx >= milestoneCount)) {
+                console.warn(`[requestCellsForMilestone] Invalid milestone index: ${milestoneIdx}, total: ${milestoneCount}`);
+                return;
+            }
+
             const pageKey = `${milestoneIdx}-${subsectionIdx}`;
 
             // Track this as the latest request
@@ -1936,7 +2117,7 @@ const CodexCellEditor: React.FC = () => {
                 },
             } as EditorPostMessages);
         },
-        [vscode, getCachedCells]
+        [vscode, getCachedCells, milestoneIndex?.milestones.length]
     );
 
     // Keep refs in sync with state (must be after requestCellsForMilestone is defined)
@@ -1952,6 +2133,33 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         requestCellsForMilestoneRef.current = requestCellsForMilestone;
     }, [requestCellsForMilestone]);
+
+    // Handle pending scroll to cell after page loads (for jumpToCell with pagination)
+    // We track translationUnits changes because cached pages update translationUnits
+    // but don't go through the isLoadingCells true->false transition
+    useEffect(() => {
+        if (pendingScrollToCellId && !isLoadingCells) {
+            // Check if the target cell exists in the current translation units
+            const cellExists = translationUnits.some(
+                (unit) => unit.cellMarkers[0] === pendingScrollToCellId
+            );
+
+            if (cellExists) {
+                debug(
+                    "navigation",
+                    `Cells loaded, scrolling to pending cell: ${pendingScrollToCellId}`
+                );
+                // Clear and set contentToScrollTo to trigger the scroll
+                setContentToScrollTo(null);
+                // Small delay to ensure React has rendered the cells
+                const timeoutId = setTimeout(() => {
+                    setContentToScrollTo(pendingScrollToCellId);
+                    setPendingScrollToCellId(null);
+                }, 50);
+                return () => clearTimeout(timeoutId);
+            }
+        }
+    }, [pendingScrollToCellId, isLoadingCells, translationUnits, setContentToScrollTo]);
 
     // Get total number of milestones
     const totalMilestones = useMemo(() => {
@@ -1974,14 +2182,18 @@ const CodexCellEditor: React.FC = () => {
     // Calculate progress for each chapter based on translation and validation status
     const calculateChapterProgress = useCallback(
         (chapterNum: number): ProgressPercentages => {
-            // Filter cells for the specific chapter (excluding paratext, milestone, and merged cells)
+            // Filter cells for the specific chapter (excluding paratext, milestone, merged, and child cells)
             const cellsForChapter = translationUnits.filter((cell) => {
                 const cellId = cell?.cellMarkers?.[0];
                 // Exclude milestone cells from progress calculation
                 if (cell.cellType === CodexCellTypes.MILESTONE) {
                     return false;
                 }
-                if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
+                if (!cellId || cellId.includes(":paratext-") || cell.merged) {
+                    return false;
+                }
+                // Exclude child cells (e.g. type "text" with parentId - they don't count toward progress)
+                if (cell.metadata?.parentId !== undefined || cell.data?.parentId !== undefined) {
                     return false;
                 }
                 const sectionCellIdParts = cellId.split(" ")?.[1]?.split(":");
@@ -1989,7 +2201,11 @@ const CodexCellEditor: React.FC = () => {
                 return sectionCellNumber === chapterNum.toString();
             });
 
-            const totalCells = cellsForChapter.length;
+            // Only root content cells count (exclude paratext/child for validation too)
+            const progressCells = cellsForChapter.filter(
+                (c) => !shouldExcludeQuillCellFromProgress(c)
+            );
+            const totalCells = progressCells.length;
             if (totalCells === 0) {
                 return {
                     percentTranslationsCompleted: 0,
@@ -2001,22 +2217,22 @@ const CodexCellEditor: React.FC = () => {
             }
 
             // Count cells with content (translated)
-            const cellsWithValues = cellsForChapter.filter(
+            const cellsWithValues = progressCells.filter(
                 (cell) =>
                     cell.cellContent &&
                     cell.cellContent.trim().length > 0 &&
                     cell.cellContent !== "<span></span>"
             ).length;
 
-            const cellsWithAudioValues = cellsForChapter.filter((cell) =>
+            const cellsWithAudioValues = progressCells.filter((cell) =>
                 cellHasAudioUsingAttachments(
                     (cell as any).attachments,
                     (cell as any).metadata?.selectedAudioId
                 )
             ).length;
 
-            // Calculate validation data using the same logic as navigation provider
-            const cellWithValidatedData = cellsForChapter.map((cell) => getCellValueData(cell));
+            // Calculate validation data (only from root content cells)
+            const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
 
             const minimumValidationsRequired = requiredValidations ?? 1;
             const minimumAudioValidationsRequired = requiredAudioValidations ?? 1;
@@ -2133,8 +2349,6 @@ const CodexCellEditor: React.FC = () => {
         return allCellsForChapter;
     }, [allCellsForChapter]);
 
-    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
-
     const handleCloseEditor = () => {
         debug("editor", "Closing editor");
         setContentBeingUpdated({} as EditorCellContent);
@@ -2213,7 +2427,6 @@ const CodexCellEditor: React.FC = () => {
             requestId,
             content: content,
         } as EditorPostMessages);
-        checkAlertCodes();
     };
 
     // Provider ack: only mark the save as complete once the provider confirms the file write finished.
@@ -2240,6 +2453,11 @@ const CodexCellEditor: React.FC = () => {
                 setSaveErrorMessage(null);
                 setSaveRetryCount(0);
                 handleCloseEditor();
+                // Refresh subsection progress so MilestoneAccordion / ProgressDots update after content save
+                const milestoneIdx = currentMilestoneIndexRef.current;
+                if (milestoneIndex && milestoneIdx < (milestoneIndex.milestones?.length ?? 0)) {
+                    refreshProgressForMilestone(milestoneIdx);
+                }
                 return;
             }
 
@@ -2250,7 +2468,7 @@ const CodexCellEditor: React.FC = () => {
             setSaveErrorMessage(errorMessage);
             setSaveRetryCount((prev) => prev + 1);
         },
-        []
+        [milestoneIndex, refreshProgressForMilestone]
     );
 
     // State for current user - initialize with a default test username to ensure logic works
@@ -3073,6 +3291,23 @@ const CodexCellEditor: React.FC = () => {
                 }
             `}</style>
 
+            {/* Floating Search Bar */}
+            <FloatingSearchBar
+                isOpen={isSearchOpen}
+                onClose={handleSearchClose}
+                translationUnits={translationUnits}
+                onNavigateToCell={handleSearchNavigateToCell}
+                onReplaceInCell={handleSearchReplaceInCell}
+                currentMilestoneIndex={currentMilestoneIndex}
+                totalMilestones={milestoneIndex?.milestones?.length || 1}
+                onNavigateToMilestone={requestCellsForMilestone}
+                onRequestMatchCounts={requestSearchMatchCounts}
+                milestoneMatchCounts={searchMilestoneMatchCounts}
+                totalDocumentMatches={searchTotalDocumentMatches}
+                vscode={vscode}
+                isSourceText={isSourceText}
+            />
+
             <div className="codex-cell-editor">
                 <div
                     className="static-header bg-background shadow-md"
@@ -3142,8 +3377,6 @@ const CodexCellEditor: React.FC = () => {
                                 } as EditorPostMessages);
                             }}
                             textDirection={textDirection}
-                            onSetCellDisplayMode={setCellDisplayMode}
-                            cellDisplayMode={cellDisplayMode}
                             isSourceText={isSourceText}
                             openSourceText={openSourceText}
                             documentHasVideoAvailable={documentHasVideoAvailable}
@@ -3209,7 +3442,6 @@ const CodexCellEditor: React.FC = () => {
                 >
                     <div className="editor-container max-w-full overflow-hidden">
                         <CellList
-                            spellCheckResponse={spellCheckResponse}
                             translationUnits={translationUnitsForSection}
                             fullDocumentTranslationUnits={
                                 allCellsInCurrentMilestone.length > 0
@@ -3222,11 +3454,9 @@ const CodexCellEditor: React.FC = () => {
                             handleSaveHtml={handleSaveHtml}
                             vscode={vscode}
                             textDirection={textDirection}
-                            cellDisplayMode={cellDisplayMode}
                             isSourceText={isSourceText}
                             windowHeight={windowHeight}
                             headerHeight={headerHeight}
-                            alertColorCodes={alertColorCodes}
                             highlightedCellId={highlightedCellId}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationQueue={translationQueue}

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { obsImporter } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
@@ -59,6 +60,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
     }, []);
 
     const handleRepositoryDownload = useCallback(async () => {
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -135,10 +137,11 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     }
                 }
             } else {
-                throw new Error(result.error || "Repository download failed");
+                throw new Error(result.error || "Download failed");
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
@@ -150,6 +153,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
             return;
         }
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -228,6 +232,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
@@ -240,6 +245,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 await handleImportCompletion(result, props);
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to complete import");
+                notifyImportEnded();
             }
         }
     }, [result, props]);
@@ -312,7 +318,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                     <p className="text-muted-foreground">
                         {isTranslationImport && selectedSource
                             ? `Importing OBS translation for: ${selectedSource.name}`
-                            : "Import OBS content from individual files or the complete repository"}
+                            : "Import OBS content from individual files or download all stories"}
                     </p>
                 </div>
             </div>
@@ -340,7 +346,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="download" className="flex items-center gap-2">
                         <Globe className="h-4 w-4" />
-                        Download Repository
+                        Download All
                     </TabsTrigger>
                     <TabsTrigger value="upload" className="flex items-center gap-2">
                         <Upload className="h-4 w-4" />
@@ -353,17 +359,17 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Download className="h-5 w-5" />
-                                Download Complete Repository
+                                Download All Stories
                             </CardTitle>
                             <CardDescription>
-                                Download all 50 Open Bible Stories from the unfoldingWord repository
+                                Download all 50 Open Bible Stories from unfoldingWord
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="bg-muted p-4 rounded-lg space-y-2">
                                 <div className="flex items-center gap-2">
                                     <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                                    <span className="font-medium">Source Repository</span>
+                                    <span className="font-medium">Source</span>
                                 </div>
                                 <p className="text-sm text-muted-foreground">
                                     git.door43.org/unfoldingWord/en_obs
@@ -386,7 +392,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                             {!isProcessing && !isComplete && (
                                 <Button onClick={handleRepositoryDownload} className="w-full">
                                     <Download className="h-4 w-4 mr-2" />
-                                    Download Complete Repository
+                                    Download All Stories
                                 </Button>
                             )}
                         </CardContent>

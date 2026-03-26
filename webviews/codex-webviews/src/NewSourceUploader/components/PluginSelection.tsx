@@ -37,7 +37,7 @@ const PluginCard: React.FC<{
 }> = ({ plugin, onSelect, className }) => {
     const Icon = plugin.icon;
     const isEnabled = plugin.enabled !== false;
-    const isBetaPlugin = plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet";
+    const isBetaPlugin = plugin.id === "pdf-importer" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet";
 
     return (
         <Card
@@ -90,9 +90,16 @@ const PluginCard: React.FC<{
                     <div className="flex flex-wrap gap-1">
                         {plugin.tags
                             .filter((tag) => !["Essential", "Specialized"].includes(tag))
-                            .slice(0, 2)
                             .map((tag) => (
-                                <Badge key={tag} variant="secondary" className="text-xs opacity-60">
+                                <Badge
+                                    key={tag}
+                                    variant="secondary"
+                                    className={`text-xs ${
+                                        tag === "Round-trip"
+                                            ? "bg-green-500/10 text-green-600 dark:bg-green-500/15 dark:text-green-400 border-green-500/20"
+                                            : "opacity-60"
+                                    }`}
+                                >
                                     {tag}
                                 </Badge>
                             ))}
@@ -182,7 +189,7 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                             onSelect={onSelectPlugin}
                             className={cn(
                                 "border-2 shadow-sm hover:shadow-xl",
-                                plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
+                                plugin.id === "docx" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
                                     ? "hover:border-yellow-500" 
                                     : "hover:border-primary"
                             )}
@@ -223,7 +230,7 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                             onSelect={onSelectPlugin}
                             className={cn(
                                 "border-2 shadow-sm hover:shadow-xl opacity-95 hover:opacity-100",
-                                plugin.id === "docx-roundtrip" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
+                                plugin.id === "docx" || plugin.id === "pdf-importer" || plugin.id === "usfm-experimental" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet"
                                     ? "hover:border-yellow-500" 
                                     : "hover:border-primary"
                             )}

@@ -10,38 +10,7 @@ interface ChatMessage {
     content: string;
 }
 
-type Dictionary = {
-    id: string;
-    label: string;
-    entries: DictionaryEntry[];
-    metadata: DictionaryMetadata;
-};
-
-interface ChatMessageWithContext extends ChatMessage {
-    context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
-    createdAt: string;
-    preReflection?: string; //If reflection has happened for a chat message, preReflection will be set to the original message.
-    grade?: number;
-    gradeComment?: string;
-}
-
-interface FrontEndMessage {
-    command: {
-        name: string; // use enum
-        data?: any; // define based on enum
-    };
-}
 type CommentThread = vscode.CommentThread;
-
-interface ChatMessageThread {
-    id: string;
-    messages: ChatMessageWithContext[];
-    collapsibleState: number;
-    canReply: boolean;
-    threadTitle?: string;
-    deleted: boolean;
-    createdAt: string;
-}
 
 interface NotebookCommentThread {
     id: string;
@@ -113,6 +82,7 @@ interface GlobalMessage {
 }
 interface TranslationPair {
     cellId: string;
+    cellLabel?: string | null; // Semantic label like "5:12" (chapter:position) for display
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
     edits?: EditHistory[]; // Make this optional as it might not always be present
@@ -128,40 +98,16 @@ interface EditHistoryItem<TEditMap extends readonly string[] = readonly string[]
     validatedBy?: ValidationEntry[];
 }
 
-// Relating to Smart Edits
-interface SmartEditContext {
-    cellId: string;
-    currentCellValue: string;
-    edits: EditHistoryItem[];
-    memory?: string; // Add this line
-}
-
-interface SmartSuggestion {
-    oldString: string;
-    newString: string;
-    confidence?: "high" | "low";
-    source?: "llm" | "ice";
-    frequency?: number;
-}
-
-export interface SavedSuggestions {
-    cellId: string;
-    lastCellValue: string;
-    suggestions: SmartSuggestion[];
-    lastUpdatedDate: string;
-    rejectedSuggestions?: { oldString: string; newString: string; }[];
-}
-
-interface SmartEdit {
-    context: SmartEditContext;
-    suggestions: SmartSuggestion[];
-}
-
 interface CellIdGlobalState {
     cellId: string; // UUID for internal cell reference
     globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
     uri: string;
     timestamp?: string;
+    // Display information for UI (calculated at runtime, not persisted)
+    fileDisplayName?: string; // e.g., "Genesis", "Hebrew Matthew"
+    milestoneValue?: string; // e.g., "Genesis 1", "Matthew 5"
+    cellLineNumber?: number; // Line number within the current milestone (1-based)
+    cellLabel?: string; // e.g., "Narrator", "Jesus" — from cell metadata
 }
 interface ScriptureContent extends vscode.NotebookData {
     metadata: {
@@ -179,25 +125,26 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
-    | { command: "reload"; data?: { cellId: string; globalReferences: string[]; uri?: string; }; }
+    | {
+        command: "reload";
+        data?: {
+            cellId: string;
+            globalReferences?: string[];
+            uri?: string;
+            openCurrentTab?: boolean;
+            openNewCommentIfNoComments?: boolean;
+        };
+    }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
     | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
     | { command: "undoCommentDeletion"; args: { commentId: string; commentThreadId: string; }; }
+    | { command: "updateSingleThread"; thread: NotebookCommentThread; }
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }
     | { command: "updateUser"; user: { id: any; name: any; avatar: any; }; }
     | { command: "navigateToMainMenu"; };
-
-interface SelectedTextDataWithContext {
-    selection: string;
-    completeLineContent: string | null;
-    vrefAtStartOfLine: string | null;
-    selectedText: string | null;
-    verseNotes: string | null;
-    verseGraphData: any;
-}
 
 interface TimeBlock {
     begin: number;
@@ -205,45 +152,6 @@ interface TimeBlock {
     text: string;
     id: string;
 }
-
-type ChatPostMessages =
-    | { command: "threadsFromWorkspace"; content: ChatMessageThread[]; }
-    | { command: "response"; finished: boolean; text: string; }
-    | { command: "reload"; }
-    | { command: "select"; textDataWithContext: SelectedTextDataWithContext; }
-    | { command: "fetch"; messages: string; }
-    | { command: "notifyUserError"; message: string; }
-    | {
-        command: "updateMessageThread";
-        messages: ChatMessageWithContext[];
-        threadId: string;
-        threadTitle?: string;
-    }
-    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string; }
-    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string; }
-    | {
-        command: "performReflection";
-        messageToReflect: string;
-        context: string;
-        lastMessageCreatedAt: string;
-    }
-    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string; }
-    | { command: "deleteThread"; threadId: string; }
-    | { command: "fetchThread"; }
-    | { command: "abort-fetch"; }
-    | { command: "openSettings"; }
-    | { command: "subscribeSettings"; settingsToSubscribe: string[]; }
-    | { command: "updateSetting"; setting: string; value: string; }
-    | { command: "openContextItem"; text: string; }
-    | { command: "cellGraphData"; data: string[]; }
-    | {
-        command: "cellIdUpdate";
-        data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string; }; };
-    }
-    | { command: "getCurrentCellId"; }
-    | { command: "navigateToMainMenu"; };
-
-
 
 export type MessagesToStartupFlowProvider =
     | { command: "error"; errorMessage: string; }
@@ -268,12 +176,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsSyncStatus"; }
     | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
-    | { command: "project.createEmpty"; }
-    | { command: "project.createEmptyWithName"; projectName: string; }
-    | { command: "project.createEmpty.confirm"; proceed: boolean; projectName?: string; projectId?: string; }
+    | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
-    | { command: "metadata.check"; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
     | { command: "startup.dismiss"; }
@@ -302,6 +207,7 @@ export type GitLabProject = {
     lastActivity: string;
     namespace: string;
     owner: string;
+    isArchived?: boolean;
 };
 
 export type ProjectSyncStatus =
@@ -321,6 +227,7 @@ export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     mediaStrategy?: MediaFilesStrategy; // Media files download strategy for this project
     projectSwap?: ProjectSwapInfo;
+    isArchivedButLocallyCloned?: boolean;
 };
 
 export type MessagesFromStartupFlowProvider =
@@ -365,21 +272,10 @@ export type MessagesFromStartupFlowProvider =
         isOpen: boolean;
         path?: string;
     }
-    | {
-        command: "metadata.checkResponse";
-        data: {
-            exists: boolean;
-            hasCriticalData: boolean;
-            sourceLanguage?: any;
-            targetLanguage?: any;
-            sourceTexts?: string[];
-            chatSystemMessage?: string | null;
-        };
-    }
     | { command: "setupIncompleteCriticalDataMissing"; }
     | { command: "setupComplete"; }
-    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId?: string; }
     | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
+    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId: string; }
     | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
@@ -398,67 +294,6 @@ export type MessagesFromStartupFlowProvider =
     | { command: "systemMessage.saved"; }
     | { command: "systemMessage.saveError"; error: string; };
 
-type DictionaryPostMessages =
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "update" | "add";
-        entry: {
-            id: string;
-            headWord: string;
-            definition: string;
-        };
-    }
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "fetchPage";
-        pagination: {
-            page: number;
-            pageSize: number;
-            searchQuery?: string;
-        };
-    }
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "delete";
-        entry: {
-            id: string;
-        };
-    }
-    | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary; }
-    | { command: "updateEntryCount"; count: number; }
-    | { command: "updateFrequentWords"; words: string[]; }
-    | {
-        command: "updateWordFrequencies";
-        wordFrequencies: { [key: string]: number; };
-    }
-    | { command: "updateDictionary"; content: Dictionary; }
-    | { command: "callCommand"; vscodeCommandName: string; args: any[]; };
-
-type DictionaryReceiveMessages =
-    | { command: "providerTellsWebviewRemoveConfirmed"; }
-    | {
-        command: "providerTellsWebviewToUpdateData";
-        data: {
-            entries: DictionaryEntry[];
-            total: number;
-            page: number;
-            pageSize: number;
-        };
-    };
-
-type DictionarySummaryPostMessages =
-    | { command: "providerSendsDataToWebview"; data: Dictionary; }
-    | {
-        command: "providerSendsUpdatedWordFrequenciesToWebview";
-        wordFrequencies: { [key: string]: number; };
-    }
-    | { command: "providerSendsFrequentWordsToWebview"; words: string[]; }
-    | { command: "updateData"; }
-    | { command: "showDictionaryTable"; }
-    | { command: "refreshWordFrequency"; }
-    | { command: "addFrequentWordsToDictionary"; words: string[]; }
-    | { command: "updateEntryCount"; count: number; };
-
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV; }
     | { command: "changeRef"; data: VerseRefGlobalState; };
@@ -466,30 +301,6 @@ type TranslationNotePostMessages =
 type ScripturePostMessages =
     | { command: "sendScriptureData"; data: ScriptureContent; }
     | { command: "fetchScriptureData"; };
-
-type DictionaryEntry = {
-    id: string;
-    headWord: string;
-    definition?: string;
-    isUserEntry: boolean;
-    authorId?: string;
-    createdAt?: string;
-    updatedAt?: string;
-};
-
-type SpellCheckResult = {
-    word: string;
-    corrections: string[];
-};
-
-type SpellCheckFunction = (word: string) => SpellCheckResult;
-
-type SpellCheckDiagnostic = {
-    range: vscode.Range;
-    message: string;
-    severity: vscode.DiagnosticSeverity;
-    source: string;
-};
 
 type MiniSearchVerseResult = {
     book: string;
@@ -509,6 +320,7 @@ type MiniSearchVerseResult = {
 type MinimalCellResult = {
     cellId?: string;
     content?: string;
+    rawContent?: string;
     uri?: string;
     line?: number;
     notebookId?: string;
@@ -566,16 +378,11 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
-    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
     | { command: "pickVideoFile"; }
-    | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
-    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
-    | { command: "addWord"; words: string[]; }
-    | { command: "getAlertCodes"; content: GetAlertCodes; }
     | { command: "executeCommand"; content: { command: string; args: any[]; }; }
     | { command: "togglePrimarySidebar"; }
     | { command: "toggleSecondarySidebar"; }
@@ -621,15 +428,6 @@ export type EditorPostMessages =
     | { command: "openSourceText"; content: { chapterNumber: number; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "pickVideoFile"; }
-    | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string; }; }
-    | { command: "getTopPrompts"; content: { text: string; cellId: string; }; }
-    | {
-        command: "supplyRecentEditHistory";
-        content: {
-            cellId: string;
-            editHistory: EditHistoryEntry[];
-        };
-    }
     | {
         command: "exportFile";
         content: { subtitleData: string; format: string; includeStyles: boolean; };
@@ -654,17 +452,6 @@ export type EditorPostMessages =
         };
     }
     | {
-        command: "rejectEditSuggestion";
-        content: {
-            source: "ice" | "llm";
-            cellId?: string;
-            oldString: string;
-            newString: string;
-            leftToken: string;
-            rightToken: string;
-        };
-    }
-    | {
         command: "storeFootnote";
         content: {
             cellId: string;
@@ -680,7 +467,14 @@ export type EditorPostMessages =
     | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "getCommentsForCells"; content: { cellIds: string[]; }; }
-    | { command: "openCommentsForCell"; content: { cellId: string; }; }
+    | {
+        command: "openCommentsForCell";
+        content: {
+            cellId: string;
+            openCurrentTab?: boolean;
+            openNewCommentIfNoComments?: boolean;
+        };
+    }
     | {
         command: "saveAudioAttachment";
         requestId?: string;
@@ -784,7 +578,6 @@ export type EditorPostMessages =
             variants?: string[];
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
     | { command: "openLoginFlow"; }
     | {
         command: "requestCellsForMilestone";
@@ -812,14 +605,6 @@ export type EditorPostMessages =
     };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
-
-type AlertCodesServerResponse = {
-    code: number;
-    cellId: string;
-    savedSuggestions: { suggestions: string[]; };
-}[];
-
-type GetAlertCodes = { text: string; cellId: string; }[];
 
 /**
  * Represents a validation entry by a user
@@ -856,7 +641,6 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
     : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
     : T extends readonly ["metadata", "fileDisplayName"] ? string
-    : T extends readonly ["metadata", "cellDisplayMode"] ? "inline" | "one-line-per-cell"
     : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
     : string | number | boolean | object;
@@ -978,7 +762,6 @@ export interface CustomNotebookMetadata {
     sourceCreatedAt: string;
     codexLastModified?: string;
     corpusMarker: string;
-    cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
     fontSize?: number;
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
@@ -1002,10 +785,24 @@ export interface CustomNotebookMetadata {
      */
     sourceFile?: string;
     /**
+     * Timestamp added to non-biblical imports to ensure unique filenames.
+     * Format: "YYYYMMDD_HHmmss" (e.g., "20260127_143025")
+     * This allows importing changed source files multiple times without overwriting.
+     */
+    importTimestamp?: string;
+    /**
      * One-time import context derived from the import process.
      * This is the canonical home for attributes that do not vary per-cell.
      */
     importContext?: NotebookImportContext;
+    /**
+     * USFM round-trip export: original file content and line-to-cell mappings.
+     * Stored by the USFM Experimental importer so export can work without the file in attachments.
+     */
+    structureMetadata?: {
+        originalUsfmContent: string;
+        lineMappings?: Array<{ lineIndex: number; cellId?: string;[key: string]: unknown; }>;
+    };
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1024,10 +821,11 @@ type FileImporterType =
     | "plaintext"
     | "audio"
     | "docx"
-    | "docx-roundtrip"
     | "markdown"
     | "subtitles"
     | "spreadsheet"
+    | "spreadsheet-csv"
+    | "spreadsheet-tsv"
     | "tms"
     | "pdf"
     | "indesign"
@@ -1038,6 +836,7 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
+    | "reach4life"
     | "obs";
 
 /**
@@ -1136,16 +935,6 @@ interface Timestamps {
     format?: string;
 }
 
-interface SpellCheckResponse {
-    id: string;
-    text: string;
-    replacements: Array<{ value: string; }>;
-    offset: number;
-    length: number;
-}
-
-type SpellCheckResult = SpellCheckResponse[];
-
 /* This is the project overview that populates the project manager webview */
 interface ProjectOverview extends Project {
     projectName: string;
@@ -1168,7 +957,6 @@ interface ProjectOverview extends Project {
         validationCount?: number;
         validationCountAudio?: number;
     };
-    spellcheckIsEnabled: boolean;
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
@@ -1176,6 +964,12 @@ type ProjectMetadata = {
     projectName?: string;
     projectId?: string;
     format: string;
+    /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
+    originalFilesHashes?: {
+        version: number;
+        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string; }; };
+        fileNameToHash: { [fileName: string]: string; };
+    };
     edits?: ProjectEditHistory[];
     meta: {
         version: string;
@@ -1577,15 +1371,23 @@ type ProjectManagerMessageFromWebview =
     | { command: "publishProject"; }
     | { command: "syncProject"; }
     | { command: "openEditAnalysis"; }
-    | { command: "toggleSpellcheck"; }
     | { command: "getSyncSettings"; }
     | {
         command: "updateSyncSettings";
         data: { autoSyncEnabled: boolean; syncDelayMinutes: number; };
     }
     | { command: "triggerSync"; }
+    | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
+    | {
+        command: "deleteCorpusMarker";
+        content: {
+            corpusLabel: string;
+            displayName: string;
+            children: Array<{ uri: string; label: string; type: string; }>;
+        };
+    }
     | { command: "openCellLabelImporter"; }
     | { command: "openCodexMigrationTool"; }
     | { command: "navigateToMainMenu"; }
@@ -1600,7 +1402,10 @@ type ProjectManagerMessageFromWebview =
     | { command: "setGlobalLineNumbers"; }
     | { command: "getAsrSettings"; }
     | { command: "saveAsrSettings"; data: { endpoint: string; }; }
-    | { command: "fetchAsrModels"; data: { endpoint: string; }; };
+    | { command: "fetchAsrModels"; data: { endpoint: string; }; }
+    | { command: "setValidationCountDirect"; data: { count: number; }; }
+    | { command: "setValidationCountAudioDirect"; data: { count: number; }; }
+    | { command: "publishStatusUpdate"; data: { isPublishingInProgress: boolean; publishingStage: string; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1614,6 +1419,7 @@ interface ProjectManagerState {
     isInitializing: boolean;
     isSyncInProgress: boolean;
     syncStage: string;
+    isImportInProgress: boolean;
     isPublishingInProgress: boolean;
     publishingStage: string;
     updateState: 'ready' | 'downloaded' | 'available for download' | 'downloading' | 'updating' | 'checking for updates' | 'idle' | 'disabled' | null;
@@ -1639,6 +1445,7 @@ type ProjectManagerMessageToWebview =
             syncDelayMinutes: number;
             isFrontierExtensionEnabled: boolean;
             isAuthenticated: boolean;
+            isGitAvailable: boolean;
         };
     }
     | {
@@ -1646,6 +1453,7 @@ type ProjectManagerMessageToWebview =
         data: {
             isSyncInProgress: boolean;
             syncStage: string;
+            isImportInProgress?: boolean;
         };
     }
     | {
@@ -1687,6 +1495,8 @@ interface LocalProject {
     hasFolderNameMismatch?: boolean;
     correctFolderName?: string;
     projectSwap?: ProjectSwapInfo;
+    /** Cached display name from GitLab API, persisted in localProjectSettings.json so it survives offline/orphaned states */
+    displayedProjectName?: string;
 }
 
 export interface BiblePreview extends BasePreview {
@@ -1974,7 +1784,7 @@ export type NewSourceUploaderPostMessages = any; // Placeholder - actual types a
 interface CodexItem {
     uri: vscode.Uri | string;
     label: string;
-    type: "corpus" | "codexDocument" | "dictionary";
+    type: "corpus" | "codexDocument";
     children?: CodexItem[];
     corpusMarker?: string;
     progress?: {
@@ -1990,9 +1800,6 @@ interface CodexItem {
         averageHealth?: number; // Average health score 0-1 for all cells in the file
     };
     sortOrder?: string;
-    isProjectDictionary?: boolean;
-    wordCount?: number;
-    isEnabled?: boolean;
     fileDisplayName?: string;
 }
 type EditorReceiveMessages =
@@ -2154,15 +1961,9 @@ type EditorReceiveMessages =
         type: "autocompleteChapterComplete";
         totalCells?: number;
     }
-    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse; }
-    | {
-        type: "providerSendsgetAlertCodeResponse";
-        content: { [cellId: string]: number; };
-    }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
     | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; abProbability?: number; }; }
-    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
@@ -2189,9 +1990,7 @@ type EditorReceiveMessages =
             [cellId: string]: number; // cellId -> unresolvedCount
         };
     }
-    | { type: "providerSendsPromptedEditResponse"; content: string; }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
-    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }
     | { type: "providerSendsSourceText"; content: string; }
     | {
         type: "providerSendsBacktranslation";
@@ -2428,4 +2227,14 @@ type EditorReceiveMessages =
             selectedAudioId: string;
             validatedBy: ValidationEntry[];
         };
+    }
+    | {
+        type: "toggleSearch";
+    }
+    | {
+        type: "searchMatchCounts";
+        query: string;
+        milestoneMatchCounts: { [milestoneIdx: number]: number; };
+        totalMatches: number;
+        error?: string;
     };

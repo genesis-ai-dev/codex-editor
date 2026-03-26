@@ -7,14 +7,14 @@ import { BaseWebviewProvider } from "../../globalProvider";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { CodexItem } from "types";
-import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents } from "../../../sharedUtils";
+import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { normalizeCorpusMarker } from "../../utils/corpusMarkerUtils";
-import { addMetadataEdit } from "../../utils/editMapUtils";
+import { addMetadataEdit, addProjectMetadataEdit, EditMapUtils } from "../../utils/editMapUtils";
+import { MetadataManager } from "../../utils/metadataManager";
 import { getAuthApi } from "../../extension";
-import { CustomNotebookMetadata } from "../../../types";
+import { CustomNotebookMetadata, ProjectMetadata } from "../../../types";
 import { getCorrespondingSourceUri, findCodexFilesByBookAbbr } from "../../utils/codexNotebookUtils";
 import { CodexCellEditorProvider } from "../codexCellEditorProvider/codexCellEditorProvider";
-import { CodexCellTypes } from "../../../types/enums";
 
 interface CodexMetadata {
     id: string;
@@ -42,9 +42,9 @@ interface BibleBookInfo {
 export class NavigationWebviewProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.navigation";
     private codexItems: CodexItem[] = [];
-    private dictionaryItems: CodexItem[] = [];
     private disposables: vscode.Disposable[] = [];
     private isBuilding = false;
+    private pendingRebuild = false;
     private serializer = new CodexContentSerializer();
     private bibleBookMap: Map<string, BibleBookInfo> = new Map();
 
@@ -88,7 +88,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     protected onWebviewResolved(webviewView: vscode.WebviewView): void {
         // Initial data load
-        if (this.codexItems.length === 0 && this.dictionaryItems.length === 0) {
+        if (this.codexItems.length === 0) {
             this.loadBibleBookMap();
             this.buildInitialData();
         } else {
@@ -176,12 +176,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                 { viewColumn: vscode.ViewColumn.Two }
                             );
                         }
-                    } else if (message.type === "dictionary") {
-                        await vscode.commands.executeCommand(
-                            "vscode.openWith",
-                            uri,
-                            "codex.dictionaryEditor"
-                        );
                     } else {
                         const doc = await vscode.workspace.openTextDocument(uri);
                         await vscode.window.showTextDocument(doc);
@@ -201,13 +195,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 break;
             case "deleteFile":
                 try {
-                    const confirmed = await vscode.window.showWarningMessage(
-                        `Are you sure you want to delete "${message.label}"? This will delete both the codex file and its corresponding source file.`,
-                        { modal: true },
-                        "Delete"
-                    );
-
-                    if (confirmed === "Delete") {
+                    // Confirmation is handled by the webview's delete modal
+                    {
                         const deletedFiles: string[] = [];
                         const errors: string[] = [];
 
@@ -259,6 +248,19 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             }
                         }
 
+                        // Read the codex notebook metadata before deletion to get originalFileName
+                        let originalFileName: string | undefined;
+                        let notebookBaseName: string | undefined;
+                        try {
+                            const codexContent = await vscode.workspace.fs.readFile(codexUri);
+                            const codexNotebook = JSON.parse(new TextDecoder().decode(codexContent));
+                            originalFileName = codexNotebook?.metadata?.originalName || codexNotebook?.metadata?.originalFileName;
+                            // Derive notebook base name from codex filename (without extension)
+                            notebookBaseName = path.basename(normalizedPath).replace(/\.[^/.]+$/, '');
+                        } catch (err) {
+                            console.warn(`[Navigation] Could not read codex metadata for original file cleanup: ${err}`);
+                        }
+
                         // Delete the codex file
                         try {
                             await vscode.workspace.fs.delete(codexUri);
@@ -302,6 +304,35 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                             }
                         }
 
+                        // Clean up original file in attachments/files/originals (if applicable)
+                        // Remove this notebook's reference; delete the original file only if no other notebooks use it
+                        if (notebookBaseName) {
+                            try {
+                                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                                if (workspaceFolder) {
+                                    const { removeNotebookReference } = await import('../NewSourceUploader/originalFileUtils');
+                                    const result = await removeNotebookReference(
+                                        workspaceFolder,
+                                        notebookBaseName,
+                                        originalFileName
+                                    );
+                                    if (result.originalFileDeleted && result.fileName) {
+                                        deletedFiles.push(`original: ${result.fileName}`);
+                                        console.log(`[Navigation] Deleted unreferenced original file: ${result.fileName}`);
+                                    } else if (result.fileName) {
+                                        console.log(`[Navigation] Original file "${result.fileName}" still referenced by other notebooks, kept`);
+                                    }
+                                }
+                            } catch (err) {
+                                console.warn(`[Navigation] Could not clean up original file: ${err}`);
+                            }
+                        }
+
+                        // Record single file deletion to project edit history
+                        if (deletedFiles.length > 0 && message.type === "codexDocument") {
+                            await this.recordFileDeletionToEditHistory(normalizedPath, message.label);
+                        }
+
                         // Show appropriate message based on results
                         if (deletedFiles.length > 0 && errors.length === 0) {
                             vscode.window.showInformationMessage(
@@ -330,24 +361,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                         command: "setBibleBookMap",
                         data: Array.from(this.bibleBookMap.entries()),
                     });
-                }
-                break;
-            }
-            case "toggleDictionary": {
-                try {
-                    const config = vscode.workspace.getConfiguration("codex-project-manager");
-                    const currentState = config.get<boolean>("spellcheckIsEnabled", false);
-                    await config.update("spellcheckIsEnabled", !currentState, vscode.ConfigurationTarget.Workspace);
-
-                    // Refresh dictionary items to update the enabled state
-                    await this.buildInitialData();
-
-                    vscode.window.showInformationMessage(
-                        `Spellcheck ${!currentState ? 'enabled' : 'disabled'}`
-                    );
-                } catch (error) {
-                    console.error("Error toggling dictionary:", error);
-                    vscode.window.showErrorMessage(`Failed to toggle dictionary: ${error}`);
                 }
                 break;
             }
@@ -399,6 +412,21 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
             }
+            case "deleteCorpusMarker": {
+                try {
+                    // Confirmation is handled by the webview's delete modal
+                    const content = message.content ?? {};
+                    const { corpusLabel, displayName, children } = content;
+
+                    if (children?.length > 0) {
+                        await this.deleteCorpusMarker(corpusLabel, displayName, children);
+                    }
+                } catch (error) {
+                    console.error("Error deleting corpus marker:", error);
+                    vscode.window.showErrorMessage(`Failed to delete folder: ${error}`);
+                }
+                break;
+            }
         }
     }
 
@@ -418,7 +446,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 .item-icon { margin-right: 6px; color: var(--vscode-foreground); opacity: 0.7; }
                 .folder-icon { color: var(--vscode-charts-yellow); }
                 .file-icon { color: var(--vscode-charts-blue); }
-                .dictionary-icon { color: var(--vscode-charts-purple); }
                 .search-container { padding: 8px; position: sticky; top: 0; background: var(--vscode-sideBar-background); z-index: 10; display: flex; align-items: center; }
                 .search-input { flex: 1; height: 24px; border-radius: 4px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); color: var(--vscode-input-foreground); padding: 0 8px; outline: none; }
                 .search-input:focus { border-color: var(--vscode-focusBorder); }
@@ -432,16 +459,17 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private async buildInitialData(): Promise<void> {
         if (this.isBuilding) {
+            this.pendingRebuild = true;
             return;
         }
 
         this.isBuilding = true;
+        this.pendingRebuild = false;
 
         try {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders?.length) {
                 this.codexItems = [];
-                this.dictionaryItems = [];
                 return;
             }
 
@@ -450,12 +478,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 rootUri.fsPath,
                 "files/target/**/*.codex"
             );
-            const dictPattern = new vscode.RelativePattern(rootUri.fsPath, "files/**/*.dictionary");
-
-            const [codexUris, dictUris] = await Promise.all([
-                vscode.workspace.findFiles(codexPattern),
-                vscode.workspace.findFiles(dictPattern),
-            ]);
+            const codexUris = await vscode.workspace.findFiles(codexPattern);
 
             // Process codex files with metadata
             const codexItemsWithMetadata = await Promise.all(
@@ -466,17 +489,16 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const groupedItems = this.groupByCorpus(codexItemsWithMetadata);
             this.codexItems = groupedItems;
 
-            // Process dictionary items
-            this.dictionaryItems = await Promise.all(
-                dictUris.map((uri) => this.makeDictionaryItem(uri))
-            );
-
             this.sendItemsToWebview();
         } catch (error) {
             console.error("Error building data:", error);
             vscode.window.showErrorMessage(`Error loading codex files: ${error}`);
         } finally {
             this.isBuilding = false;
+            if (this.pendingRebuild) {
+                this.pendingRebuild = false;
+                this.buildInitialData();
+            }
         }
     }
 
@@ -491,25 +513,34 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const metadata = notebookData.metadata as CodexMetadata;
             const fileNameAbbr = path.basename(uri.fsPath, ".codex");
 
-            // Calculate progress based on cells with values
+            // Calculate progress based on cells with values (exclude paratext and child cells)
             const unmergedCells = notebookData.cells.filter(
-                (cell) =>
-                    !cell.metadata.data?.merged &&
-                    cell.metadata?.type !== CodexCellTypes.MILESTONE
+                (cell) => !shouldExcludeCellFromProgress(cell)
             );
-            const totalCells = unmergedCells.length;
-            const cellsWithValues = unmergedCells.filter(
+            // Second filter: only root content cells count for progress/validation (same as backend)
+            const toQuillLike = (cell: (typeof notebookData.cells)[0]) => ({
+                cellMarkers: [cell.metadata?.id ?? ""],
+                cellType: cell.metadata?.type ?? cell.languageId,
+                merged: cell.metadata?.data?.merged,
+                metadata: { parentId: cell.metadata?.parentId },
+                data: cell.metadata?.data,
+            });
+            const progressCells = unmergedCells.filter(
+                (cell) => !shouldExcludeQuillCellFromProgress(toQuillLike(cell) as unknown as import("../../../types").QuillCellContent)
+            );
+            const totalCells = progressCells.length;
+            const cellsWithValues = progressCells.filter(
                 (cell) =>
                     cell.value && cell.value.trim().length > 0 && cell.value !== "<span></span>"
             ).length;
             const progress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
 
-            const cellWithValidatedData = unmergedCells.map(
+            const cellWithValidatedData = progressCells.map(
                 (cell) => {
                     const cellValueData = getCellValueData({
                         cellContent: cell.value,
                         cellMarkers: [cell.metadata.id],
-                        cellType: cell.languageId as any,
+                        cellType: cell.languageId as import("../../../types/enums").CodexCellTypes,
                         cellLabel: cell.metadata.cellLabel,
                         editHistory: cell.metadata.edits,
                         attachments: cell.metadata.attachments,
@@ -520,7 +551,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             );
 
             // Compute audio completion based on attachments (mirrors editor logic)
-            const cellsWithAudioValues = unmergedCells.filter((cell) =>
+            const cellsWithAudioValues = progressCells.filter((cell) =>
                 cellHasAudioUsingAttachments(cell?.metadata?.attachments, cell?.metadata?.selectedAudioId)
             ).length;
 
@@ -535,9 +566,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 minimumAudioValidationsRequired
             );
 
-            // Compute per-level validation percentages for text and audio
+            // Compute per-level validation percentages for text and audio.
+            // For text, only count validations on cells with actual content (same rule as computeValidationStats).
             const countNonDeleted = (arr: any[] | undefined) => (arr || []).filter((v: any) => !v.isDeleted).length;
-            const textValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.validatedBy));
+            const textValidationCounts = cellWithValidatedData.map((c) =>
+                hasTextContent(c.cellContent) ? countActiveValidations(c.validatedBy) : 0
+            );
             const audioValidationCounts = cellWithValidatedData.map((c) => countNonDeleted(c.audioValidatedBy));
 
             const computeLevelPercents = (counts: number[], maxLevel: number) => {
@@ -739,59 +773,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         };
     }
 
-    private async getDictionaryWordCount(uri: vscode.Uri): Promise<number> {
-        try {
-            const content = await vscode.workspace.fs.readFile(uri);
-            const text = Buffer.from(content).toString('utf8');
-
-            // Parse the dictionary content and count entries
-            // Assuming dictionary is in a structured format (JSON or line-separated)
-            try {
-                const jsonData = JSON.parse(text);
-                if (Array.isArray(jsonData)) {
-                    return jsonData.length;
-                } else if (typeof jsonData === 'object') {
-                    return Object.keys(jsonData).length;
-                }
-            } catch {
-                // If not JSON, count lines (assuming one word per line)
-                const lines = text.split('\n').filter(line => line.trim().length > 0);
-                return lines.length;
-            }
-
-            return 0;
-        } catch (error) {
-            console.warn(`Failed to count words in dictionary ${uri.fsPath}:`, error);
-            return 0;
-        }
-    }
-
-    private async makeDictionaryItem(uri: vscode.Uri): Promise<CodexItem> {
-        const fileName = path.basename(uri.fsPath, ".dictionary");
-        const isProjectDictionary = fileName === "project";
-
-        let wordCount = 0;
-        let isEnabled = true;
-
-        if (isProjectDictionary) {
-            // Get word count from dictionary file
-            wordCount = await this.getDictionaryWordCount(uri);
-
-            // Get spellcheck enabled status from workspace configuration
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            isEnabled = config.get<boolean>("spellcheckIsEnabled", true);
-        }
-
-        return {
-            uri,
-            label: fileName,
-            type: "dictionary",
-            isProjectDictionary,
-            wordCount,
-            isEnabled,
-        };
-    }
-
     private registerWatchers(): void {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders?.length) {
@@ -803,32 +784,27 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             rootUri.fsPath,
             "files/target/**/*.codex"
         );
-        const dictWatcherPattern = new vscode.RelativePattern(
-            rootUri.fsPath,
-            "files/**/*.dictionary"
-        );
-
         const codexWatcher = vscode.workspace.createFileSystemWatcher(codexWatcherPattern);
-        const dictWatcher = vscode.workspace.createFileSystemWatcher(dictWatcherPattern);
 
         this.disposables.push(
             codexWatcher,
-            dictWatcher,
             codexWatcher.onDidCreate(() => this.buildInitialData()),
             codexWatcher.onDidChange(() => this.buildInitialData()),
             codexWatcher.onDidDelete(() => this.buildInitialData()),
-            dictWatcher.onDidCreate(() => this.buildInitialData()),
-            dictWatcher.onDidChange(() => this.buildInitialData()),
-            dictWatcher.onDidDelete(() => this.buildInitialData())
+            vscode.workspace.onDidChangeConfiguration((e) => {
+                if (
+                    e.affectsConfiguration("codex-project-manager.validationCount") ||
+                    e.affectsConfiguration("codex-project-manager.validationCountAudio")
+                ) {
+                    this.buildInitialData();
+                }
+            })
         );
     }
 
     private sendItemsToWebview(): void {
         if (this._view) {
             const serializedCodexItems = this.codexItems.map((item) => this.serializeItem(item));
-            const serializedDictItems = this.dictionaryItems.map((item) =>
-                this.serializeItem(item)
-            );
 
             // Get feature flag for health indicators
             const showHealthIndicators = vscode.workspace
@@ -838,7 +814,6 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             safePostMessageToView(this._view, {
                 command: "updateItems",
                 codexItems: serializedCodexItems,
-                dictionaryItems: serializedDictItems,
                 showHealthIndicators,
             });
 
@@ -848,6 +823,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                     data: Array.from(this.bibleBookMap.entries()),
                 });
             }
+
         }
     }
 
@@ -864,7 +840,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private async updateCorpusMarker(oldCorpusLabel: string, newCorpusName: string): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders?.length) {
-            vscode.window.showErrorMessage("No workspace folder found");
+            vscode.window.showErrorMessage("No project folder found.");
             return;
         }
 
@@ -1050,7 +1026,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private async updateBookName(bookAbbr: string, newBookName: string): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders?.length) {
-            vscode.window.showErrorMessage("No workspace folder found");
+            vscode.window.showErrorMessage("No project folder found.");
             return;
         }
 
@@ -1217,6 +1193,206 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             console.error("Error updating book name:", error);
             vscode.window.showErrorMessage(`Failed to update book name: ${error}`);
         }
+    }
+
+    private async recordFileDeletionToEditHistory(filePath: string, label: string): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return;
+
+        try {
+            const author = await this.getCurrentUser();
+            await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (metadata: { edits?: unknown[]; }) => {
+                    if (!metadata.edits) metadata.edits = [];
+                    addProjectMetadataEdit(
+                        metadata,
+                        EditMapUtils.deletedFile(),
+                        { filePath, label },
+                        author
+                    );
+                    return metadata;
+                },
+                { author }
+            );
+        } catch (err) {
+            console.warn(`[Navigation] Could not record file deletion to edit history: ${err}`);
+        }
+    }
+
+    private async recordCorpusDeletionToEditHistory(
+        corpusMarker: string,
+        deletedFiles: Array<{ filePath: string; label: string; }>
+    ): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceFolder) return;
+
+        try {
+            const author = await this.getCurrentUser();
+            await MetadataManager.safeUpdateMetadata(
+                workspaceFolder,
+                (metadata: { edits?: unknown[]; }) => {
+                    if (!metadata.edits) metadata.edits = [];
+                    addProjectMetadataEdit(
+                        metadata,
+                        EditMapUtils.deletedCorpusMarker(),
+                        { corpusMarker, deletedFiles },
+                        author
+                    );
+                    return metadata;
+                },
+                { author }
+            );
+        } catch (err) {
+            console.warn(`[Navigation] Could not record corpus deletion to edit history: ${err}`);
+        }
+    }
+
+    private async getCurrentUser(): Promise<string> {
+        try {
+            const authApi = getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            return userInfo?.username || "anonymous";
+        } catch {
+            return "anonymous";
+        }
+    }
+
+    private async deleteCorpusMarker(
+        corpusLabel: string,
+        displayName: string,
+        children: Array<{ uri: string; label: string; type: string; }>
+    ): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage("No project folder found.");
+            return;
+        }
+
+        const codexEditorProvider = CodexCellEditorProvider.getInstance();
+        const closePanelByUri = (uri: vscode.Uri) => {
+            if (!codexEditorProvider) return;
+            const webviewPanels = codexEditorProvider.getWebviewPanels();
+            let panelToClose = webviewPanels.get(uri.toString());
+            if (!panelToClose) {
+                for (const [panelUri, panel] of webviewPanels.entries()) {
+                    const panelUriObj = vscode.Uri.parse(panelUri);
+                    if (panelUriObj.fsPath === uri.fsPath) {
+                        panelToClose = panel;
+                        break;
+                    }
+                }
+            }
+            if (panelToClose) panelToClose.dispose();
+        };
+
+        const allDeletedFiles: Array<{ filePath: string; label: string; }> = [];
+        const errors: string[] = [];
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Deleting folder "${displayName}"`,
+                cancellable: false,
+            },
+            async (progress) => {
+                const total = children.length;
+                for (let i = 0; i < children.length; i++) {
+                    const child = children[i];
+                    progress.report({
+                        increment: (100 / total),
+                        message: `Deleting ${child.label}...`,
+                    });
+
+                    const normalizedPath = (child.uri as string).replace(/\\/g, "/");
+                    const codexUri = vscode.Uri.file(normalizedPath);
+
+                    // Close webviews
+                    closePanelByUri(codexUri);
+                    if (child.type === "codexDocument") {
+                        const baseFileName = path.basename(normalizedPath);
+                        const sourceFileName = baseFileName.replace(".codex", ".source");
+                        const sourceUri = vscode.Uri.joinPath(
+                            workspaceFolder.uri,
+                            ".project",
+                            "sourceTexts",
+                            sourceFileName
+                        );
+                        closePanelByUri(sourceUri);
+                    }
+
+                    let originalFileName: string | undefined;
+                    let notebookBaseName: string | undefined;
+                    try {
+                        const codexContent = await vscode.workspace.fs.readFile(codexUri);
+                        const codexNotebook = JSON.parse(new TextDecoder().decode(codexContent));
+                        originalFileName = codexNotebook?.metadata?.originalName || codexNotebook?.metadata?.originalFileName;
+                        notebookBaseName = path.basename(normalizedPath).replace(/\.[^/.]+$/, "");
+                    } catch {
+                        // File may already be gone
+                    }
+
+                    try {
+                        await vscode.workspace.fs.delete(codexUri);
+                        allDeletedFiles.push({ filePath: normalizedPath, label: child.label });
+                    } catch (error) {
+                        console.error("Error deleting codex file:", error);
+                        errors.push(`Failed to delete ${child.label}: ${error}`);
+                    }
+
+                    if (child.type === "codexDocument") {
+                        try {
+                            const baseFileName = path.basename(normalizedPath);
+                            const sourceFileName = baseFileName.replace(".codex", ".source");
+                            const sourceUri = vscode.Uri.joinPath(
+                                workspaceFolder.uri,
+                                ".project",
+                                "sourceTexts",
+                                sourceFileName
+                            );
+                            try {
+                                await vscode.workspace.fs.delete(sourceUri);
+                            } catch (deleteError: unknown) {
+                                const err = deleteError as { code?: string; };
+                                if (err.code !== "FileNotFound" && err.code !== "ENOENT") {
+                                    errors.push(`Failed to delete source for ${child.label}`);
+                                }
+                            }
+                        } catch (error) {
+                            errors.push(`Failed to delete source for ${child.label}`);
+                        }
+                    }
+
+                    if (notebookBaseName) {
+                        try {
+                            const { removeNotebookReference } = await import("../NewSourceUploader/originalFileUtils");
+                            await removeNotebookReference(workspaceFolder, notebookBaseName, originalFileName);
+                        } catch {
+                            // Non-fatal
+                        }
+                    }
+                }
+            }
+        );
+
+        // Record folder and all deleted files to edit history
+        if (allDeletedFiles.length > 0) {
+            await this.recordCorpusDeletionToEditHistory(corpusLabel, allDeletedFiles);
+        }
+
+        if (allDeletedFiles.length > 0 && errors.length === 0) {
+            vscode.window.showInformationMessage(
+                `Successfully deleted folder "${displayName}" and ${allDeletedFiles.length} file(s)`
+            );
+        } else if (allDeletedFiles.length > 0 && errors.length > 0) {
+            vscode.window.showWarningMessage(
+                `Partially deleted: ${allDeletedFiles.length} file(s). Errors: ${errors.join("; ")}`
+            );
+        } else {
+            vscode.window.showErrorMessage(`Failed to delete folder "${displayName}": ${errors.join("; ")}`);
+        }
+
+        await this.buildInitialData();
     }
 
     public dispose(): void {

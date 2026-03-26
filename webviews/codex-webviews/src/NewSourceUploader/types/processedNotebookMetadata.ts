@@ -70,10 +70,13 @@ export interface PlaintextNotebookMetadata extends ProcessedNotebookMetadataBase
 }
 
 export interface SpreadsheetNotebookMetadata extends ProcessedNotebookMetadataBase {
-    importerType: "spreadsheet";
+    importerType: "spreadsheet" | "spreadsheet-csv" | "spreadsheet-tsv";
     delimiter?: string;
     columnCount?: number;
     rowCount?: number;
+    columnHeaders?: string[];
+    sourceColumnIndex?: number;
+    originalFileContent?: string;
 }
 
 export interface SmartSegmenterNotebookMetadata extends ProcessedNotebookMetadataBase {
@@ -177,16 +180,12 @@ export interface UsfmExperimentalNotebookMetadata extends ProcessedNotebookMetad
     footnoteCount?: number;
     structureMetadata?: {
         originalUsfmContent: string;
-        lineMappings: unknown;
+        lineMappings?: unknown;
     };
 }
 
 export interface DocxNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "docx";
-}
-
-export interface DocxRoundtripNotebookMetadata extends ProcessedNotebookMetadataBase {
-    importerType: "docx-roundtrip";
     corpusMarker?: string;
     paragraphCount?: number;
 }
@@ -212,6 +211,17 @@ export interface BiblicaNotebookMetadata extends ProcessedNotebookMetadataBase {
     contentType?: "notes";
 }
 
+export interface Reach4LifeNotebookMetadata extends ProcessedNotebookMetadataBase {
+    importerType: "reach4life";
+    originalFileData?: ArrayBuffer;
+    documentId?: string;
+    storyCount?: number;
+    originalHash?: string;
+    totalCells?: number;
+    fileType?: "reach4life" | string;
+    contentType?: "notes";
+}
+
 export interface MaculaNotebookMetadata extends ProcessedNotebookMetadataBase {
     importerType: "macula";
     corpusMarker?: string;
@@ -233,9 +243,9 @@ export type ProcessedNotebookMetadata =
     | UsfmNotebookMetadata
     | UsfmExperimentalNotebookMetadata
     | DocxNotebookMetadata
-    | DocxRoundtripNotebookMetadata
     | IndesignNotebookMetadata
     | BiblicaNotebookMetadata
+    | Reach4LifeNotebookMetadata
     | MaculaNotebookMetadata;
 
 export type ProcessedNotebookMetadataByImporter = {
@@ -243,6 +253,8 @@ export type ProcessedNotebookMetadataByImporter = {
     subtitles: SubtitlesNotebookMetadata;
     plaintext: PlaintextNotebookMetadata;
     spreadsheet: SpreadsheetNotebookMetadata;
+    "spreadsheet-csv": SpreadsheetNotebookMetadata;
+    "spreadsheet-tsv": SpreadsheetNotebookMetadata;
     "smart-segmenter": SmartSegmenterNotebookMetadata;
     audio: AudioNotebookMetadata;
     tms: TmsNotebookMetadata;
@@ -253,9 +265,9 @@ export type ProcessedNotebookMetadataByImporter = {
     usfm: UsfmNotebookMetadata;
     "usfm-experimental": UsfmExperimentalNotebookMetadata;
     docx: DocxNotebookMetadata;
-    "docx-roundtrip": DocxRoundtripNotebookMetadata;
     indesign: IndesignNotebookMetadata;
     biblica: BiblicaNotebookMetadata;
+    reach4life: Reach4LifeNotebookMetadata;
     macula: MaculaNotebookMetadata;
 };
 

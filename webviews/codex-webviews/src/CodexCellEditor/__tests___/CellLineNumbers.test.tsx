@@ -4,7 +4,6 @@ import { render } from "@testing-library/react";
 import { QuillCellContent } from "../../../../../types";
 import { CodexCellTypes } from "../../../../../types/enums";
 import CellList from "../CellList";
-import { CELL_DISPLAY_MODES } from "../CodexCellEditor";
 
 // Mock the VSCode API
 const mockVscode = {
@@ -172,7 +171,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -185,11 +183,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -220,7 +216,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -233,11 +228,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -270,7 +263,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -283,11 +275,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -328,7 +318,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -341,11 +330,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -390,7 +377,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -403,11 +389,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -447,7 +431,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -460,11 +443,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -503,7 +484,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -516,11 +496,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -561,7 +539,6 @@ describe("Cell Line Numbers and Labels", () => {
             ];
 
             const props = {
-                spellCheckResponse: null,
                 translationUnits,
                 fullDocumentTranslationUnits: translationUnits,
                 contentBeingUpdated: {
@@ -574,11 +551,9 @@ describe("Cell Line Numbers and Labels", () => {
                 handleSaveHtml: vi.fn(),
                 vscode: mockVscode,
                 textDirection: "ltr" as const,
-                cellDisplayMode: CELL_DISPLAY_MODES.ONE_LINE_PER_CELL,
                 isSourceText: false,
                 windowHeight: 800,
                 headerHeight: 100,
-                alertColorCodes: {},
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 currentUsername: "test-user",
@@ -591,6 +566,158 @@ describe("Cell Line Numbers and Labels", () => {
             // Line numbers should not be visible
             const lineNumbers = container.querySelectorAll(".cell-line-number");
             expect(lineNumbers.length).toBe(0);
+        });
+    });
+
+    describe("Label and line number separation", () => {
+        const makeLabeledCellProps = (translationUnits: QuillCellContent[]) => ({
+            translationUnits,
+            fullDocumentTranslationUnits: translationUnits,
+            contentBeingUpdated: {
+                cellMarkers: [],
+                cellContent: "",
+                cellChanged: false,
+            },
+            setContentBeingUpdated: vi.fn(),
+            handleCloseEditor: vi.fn(),
+            handleSaveHtml: vi.fn(),
+            vscode: mockVscode,
+            textDirection: "ltr" as const,
+            isSourceText: false,
+            windowHeight: 800,
+            headerHeight: 100,
+            highlightedCellId: null,
+            scrollSyncEnabled: true,
+            currentUsername: "test-user",
+            requiredValidations: 1,
+            lineNumbersEnabled: true,
+        });
+
+        it("should show numeric line numbers, not speaker labels, in the line number area", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-1", CodexCellTypes.TEXT, "<p>Heli keteibe</p>", {
+                    cellLabel: "PAWN BROKER",
+                }),
+                createMockCell("cell-2", CodexCellTypes.TEXT, "<p>Nang au kemret kau!</p>", {
+                    cellLabel: "UPSET WOMAN",
+                }),
+                createMockCell("cell-3", CodexCellTypes.TEXT, "<p>Pa au mie zeu da.</p>", {
+                    cellLabel: "PAWN BROKER",
+                }),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).toContain("3");
+
+            // Line numbers must NOT contain speaker labels
+            expect(lineNumberTexts).not.toContain("PAWN BROKER");
+            expect(lineNumberTexts).not.toContain("UPSET WOMAN");
+        });
+
+        it("should render cellLabel as a separate label element, not in the line number area", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-1", CodexCellTypes.TEXT, "<p>Some dialogue</p>", {
+                    cellLabel: "JESUS",
+                }),
+                createMockCell("cell-2", CodexCellTypes.TEXT, "<p>More dialogue</p>", {
+                    cellLabel: "SALOME",
+                }),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            // Labels should appear in label elements
+            const labelElements = container.querySelectorAll(".cell-label-text");
+            const labelTexts = Array.from(labelElements)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(labelTexts).toContain("JESUS");
+            expect(labelTexts).toContain("SALOME");
+
+            // Line numbers should be numeric
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).not.toContain("JESUS");
+            expect(lineNumberTexts).not.toContain("SALOME");
+        });
+
+        it("should show numeric line numbers for cells with cellLabel but no verse-level references", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-a", CodexCellTypes.TEXT, "<p>First line</p>", {
+                    cellLabel: "THE LEPER",
+                }),
+                createMockCell("cell-b", CodexCellTypes.TEXT, "<p>Second line</p>", {
+                    cellLabel: "BIG JAMES",
+                }),
+                createMockCell("cell-c", CodexCellTypes.TEXT, "<p>Third line</p>", {
+                    cellLabel: "ZEBEDEE",
+                }),
+                createMockCell("cell-d", CodexCellTypes.TEXT, "<p>Fourth line</p>", {
+                    cellLabel: "ZEBEDEE",
+                }),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            // Sequential numeric line numbers
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).toContain("3");
+            expect(lineNumberTexts).toContain("4");
+
+            // None of the speaker names should appear as line numbers
+            expect(lineNumberTexts).not.toContain("THE LEPER");
+            expect(lineNumberTexts).not.toContain("BIG JAMES");
+            expect(lineNumberTexts).not.toContain("ZEBEDEE");
+        });
+
+        it("should handle a mix of cells with and without labels", () => {
+            const translationUnits: QuillCellContent[] = [
+                createMockCell("cell-1", CodexCellTypes.TEXT, "<p>Unlabeled cell</p>"),
+                createMockCell("cell-2", CodexCellTypes.TEXT, "<p>Labeled cell</p>", {
+                    cellLabel: "NARRATOR",
+                }),
+                createMockCell("cell-3", CodexCellTypes.TEXT, "<p>Another unlabeled</p>"),
+            ];
+
+            const { container } = render(
+                <CellList {...makeLabeledCellProps(translationUnits)} />
+            );
+
+            const lineNumbers = container.querySelectorAll(".cell-line-number");
+            const lineNumberTexts = Array.from(lineNumbers)
+                .map((el) => el.textContent?.trim())
+                .filter(Boolean);
+
+            expect(lineNumberTexts).toContain("1");
+            expect(lineNumberTexts).toContain("2");
+            expect(lineNumberTexts).toContain("3");
+            expect(lineNumberTexts).not.toContain("NARRATOR");
         });
     });
 

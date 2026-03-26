@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -271,9 +272,7 @@ export const parseFile = async (
                     elementType: elementInfo.type,
                     headingLevel: elementInfo.level,
                     headingText: elementInfo.headingText,
-                    cellLabel: elementInfo.type === 'heading' && elementInfo.headingText
-                        ? elementInfo.headingText.substring(0, 20)
-                        : String(index + 1),
+                    cellLabel: undefined,
                 });
 
                 // Extract images from the converted HTML
@@ -315,7 +314,7 @@ export const parseFile = async (
             name: baseName,
             cells,
             metadata: {
-                id: `source-${Date.now()}`,
+                id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
                 importerType: 'markdown',
@@ -359,7 +358,7 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: `codex-${Date.now()}`,
+                id: uuidv4(),
             },
         };
 

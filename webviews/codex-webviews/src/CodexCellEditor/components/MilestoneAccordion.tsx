@@ -266,12 +266,11 @@ export function MilestoneAccordion({
         localMilestoneValues,
     ]);
 
-    // Request progress when milestone is expanded
+    // Request progress when milestone is expanded (if we don't have it yet)
     useEffect(() => {
         if (isOpen && expandedMilestone !== null && requestSubsectionProgress) {
             const milestoneIdx = parseInt(expandedMilestone);
             if (!isNaN(milestoneIdx)) {
-                // Check if progress exists for this milestone in allSubsectionProgress
                 const hasProgress = allSubsectionProgress?.[milestoneIdx] !== undefined;
                 if (!hasProgress) {
                     requestSubsectionProgress(milestoneIdx);

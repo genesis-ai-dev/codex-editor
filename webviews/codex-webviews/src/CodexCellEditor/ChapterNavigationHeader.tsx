@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../components/ui/button";
-import { CELL_DISPLAY_MODES, extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
+import { extractChapterNumberFromMilestoneValue } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { MobileHeaderMenu } from "./components/MobileHeaderMenu";
@@ -42,8 +42,6 @@ interface ChapterNavigationHeaderProps {
     isAutocompletingChapter: boolean;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
-    onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
-    cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     totalChapters: number;
     untranslatedCellIds: string[];
@@ -105,8 +103,6 @@ export function ChapterNavigationHeader({
     isAutocompletingChapter,
     onSetTextDirection,
     textDirection,
-    onSetCellDisplayMode,
-    cellDisplayMode,
     isSourceText,
     totalChapters,
     untranslatedCellIds,
@@ -171,8 +167,9 @@ ChapterNavigationHeaderProps) {
     const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
 
     // Responsive breakpoint state with hysteresis to prevent flickering
-    const [shouldShowHamburger, setShouldShowHamburger] = useState(window.innerWidth < 635);
-    const [isVerySmallScreen, setIsVerySmallScreen] = useState(window.innerWidth < 395);
+    // Uses container width (not window.innerWidth) for accurate panel-aware sizing
+    const [shouldShowHamburger, setShouldShowHamburger] = useState(false);
+    const [isVerySmallScreen, setIsVerySmallScreen] = useState(false);
 
     // Font size state - default to 14 if not set in metadata
     const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
@@ -194,9 +191,10 @@ ChapterNavigationHeaderProps) {
     // Total navigation units (milestones)
     const totalNavigationUnits = milestoneIndex?.milestones.length || 0;
 
-    // Check if navigation buttons should be disabled (only 1 milestone and 1 subsection)
+    // Check if navigation buttons should be disabled (0-1 milestones and 0-1 subsections)
     const shouldDisableNavigation = useMemo(() => {
-        return !!(milestoneIndex?.milestones.length === 1 && subsections.length <= 1);
+        const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+        return milestoneCount === 0 || (milestoneCount === 1 && subsections.length <= 1);
     }, [milestoneIndex?.milestones.length, subsections.length]);
 
     // Helper to determine if any translation is in progress
@@ -243,14 +241,7 @@ ChapterNavigationHeaderProps) {
             const parentRect = container.parentElement?.getBoundingClientRect();
             if (!parentRect) return;
 
-            const availableWidth = Math.min(
-                parentRect.width,
-                isVerySmallScreen
-                    ? window.innerWidth * 0.5
-                    : shouldShowHamburger
-                    ? window.innerWidth * 0.6
-                    : window.innerWidth * 0.4
-            );
+            const availableWidth = parentRect.width;
 
             const temp = document.createElement("span");
             const h1 = container.querySelector("h1") as HTMLElement | null;
@@ -291,209 +282,62 @@ ChapterNavigationHeaderProps) {
         });
     }, [
         getDisplayTitle,
-        isVerySmallScreen,
         shouldShowHamburger,
         subsections,
         currentSubsectionIndex,
     ]);
 
-    // Unified resize handling with RAF throttling
+    // Unified resize + breakpoint handling via ResizeObserver on the header container.
+    // Uses container width (not window.innerWidth) so breakpoints respond to the
+    // actual panel size, which matters in VS Code's side-by-side editor layout.
     useEffect(() => {
-        let ticking = false;
-        const onResize = () => {
-            if (ticking) return;
-            ticking = true;
-            requestAnimationFrame(() => {
-                ticking = false;
-                const width = window.innerWidth;
+        const updateBreakpoints = (containerWidth: number) => {
+            const HAMBURGER_SHOW = 420;
+            const HAMBURGER_HIDE = 435;
+            const VERY_SMALL_SHOW = 280;
+            const VERY_SMALL_HIDE = 295;
 
-                if (!shouldShowHamburger && width < 635) {
-                    setShouldShowHamburger(true);
-                } else if (shouldShowHamburger && width > 645) {
-                    setShouldShowHamburger(false);
-                }
-
-                if (!isVerySmallScreen && width < 395) {
-                    setIsVerySmallScreen(true);
-                } else if (isVerySmallScreen && width > 405) {
-                    setIsVerySmallScreen(false);
-                }
-
-                measureAndTruncateTitle();
-            });
-        };
-
-        // Initial run
-        onResize();
-        window.addEventListener("resize", onResize);
-        return () => window.removeEventListener("resize", onResize);
-    }, [measureAndTruncateTitle, shouldShowHamburger, isVerySmallScreen]);
-
-    // Observe container size changes that may affect title truncation
-    useEffect(() => {
-        if (!window.ResizeObserver) return;
-        const obs = new ResizeObserver(() => {
-            requestAnimationFrame(() => measureAndTruncateTitle());
-        });
-        if (headerContainerRef.current) obs.observe(headerContainerRef.current);
-        if (chapterTitleRef.current) obs.observe(chapterTitleRef.current);
-        return () => obs.disconnect();
-    }, [measureAndTruncateTitle]);
-
-    // Debounced resize handler to prevent excessive re-renders
-    const debouncedResizeHandler = useMemo(() => {
-        let timeoutId: ReturnType<typeof setTimeout>;
-        return (callback: () => void) => {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => {
-                requestAnimationFrame(callback);
-            }, 150);
-        };
-    }, []);
-
-    // Responsive breakpoint management with hysteresis
-    useEffect(() => {
-        const handleBreakpointResize = () => {
-            const width = window.innerWidth;
-
-            // Hamburger menu breakpoint with 5px buffer zone
-            if (!shouldShowHamburger && width < 635) {
+            if (!shouldShowHamburger && containerWidth < HAMBURGER_SHOW) {
                 setShouldShowHamburger(true);
-            } else if (shouldShowHamburger && width > 645) {
+            } else if (shouldShowHamburger && containerWidth > HAMBURGER_HIDE) {
                 setShouldShowHamburger(false);
             }
 
-            // Very small screen breakpoint with 5px buffer zone
-            if (!isVerySmallScreen && width < 395) {
+            if (!isVerySmallScreen && containerWidth < VERY_SMALL_SHOW) {
                 setIsVerySmallScreen(true);
-            } else if (isVerySmallScreen && width > 405) {
+            } else if (isVerySmallScreen && containerWidth > VERY_SMALL_HIDE) {
                 setIsVerySmallScreen(false);
             }
         };
 
-        // Run initial check
-        handleBreakpointResize();
+        if (!window.ResizeObserver) return;
 
-        const debouncedBreakpointHandler = () => {
-            debouncedResizeHandler(handleBreakpointResize);
-        };
-
-        window.addEventListener("resize", debouncedBreakpointHandler);
-        return () => window.removeEventListener("resize", debouncedBreakpointHandler);
-    }, [shouldShowHamburger, isVerySmallScreen, debouncedResizeHandler]);
-
-    // Dynamic title truncation based on available space - now universal (not screen-size dependent)
-    useEffect(() => {
-        const handleTitleResize = () => {
-            const container = chapterTitleRef.current;
-            if (!container) return;
-
-            const fullTitle = getDisplayTitle();
-            const lastSpaceIndex = Math.max(
-                fullTitle.lastIndexOf("\u00A0"),
-                fullTitle.lastIndexOf(" ")
-            );
-            const bookName =
-                lastSpaceIndex > 0 ? fullTitle.substring(0, lastSpaceIndex) : fullTitle;
-            const chapterNum = lastSpaceIndex > 0 ? fullTitle.substring(lastSpaceIndex + 1) : "";
-
-            // Use requestAnimationFrame to ensure DOM has updated
+        const obs = new ResizeObserver((entries) => {
             requestAnimationFrame(() => {
-                const parentRect = container.parentElement?.getBoundingClientRect();
-
-                if (!parentRect) return;
-
-                // Calculate available width based on responsive states
-                const availableWidth = Math.min(
-                    parentRect.width,
-                    isVerySmallScreen
-                        ? window.innerWidth * 0.5 // On very small screens, limit to 50%
-                        : shouldShowHamburger
-                        ? window.innerWidth * 0.6 // On mobile layout, limit to 60%
-                        : window.innerWidth * 0.4 // On larger screens, limit to 40%
-                );
-
-                // Create temporary element to measure text width including subsection label
-                const temp = document.createElement("span");
-                temp.style.visibility = "hidden";
-                temp.style.position = "absolute";
-                temp.style.fontSize = window.getComputedStyle(
-                    container.querySelector("h1") || container
-                ).fontSize;
-                temp.style.fontFamily = window.getComputedStyle(
-                    container.querySelector("h1") || container
-                ).fontFamily;
-
-                // Account for subsection label like "(1-50)" only when it should be visible
-                const subsectionLabel =
-                    !shouldShowHamburger && // Use responsive state - show subsection label when not using hamburger menu
-                    subsections.length > 0 &&
-                    subsections[currentSubsectionIndex]?.label
-                        ? ` (${subsections[currentSubsectionIndex].label})`
-                        : "";
-                temp.textContent = fullTitle + subsectionLabel;
-                document.body.appendChild(temp);
-
-                const fullWidth = temp.getBoundingClientRect().width;
-                document.body.removeChild(temp);
-
-                // If text is too wide, truncate the book name (now universal, not screen-size dependent)
-                if (fullWidth > availableWidth && bookName.length > 3) {
-                    // Calculate how many characters we can fit
-                    const totalTextLength = fullTitle.length + subsectionLabel.length;
-                    const avgCharWidth = fullWidth / totalTextLength;
-                    const chapterNumWidth = chapterNum.length * avgCharWidth;
-                    const subsectionLabelWidth = subsectionLabel.length * avgCharWidth;
-                    const ellipsisWidth = 3 * avgCharWidth; // "..." width
-                    const availableForBookName =
-                        availableWidth - chapterNumWidth - subsectionLabelWidth - ellipsisWidth;
-                    const maxBookNameChars = Math.floor(availableForBookName / avgCharWidth);
-
-                    if (maxBookNameChars > 0) {
-                        const truncated = bookName.substring(0, Math.max(1, maxBookNameChars - 1));
-                        setTruncatedBookName((prev) => (prev !== truncated ? truncated : prev));
+                for (const entry of entries) {
+                    if (entry.target === headerContainerRef.current) {
+                        updateBreakpoints(entry.contentRect.width);
                     }
-                } else {
-                    // Ensure we clear truncation only when needed to avoid extra renders
-                    setTruncatedBookName((prev) => (prev !== null ? null : prev));
                 }
+                measureAndTruncateTitle();
             });
-        };
+        });
 
-        const debouncedTitleHandler = () => {
-            debouncedResizeHandler(handleTitleResize);
-        };
-
-        // Initial calculation
-        handleTitleResize();
-
-        // Add resize observer for container changes
-        let resizeObserver: ResizeObserver | null = null;
-        if (window.ResizeObserver && chapterTitleRef.current) {
-            resizeObserver = new ResizeObserver(() => {
-                debouncedResizeHandler(handleTitleResize);
-            });
-            resizeObserver.observe(chapterTitleRef.current);
+        if (headerContainerRef.current) {
+            obs.observe(headerContainerRef.current);
+            updateBreakpoints(headerContainerRef.current.getBoundingClientRect().width);
         }
+        if (chapterTitleRef.current) obs.observe(chapterTitleRef.current);
 
-        // Add window resize listener as fallback
-        window.addEventListener("resize", debouncedTitleHandler);
+        measureAndTruncateTitle();
 
-        return () => {
-            if (resizeObserver) {
-                resizeObserver.disconnect();
-            }
-            window.removeEventListener("resize", debouncedTitleHandler);
-        };
-    }, [
-        getDisplayTitle,
-        translationUnitsForSection,
-        subsections,
-        currentSubsectionIndex,
-        shouldShowHamburger,
-        isVerySmallScreen,
-        debouncedResizeHandler,
-    ]);
+        return () => obs.disconnect();
+    }, [measureAndTruncateTitle, shouldShowHamburger, isVerySmallScreen]);
+
+    // Re-run title truncation when content changes (resize is handled by the unified ResizeObserver above)
+    useEffect(() => {
+        measureAndTruncateTitle();
+    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex, measureAndTruncateTitle]);
 
     // Common handler for stopping any kind of translation
     const handleStopTranslation = () => {
@@ -635,6 +479,12 @@ ChapterNavigationHeaderProps) {
     // Navigation function for milestone-based navigation
     const jumpToMilestone = useCallback(
         (newMilestoneIdx: number, newSubsectionIdx: number = 0) => {
+            // Validate milestone index to prevent -1 or out-of-bounds requests
+            const milestoneCount = milestoneIndex?.milestones.length ?? 0;
+            if (newMilestoneIdx < 0 || newMilestoneIdx >= milestoneCount) {
+                console.warn(`[jumpToMilestone] Invalid milestone index: ${newMilestoneIdx}, total: ${milestoneCount}`);
+                return;
+            }
             if (
                 !unsavedChanges &&
                 (newMilestoneIdx !== currentMilestoneIndex ||
@@ -645,7 +495,7 @@ ChapterNavigationHeaderProps) {
                 requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
             }
         },
-        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone]
+        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone, milestoneIndex?.milestones.length]
     );
 
     // Use dynamic responsive state variables based on content overflow
@@ -710,8 +560,6 @@ ChapterNavigationHeaderProps) {
                         isSourceText={isSourceText}
                         textDirection={textDirection}
                         onSetTextDirection={onSetTextDirection}
-                        cellDisplayMode={cellDisplayMode}
-                        onSetCellDisplayMode={onSetCellDisplayMode}
                         fontSize={fontSize}
                         onFontSizeChange={handleFontSizeChange}
                         metadata={metadata}
@@ -1125,39 +973,6 @@ ChapterNavigationHeaderProps) {
                                 {showInlineBacktranslations ? "On" : "Off"}
                             </span>
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                            onClick={() => {
-                                const newMode =
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                        : CELL_DISPLAY_MODES.INLINE;
-                                onSetCellDisplayMode(newMode);
-                                vscode.postMessage({
-                                    command: "updateCellDisplayMode",
-                                    mode: newMode,
-                                });
-                            }}
-                            disabled={unsavedChanges}
-                            className="cursor-pointer"
-                        >
-                            <i
-                                className={`codicon ${
-                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                        ? "codicon-symbol-enum"
-                                        : "codicon-symbol-constant"
-                                } mr-2 h-4 w-4`}
-                            />
-                            <span>
-                                Display Mode (
-                                {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                    ? "Inline"
-                                    : "One Line"}
-                                )
-                            </span>
-                        </DropdownMenuItem>
-
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             onClick={() => {

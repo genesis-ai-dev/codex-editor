@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { getAuthApi } from "../extension";
 import { MetadataManager } from "./metadataManager";
-import * as git from "isomorphic-git";
-import * as fs from "fs";
+import * as dugiteGit from "./dugiteGit";
 import { ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry, RemoteUpdatingEntry } from "../../types";
 
 // Re-export RemoteUpdatingEntry so existing imports from this file continue to work
@@ -259,10 +258,7 @@ export async function fetchRemoteMetadata(
  */
 async function getGitOriginUrl(projectPath: string): Promise<string | null> {
     try {
-        const git = await import("isomorphic-git");
-        const fs = await import("fs");
-
-        const remotes = await git.listRemotes({ fs, dir: projectPath });
+        const remotes = await dugiteGit.listRemotes(projectPath);
         const origin = remotes.find((r) => r.remote === "origin");
 
         if (origin) {
@@ -701,7 +697,7 @@ export async function markUserAsUpdatedInRemoteList(
         // Fetch remote metadata to merge the latest updating list (prevents dropping entries)
         let remoteList: RemoteUpdatingEntry[] = [];
         try {
-            const remotes = await git.listRemotes({ fs, dir: projectPath });
+            const remotes = await dugiteGit.listRemotes(projectPath);
             const origin = remotes.find((r) => r.remote === "origin");
             if (origin?.url) {
                 const projectId = extractProjectIdFromUrl(origin.url);
@@ -800,7 +796,7 @@ export async function markUserAsUpdatedInRemoteList(
         debug("Successfully updated remote updating list and triggered sync");
 
         // Clear the cache for this project so future checks get the updated list
-        const remotes = await git.listRemotes({ fs, dir: projectPath });
+        const remotes = await dugiteGit.listRemotes(projectPath);
         const origin = remotes.find((r) => r.remote === "origin");
 
         if (origin?.url) {

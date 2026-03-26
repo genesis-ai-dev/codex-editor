@@ -1,7 +1,5 @@
 import * as vscode from "vscode";
 import JSZip from "jszip";
-import { extractVerseRefFromLine } from "../utils/verseRefUtils";
-import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import * as path from "path";
@@ -29,6 +27,13 @@ const execAsync = promisify(exec);
  */
 
 import { CodexNotebookAsJSONData } from "../../types";
+import { readCodexNotebookFromUri, getActiveCells } from "./exportHandlerUtils";
+import { resolveOriginalFileUri, findOriginalFileByPossibleNames } from "../providers/NewSourceUploader/originalFileUtils";
+import { isLfsPointerContent, resolveLfsPointerFile } from "../utils/lfsHelpers";
+import { exportCodexContentAsPlaintext } from "./plaintextExporter";
+import { exportCodexContentAsXliff } from "./xliffExporter";
+import { exportCodexContentAsUsfm } from "./usfmExporter";
+import { exportCodexContentAsHtml } from "./htmlExporter";
 
 // Debug flag
 const DEBUG = false;
@@ -38,111 +43,6 @@ function debug(...args: any[]) {
     if (DEBUG) {
         console.log("[DEBUG]", ...args);
     }
-}
-
-/**
- * Reads a .codex notebook from disk and parses its JSON content
- */
-async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
-    const fileData = await vscode.workspace.fs.readFile(uri);
-    return JSON.parse(Buffer.from(fileData).toString()) as CodexNotebookAsJSONData;
-}
-
-/**
- * Returns only active cells, excluding merged and deleted ones (based on metadata.data)
- * Keeps the original cell order intact
- */
-function getActiveCells(cells: CodexNotebookAsJSONData["cells"]) {
-    return cells.filter((cell) => {
-        const data = (cell.metadata as any)?.data;
-        const isMerged = !!(data && data.merged);
-        const isDeleted = !!(data && data.deleted);
-        return !isMerged && !isDeleted;
-    });
-}
-
-/**
- * Maps book codes to their full names for USFM export
- */
-const bookCodeToName: Record<string, string> = {
-    // Old Testament
-    GEN: "Genesis",
-    EXO: "Exodus",
-    LEV: "Leviticus",
-    NUM: "Numbers",
-    DEU: "Deuteronomy",
-    JOS: "Joshua",
-    JDG: "Judges",
-    RUT: "Ruth",
-    "1SA": "1 Samuel",
-    "2SA": "2 Samuel",
-    "1KI": "1 Kings",
-    "2KI": "2 Kings",
-    "1CH": "1 Chronicles",
-    "2CH": "2 Chronicles",
-    EZR: "Ezra",
-    NEH: "Nehemiah",
-    EST: "Esther",
-    JOB: "Job",
-    PSA: "Psalms",
-    PRO: "Proverbs",
-    ECC: "Ecclesiastes",
-    SNG: "Song of Songs",
-    ISA: "Isaiah",
-    JER: "Jeremiah",
-    LAM: "Lamentations",
-    EZK: "Ezekiel",
-    DAN: "Daniel",
-    HOS: "Hosea",
-    JOL: "Joel",
-    AMO: "Amos",
-    OBA: "Obadiah",
-    JON: "Jonah",
-    MIC: "Micah",
-    NAM: "Nahum",
-    HAB: "Habakkuk",
-    ZEP: "Zephaniah",
-    HAG: "Haggai",
-    ZEC: "Zechariah",
-    MAL: "Malachi",
-    // New Testament
-    MAT: "Matthew",
-    MRK: "Mark",
-    LUK: "Luke",
-    JHN: "John",
-    ACT: "Acts",
-    ROM: "Romans",
-    "1CO": "1 Corinthians",
-    "2CO": "2 Corinthians",
-    GAL: "Galatians",
-    EPH: "Ephesians",
-    PHP: "Philippians",
-    COL: "Colossians",
-    "1TH": "1 Thessalonians",
-    "2TH": "2 Thessalonians",
-    "1TI": "1 Timothy",
-    "2TI": "2 Timothy",
-    TIT: "Titus",
-    PHM: "Philemon",
-    HEB: "Hebrews",
-    JAS: "James",
-    "1PE": "1 Peter",
-    "2PE": "2 Peter",
-    "1JN": "1 John",
-    "2JN": "2 John",
-    "3JN": "3 John",
-    JUD: "Jude",
-    REV: "Revelation",
-};
-
-/**
- * Gets the full book name from a book code
- * @param bookCode The three-letter book code
- * @returns The full book name or the original code if not found
- */
-function getFullBookName(bookCode: string): string {
-    const upperCode = bookCode.toUpperCase();
-    return bookCodeToName[upperCode] || bookCode;
 }
 
 /**
@@ -325,7 +225,7 @@ async function exportCodexContentAsIdmlRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -341,9 +241,10 @@ async function exportCodexContentAsIdmlRoundtrip(
         async (progress) => {
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-            // Import both exporters
+            // Import exporters
             const { exportIdmlRoundtrip } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/indesign/idmlExporter");
             const { exportIdmlRoundtrip: exportBiblicaIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/biblica/biblicaExporter");
+            // const { exportIdmlRoundtrip: exportReach4LifeIdml } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/reach4life/reach4lifeExporter");
 
             // For each selected codex file, find its original attachment and create a translated copy in export folder
             for (const [index, filePath] of filesToExport.entries()) {
@@ -356,7 +257,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                     // Read codex notebook
                     const codexNotebook = await readCodexNotebookFromUri(file);
 
-                    // Detect if this is a Biblica file based on corpusMarker metadata (more reliable than filename)
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
                     const importerType = (codexNotebook.metadata as any)?.importerType || '';
                     const fileType = (codexNotebook.metadata as any)?.fileType || '';
@@ -365,30 +265,76 @@ async function exportCodexContentAsIdmlRoundtrip(
                         corpusMarker === 'biblica-idml' ||
                         importerType === 'biblica' ||
                         fileType === 'biblica' ||
-                        importerType === 'biblica-experimental' || // Backward compatibility
-                        fileType === 'biblica-experimental' || // Backward compatibility
-                        fileName.toLowerCase().endsWith('-biblica.codex');
+                        importerType === 'biblica-experimental' ||
+                        fileType === 'biblica-experimental';
+                    // const isReach4LifeFile =
+                    //     corpusMarker === 'reach4life' ||
+                    //     corpusMarker === 'reach4life-idml' ||
+                    //     importerType === 'reach4life' ||
+                    //     fileType === 'reach4life';
                     const exporterType = isBiblicaFile ? 'Biblica' : 'Standard';
 
                     console.log(`[IDML Export] Processing ${fileName} (corpusMarker: ${corpusMarker}) using ${exporterType} exporter`);
 
                     // Lookup original attachment by originalFileName or originalName metadata on the notebook (fallback to {bookCode}.idml)
-                    // Note: NewSourceUploaderProvider stores it as "originalName", but some importers use "originalFileName"
+                    // Note: originalFileName points to the deduplicated file in attachments/files/originals (or legacy attachments/originals)
                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
                         (codexNotebook.metadata as any)?.originalName ||
                         `${bookCode}.idml`;
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "originals"
-                    );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
+                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
 
                     // Load original IDML
-                    const idmlData = await vscode.workspace.fs.readFile(originalFileUri);
+                    let idmlData: Uint8Array;
+                    try {
+                        idmlData = await vscode.workspace.fs.readFile(originalFileUri);
+                    } catch (readErr) {
+                        throw new Error(
+                            `Original IDML file not found at "${originalFileUri.fsPath}". ` +
+                            `The file may have been deleted or moved. ` +
+                            `Try re-importing the source file. (originalFileName: "${originalFileName}")`
+                        );
+                    }
 
-                    // Use the appropriate exporter based on file type
+                    // Check if the file is a Git LFS pointer and resolve it if so
+                    if (isLfsPointerContent(idmlData)) {
+                        console.log(`[IDML Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - attempting to resolve...`);
+                        progress.report({ message: `Downloading original IDML from LFS for ${fileName}...` });
+                        const projectRoot = workspaceFolders[0].uri.fsPath;
+                        const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
+                        if (lfsResult.error || !lfsResult.data) {
+                            throw new Error(
+                                `Original IDML file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
+                                (lfsResult.error ?? 'Unknown error')
+                            );
+                        }
+                        idmlData = lfsResult.data;
+                        console.log(`[IDML Export] LFS pointer resolved: ${idmlData.length} bytes`);
+                    }
+
+                    // Validate the file is a valid ZIP/IDML before processing
+                    if (idmlData.length < 4) {
+                        throw new Error(
+                            `Original IDML file at "${originalFileUri.fsPath}" is too small (${idmlData.length} bytes) ` +
+                            `to be a valid IDML/ZIP archive. The file may be corrupted or empty. ` +
+                            `Try re-importing the source file.`
+                        );
+                    }
+                    if (idmlData[0] !== 0x50 || idmlData[1] !== 0x4B) {
+                        const firstBytes = Array.from(idmlData.slice(0, 16))
+                            .map(b => b.toString(16).padStart(2, '0'))
+                            .join(' ');
+                        const firstChars = new TextDecoder('utf-8', { fatal: false })
+                            .decode(idmlData.slice(0, 64))
+                            .replace(/[^\x20-\x7E]/g, '.');
+                        throw new Error(
+                            `File "${originalFileUri.fsPath}" (${idmlData.length} bytes) ` +
+                            `is not a valid IDML/ZIP archive. Expected ZIP signature "PK" but found: [${firstBytes}]. ` +
+                            `Preview: "${firstChars}". ` +
+                            `The original file may have been corrupted during import. Try re-importing.`
+                        );
+                    }
+                    console.log(`[IDML Export] Loaded original IDML: ${originalFileUri.fsPath} (${idmlData.length} bytes, valid ZIP signature)`);
+
                     let updatedIdmlData: Uint8Array;
                     if (isBiblicaFile) {
                         updatedIdmlData = await exportBiblicaIdml(idmlData, codexNotebook.cells);
@@ -396,7 +342,6 @@ async function exportCodexContentAsIdmlRoundtrip(
                         updatedIdmlData = await exportIdmlRoundtrip(idmlData, codexNotebook.cells);
                     }
 
-                    // Save duplicated, injected IDML into the chosen export folder
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
                     const suffix = isBiblicaFile ? '_biblica_translated' : '_translated';
                     const injectedName = originalFileName.replace(/\.idml$/i, `_${timestamp}${suffix}.idml`);
@@ -423,7 +368,7 @@ async function exportCodexContentAsDocxRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -457,40 +402,37 @@ async function exportCodexContentAsDocxRoundtrip(
 
                     // Check if this is a round-trip DOCX file
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    if (corpusMarker !== 'docx-roundtrip') {
-                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with round-trip importer (corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX round-trip importer`);
+                    if (corpusMarker !== 'docx' && corpusMarker !== 'docx-roundtrip') {
+                        console.warn(`[DOCX Export] Skipping ${fileName} - not imported with DOCX importer (corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with DOCX importer`);
                         continue;
                     }
 
-                    // Lookup original attachment by originalFileName metadata
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.docx`;
-                    // Originals are stored under `.project/attachments/files/originals/` (preferred).
-                    // Fallback to legacy `.project/attachments/originals/` if needed.
-                    const originalsDirPreferred = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "files",
-                        "originals"
-                    );
-                    const originalsDirLegacy = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "originals"
-                    );
-                    const preferredUri = vscode.Uri.joinPath(originalsDirPreferred, originalFileName);
-                    const legacyUri = vscode.Uri.joinPath(originalsDirLegacy, originalFileName);
-                    let originalFileUri = preferredUri;
-                    try {
-                        await vscode.workspace.fs.stat(preferredUri);
-                    } catch {
-                        originalFileUri = legacyUri;
-                    }
+                    // Lookup original attachment by originalFileName or originalName metadata
+                    // Note: originalFileName points to the deduplicated file in attachments/files/originals (or legacy attachments/originals)
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        `${bookCode}.docx`;
+                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
 
                     // Load original DOCX
-                    const docxData = await vscode.workspace.fs.readFile(originalFileUri);
+                    let docxData = await vscode.workspace.fs.readFile(originalFileUri);
+
+                    // Check if the file is a Git LFS pointer and resolve it
+                    if (isLfsPointerContent(docxData)) {
+                        console.log(`[DOCX Export] File "${originalFileUri.fsPath}" is a Git LFS pointer - resolving...`);
+                        progress.report({ message: `Downloading original DOCX from LFS for ${fileName}...` });
+                        const projectRoot = workspaceFolders[0].uri.fsPath;
+                        const lfsResult = await resolveLfsPointerFile(originalFileUri.fsPath, projectRoot);
+                        if (lfsResult.error || !lfsResult.data) {
+                            throw new Error(
+                                `Original DOCX file "${originalFileName}" is an LFS pointer that could not be resolved. ` +
+                                (lfsResult.error ?? 'Unknown error')
+                            );
+                        }
+                        docxData = lfsResult.data;
+                        console.log(`[DOCX Export] LFS pointer resolved: ${docxData.length} bytes`);
+                    }
 
                     // Export with translations
                     const updatedDocxData = await exportDocxWithTranslations(
@@ -516,7 +458,7 @@ async function exportCodexContentAsDocxRoundtrip(
     );
 }
 
-// PDF Round-trip export
+// PDF Round-trip export: Uses DOCX exporter then converts DOCX→PDF
 async function exportCodexContentAsPdfRoundtrip(
     userSelectedPath: string,
     filesToExport: string[],
@@ -524,7 +466,7 @@ async function exportCodexContentAsPdfRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -540,10 +482,10 @@ async function exportCodexContentAsPdfRoundtrip(
         async (progress) => {
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-            // Import PDF exporter
-            const { exportPdfWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/pdf/pdfExporter");
+            // Import DOCX exporter (we'll use it to create DOCX, then convert to PDF)
+            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/experiment/docxExporter");
 
-            // For each selected codex file, find its original attachment and create a translated copy in export folder
+            // For each selected codex file, export as DOCX then convert to PDF
             for (const [index, filePath] of filesToExport.entries()) {
                 progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
                 try {
@@ -551,46 +493,125 @@ async function exportCodexContentAsPdfRoundtrip(
                     const fileName = basename(file.fsPath);
                     const bookCode = fileName.split(".")[0] || "";
 
-                    console.log(`[PDF Export] Processing ${fileName} using PDF exporter`);
+                    console.log(`[PDF Export] Processing ${fileName} using DOCX exporter + docx2pdf`);
 
                     // Read codex notebook
                     const codexNotebook = await readCodexNotebookFromUri(file);
 
                     // Check if this is a PDF file
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker || '';
-                    const isPdfFile = corpusMarker === 'pdf' || corpusMarker === 'pdf-importer' || corpusMarker === 'pdf-sentence';
+                    const isPdfFile = corpusMarker === 'pdf';
                     if (!isPdfFile) {
                         console.warn(`[PDF Export] Skipping ${fileName} - not imported with PDF importer (corpusMarker: ${corpusMarker})`);
                         vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with PDF importer`);
                         continue;
                     }
 
-                    // Lookup original attachment by originalFileName metadata
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${bookCode}.pdf`;
-                    const originalsDir = vscode.Uri.joinPath(
+                    // Lookup original attachment by originalFileName or originalName metadata
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        `${bookCode}.pdf`;
+
+                    // Get converted DOCX filename from metadata or derive from PDF filename
+                    const pdfMetadata = (codexNotebook.metadata as any)?.pdfDocumentMetadata;
+                    const convertedDocxFileName = pdfMetadata?.convertedDocxFileName || originalFileName.replace(/\.pdf$/i, '.docx');
+
+                    // Resolve converted DOCX (preferred: attachments/files/originals, legacy: attachments/originals)
+                    const docxUri = await resolveOriginalFileUri(workspaceFolders[0], convertedDocxFileName);
+                    try {
+                        await vscode.workspace.fs.stat(docxUri);
+                    } catch {
+                        console.warn(`[PDF Export] No converted DOCX found at ${docxUri.fsPath}`);
+                        throw new Error(`No converted DOCX file found. Please re-import the PDF file.`);
+                    }
+
+                    // Read converted DOCX
+                    let docxBytes = await vscode.workspace.fs.readFile(docxUri);
+
+                    // Check if the file is a Git LFS pointer and resolve it
+                    if (isLfsPointerContent(docxBytes)) {
+                        console.log(`[PDF Export] File "${docxUri.fsPath}" is a Git LFS pointer - resolving...`);
+                        progress.report({ message: `Downloading original DOCX from LFS for ${fileName}...` });
+                        const projectRoot = workspaceFolders[0].uri.fsPath;
+                        const lfsResult = await resolveLfsPointerFile(docxUri.fsPath, projectRoot);
+                        if (lfsResult.error || !lfsResult.data) {
+                            throw new Error(
+                                `Converted DOCX file "${convertedDocxFileName}" is an LFS pointer that could not be resolved. ` +
+                                (lfsResult.error ?? 'Unknown error')
+                            );
+                        }
+                        docxBytes = lfsResult.data;
+                        console.log(`[PDF Export] LFS pointer resolved: ${docxBytes.length} bytes`);
+                    }
+
+                    const docxData = docxBytes.buffer.slice(docxBytes.byteOffset, docxBytes.byteOffset + docxBytes.byteLength) as ArrayBuffer;
+                    console.log(`[PDF Export] Using converted DOCX: ${docxUri.fsPath}`);
+
+                    progress.report({ message: `Exporting DOCX for ${fileName}...`, increment: increment * 0.5 });
+
+                    // Debug: Check cell metadata structure
+                    console.log(`[PDF Export] Codex notebook has ${codexNotebook.cells.length} cells`);
+                    if (codexNotebook.cells.length > 0) {
+                        const firstCell = codexNotebook.cells[0];
+                        const cellMeta = firstCell.metadata as any;
+                        console.log(`[PDF Export] First cell metadata:`, JSON.stringify({
+                            hasValue: !!firstCell.value,
+                            valueLength: firstCell.value?.length || 0,
+                            valuePreview: firstCell.value?.substring(0, 100) || '',
+                            paragraphIndex: cellMeta?.paragraphIndex,
+                            paragraphId: cellMeta?.paragraphId,
+                            hasData: !!cellMeta?.data,
+                            dataKeys: cellMeta?.data ? Object.keys(cellMeta.data) : []
+                        }, null, 2));
+                    }
+
+                    // Step 1: Use DOCX exporter to create translated DOCX
+                    const updatedDocxData = await exportDocxWithTranslations(
+                        docxData,
+                        codexNotebook.cells
+                    );
+
+                    // Step 2: Save translated DOCX to attachments/files/temporary folder
+                    const temporaryDir = vscode.Uri.joinPath(
                         workspaceFolders[0].uri,
                         ".project",
                         "attachments",
-                        "originals"
+                        "files",
+                        "temporary"
                     );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
 
-                    // Load original PDF
-                    const pdfData = await vscode.workspace.fs.readFile(originalFileUri);
+                    // Ensure temporary directory exists
+                    try {
+                        await vscode.workspace.fs.createDirectory(temporaryDir);
+                    } catch {
+                        // Directory may already exist
+                    }
 
-                    // Use PDF exporter to create translated PDF
-                    // Convert Uint8Array to proper ArrayBuffer for pdf-lib
-                    const pdfBuffer = new Uint8Array(pdfData).buffer as ArrayBuffer;
-                    const updatedPdfData = await exportPdfWithTranslations(pdfBuffer, codexNotebook.cells);
+                    // Get original PDF filename from metadata or derive from codex filename
+                    const originalPdfFileName = originalFileName || fileName.replace(/\.codex$/i, '.pdf');
+                    const translatedDocxFileName = originalPdfFileName.replace(/\.pdf$/i, '_translated.docx');
+                    const translatedDocxUri = vscode.Uri.joinPath(temporaryDir, translatedDocxFileName);
 
-                    // Save updated PDF into the chosen export folder
+                    await vscode.workspace.fs.writeFile(
+                        translatedDocxUri,
+                        new Uint8Array(updatedDocxData)
+                    );
+                    console.log(`[PDF Export] Saved translated DOCX to: ${translatedDocxUri.fsPath}`);
+
+                    progress.report({ message: `Converting DOCX to PDF for ${fileName}...`, increment: increment * 0.5 });
+
+                    // Step 3: Convert DOCX → PDF using docx2pdf via extension host
+                    const pdfData = await convertDocxToPdfViaExtension(translatedDocxUri.fsPath);
+
+                    // Step 4: Save translated PDF to user's selected destination
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const translatedName = originalFileName.replace(/\.pdf$/i, `_${timestamp}_translated.pdf`);
-                    const translatedUri = vscode.Uri.joinPath(exportFolder, translatedName);
+                    const translatedPdfName = originalFileName.replace(/\.pdf$/i, `_${timestamp}_translated.pdf`);
+                    const translatedPdfUri = vscode.Uri.joinPath(exportFolder, translatedPdfName);
 
-                    await vscode.workspace.fs.writeFile(translatedUri, new Uint8Array(updatedPdfData));
+                    await vscode.workspace.fs.writeFile(translatedPdfUri, new Uint8Array(pdfData));
+                    console.log(`[PDF Export] Saved translated PDF to: ${translatedPdfUri.fsPath}`);
 
-                    console.log(`[PDF Export] ✓ Exported ${translatedName}`);
+                    console.log(`[PDF Export] ✓ Exported ${translatedPdfName}`);
 
                 } catch (error) {
                     console.error(`[PDF Export] Error exporting ${filePath}:`, error);
@@ -604,167 +625,125 @@ async function exportCodexContentAsPdfRoundtrip(
 }
 
 /**
- * RTF Round-trip export using Pandoc
- * COMMENTED OUT - RTF importer disabled
+ * Converts DOCX file to PDF using docx2pdf via Python script
  */
-/* async function exportCodexContentAsRtfRoundtrip(
-    userSelectedPath: string,
-    filesToExport: string[],
-    _options?: ExportOptions
-) {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
-        return;
-    }
+async function convertDocxToPdfViaExtension(docxPath: string): Promise<ArrayBuffer> {
+    try {
+        // Get extension path
+        const extension = vscode.extensions.getExtension('project-accelerate.codex-editor-extension');
+        if (!extension) {
+            throw new Error('Could not find Codex Editor extension');
+        }
+        const scriptPath = path.join(extension.extensionPath, 'webviews', 'codex-webviews', 'src', 'NewSourceUploader', 'importers', 'pdf', 'scripts', 'docx_to_pdf.py');
+        const tempDir = path.join(extension.extensionPath, '.temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+        const pdfPath = path.join(tempDir, `converted_${Date.now()}.pdf`);
 
-    const exportFolder = vscode.Uri.file(userSelectedPath);
-    await vscode.workspace.fs.createDirectory(exportFolder);
+        // Escape paths for shell
+        const escapedScriptPath = scriptPath.replace(/\\/g, '/');
+        const escapedDocxPath = docxPath.replace(/\\/g, '/');
+        const escapedPdfPath = pdfPath.replace(/\\/g, '/');
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Exporting RTF Round-trip (Pandoc)",
-            cancellable: false,
-        },
-        async (progress) => {
-            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+        // Run Python script with file paths (no base64 in command line)
+        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        const command = `${pythonCmd} "${escapedScriptPath}" "${escapedDocxPath}" "${escapedPdfPath}"`;
 
-            // For each selected codex file, find its source notebook and export with Pandoc
-            for (const [index, filePath] of filesToExport.entries()) {
-                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+        console.log(`[DOCX→PDF] Converting DOCX to PDF...`);
+        console.log(`[DOCX→PDF] Command: ${command}`);
+        console.log(`[DOCX→PDF] DOCX path: ${docxPath}`);
+        console.log(`[DOCX→PDF] PDF output path: ${pdfPath}`);
+
+        // Verify DOCX file exists
+        if (!fs.existsSync(docxPath)) {
+            throw new Error(`DOCX file not found: ${docxPath}`);
+        }
+
+        let stdout: string;
+        let stderr: string;
+        try {
+            const result = await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
+            stdout = result.stdout;
+            stderr = result.stderr;
+        } catch (execError: any) {
+            // execAsync throws an error if exit code is non-zero
+            stdout = execError.stdout || '';
+            stderr = execError.stderr || '';
+            console.error(`[DOCX→PDF] Python script execution failed: ${execError.message}`);
+            console.error(`[DOCX→PDF] Exit code: ${execError.code}`);
+            console.error(`[DOCX→PDF] Stdout: ${stdout}`);
+            console.error(`[DOCX→PDF] Stderr: ${stderr}`);
+
+            // Try to parse error from stdout if it's JSON
+            if (stdout.trim()) {
                 try {
-                    const file = vscode.Uri.file(filePath);
-                    const fileName = basename(file.fsPath);
-                    const bookCode = fileName.split(".")[0] || "";
-
-                    console.log(`[RTF Export] Processing ${fileName} using Pandoc exporter`);
-
-                    // Read codex notebook
-                    const codexNotebook = await readCodexNotebookFromUri(file);
-
-                    // Check if this is an RTF file with Pandoc importer
-                    const importerType = (codexNotebook.metadata as any)?.importerType;
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-
-                    // Support both new (importerType) and old (corpusMarker) metadata
-                    const isRtfPandoc =
-                        importerType === 'rtf-pandoc' ||
-                        corpusMarker === 'rtf' ||
-                        corpusMarker === 'rtf-pandoc';
-
-                    if (!isRtfPandoc) {
-                        console.warn(`[RTF Export] Skipping ${fileName} - not an RTF file (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
-                        vscode.window.showWarningMessage(`Skipping ${fileName} - not an RTF file`);
-                        continue;
+                    const errorResult = JSON.parse(stdout);
+                    if (errorResult.error) {
+                        throw new Error(`DOCX to PDF conversion failed: ${errorResult.error}`);
                     }
-
-                    // Get Pandoc JSON from metadata
-                    const pandocJsonString = (codexNotebook.metadata as any)?.pandocJson;
-                    if (!pandocJsonString) {
-                        throw new Error('No Pandoc JSON found in notebook metadata');
-                    }
-
-                    const pandocJson = JSON.parse(pandocJsonString);
-                    console.log('[RTF Export] Loaded Pandoc JSON from metadata');
-
-                    // Find corresponding source notebook to get original filename
-                    // Use sourceFsPath from metadata if available, otherwise construct path
-                    const sourceFsPath = (codexNotebook.metadata as any)?.sourceFsPath;
-                    const sourceFile = sourceFsPath
-                        ? vscode.Uri.file(sourceFsPath)
-                        : vscode.Uri.file(filePath.replace(/\.codex$/, '.source').replace(/files[/\\]target/, '.project/sourceTexts'));
-
-                    const sourceNotebook = await readCodexNotebookFromUri(sourceFile);
-                    const originalFileName = (sourceNotebook.metadata as any)?.originalFileName || `${bookCode}.rtf`;
-
-                    // Build translation map from codex cells
-                    const translations: { [paragraphIndex: number]: string; } = {};
-
-                    for (const cell of codexNotebook.cells) {
-                        const cellMetadata = cell.metadata as any;
-                        const paragraphIndex = cellMetadata?.paragraphIndex;
-
-                        if (paragraphIndex !== undefined) {
-                            // Get translated content, strip HTML tags
-                            let content = cell.value.trim();
-
-                            if (content) {
-                                // Simple HTML tag removal
-                                content = content
-                                    .replace(/<[^>]+>/g, '')
-                                    .replace(/&nbsp;/g, ' ')
-                                    .replace(/&amp;/g, '&')
-                                    .replace(/&lt;/g, '<')
-                                    .replace(/&gt;/g, '>')
-                                    .replace(/&quot;/g, '"')
-                                    .trim();
-
-                                translations[paragraphIndex] = content;
-                            }
-                        }
-                    }
-
-                    console.log(`[RTF Export] Built translation map with ${Object.keys(translations).length} translations`);
-                    // Log first few translations for debugging
-                    Object.entries(translations).slice(0, 5).forEach(([idx, text]) => {
-                        console.log(`[RTF Export] Translation[${idx}]: "${text.substring(0, 50)}"`);
-                    });
-
-                    // Use Node.js bridge to rebuild RTF with translations (no Python needed!)
-                    console.log('[RTF Export] Calling Node.js Pandoc bridge...');
-
-                    // Create temp output path
-                    const extensionPath = vscode.extensions.getExtension('project-accelerate.codex-editor-extension')?.extensionPath || '';
-                    const tmpDir = path.join(extensionPath, '.tmp');
-                    if (!fs.existsSync(tmpDir)) {
-                        fs.mkdirSync(tmpDir, { recursive: true });
-                    }
-                    const outputRtfPath = path.join(tmpDir, `rtf_export_${Date.now()}.rtf`);
-
-                    try {
-                        const result = await exportRtfWithPandoc(pandocJson, translations, outputRtfPath);
-
-                        if (!result.success) {
-                            throw new Error(result.error || 'Pandoc export failed');
-                        }
-
-                        console.log('[RTF Export] Pandoc export successful');
-
-                        // Read exported RTF file
-                        const exportedRtfData = fs.readFileSync(outputRtfPath);
-
-                        // Save to export folder with timestamp
-                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                        const exportedName = originalFileName.replace(/\.rtf$/i, `_${timestamp}_translated.rtf`);
-                        const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
-
-                        await vscode.workspace.fs.writeFile(exportedUri, new Uint8Array(exportedRtfData));
-
-                        console.log(`[RTF Export] ✓ Exported ${exportedName}`);
-
-                    } finally {
-                        // Clean up temp file
-                        if (fs.existsSync(outputRtfPath)) {
-                            fs.unlinkSync(outputRtfPath);
-                        }
-                        // Clean up temp JSON file (created by exportRtfWithPandoc)
-                        const tmpJsonPath = outputRtfPath + '.json';
-                        if (fs.existsSync(tmpJsonPath)) {
-                            fs.unlinkSync(tmpJsonPath);
-                        }
-                    }
-
-                } catch (error) {
-                    console.error(`[RTF Export] Error exporting ${filePath}:`, error);
-                    vscode.window.showErrorMessage(`Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                } catch {
+                    // Not JSON, use the stderr/stdout as error message
                 }
             }
 
-            vscode.window.showInformationMessage(`RTF round-trip export completed to ${userSelectedPath}`);
+            throw new Error(`DOCX to PDF conversion failed: ${stderr || stdout || execError.message}`);
         }
-    );
-} */
+
+        // Log stderr for debugging
+        if (stderr) {
+            console.log(`[DOCX→PDF] Python stderr: ${stderr}`);
+        }
+
+        // Log stdout for debugging
+        console.log(`[DOCX→PDF] Python stdout: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}`);
+
+        if (!stdout.trim()) {
+            throw new Error('Python script returned no output');
+        }
+
+        let result;
+        try {
+            result = JSON.parse(stdout);
+        } catch (parseError) {
+            console.error(`[DOCX→PDF] Failed to parse Python output as JSON: ${parseError}`);
+            console.error(`[DOCX→PDF] Raw stdout: ${stdout}`);
+            throw new Error(`Failed to parse conversion result: ${parseError instanceof Error ? parseError.message : 'Unknown error'}. Output: ${stdout.substring(0, 200)}`);
+        }
+
+        if (result.success) {
+            // Verify PDF file exists
+            if (!fs.existsSync(pdfPath)) {
+                throw new Error(`PDF file was not created at: ${pdfPath}`);
+            }
+
+            // Read the generated PDF
+            const pdfData = fs.readFileSync(pdfPath);
+            console.log(`[DOCX→PDF] Read PDF file: ${pdfData.length} bytes`);
+
+            // Clean up temp PDF file
+            try {
+                fs.unlinkSync(pdfPath);
+            } catch (e) {
+                console.warn(`[DOCX→PDF] Could not delete temp PDF: ${e}`);
+            }
+
+            console.log(`[DOCX→PDF] ✓ Successfully converted DOCX to PDF`);
+            return pdfData.buffer.slice(pdfData.byteOffset, pdfData.byteOffset + pdfData.byteLength) as ArrayBuffer;
+        } else {
+            const errorMsg = result.error || 'DOCX to PDF conversion failed';
+            console.error(`[DOCX→PDF] Conversion failed: ${errorMsg}`);
+            console.error(`[DOCX→PDF] Full result object:`, JSON.stringify(result, null, 2));
+            throw new Error(errorMsg);
+        }
+    } catch (err) {
+        if (err instanceof Error && err.message.includes('DOCX to PDF conversion failed')) {
+            throw err; // Re-throw our custom errors
+        }
+        console.error(`[DOCX→PDF] Unexpected error: ${err}`);
+        throw err instanceof Error ? err : new Error(`Failed to convert DOCX to PDF: ${err}`);
+    }
+}
 
 /**
  * OBS (Open Bible Stories) Round-trip export
@@ -776,7 +755,7 @@ async function exportCodexContentAsObsRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -840,7 +819,9 @@ async function exportCodexContentAsObsRoundtrip(
                     console.log('[OBS Export] Generated markdown with translations, length:', updatedMarkdown.length);
 
                     // Determine output filename
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName || `${fileName.split('.')[0]}.md`;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        `${fileName.split('.')[0]}.md`;
                     const baseFileName = originalFileName.replace(/\.md$/i, '');
 
                     // Create timestamped filename
@@ -876,7 +857,7 @@ async function exportCodexContentAsUsfmRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -920,7 +901,8 @@ async function exportCodexContentAsUsfmRoundtrip(
 
                     // Get original file name from metadata with fallback
                     // Try multiple sources: codex metadata, source notebook metadata, or construct from bookCode
-                    let metadataOriginalFileName = (codexNotebook.metadata as any)?.originalFileName;
+                    let metadataOriginalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName;
                     const metadataBookCode = (codexNotebook.metadata as any)?.bookCode;
                     const finalBookCode = metadataBookCode || bookCode;
 
@@ -935,7 +917,8 @@ async function exportCodexContentAsUsfmRoundtrip(
                                 sourceFileName
                             );
                             const sourceNotebook = await readCodexNotebookFromUri(sourceFileUri);
-                            metadataOriginalFileName = (sourceNotebook.metadata as any)?.originalFileName;
+                            metadataOriginalFileName = (sourceNotebook.metadata as any)?.originalFileName ||
+                                (sourceNotebook.metadata as any)?.originalName;
                             if (metadataOriginalFileName) {
                                 console.log(`[USFM Export] Found originalFileName in source notebook: ${metadataOriginalFileName}`);
                             }
@@ -949,44 +932,27 @@ async function exportCodexContentAsUsfmRoundtrip(
                     const possibleExtensions = ['.usfm', '.sfm', '.USFM', '.SFM'];
                     let originalFileName = metadataOriginalFileName;
 
-                    // If no originalFileName, try to find it in originals folder
+                    // If no originalFileName, try to find it in originals folder (attachments/files/originals or legacy attachments/originals)
+                    let originalFileUri: vscode.Uri;
                     if (!originalFileName && finalBookCode) {
-                        const originalsDir = vscode.Uri.joinPath(
-                            workspaceFolders[0].uri,
-                            ".project",
-                            "attachments",
-                            "originals"
-                        );
-
-                        // Try each extension
-                        for (const ext of possibleExtensions) {
-                            const testFileName = `${finalBookCode}${ext}`;
-                            const testUri = vscode.Uri.joinPath(originalsDir, testFileName);
-                            try {
-                                await vscode.workspace.fs.stat(testUri);
-                                originalFileName = testFileName;
-                                console.log(`[USFM Export] Found original file: ${testFileName}`);
-                                break;
-                            } catch {
-                                // File doesn't exist, try next extension
-                            }
+                        const possibleNames = possibleExtensions.map(ext => `${finalBookCode}${ext}`);
+                        const found = await findOriginalFileByPossibleNames(workspaceFolders[0], possibleNames);
+                        if (found) {
+                            originalFileName = found.fileName;
+                            originalFileUri = found.uri;
+                            console.log(`[USFM Export] Found original file: ${originalFileName}`);
+                        } else {
+                            originalFileName = `${finalBookCode}.usfm`;
+                            console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
+                            originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
                         }
+                    } else {
+                        if (!originalFileName) {
+                            originalFileName = `${finalBookCode}.usfm`;
+                            console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
+                        }
+                        originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
                     }
-
-                    // Final fallback: construct filename from bookCode
-                    if (!originalFileName) {
-                        originalFileName = `${finalBookCode}.usfm`;
-                        console.log(`[USFM Export] Using fallback filename: ${originalFileName}`);
-                    }
-
-                    // Load original USFM file from attachments/originals
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "originals"
-                    );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, originalFileName);
 
                     let originalUsfmContent: string;
                     try {
@@ -1066,6 +1032,149 @@ async function exportCodexContentAsUsfmRoundtrip(
 }
 
 /**
+ * Spreadsheet (CSV/TSV) Round-trip export
+ * Exports codex notebooks back to CSV/TSV format with translations
+ */
+async function exportCodexContentAsSpreadsheetRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        return;
+    }
+
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting Spreadsheet Round-trip",
+            cancellable: false,
+        },
+        async (progress) => {
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+
+            // Import spreadsheet exporter
+            const { exportSpreadsheetWithTranslations, getDelimiterFromMetadata, getSpreadsheetExtension } =
+                await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/bibleSpredSheet/spreadsheetExporter");
+
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+
+                    console.log(`[Spreadsheet Export] Processing ${fileName}`);
+
+                    // Read codex notebook
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+
+                    // Check if this is a spreadsheet file
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
+                    const importerType = (codexNotebook.metadata as any)?.importerType;
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        '';
+
+                    // Check for any spreadsheet importer type
+                    const isSpreadsheet =
+                        importerType === 'spreadsheet' ||
+                        importerType === 'spreadsheet-csv' ||
+                        importerType === 'spreadsheet-tsv' ||
+                        corpusMarker === 'spreadsheet' ||
+                        corpusMarker === 'spreadsheet-csv' ||
+                        corpusMarker === 'spreadsheet-tsv';
+
+                    if (!isSpreadsheet) {
+                        console.warn(`[Spreadsheet Export] Skipping ${fileName} - not imported with spreadsheet importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`);
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with spreadsheet importer`);
+                        continue;
+                    }
+
+                    // Get importer type and delimiter
+                    const notebookImporterType = (codexNotebook.metadata as any)?.importerType;
+                    const delimiter = getDelimiterFromMetadata(codexNotebook.metadata);
+                    const extension = getSpreadsheetExtension(originalFileName, delimiter, notebookImporterType);
+                    const columnHeaders = (codexNotebook.metadata as any)?.columnHeaders;
+                    const sourceColumnIndex = (codexNotebook.metadata as any)?.sourceColumnIndex;
+
+                    console.log(`[Spreadsheet Export] Processing ${fileName}`);
+                    console.log(`[Spreadsheet Export] - importerType: ${notebookImporterType}`);
+                    console.log(`[Spreadsheet Export] - originalFileName: ${originalFileName}`);
+                    console.log(`[Spreadsheet Export] - extension: ${extension}`);
+                    console.log(`[Spreadsheet Export] - sourceColumnIndex: ${sourceColumnIndex}`);
+                    console.log(`[Spreadsheet Export] - columnHeaders: ${columnHeaders ? columnHeaders.join(', ') : 'none'}`);
+
+                    // Get original file content from metadata (stored during import)
+                    let originalFileContent: string | undefined = (codexNotebook.metadata as any)?.originalFileContent;
+
+                    if (originalFileContent) {
+                        console.log(`[Spreadsheet Export] ✓ Found originalFileContent in metadata (${originalFileContent.length} chars)`);
+                        console.log(`[Spreadsheet Export] First 200 chars: ${originalFileContent.substring(0, 200)}`);
+                    } else {
+                        console.log(`[Spreadsheet Export] No originalFileContent in metadata, trying file system...`);
+
+                        // Fallback: try to read from attachments (files/originals or legacy originals)
+                        const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+                        console.log(`[Spreadsheet Export] Looking for original file at: ${originalFileUri.fsPath}`);
+
+                        try {
+                            const fileData = await vscode.workspace.fs.readFile(originalFileUri);
+                            originalFileContent = Buffer.from(fileData).toString('utf-8');
+                            console.log(`[Spreadsheet Export] ✓ Loaded original file (${originalFileContent.length} chars)`);
+                        } catch (err) {
+                            console.warn(`[Spreadsheet Export] ✗ Could not find original file. Will use fallback reconstruction.`);
+                        }
+                    }
+
+                    console.log(`[Spreadsheet Export] Metadata: importerType="${notebookImporterType}", delimiter="${delimiter === '\t' ? 'TAB' : delimiter}", sourceColumnIndex=${sourceColumnIndex}, hasOriginalContent=${!!originalFileContent}`);
+
+                    // Export with translations - true round-trip using original file content
+                    const exportedContent = exportSpreadsheetWithTranslations(
+                        codexNotebook.cells as any,
+                        {
+                            delimiter,
+                            originalFileName,
+                            originalFileContent,
+                            columnHeaders,
+                            sourceColumnIndex,
+                            importerType: notebookImporterType,
+                        }
+                    );
+
+                    // Generate output filename
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const baseName = originalFileName
+                        ? originalFileName.replace(/\.(csv|tsv)$/i, '')
+                        : fileName.replace(/\.codex$/i, '');
+                    const outputFileName = `${baseName}_translated_${timestamp}.${extension}`;
+                    const outputUri = vscode.Uri.joinPath(exportFolder, outputFileName);
+
+                    // Write the file
+                    await vscode.workspace.fs.writeFile(
+                        outputUri,
+                        Buffer.from(exportedContent, 'utf-8')
+                    );
+
+                    console.log(`[Spreadsheet Export] ✓ Exported ${outputFileName}`);
+                } catch (error) {
+                    console.error(`[Spreadsheet Export] Error exporting ${filePath}:`, error);
+                    vscode.window.showErrorMessage(
+                        `Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : 'Unknown error'}`
+                    );
+                }
+            }
+
+            vscode.window.showInformationMessage(`Spreadsheet round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
+/**
  * TMS (Translation Memory System) Round-trip export
  * Supports both TMX and XLIFF formats
  */
@@ -1076,7 +1185,7 @@ async function exportCodexContentAsTmsRoundtrip(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1111,7 +1220,9 @@ async function exportCodexContentAsTmsRoundtrip(
                     const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
                     const fileFormat = (codexNotebook.metadata as any)?.fileFormat || corpusMarker; // Fallback to corpusMarker for old files
                     const fileType = (codexNotebook.metadata as any)?.fileType; // Direct file type field (tmx or xliff)
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName; // Get original filename (stored as originalFileName in metadata)
+                    // Get original filename - points to deduplicated file in attachments/files/originals (or legacy attachments/originals)
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName;
 
                     if (corpusMarker !== 'tms' && fileFormat !== 'tms-tmx' && fileFormat !== 'tms-xliff') {
                         console.warn(`[TMS Export] Skipping ${fileName} - not imported with TMS importer (corpusMarker: ${corpusMarker}, fileFormat: ${fileFormat})`);
@@ -1147,13 +1258,7 @@ async function exportCodexContentAsTmsRoundtrip(
 
                     // Use originalFileName from metadata, or construct fallback
                     const finalOriginalFileName = originalFileName || `${fileName.split('.')[0]}${fileExtension}`;
-                    const originalsDir = vscode.Uri.joinPath(
-                        workspaceFolders[0].uri,
-                        ".project",
-                        "attachments",
-                        "originals"
-                    );
-                    const originalFileUri = vscode.Uri.joinPath(originalsDir, finalOriginalFileName);
+                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], finalOriginalFileName);
 
                     // Load original TMS file
                     const tmsData = await vscode.workspace.fs.readFile(originalFileUri);
@@ -1206,7 +1311,7 @@ async function exportCodexContentAsRebuild(
 ) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
 
@@ -1228,47 +1333,50 @@ async function exportCodexContentAsRebuild(
                 try {
                     const file = vscode.Uri.file(filePath);
                     const codexNotebook = await readCodexNotebookFromUri(file);
-                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker;
-                    const importerType = (codexNotebook.metadata as any)?.importerType;
-                    const fileType = (codexNotebook.metadata as any)?.fileType;
-                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName;
+                    const corpusMarker = (codexNotebook.metadata as any)?.corpusMarker ? String((codexNotebook.metadata as any).corpusMarker).trim() : '';
+                    const importerType = (codexNotebook.metadata as any)?.importerType ? String((codexNotebook.metadata as any).importerType).trim() : '';
+                    const fileType = (codexNotebook.metadata as any)?.fileType ? String((codexNotebook.metadata as any).fileType).trim() : '';
+                    const originalFileName = (codexNotebook.metadata as any)?.originalFileName
+                        ? String((codexNotebook.metadata as any).originalFileName).trim()
+                        : (codexNotebook.metadata as any)?.originalName
+                            ? String((codexNotebook.metadata as any).originalName).trim()
+                            : '';
 
-                    console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: ${corpusMarker}, importerType: ${importerType}, fileType: ${fileType}`);
+                    console.log(`[Rebuild Export] File: ${basename(filePath)}, corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}"`);
 
                     // Group by supported types
-                    if (corpusMarker === 'docx-roundtrip') {
+                    if (corpusMarker === 'docx' || corpusMarker === 'docx-roundtrip') {
                         filesByType['docx'] = filesByType['docx'] || [];
                         filesByType['docx'].push(filePath);
                     } else if (
                         corpusMarker === 'biblica' ||
                         corpusMarker === 'biblica-idml' ||
+                        corpusMarker === 'reach4life' ||
+                        corpusMarker === 'reach4life-idml' ||
                         corpusMarker === 'idml-roundtrip' ||
-                        corpusMarker.startsWith('idml-') ||
+                        (corpusMarker && corpusMarker.startsWith('idml-')) ||
                         importerType === 'biblica' ||
                         fileType === 'biblica' ||
+                        importerType === 'reach4life' ||
+                        fileType === 'reach4life' ||
                         importerType === 'biblica-experimental' || // Backward compatibility
                         fileType === 'biblica-experimental' // Backward compatibility
                     ) {
-                        // Biblica files and IDML files both use the IDML exporter
-                        // Includes Biblica importer which uses the same IDML format
+                        // Biblica/Reach4Life files and IDML files both use the IDML exporter
                         filesByType['idml'] = filesByType['idml'] || [];
                         filesByType['idml'].push(filePath);
-                        // } else if (
-                        //     corpusMarker === 'pdf' ||
-                        //     corpusMarker === 'pdf-importer' ||  // Backward compatibility
-                        //     corpusMarker === 'pdf-sentence'     // Backward compatibility
-                        // ) {
-                        //     // PDF files use the PDF exporter
-                        //     filesByType['pdf'] = filesByType['pdf'] || [];
-                        //     filesByType['pdf'].push(filePath);
-                        // } else if (
-                        //     corpusMarker === 'rtf' ||
-                        //     corpusMarker === 'rtf-pandoc' ||  // Backward compatibility
-                        //     importerType === 'rtf-pandoc'
-                        // ) {
-                        //     // RTF files use the Pandoc RTF exporter
-                        //     filesByType['rtf'] = filesByType['rtf'] || [];
-                        //     filesByType['rtf'].push(filePath);
+                    } else if (
+                        corpusMarker === 'pdf' ||
+                        corpusMarker === 'pdf-importer' ||  // Backward compatibility
+                        corpusMarker === 'pdf-sentence' ||  // Backward compatibility
+                        importerType === 'pdf' ||
+                        fileType === 'pdf' ||
+                        (originalFileName && /\.pdf$/i.test(originalFileName)) // Fallback: check filename extension
+                    ) {
+                        // PDF files use the PDF exporter (DOCX exporter + docx2pdf conversion)
+                        console.log(`[Rebuild Export] ✓ Detected PDF file: ${basename(filePath)} (corpusMarker: "${corpusMarker}", importerType: "${importerType}", fileType: "${fileType}")`);
+                        filesByType['pdf'] = filesByType['pdf'] || [];
+                        filesByType['pdf'].push(filePath);
                     } else if (corpusMarker === 'obs' || importerType === 'obs') {
                         // OBS (Open Bible Stories) markdown files use the OBS exporter
                         // Fallback: also detect by importerType for older files
@@ -1299,8 +1407,23 @@ async function exportCodexContentAsRebuild(
                         // USFM files use the USFM round-trip exporter
                         filesByType['usfm'] = filesByType['usfm'] || [];
                         filesByType['usfm'].push(filePath);
+                    } else if (
+                        corpusMarker === 'spreadsheet' ||
+                        corpusMarker === 'spreadsheet-csv' ||
+                        corpusMarker === 'spreadsheet-tsv' ||
+                        importerType === 'spreadsheet' ||
+                        importerType === 'spreadsheet-csv' ||
+                        importerType === 'spreadsheet-tsv' ||
+                        (originalFileName && /\.(csv|tsv)$/i.test(originalFileName))
+                    ) {
+                        // Spreadsheet files (CSV/TSV) use the spreadsheet round-trip exporter
+                        console.log(`[Rebuild Export] ✓ Detected Spreadsheet file: ${basename(filePath)} (corpusMarker: "${corpusMarker}", importerType: "${importerType}")`);
+                        filesByType['spreadsheet'] = filesByType['spreadsheet'] || [];
+                        filesByType['spreadsheet'].push(filePath);
                     } else {
-                        unsupportedFiles.push({ file: basename(filePath), marker: corpusMarker || importerType || 'unknown' });
+                        // Log what we detected for debugging
+                        console.log(`[Rebuild Export] Unsupported file detected: ${basename(filePath)}, corpusMarker: ${corpusMarker}, importerType: ${importerType}, fileType: ${fileType}, originalFileName: ${originalFileName}`);
+                        unsupportedFiles.push({ file: basename(filePath), marker: corpusMarker || importerType || fileType || 'unknown' });
                     }
                 } catch (error) {
                     console.error(`[Rebuild Export] Error analyzing ${filePath}:`, error);
@@ -1351,23 +1474,21 @@ async function exportCodexContentAsRebuild(
                 }
             }
 
-            // Export PDF files
-            // COMMENTED OUT - PDF exporter disabled (not working properly)
-            /* if (filesByType['pdf']?.length > 0) {
-                console.log(`[Rebuild Export] Exporting ${filesByType['pdf'].length} PDF file(s) to DOCX...`);
+            // Export PDF files (uses DOCX exporter + docx2pdf conversion)
+            if (filesByType['pdf']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['pdf'].length} PDF file(s)...`);
                 progress.report({
-                    message: `Exporting ${filesByType['pdf'].length} PDF file(s) to DOCX...`,
+                    message: `Exporting ${filesByType['pdf'].length} PDF file(s)...`,
                     increment: 20
                 });
                 try {
-                    const { exportPdfAsDocx } = await import("./pdfDocxExporter");
-                    await exportPdfAsDocx(userSelectedPath, filesByType['pdf']);
+                    await exportCodexContentAsPdfRoundtrip(userSelectedPath, filesByType['pdf'], options);
                     processedCount += filesByType['pdf'].length;
                 } catch (error) {
                     console.error('[Rebuild Export] PDF export failed:', error);
                     vscode.window.showErrorMessage(`PDF export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
                 }
-            } */
+            }
 
             // Export RTF files using Pandoc
             // COMMENTED OUT - RTF importer disabled
@@ -1434,6 +1555,22 @@ async function exportCodexContentAsRebuild(
                 }
             }
 
+            // Export Spreadsheet (CSV/TSV) files
+            if (filesByType['spreadsheet']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['spreadsheet'].length} Spreadsheet file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['spreadsheet'].length} Spreadsheet file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsSpreadsheetRoundtrip(userSelectedPath, filesByType['spreadsheet'], options);
+                    processedCount += filesByType['spreadsheet'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] Spreadsheet export failed:', error);
+                    vscode.window.showErrorMessage(`Spreadsheet export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
             progress.report({ message: "Complete", increment: 30 });
 
             // Show summary
@@ -1457,7 +1594,7 @@ async function exportCodexContentAsRebuild(
                     .join('\n');
 
                 vscode.window.showWarningMessage(
-                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, PDF`,
+                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, TMS, USFM, CSV/TSV`,
                     { modal: false }
                 );
             }
@@ -1471,46 +1608,66 @@ export async function exportCodexContent(
     filesToExport: string[],
     options?: ExportOptions
 ) {
+    // Check if audio export should also be included alongside the text format export
+    const includeAudio = (options as any)?.includeAudio === true && format !== CodexExportFormat.AUDIO;
+
+    // Prepare export promises
+    const exportPromises: Promise<void>[] = [];
+
+    // Add text format export
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
-            await exportCodexContentAsPlaintext(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsPlaintext(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.USFM:
-            await exportCodexContentAsUsfm(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsUsfm(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.HTML:
-            await exportCodexContentAsHtml(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsHtml(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.AUDIO: {
             const { exportAudioAttachments } = await import("./audioExporter");
-            await exportAudioAttachments(userSelectedPath, filesToExport, { includeTimestamps: (options as any)?.includeTimestamps });
+            exportPromises.push(exportAudioAttachments(userSelectedPath, filesToExport, { includeTimestamps: (options as any)?.includeTimestamps }));
             break;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
-            await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, true);
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, true));
             break;
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
-            await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false);
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false));
             break;
         case CodexExportFormat.SUBTITLES_SRT:
-            await exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.XLIFF:
-            await exportCodexContentAsXliff(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsXliff(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.CSV:
-            await exportCodexContentAsCsv(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsCsv(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.TSV:
-            await exportCodexContentAsTsv(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsTsv(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.REBUILD_EXPORT:
-            await exportCodexContentAsRebuild(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsRebuild(userSelectedPath, filesToExport, options));
             break;
         case CodexExportFormat.BACKTRANSLATIONS:
-            await exportCodexContentAsBacktranslations(userSelectedPath, filesToExport, options);
+            exportPromises.push(exportCodexContentAsBacktranslations(userSelectedPath, filesToExport, options));
             break;
     }
+
+    // Add audio export if requested alongside text format
+    if (includeAudio) {
+        const { exportAudioAttachments } = await import("./audioExporter");
+        exportPromises.push(
+            exportAudioAttachments(userSelectedPath, filesToExport, {
+                includeTimestamps: (options as any)?.includeTimestamps
+            })
+        );
+    }
+
+    // Execute all exports in parallel
+    await Promise.all(exportPromises);
 }
 
 // Compact helpers for id handling and lookups
@@ -1550,7 +1707,7 @@ export const exportCodexContentAsSubtitlesSrt = async (
         debug("Starting exportCodexContentAsSubtitlesSrt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1625,7 +1782,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
         debug("Starting exportCodexContentAsSubtitlesVtt function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1691,1085 +1848,7 @@ export const exportCodexContentAsSubtitlesVtt = async (
     }
 };
 
-async function exportCodexContentAsPlaintext(
-    userSelectedPath: string,
-    filesToExport: string[],
-    options?: ExportOptions
-) {
-    try {
-        debug("Starting exportCodexContent function");
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
-            return;
-        }
-        debug("Workspace folders found:", workspaceFolders);
-
-        // Filter codex files based on user selection
-        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
-        debug(`Selected files for export: ${selectedFiles.length}`);
-        if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage("No files selected for export.");
-            return;
-        }
-
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Codex Content",
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                let totalVerses = 0;
-                const increment = 100 / selectedFiles.length;
-
-                // Create export directory if it doesn't exist
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
-
-                // Process each selected file
-                for (const [index, file] of selectedFiles.entries()) {
-                    progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
-
-                    debug(`Processing file: ${file.fsPath}`);
-
-                    // Read and filter active cells (exclude merged/deleted)
-                    const codexData = await readCodexNotebookFromUri(file);
-                    const cells = getActiveCells(codexData.cells);
-
-                    debug(`File has ${cells.length} active cells`);
-
-                    let exportContent = "";
-                    let currentChapter = "";
-                    let chapterContent = "";
-                    const includeIds = !(options?.removeIds);
-
-                    // Already filtered for merged and deleted
-                    const activeCells = cells;
-
-                    for (const cell of activeCells) {
-                        totalCells++;
-                        if (cell.kind === 2 || cell.kind === 1) { //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
-                            // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata;
-
-                            if (cellMetadata.type === "paratext" && cell.value.startsWith("<h1>")) {
-                                debug("Found chapter heading cell");
-                                if (chapterContent) {
-                                    exportContent += chapterContent + "\n\n";
-                                }
-                                // Clean HTML from chapter heading
-                                currentChapter = cell.value.replace(/<\/?[^>]+(>|$)/g, "").trim();
-                                chapterContent = `${currentChapter}\n`;
-                                debug(`New chapter: ${currentChapter}`);
-                            } else if (cellMetadata.type === "text" && cellMetadata.id) {
-                                debug(`Processing verse cell: ${cellMetadata.id}`);
-                                const verseRef = cellMetadata.id;
-                                // Clean HTML from verse content
-                                const verseContent = cell.value
-                                    .replace(/<\/?[^>]+(>|$)/g, "")
-                                    .trim();
-                                if (verseContent) {
-                                    chapterContent += includeIds ? `${verseRef} ${verseContent}\n` : `${verseContent}\n`;
-                                    totalVerses++;
-                                }
-                            }
-                        }
-                    }
-
-                    // Add the last chapter's content
-                    if (chapterContent) {
-                        exportContent += chapterContent + "\n\n";
-                    }
-
-                    // Write individual file
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
-                    const exportFileName = `${fileName}_${timestamp}.txt`;
-                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
-
-                    progress.report({
-                        message: `Writing file ${index + 1}/${selectedFiles.length}...`,
-                        increment: 0,
-                    });
-
-                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(exportContent));
-                    debug(`Export file created: ${exportFile.fsPath}`);
-                }
-
-                debug(`Total cells processed: ${totalCells}`);
-                debug(`Total verses exported: ${totalVerses}`);
-                vscode.window.showInformationMessage(
-                    `Export completed: ${totalVerses} verses from ${selectedFiles.length} files exported to ${userSelectedPath}`
-                );
-            }
-        );
-    } catch (error) {
-        console.error("Export failed:", error);
-        vscode.window.showErrorMessage(`Export failed: ${error}`);
-    }
-}
-
-/**
- * Converts HTML formatting to USFM equivalents
- * @param html The HTML content to convert
- * @returns The content with HTML converted to USFM markers
- */
-function convertHtmlToUsfm(html: string): string {
-    if (!html) return "";
-
-    let content = html;
-
-    // Convert headings (except h1 which is handled separately for chapters)
-    content = content.replace(/<h2>(.*?)<\/h2>/gi, "\\s1 $1");
-    content = content.replace(/<h3>(.*?)<\/h3>/gi, "\\s2 $1");
-    content = content.replace(/<h4>(.*?)<\/h4>/gi, "\\s3 $1");
-
-    // Convert emphasis
-    content = content.replace(/<em>(.*?)<\/em>/gi, "\\em $1\\em*");
-    content = content.replace(/<i>(.*?)<\/i>/gi, "\\it $1\\it*");
-
-    // Convert bold
-    content = content.replace(/<strong>(.*?)<\/strong>/gi, "\\bd $1\\bd*");
-    content = content.replace(/<b>(.*?)<\/b>/gi, "\\bd $1\\bd*");
-
-    // Convert underline
-    content = content.replace(/<u>(.*?)<\/u>/gi, "\\ul $1\\ul*");
-
-    // Convert superscript and subscript
-    content = content.replace(/<sup>(.*?)<\/sup>/gi, "\\sup $1\\sup*");
-    content = content.replace(/<sub>(.*?)<\/sub>/gi, "\\sub $1\\sub*");
-
-    // Convert lists
-    content = content.replace(/<ul>(.*?)<\/ul>/gis, (match, listContent) => {
-        const items = listContent.match(/<li>(.*?)<\/li>/gis);
-        if (!items) return match;
-
-        return items
-            .map((item: string) => {
-                return "\\li " + item.replace(/<\/?li>/gi, "").trim();
-            })
-            .join("\n");
-    });
-
-    // Convert ordered lists
-    content = content.replace(/<ol>(.*?)<\/ol>/gis, (match, listContent) => {
-        const items = listContent.match(/<li>(.*?)<\/li>/gis);
-        if (!items) return match;
-
-        return items
-            .map((item: string, index: number) => {
-                return `\\li${index + 1} ` + item.replace(/<\/?li>/gi, "").trim();
-            })
-            .join("\n");
-    });
-
-    // Remove other HTML tags
-    content = content.replace(/<[^>]*>/g, "");
-
-    // Replace HTML entities
-    content = content.replace(/&nbsp;/g, " ");
-    content = content.replace(/&lt;/g, "<");
-    content = content.replace(/&gt;/g, ">");
-    content = content.replace(/&amp;/g, "&");
-    content = content.replace(/&quot;/g, '"');
-    content = content.replace(/&apos;/g, "'");
-
-    return content;
-}
-
-async function exportCodexContentAsUsfm(
-    userSelectedPath: string,
-    filesToExport: string[],
-    options?: ExportOptions
-) {
-    try {
-        debug("Starting exportCodexContentAsUsfm function");
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
-            return;
-        }
-
-        // Get extension version for metadata
-        const extension = vscode.extensions.getExtension(
-            "project-accelerate.codex-editor-extension"
-        );
-        const extensionVersion = extension?.packageJSON?.version || "unknown";
-        const exportDate = new Date().toISOString();
-
-        // Filter codex files based on user selection
-        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
-        debug(`Selected files for export: ${selectedFiles.length}`);
-        if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage("No files selected for export.");
-            return;
-        }
-
-        // Create export directory if it doesn't exist
-        const exportFolder = vscode.Uri.file(userSelectedPath);
-        await vscode.workspace.fs.createDirectory(exportFolder);
-
-        // Determine if we should skip validation based on user preference or file count
-        const skipValidation = options?.skipValidation || (selectedFiles.length > 5 && !DEBUG);
-        if (skipValidation) {
-            debug(
-                `Skipping validation: ${options?.skipValidation ? "user preference" : "large export"}`
-            );
-        }
-
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Codex Content as USFM",
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                let totalVerses = 0;
-                let skippedFiles = 0;
-                let exportedFiles = 0;
-                const increment = 100 / selectedFiles.length;
-
-                // Process files sequentially but with optimized processing
-                for (let i = 0; i < selectedFiles.length; i++) {
-                    const file = selectedFiles[i];
-                    progress.report({
-                        message: `Processing file ${i + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
-
-                    try {
-                        debug(`Processing file: ${file.fsPath}`);
-
-                        // Get the source file path - look in .project/sourceTexts/
-                        const bookCode = basename(file.fsPath).split(".")[0] || "";
-                        const sourceFileName = `${bookCode}.source`;
-                        const sourceFile = vscode.Uri.joinPath(
-                            vscode.Uri.file(workspaceFolders[0].uri.fsPath),
-                            ".project",
-                            "sourceTexts",
-                            sourceFileName
-                        );
-
-                        // Read both source and codex files
-                        let sourceData: Uint8Array | null = null;
-                        try {
-                            sourceData = await vscode.workspace.fs.readFile(sourceFile);
-                        } catch (error) {
-                            vscode.window.showWarningMessage(
-                                `Source file not found for ${bookCode} at ${sourceFile.fsPath}, skipping...`
-                            );
-                            skippedFiles++;
-                            continue;
-                        }
-
-                        const sourceNotebook = JSON.parse(
-                            Buffer.from(sourceData).toString()
-                        ) as CodexNotebookAsJSONData;
-                        const codexNotebook = await readCodexNotebookFromUri(file);
-
-                        // Quick check - only look for text cells with content
-                        const textCells = codexNotebook.cells.filter(
-                            (cell) =>
-                                (cell.kind === 2 || cell.kind === 1) && //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
-                                cell.metadata?.type === CodexCellTypes.TEXT
-                        );
-
-                        // Skip empty files
-                        if (textCells.length === 0) {
-                            debug(`Skipping empty file: ${file.fsPath}`);
-                            skippedFiles++;
-                            continue;
-                        }
-
-                        // Check if any text cells have content
-                        const hasContent = textCells.some((cell) => cell.value.trim().length > 0);
-
-                        if (!hasContent) {
-                            debug(`Skipping file with no text content: ${file.fsPath}`);
-                            skippedFiles++;
-                            continue;
-                        }
-
-                        // Process file content
-                        let usfmContent = "";
-                        const fullBookName = getFullBookName(bookCode);
-                        let verseCount = 0;
-                        let hasVerses = false;
-                        let currentChapter = 0; // Track current chapter number
-
-                        // Add USFM header in the correct order
-                        // 1. ID marker must come first - include language code (default to 'en' if unknown)
-                        usfmContent += `\\id ${bookCode} EN\n`;
-
-                        // 2. Add metadata as USFM comments
-                        usfmContent += `\\rem Exported from Codex Translation Editor v${extensionVersion}\n`;
-                        usfmContent += `\\rem Export Date: ${exportDate}\n`;
-                        usfmContent += `\\rem Source File: ${file.fsPath}\n`;
-
-                        // 3. Add header and title markers with proper book name
-                        usfmContent += `\\h ${fullBookName}\n`;
-                        usfmContent += `\\toc1 ${fullBookName}\n`; // Long table of contents text
-                        usfmContent += `\\toc2 ${fullBookName}\n`; // Short table of contents text
-                        usfmContent += `\\toc3 ${bookCode}\n`; // Book abbreviation
-                        usfmContent += `\\mt1 ${fullBookName}\n`; // Main title, level 1
-
-                        let chapterContent = "";
-                        let lastChapter = "";
-                        let isFirstChapter = true;
-
-                        // Pre-filter cells to only process relevant ones
-                        const relevantCells = codexNotebook.cells.filter(
-                            (cell) => {
-                                const metadata = cell.metadata as any;
-                                return (cell.kind === 2 || cell.kind === 1) && //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
-                                    cell.metadata?.type &&
-                                    cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                                    cell.value.trim().length > 0 &&
-                                    !metadata?.merged; // Exclude merged cells
-                            }
-                        );
-
-                        totalCells += relevantCells.length;
-
-                        // First pass: identify all chapters
-                        const chapterCells: { [key: string]: number; } = {};
-                        for (const cell of relevantCells) {
-                            const cellMetadata = cell.metadata;
-                            const cellContent = cell.value.trim();
-
-                            if (
-                                cellMetadata.type === CodexCellTypes.PARATEXT &&
-                                cellContent.startsWith("<h1>")
-                            ) {
-                                const chapterTitle = cellContent.replace(/<\/?h1>/g, "").trim();
-                                const chapterMatch = chapterTitle.match(/Chapter (\d+)/i);
-                                if (chapterMatch) {
-                                    const chapterNum = parseInt(chapterMatch[1], 10);
-                                    chapterCells[cellMetadata.id] = chapterNum;
-                                }
-                            } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT &&
-                                cellMetadata.id
-                            ) {
-                                // Extract chapter from verse reference (e.g., "MRK 1:1" -> "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                if (chapterMatch) {
-                                    const chapterNum = parseInt(chapterMatch[1], 10);
-                                    if (!lastChapter || chapterNum > parseInt(lastChapter, 10)) {
-                                        // This is a verse from a new chapter
-                                        if (!Object.values(chapterCells).includes(chapterNum)) {
-                                            // We don't have a chapter heading for this chapter
-                                            chapterCells[`auto_${chapterNum}`] = chapterNum;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Sort chapters by number
-                        const sortedChapters = Object.entries(chapterCells)
-                            .sort((a, b) => a[1] - b[1])
-                            .map((entry) => entry[1]);
-
-                        // Second pass: process cells with proper chapter handling
-                        for (const cell of relevantCells) {
-                            const cellMetadata = cell.metadata;
-                            let cellContent = cell.value.trim();
-
-                            // Convert HTML to USFM
-                            cellContent = convertHtmlToUsfm(cellContent);
-
-                            if (cellMetadata.type === CodexCellTypes.PARATEXT) {
-                                // Handle chapter headings
-                                if (cellContent.startsWith("Chapter ")) {
-                                    const chapterMatch = cellContent.match(/Chapter (\d+)/i);
-                                    if (chapterMatch) {
-                                        if (lastChapter !== "") {
-                                            usfmContent += chapterContent;
-                                        } else if (isFirstChapter) {
-                                            isFirstChapter = false;
-                                        }
-
-                                        const chapterNum = parseInt(chapterMatch[1], 10);
-                                        currentChapter = chapterNum;
-                                        lastChapter = chapterNum.toString();
-                                        chapterContent = `\\c ${chapterNum}\n\\p\n`;
-                                    } else {
-                                        chapterContent += `\\p ${cellContent}\n`;
-                                    }
-                                } else {
-                                    // Handle other paratext
-                                    chapterContent += `\\p ${cellContent}\n`;
-                                }
-                            } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT &&
-                                cellMetadata.id
-                            ) {
-                                // Handle verse content
-                                const verseRef = cellMetadata.id;
-                                const chapterMatch = verseRef.match(/\s(\d+):/);
-                                const verseMatch = verseRef.match(/\d+$/);
-
-                                if (chapterMatch && verseMatch) {
-                                    const chapterNum = parseInt(chapterMatch[1], 10);
-
-                                    // If we're in a new chapter, add chapter marker
-                                    if (chapterNum !== currentChapter) {
-                                        if (chapterContent) {
-                                            usfmContent += chapterContent;
-                                        }
-
-                                        currentChapter = chapterNum;
-                                        lastChapter = chapterNum.toString();
-                                        chapterContent = `\\c ${chapterNum}\n\\p\n`;
-                                        isFirstChapter = false;
-                                    }
-
-                                    // If we haven't started a chapter yet, add chapter 1 automatically
-                                    if (lastChapter === "" && isFirstChapter) {
-                                        lastChapter = "1";
-                                        currentChapter = 1;
-                                        chapterContent = `\\c 1\n\\p\n`;
-                                        isFirstChapter = false;
-                                    }
-
-                                    const verseNumber = verseMatch[0];
-                                    chapterContent += `\\v ${verseNumber} ${cellContent}\n`;
-                                    verseCount++;
-                                    hasVerses = true;
-                                }
-                            }
-                        }
-
-                        // Add the last chapter's content
-                        if (chapterContent) {
-                            usfmContent += chapterContent;
-                        }
-
-                        // Clean up the USFM content to avoid "Empty lines present" warning
-                        usfmContent = usfmContent.replace(/\n{2,}/g, "\n").trim() + "\n";
-
-                        // Skip files with no verses
-                        if (!hasVerses) {
-                            debug(`Skipping file with no verses: ${file.fsPath}`);
-                            skippedFiles++;
-                            continue;
-                        }
-
-                        // Only validate if we're not skipping validation
-                        if (!skipValidation) {
-                            try {
-                                // USFM validation can be very slow for large files
-                                // This is why we offer an option to skip it
-                                debug(`Performing USFM validation for ${bookCode}`);
-
-                                // Create a USFM grammar parser instance
-                                const usfmParser = new grammar.USFMParser(
-                                    usfmContent,
-                                    grammar.LEVEL.RELAXED
-                                );
-
-                                // Parse the USFM content
-                                const parseResult = usfmParser.toJSON() as any;
-
-                                // Check for serious validation issues
-                                if (
-                                    parseResult._messages &&
-                                    parseResult._messages._warnings &&
-                                    parseResult._messages._warnings.length > 0
-                                ) {
-                                    // Filter out the "Empty lines present" warning
-                                    const seriousWarnings = parseResult._messages._warnings.filter(
-                                        (warning: string) =>
-                                            !warning.includes("Empty lines present") &&
-                                            (warning.includes("Missing") ||
-                                                warning.includes("Error") ||
-                                                warning.includes("Invalid"))
-                                    );
-
-                                    if (seriousWarnings.length > 0) {
-                                        debug(
-                                            `USFM validation warnings for ${bookCode}: ${seriousWarnings.length} serious issues found`
-                                        );
-                                        vscode.window.showWarningMessage(
-                                            `${bookCode} has ${seriousWarnings.length} USFM validation issues`
-                                        );
-                                    }
-                                }
-                            } catch (validationError) {
-                                console.error(
-                                    `USFM validation error for ${bookCode}:`,
-                                    validationError
-                                );
-                                // Continue with export despite validation error
-                            }
-                        }
-
-                        // Write file
-                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                        const exportFileName = `${bookCode}_${timestamp}.usfm`;
-                        const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
-                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(usfmContent));
-
-                        exportedFiles++;
-                        totalVerses += verseCount;
-                        debug(
-                            `Export file created: ${exportFile.fsPath} with ${verseCount} verses`
-                        );
-                    } catch (error) {
-                        console.error(`Error processing file ${file.fsPath}:`, error);
-                        skippedFiles++;
-                        vscode.window.showErrorMessage(
-                            `Error exporting ${basename(file.fsPath)}: ${error instanceof Error ? error.message : String(error)}`
-                        );
-                    }
-                }
-
-                // Show a more detailed completion message
-                const skippedMessage = skippedFiles > 0 ? ` (${skippedFiles} files skipped)` : "";
-                vscode.window.showInformationMessage(
-                    `USFM Export completed: ${totalVerses} verses from ${exportedFiles} files exported to ${userSelectedPath}${skippedMessage}`
-                );
-            }
-        );
-    } catch (error) {
-        console.error("USFM Export failed:", error);
-        vscode.window.showErrorMessage(`USFM Export failed: ${error}`);
-    }
-}
-
-async function exportCodexContentAsHtml(
-    userSelectedPath: string,
-    filesToExport: string[],
-    options?: ExportOptions
-) {
-    try {
-        debug("Starting exportCodexContentAsHtml function");
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
-            return;
-        }
-
-        // Get extension version for metadata
-        const extension = vscode.extensions.getExtension(
-            "project-accelerate.codex-editor-extension"
-        );
-        const extensionVersion = extension?.packageJSON?.version || "unknown";
-        const exportDate = new Date().toISOString();
-
-        // Filter codex files based on user selection
-        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
-        debug(`Selected files for export: ${selectedFiles.length}`);
-        if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage("No files selected for export.");
-            return;
-        }
-
-        // CSS styles for the HTML output
-        const cssStyles = `
-            :root {
-                --text-color: #333;
-                --bg-color: #fff;
-                --link-color: #0066cc;
-                --border-color: #ddd;
-                --chapter-color: #2c3e50;
-                --verse-number-color: #7f8c8d;
-            }
-
-            @media (prefers-color-scheme: dark) {
-                :root {
-                    --text-color: #eee;
-                    --bg-color: #1e1e1e;
-                    --link-color: #66b3ff;
-                    --border-color: #444;
-                    --chapter-color: #89a7c3;
-                    --verse-number-color: #95a5a6;
-                }
-            }
-
-            body {
-                font-family: 'Noto Serif', Georgia, serif;
-                line-height: 1.6;
-                max-width: 800px;
-                margin: 0 auto;
-                padding: 2rem;
-                color: var(--text-color);
-                background: var(--bg-color);
-            }
-
-            .book-title {
-                text-align: center;
-                font-size: 2.5rem;
-                color: var(--chapter-color);
-                margin-bottom: 2rem;
-                border-bottom: 2px solid var(--border-color);
-                padding-bottom: 1rem;
-            }
-
-            .chapter {
-                margin-bottom: 3rem;
-                break-inside: avoid;
-            }
-
-            .chapter-title {
-                font-size: 2rem;
-                color: var(--chapter-color);
-                margin: 2rem 0 1rem;
-                text-align: center;
-            }
-
-            .verse {
-                margin: 1rem 0;
-                text-align: justify;
-            }
-
-            .verse-number {
-                font-size: 0.8em;
-                color: var(--verse-number-color);
-                vertical-align: super;
-                margin-right: 0.3em;
-                font-weight: bold;
-            }
-
-            .paratext {
-                font-style: italic;
-                margin: 1rem 0;
-                color: var(--chapter-color);
-            }
-
-            .metadata {
-                font-size: 0.9rem;
-                color: var(--verse-number-color);
-                border-top: 1px solid var(--border-color);
-                margin-top: 2rem;
-                padding-top: 1rem;
-            }
-
-            @media print {
-                @page {
-                    margin: 2cm;
-                }
-
-                body {
-                    max-width: none;
-                    padding: 0;
-                }
-
-                .chapter {
-                    page-break-inside: avoid;
-                }
-
-                .verse {
-                    page-break-inside: avoid;
-                }
-
-                .metadata {
-                    display: none;
-                }
-            }
-        `;
-
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Codex Content as HTML",
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                let totalVerses = 0;
-                const increment = 100 / selectedFiles.length;
-
-                // Create export directory if it doesn't exist
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
-
-                // Create styles.css
-                const cssFile = vscode.Uri.joinPath(exportFolder, "styles.css");
-                await vscode.workspace.fs.writeFile(cssFile, Buffer.from(cssStyles));
-
-                for (const [index, file] of selectedFiles.entries()) {
-                    progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
-
-                    debug(`Processing file: ${file.fsPath}`);
-
-                    // Read and filter active cells (exclude merged/deleted)
-                    const codexData = await readCodexNotebookFromUri(file);
-                    const cells = getActiveCells(codexData.cells);
-
-                    debug(`File has ${cells.length} active cells`);
-
-                    // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
-                    const bookCode = basename(file.fsPath).split(".")[0] || "";
-                    const chapters: { [key: string]: string; } = {};
-
-                    // Already filtered for merged and deleted
-                    const activeCells = cells;
-
-                    // First pass: Organize content by chapters
-                    for (const cell of activeCells) {
-                        totalCells++;
-                        if (cell.kind === 2 || cell.kind === 1) { //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
-                            // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata;
-                            const cellContent = cell.value.trim();
-
-                            if (!cellContent) continue;
-
-                            if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
-                                // Extract chapter number from verse reference (e.g., "MRK 1:1" -> "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                if (chapterMatch) {
-                                    const chapterNum = chapterMatch[1];
-                                    if (!chapters[chapterNum]) {
-                                        chapters[chapterNum] = `
-                                            <div class="chapter">
-                                            <h2 class="chapter-title">Chapter ${chapterNum}</h2>`;
-                                    }
-
-                                    const verseMatch = cellMetadata.id.match(/\d+$/);
-                                    if (verseMatch) {
-                                        const verseNumber = verseMatch[0];
-                                        chapters[chapterNum] += `
-                                            <div class="verse" x-type="verse" x-verse-ref="${cellMetadata.id}">
-                                                <span class="verse-number">${verseNumber}</span>
-                                                ${cellContent}
-                                            </div>`;
-                                        totalVerses++;
-                                    }
-                                }
-                            } else if (cellMetadata.type === CodexCellTypes.PARATEXT) {
-                                // Handle paratext that isn't a chapter heading
-                                if (!cellContent.startsWith("<h1>")) {
-                                    // Add to the current chapter if we have one
-                                    const currentChapters = Object.keys(chapters);
-                                    if (currentChapters.length > 0) {
-                                        const lastChapter =
-                                            currentChapters[currentChapters.length - 1];
-                                        chapters[lastChapter] += `
-                                            <div class="paratext" x-type="paratext">${cellContent}</div>`;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Create a chapter file for each chapter
-                    for (const [chapterNum, chapterContent] of Object.entries(chapters)) {
-                        const chapterHtml = `<!DOCTYPE html>
-                        <html lang="en">
-                        <head>
-                            <meta charset="UTF-8">
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                            <title>${bookCode} Chapter ${chapterNum}</title>
-                            <link rel="stylesheet" href="styles.css">
-                        </head>
-                        <body>
-                            <h1 class="book-title">${bookCode}</h1>
-                            ${chapterContent}
-                            </div>
-                            <div class="metadata">
-                                <p>Exported from Codex Translation Editor v${extensionVersion}</p>
-                                <p>Export Date: ${exportDate}</p>
-                                <p>Source File: ${file.fsPath}</p>
-                            </div>
-                        </body>
-                        </html>`;
-
-                        const chapterFileName = `${bookCode}_${chapterNum.padStart(3, "0")}.html`;
-                        const chapterFile = vscode.Uri.joinPath(exportFolder, chapterFileName);
-                        await vscode.workspace.fs.writeFile(chapterFile, Buffer.from(chapterHtml));
-                        debug(`Chapter file created: ${chapterFile.fsPath}`);
-                    }
-
-                    // Create an index file for the book
-                    const indexHtml = `<!DOCTYPE html>
-                    <html lang="en">
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>${bookCode}</title>
-                        <link rel="stylesheet" href="styles.css">
-                        <style>
-                            .chapter-list {
-                                list-style: none;
-                                padding: 0;
-                                display: grid;
-                                grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-                                gap: 1rem;
-                            }
-                            .chapter-link {
-                                display: block;
-                                padding: 1rem;
-                                text-align: center;
-                                text-decoration: none;
-                                color: var(--link-color);
-                                border: 1px solid var(--border-color);
-                                border-radius: 4px;
-                                transition: all 0.2s ease;
-                            }
-                            .chapter-link:hover {
-                                background: var(--border-color);
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        <h1 class="book-title">${bookCode}</h1>
-                        <ul class="chapter-list">
-                            ${Object.keys(chapters)
-                            .sort((a, b) => parseInt(a) - parseInt(b))
-                            .map(
-                                (num) => `
-                                    <li><a class="chapter-link" href="${bookCode}_${num.padStart(3, "0")}.html">Chapter ${num}</a></li>
-                                `
-                            )
-                            .join("")}
-                        </ul>
-                        <div class="metadata">
-                            <p>Exported from Codex Translation Editor v${extensionVersion}</p>
-                            <p>Export Date: ${exportDate}</p>
-                            <p>Source File: ${file.fsPath}</p>
-                        </div>
-                    </body>
-                    </html>`;
-
-                    const indexFile = vscode.Uri.joinPath(exportFolder, `${bookCode}_index.html`);
-                    await vscode.workspace.fs.writeFile(indexFile, Buffer.from(indexHtml));
-                    debug(`Index file created: ${indexFile.fsPath}`);
-                }
-
-                vscode.window.showInformationMessage(
-                    `HTML Export completed: ${totalVerses} verses from ${selectedFiles.length} files exported to ${userSelectedPath}`
-                );
-            }
-        );
-    } catch (error) {
-        console.error("HTML Export failed:", error);
-        vscode.window.showErrorMessage(`HTML Export failed: ${error}`);
-    }
-}
-
-async function exportCodexContentAsXliff(
-    userSelectedPath: string,
-    filesToExport: string[],
-    options?: ExportOptions
-) {
-    try {
-        debug("Starting exportCodexContentAsXliff function");
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
-            return;
-        }
-
-        // Get project configuration for language codes
-        const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-        const sourceLanguage = projectConfig.get("sourceLanguage") as
-            | { refName: string; }
-            | undefined;
-        const targetLanguage = projectConfig.get("targetLanguage") as
-            | { refName: string; }
-            | undefined;
-
-        if (!sourceLanguage?.refName || !targetLanguage?.refName) {
-            vscode.window.showErrorMessage(
-                "Source and target languages must be configured before exporting to XLIFF."
-            );
-            return;
-        }
-
-        // Filter codex files based on user selection
-        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
-        debug(`Selected files for export: ${selectedFiles.length}`);
-        if (selectedFiles.length === 0) {
-            vscode.window.showInformationMessage("No files selected for export.");
-            return;
-        }
-
-        return vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Exporting Codex Content as XLIFF",
-                cancellable: false,
-            },
-            async (progress) => {
-                let totalCells = 0;
-                let totalVerses = 0;
-                const increment = 100 / selectedFiles.length;
-
-                // Create export directory if it doesn't exist
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
-
-                for (const [index, file] of selectedFiles.entries()) {
-                    progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
-                    });
-
-                    debug(`Processing file: ${file.fsPath}`);
-
-                    // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
-                    const currentBookCode = basename(file.fsPath).split(".")[0] || "";
-
-                    // Get the source file path - look in .project/sourceTexts/
-                    const sourceFileName = `${currentBookCode}.source`;
-                    const sourceFile = vscode.Uri.joinPath(
-                        vscode.Uri.file(workspaceFolders[0].uri.fsPath),
-                        ".project",
-                        "sourceTexts",
-                        sourceFileName
-                    );
-
-                    // Read both source and codex files
-                    let sourceData: Uint8Array | null = null;
-                    try {
-                        sourceData = await vscode.workspace.fs.readFile(sourceFile);
-                    } catch (error) {
-                        vscode.window.showWarningMessage(
-                            `Source file not found for ${currentBookCode} at ${sourceFile.fsPath}, skipping...`
-                        );
-                        continue;
-                    }
-
-                    const sourceNotebook = JSON.parse(
-                        Buffer.from(sourceData).toString()
-                    ) as CodexNotebookAsJSONData;
-                    const codexNotebook = await readCodexNotebookFromUri(file);
-
-                    debug(`File has ${codexNotebook.cells.length} cells`);
-
-                    const chapters: {
-                        [key: string]: {
-                            verses: { [key: string]: { source: string; target: string; }; };
-                        };
-                    } = {};
-
-                    // Create maps for quick lookup of cells by ID
-                    const sourceCellsMap = new Map(
-                        sourceNotebook.cells
-                            .filter((cell) => {
-                                const metadata = cell.metadata as any;
-                                return cell.metadata?.id && !metadata?.merged;
-                            })
-                            .map((cell) => [cell.metadata.id, cell])
-                    );
-
-                    const codexCellsMap = new Map(
-                        codexNotebook.cells
-                            .filter((cell) => {
-                                const metadata = cell.metadata as any;
-                                return cell.metadata?.id && !metadata?.merged;
-                            })
-                            .map((cell) => [cell.metadata.id, cell])
-                    );
-
-                    // First pass: Organize content by chapters and verses
-                    for (const [cellId, codexCell] of codexCellsMap) {
-                        totalCells++;
-                        if (codexCell.kind === 2 || codexCell.kind === 1) { //haven't tested this additional cell.kind === 1 but in theory it should make life easier if we have any more files that want to use markdown and not code.
-                            // vscode.NotebookCellKind.Code
-                            const cellMetadata = codexCell.metadata;
-                            const cellContent = codexCell.value.trim();
-
-                            if (!cellContent) continue;
-
-                            if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
-                                // Extract chapter and verse numbers from reference (e.g., "MRK 1:1" -> "1" and "1")
-                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
-                                const verseMatch = cellMetadata.id.match(/\d+$/);
-
-                                if (chapterMatch && verseMatch) {
-                                    const chapterNum = chapterMatch[1];
-                                    const verseNum = verseMatch[0];
-
-                                    if (!chapters[chapterNum]) {
-                                        chapters[chapterNum] = { verses: {} };
-                                    }
-
-                                    // Get the corresponding source cell content
-                                    const sourceCell = sourceCellsMap.get(cellId);
-                                    let sourceContent = sourceCell?.value.trim() || "";
-
-                                    // Use original content from metadata if available (for structure preservation)
-                                    const metadata = sourceCell?.metadata as any;
-                                    if (metadata?.data?.originalContent) {
-                                        sourceContent = metadata.data.originalContent;
-                                    }
-
-                                    chapters[chapterNum].verses[verseNum] = {
-                                        source: sourceContent,
-                                        target: cellContent,
-                                    };
-                                    totalVerses++;
-                                }
-                            }
-                        }
-                    }
-
-                    // Generate XLIFF content
-                    const xliffContent = `<?xml version="1.0" encoding="UTF-8"?>
-<xliff version="2.0" xmlns="urn:oasis:names:tc:xliff:document:2.0" srcLang="${sourceLanguage.refName}" trgLang="${targetLanguage.refName}">
-    <file id="${currentBookCode}" original="${currentBookCode}.codex">
-        <unit id="${currentBookCode}">
-            <segment>
-                <source>${currentBookCode}</source>
-                <target>${currentBookCode}</target>
-            </segment>
-        </unit>
-        ${Object.entries(chapters)
-                            .map(
-                                ([chapterNum, chapterData]) => `
-        <unit id="${currentBookCode}_${chapterNum}">
-            <segment>
-                <source>Chapter ${chapterNum}</source>
-                <target>Chapter ${chapterNum}</target>
-            </segment>
-            ${Object.entries(chapterData.verses)
-                                        .map(
-                                            ([verseNum, content]) => `
-            <unit id="${currentBookCode}_${chapterNum}_${verseNum}">
-                <segment>
-                    <source>${content.source}</source>
-                    <target>${content.target}</target>
-                </segment>
-            </unit>`
-                                        )
-                                        .join("")}
-        </unit>`
-                            )
-                            .join("")}
-    </file>
-</xliff>`;
-
-                    // Write XLIFF file
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const exportFileName = `${currentBookCode}_${timestamp}.xliff`;
-                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
-                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(xliffContent));
-                    debug(`XLIFF file created: ${exportFile.fsPath}`);
-                }
-
-                vscode.window.showInformationMessage(
-                    `XLIFF Export completed: ${totalVerses} verses from ${selectedFiles.length} files exported to ${userSelectedPath}`
-                );
-            }
-        );
-    } catch (error) {
-        console.error("XLIFF Export failed:", error);
-        vscode.window.showErrorMessage(`XLIFF Export failed: ${error}`);
-    }
-}
+// USFM and HTML exporters moved to usfmExporter.ts and htmlExporter.ts
 
 /**
  * Escapes a string for CSV format
@@ -2879,7 +1958,7 @@ async function exportCodexContentAsDelimited(
         debug(`Starting exportCodexContentAs${formatName} function`);
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -3113,7 +2192,7 @@ async function exportCodexContentAsBacktranslations(
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 

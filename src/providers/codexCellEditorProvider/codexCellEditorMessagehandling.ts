@@ -8,8 +8,6 @@ import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import {
     QuillCellContent,
-    SpellCheckResponse,
-    AlertCodesServerResponse,
     ValidationEntry,
 } from "../../../types";
 import path from "path";
@@ -23,13 +21,6 @@ import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
-// Comment out problematic imports
-// import { getAddWordToSpellcheckApi } from "../../extension";
-// import { getSimilarCellIds } from "@/utils/semanticSearch";
-// import { getSpellCheckResponseForText } from "../../extension";
-// import { ChapterGenerationManager } from "./chapterGenerationManager";
-// import { generateBackTranslation, editBacktranslation, getBacktranslation, setBacktranslation } from "../../backtranslation";
-// import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -109,9 +100,9 @@ interface MessageHandlerContext {
 
 /**
  * Sends updated milestone index and current cells to the webview so milestone edits appear immediately.
- * Used after updateMilestoneValue and by refreshWebviewAfterMilestoneEdits.
+ * Used after updateMilestoneValue, by refreshWebviewAfterMilestoneEdits, and by refreshWebviewsForFiles.
  */
-async function sendMilestoneRefreshToWebview(
+export async function sendMilestoneRefreshToWebview(
     document: CodexCellDocument,
     webviewPanel: vscode.WebviewPanel,
     provider: CodexCellEditorProvider
@@ -479,8 +470,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             }
                         }
 
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -537,14 +534,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    addWord: async ({ event, webviewPanel }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "addWord"; }>;
-        await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);
-        safePostMessageToPanel(webviewPanel, {
-            type: "wordAdded",
-            content: typedEvent.words,
-        });
-    },
 
     getCommentsForCell: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getCommentsForCell"; }>;
@@ -640,8 +629,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Open the comments view and navigate to the specific cell
             await vscode.commands.executeCommand("codex-editor-extension.focusCommentsView");
 
-            // Send a message to the comments view to navigate to this cell
-            vscode.commands.executeCommand("codex-editor-extension.navigateToCellInComments", typedEvent.content.cellId);
+            // Send a message to the comments view with navigation/open behavior.
+            vscode.commands.executeCommand("codex-editor-extension.comments-sidebar.reload", {
+                cellId: typedEvent.content.cellId,
+                openCurrentTab: typedEvent.content.openCurrentTab ?? true,
+                openNewCommentIfNoComments: typedEvent.content.openNewCommentIfNoComments ?? false,
+            });
         } catch (error) {
             console.error("Error opening comments for cell:", error);
         }
@@ -661,75 +654,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerSendsSimilarCellIdsResponse",
             content: response || [],
         });
-    },
-
-    "from-quill-spellcheck-getSpellCheckResponse": async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "from-quill-spellcheck-getSpellCheckResponse"; }>;
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-        if (!spellcheckEnabled) {
-            return;
-        }
-
-        const response = await vscode.commands.executeCommand(
-            "codex-editor-extension.spellCheckText",
-            typedEvent.content.cellContent
-        );
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsSpellCheckResponse",
-            content: response as SpellCheckResponse,
-        });
-    },
-
-    getAlertCodes: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes"; }>;
-
-        try {
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-
-            if (!spellcheckEnabled) {
-                debug("[Message Handler] Spellcheck is disabled, skipping alert codes");
-                return;
-            }
-
-            const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
-                "codex-editor-extension.alertCodes",
-                typedEvent.content
-            );
-
-            const content: { [cellId: string]: number; } = {};
-            result.forEach((item) => {
-                content[item.cellId] = item.code;
-            });
-
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        } catch (error) {
-            console.error("[Message Handler] Failed to get alert codes:", {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                requestedCells: typedEvent?.content?.length || 0,
-                cellIds: typedEvent?.content?.map(item => item.cellId) || [],
-                errorType: error instanceof Error ? error.constructor.name : typeof error
-            });
-
-            // Provide fallback response with empty codes for all requested cells
-            const content: { [cellId: string]: number; } = {};
-            if (typedEvent?.content && Array.isArray(typedEvent.content)) {
-                typedEvent.content.forEach((item) => {
-                    content[item.cellId] = 0; // 0 = no alerts
-                });
-            }
-
-            // Always send a response to prevent webview from waiting indefinitely
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        }
     },
 
     saveHtml: async ({ event, document, provider, webviewPanel }) => {
@@ -776,13 +700,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
 
         if (oldText !== newText) {
-            if (!isSourceText) {
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.recordIceEdit",
-                    oldText,
-                    newText
-                );
-            }
             provider.updateFileStatus("dirty");
         }
 
@@ -1242,7 +1159,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
-        vscode.window.showInformationMessage("Notebook metadata updated successfully.");
+        vscode.window.showInformationMessage("Notebook details updated.");
         provider.refreshWebview(webviewPanel, document);
     },
 
@@ -1281,16 +1198,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    supplyRecentEditHistory: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
-        debug("supplyRecentEditHistory message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.supplyRecentEditHistory",
-            typedEvent.content.cellId,
-            typedEvent.content.editHistory
-        );
-    },
-
     exportFile: async ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile"; }>;
         const notebookName = path.parse(document.uri.fsPath).name;
@@ -1324,16 +1231,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.commands.executeCommand("codex-project-manager.openStartupFlow", {
             forceLogin: true,
         });
-    },
-
-    togglePinPrompt: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt"; }>;
-        debug("togglePinPrompt message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.togglePinPrompt",
-            typedEvent.content.cellId,
-            typedEvent.content.promptText
-        );
     },
 
     generateBacktranslation: async ({ event, webviewPanel, provider, document }) => {
@@ -1410,14 +1307,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerConfirmsBacktranslationSet",
             content: backtranslation,
         });
-    },
-
-    rejectEditSuggestion: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion"; }>;
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.rejectEditSuggestion",
-            typedEvent.content
-        );
     },
 
     webviewFocused: ({ event, provider }) => {
@@ -1514,20 +1403,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         debug(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
     },
 
-    updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode"; }>;
-        const updatedMetadata = {
-            cellDisplayMode: typedEvent.mode,
-        };
-        await document.updateNotebookMetadata(updatedMetadata);
-        await document.save(new vscode.CancellationTokenSource().token);
-        debug("Cell display mode updated successfully.");
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerUpdatesNotebookMetadataForWebview",
-            content: await document.getNotebookMetadata(),
-        });
-    },
-
     validateCell: async ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "validateCell"; }>;
         if (typedEvent.content?.cellId) {
@@ -1583,7 +1458,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     togglePrimarySidebar: async () => {
-        vscode.window.showInformationMessage("togglePrimarySidebar");
+        // No user notification needed - just toggle the sidebar
         await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
         await vscode.commands.executeCommand("codex-editor.navigation.focus");
     },
@@ -1781,7 +1656,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 await provider.unmergeMatchingCellsInTargetFile(cellId, document.uri.toString(), workspaceFolder);
             } else {
                 console.warn("No workspace folder found, skipping target file unmerge");
-                vscode.window.showWarningMessage("Could not unmerge corresponding cell in target file - no workspace folder found");
+                vscode.window.showWarningMessage("Could not fully undo the merge — no project folder found.");
             }
 
             // Refresh the webview to show the updated state
@@ -2389,11 +2264,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         }
                     }
                 }
-                // Provisional state
+                const selectedId = cell?.metadata?.selectedAudioId;
+                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
+                // Provisional state — prefer showing available when a valid file exists,
+                // even if the user's explicit selection points to a missing file.
                 let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
                 if (hasAvailable) state = "available-local";
                 else if (hasAvailablePointer) state = "available-pointer";
-                else if (hasMissing) state = "missing";
+                else if (selectedIsMissing || hasMissing) state = "missing";
                 else if (hasDeleted) state = "deletedOnly";
                 else state = "none";
 
@@ -2620,15 +2500,24 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         validatedByArray = [...validatedBy];
                     }
                 }
-                availability[cellId] = hasAvailable
-                    ? "available-local"
-                    : hasAvailablePointer
-                        ? "available-pointer"
-                        : hasMissing
-                            ? "missing"
-                            : hasDeleted
-                                ? "deletedOnly"
-                                : "none";
+                // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                const selectedId = cell?.metadata?.selectedAudioId;
+                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
+                if (selectedIsMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasAvailable) {
+                    availability[cellId] = "available-local";
+                } else if (hasAvailablePointer) {
+                    availability[cellId] = "available-pointer";
+                } else if (hasMissing) {
+                    availability[cellId] = "missing";
+                } else if (hasDeleted) {
+                    availability[cellId] = "deletedOnly";
+                } else {
+                    availability[cellId] = "none";
+                }
             }
 
             provider.postMessageToWebview(webviewPanel, {
@@ -3188,6 +3077,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Mark the document as dirty manually since we bypassed the normal update methods
             (document as any)._isDirty = true;
+            (document as any)._dirtyCellIds.add(previousCellId);
 
             // 6. Mark current cell as merged by updating its data
             const currentCellData = document.getCellData(currentCellId) || {};
@@ -3289,9 +3179,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 }
                             }
                         }
+                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
+                        const selectedId = cell?.metadata?.selectedAudioId;
+                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
+
                         // Provisional state
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (hasAvailable) state = "available-local";
+                        if (selectedIsMissing) state = "missing";
+                        else if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -3412,6 +3308,111 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             debug(`Sent subsection progress for milestone ${milestoneIndex}:`, subsectionProgress);
         } catch (error) {
             console.error("Error fetching subsection progress:", error);
+        }
+    },
+
+    // Handler for counting search matches across all milestones (for in-tab search bar)
+    countMatchesInDocument: async ({ event, document, webviewPanel, provider }) => {
+        const typed = event as any;
+        const query = typed?.content?.query ?? "";
+        const matchCase = typed?.content?.matchCase ?? false;
+
+        if (!query.trim()) {
+            // Empty query - send back empty results
+            safePostMessageToPanel(webviewPanel, {
+                type: "searchMatchCounts",
+                query: "",
+                milestoneMatchCounts: {},
+                totalMatches: 0,
+            });
+            return;
+        }
+
+        try {
+            const config = vscode.workspace.getConfiguration("codex-editor-extension");
+            const cellsPerPage = config.get("cellsPerPage", 50);
+
+            // Build milestone index to know how many milestones exist
+            const milestoneIndex = document.buildMilestoneIndex(cellsPerPage);
+            const milestoneMatchCounts: { [milestoneIdx: number]: number; } = {};
+            let totalMatches = 0;
+
+            // Helper to strip HTML tags for plain text search
+            const stripHtml = (html: string): string => {
+                return html.replace(/<[^>]*>/g, "");
+            };
+
+            // Search through all milestones
+            for (let mIdx = 0; mIdx < milestoneIndex.milestones.length; mIdx++) {
+                const milestone = milestoneIndex.milestones[mIdx];
+                let milestoneMatches = 0;
+
+                // Get all cells for this milestone
+                const allCells = document.getAllCellsForMilestone(mIdx);
+
+                // Count matches in each cell
+                for (const cell of allCells) {
+                    if (!cell.cellContent) continue;
+
+                    const plainText = stripHtml(cell.cellContent);
+                    const searchText = matchCase ? plainText : plainText.toLowerCase();
+                    const searchQuery = matchCase ? query : query.toLowerCase();
+
+                    let startIndex = 0;
+                    while ((startIndex = searchText.indexOf(searchQuery, startIndex)) !== -1) {
+                        milestoneMatches++;
+                        startIndex += searchQuery.length;
+                    }
+                }
+
+                if (milestoneMatches > 0) {
+                    milestoneMatchCounts[mIdx] = milestoneMatches;
+                    totalMatches += milestoneMatches;
+                }
+            }
+
+            // Send the match counts back to the webview
+            safePostMessageToPanel(webviewPanel, {
+                type: "searchMatchCounts",
+                query,
+                milestoneMatchCounts,
+                totalMatches,
+            });
+
+            debug(`Search match counts for "${query}": ${totalMatches} total matches across ${Object.keys(milestoneMatchCounts).length} milestones`);
+        } catch (error) {
+            console.error("Error counting search matches:", error);
+            safePostMessageToPanel(webviewPanel, {
+                type: "searchMatchCounts",
+                query,
+                milestoneMatchCounts: {},
+                totalMatches: 0,
+                error: String(error),
+            });
+        }
+    },
+
+    // Handler for expanding in-tab search to Parallel Passages (all files)
+    expandSearchToAllFiles: async ({ event }) => {
+        const typed = event as any;
+        const query = typed?.content?.query ?? "";
+        const replaceText = typed?.content?.replaceText;
+
+        try {
+            // Use dynamic import to avoid circular dependency
+            const { GlobalProvider } = await import("../../globalProvider");
+
+            // Focus the Parallel Passages sidebar FIRST (this will trigger webview load if not already open)
+            await vscode.commands.executeCommand("search-passages-sidebar.focus");
+
+            // Then set pending search data - the webview will receive it via webviewReady message
+            // or immediately if already loaded
+            const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
+            if (provider && "setPendingSearch" in provider) {
+                (provider as any).setPendingSearch(query, replaceText);
+            }
+        } catch (error) {
+            console.error("Error expanding search to all files:", error);
         }
     },
 };

@@ -3,6 +3,7 @@
  * Experimental version that preserves complete OOXML structure for export
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -119,16 +120,15 @@ export const parseFile = async (
             name: baseName,
             cells,
             metadata: {
-                id: `source-${Date.now()}`,
+                id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
                 originalFileData: arrayBuffer, // Store original file for export
-                // Use importerType as corpusMarker for export routing / rebuild-export detection
-                corpusMarker: 'docx-roundtrip',
-                importerType: 'docx-roundtrip',
+                corpusMarker: 'docx',
+                importerType: 'docx',
                 createdAt: nowIso,
                 importContext: {
-                    importerType: 'docx-roundtrip',
+                    importerType: 'docx',
                     fileName: file.name,
                     originalFileName: file.name,
                     originalHash: docxDoc.originalHash,
@@ -156,8 +156,8 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: `codex-${Date.now()}`,
-                importerType: 'docx-roundtrip', // Explicitly set again
+                id: uuidv4(),
+                importerType: 'docx',
                 // Don't duplicate the original file data in codex
                 originalFileData: undefined,
             },

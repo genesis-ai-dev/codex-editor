@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
+import * as crypto from "crypto";
+import { getAuthApi } from "../extension";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[LFSHelpers]", ...args) : () => { };
@@ -304,5 +306,95 @@ export async function isLocalUnsyncedFile(
 ): Promise<boolean> {
     const status = await getFileStatus(projectPath, book, filename);
     return status === "local-unsynced";
+}
+
+/**
+ * Check if a Uint8Array contains an LFS pointer (not the actual file content).
+ * Useful for validating file content before processing.
+ */
+export function isLfsPointerContent(data: Uint8Array): boolean {
+    if (data.length > 400) {
+        return false;
+    }
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(data);
+    return text.includes('version https://git-lfs.github.com/spec/v1');
+}
+
+/**
+ * Resolve a Git LFS pointer file by downloading the actual content.
+ *
+ * Uses the Frontier Authentication extension's `downloadLFSFile` API to
+ * fetch the blob from the remote LFS store. This avoids depending on a
+ * system `git` or `git-lfs` binary being on PATH — we use our own bundled
+ * git binary and custom LFS batch implementation instead.
+ *
+ * @param filePath - Absolute path to the LFS pointer file
+ * @param projectPath - Root path of the git repository
+ * @returns The resolved file content as Uint8Array, or an error string
+ */
+export async function resolveLfsPointerFile(
+    filePath: string,
+    projectPath: string
+): Promise<{ data: Uint8Array; error?: undefined } | { data?: undefined; error: string }> {
+    try {
+        const pointer = await parsePointerFile(filePath);
+        if (!pointer) {
+            return { error: `File "${filePath}" is not a valid LFS pointer.` };
+        }
+
+        console.log(
+            `[LFS] Resolving pointer for "${path.basename(filePath)}" (oid: ${pointer.oid.substring(0, 12)}..., expected size: ${pointer.size} bytes)`,
+        );
+
+        const authApi = getAuthApi();
+        if (!authApi?.downloadLFSFile) {
+            return {
+                error:
+                    `Cannot resolve LFS pointer: the Frontier Authentication extension is not available. ` +
+                    `Please ensure it is installed and active, then try again.`,
+            };
+        }
+
+        const buffer = await authApi.downloadLFSFile(projectPath, pointer.oid, pointer.size);
+        const data = new Uint8Array(buffer);
+
+        if (data.length < 10 || isLfsPointerContent(data)) {
+            return {
+                error:
+                    `LFS server returned a pointer instead of the actual file. ` +
+                    `The file may not be available on the LFS server yet. ` +
+                    `Try syncing the project first.`,
+            };
+        }
+
+        const actualHash = crypto.createHash("sha256").update(data).digest("hex");
+        if (actualHash !== pointer.oid) {
+            return {
+                error:
+                    `LFS content integrity check failed for "${path.basename(filePath)}". ` +
+                    `Expected SHA-256: ${pointer.oid.substring(0, 16)}..., ` +
+                    `got: ${actualHash.substring(0, 16)}.... ` +
+                    `The download may be corrupted. Try syncing again.`,
+            };
+        }
+
+        console.log(`[LFS] Successfully resolved "${path.basename(filePath)}" (${data.length} bytes, hash verified)`);
+
+        // Cache the resolved content on disk so future reads don't need a download
+        try {
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), data);
+            console.log(`[LFS] Cached resolved file at "${filePath}"`);
+        } catch (writeErr) {
+            console.warn(`[LFS] Could not cache resolved file: ${writeErr}`);
+        }
+
+        return { data };
+    } catch (err) {
+        return {
+            error:
+                `Failed to resolve LFS pointer: ${err instanceof Error ? err.message : String(err)}. ` +
+                `Try syncing the project to download all media files.`,
+        };
+    }
 }
 

@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Button } from "../../../components/ui/button";
 import { parseJsonIntelligently, mightBeJson } from "./jsonParser";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import {
     Card,
     CardContent,
@@ -365,6 +366,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
     const handleImport = async () => {
         if (!file || !fileContent) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -389,7 +391,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
             if (isJsonFile) {
                 onProgress({
                     stage: "Processing",
-                    message: "Parsing JSON structure...",
+                    message: "Reading file structure...",
                     progress: 30,
                 });
 
@@ -401,7 +403,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
                     onProgress({
                         stage: "Creating",
-                        message: `Creating ${jsonCells.length} sections from JSON...`,
+                        message: `Creating ${jsonCells.length} sections...`,
                         progress: 70,
                     });
 
@@ -418,7 +420,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     // Failed to parse as JSON, fall back to text splitting
                     onProgress({
                         stage: "Processing",
-                        message: "Invalid JSON, using smart text analysis...",
+                        message: "Analyzing text structure...",
                         progress: 30,
                     });
 
@@ -510,7 +512,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     name: cleanFileName,
                     cells: sourceCells,
                     metadata: {
-                        id: `source-${Date.now()}`,
+                        id: uuidv4(),
                         originalFileName: file.name,
                         sourceFile: file.name,
                         importerType: "smart-segmenter",
@@ -528,7 +530,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     name: cleanFileName,
                     cells: codexCells,
                     metadata: {
-                        id: `codex-${Date.now()}`,
+                        id: uuidv4(),
                         originalFileName: file.name,
                         sourceFile: file.name,
                         importerType: "smart-segmenter",
@@ -561,6 +563,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
             }, 1000);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }

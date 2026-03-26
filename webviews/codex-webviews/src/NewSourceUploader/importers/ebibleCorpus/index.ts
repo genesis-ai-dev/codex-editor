@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -99,13 +100,13 @@ const parseFile = async (
             name: baseName,
             cells,
             metadata: {
-                id: `ebible-corpus-source-${Date.now()}`,
+                id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
-                importerType: 'ebibleCorpus',
+                importerType: 'ebible',
                 createdAt: new Date().toISOString(),
                 importContext: {
-                    importerType: 'ebibleCorpus',
+                    importerType: 'ebible',
                     fileName: file.name,
                     originalFileName: file.name,
                     fileSize: file.size,
@@ -129,7 +130,7 @@ const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
-                id: `ebible-corpus-codex-${Date.now()}`,
+                id: uuidv4(),
             },
         };
 

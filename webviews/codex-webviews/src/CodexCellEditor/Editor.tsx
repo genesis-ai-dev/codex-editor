@@ -9,11 +9,8 @@ import React, {
 } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
-import registerQuillSpellChecker, {
-    getCleanedHtml,
-    QuillSpellChecker,
-} from "./react-quill-spellcheck";
-import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
+import { getCleanedHtml } from "./utils";
+import { EditHistory, EditorPostMessages } from "../../../../types";
 import { EditMapUtils, isValueEdit } from "../../../../src/utils/editMapUtils";
 import { EditType } from "../../../../types/enums";
 
@@ -29,10 +26,6 @@ const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
 const vscode: any = (window as any).vscodeApi;
 
-// Register the QuillSpellChecker with the VSCode API
-registerQuillSpellChecker(Quill, vscode);
-// Removed custom icon registrations for non-native buttons
-
 // Define the shape of content change callback
 export interface EditorContentChanged {
     html: string;
@@ -46,7 +39,6 @@ export interface EditorProps {
     editHistory: EditHistory[];
     onChange?: (changes: EditorContentChanged) => void;
     onDirtyChange?: (dirty: boolean, rawHtml: string) => void;
-    spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
     setIsEditingFootnoteInline: (isEditing: boolean) => void;
     isEditingFootnoteInline: boolean;
@@ -62,10 +54,6 @@ class AutocompleteFormat extends Inline {
     static tagName = "span";
 }
 
-class OpenLibraryFormat extends Inline {
-    static blotName = "openLibrary";
-    static tagName = "span";
-}
 
 // Define Footnote Format
 class FootnoteFormat extends Inline {
@@ -89,7 +77,6 @@ class FootnoteFormat extends Inline {
 // Register formats
 Quill.register({
     "formats/autocomplete": AutocompleteFormat,
-    "formats/openLibrary": OpenLibraryFormat,
     "formats/footnote": FootnoteFormat,
 });
 
@@ -103,7 +90,6 @@ function debug(message: string, ...args: any[]): void {
 // Export interface for imperative handle
 export interface EditorHandles {
     autocomplete: () => void;
-    openLibrary: () => void;
     showEditHistory: () => void;
     getSelectionText: () => string;
     addFootnote: () => void;
@@ -178,10 +164,7 @@ function processQuillContentForSaving(htmlContent: string): string {
                     // First paragraph becomes a span
                     const spanElement = `<span>${content}</span>`;
                     processedElements.push(spanElement);
-                    debug(
-                        `[processQuillContentForSaving] First paragraph as span:`,
-                        spanElement
-                    );
+                    debug(`[processQuillContentForSaving] First paragraph as span:`, spanElement);
                 } else {
                     // Subsequent paragraphs remain as paragraphs
                     const pElement = `<p>${content}</p>`;
@@ -264,8 +247,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const { setIsEditingFootnoteInline, isEditingFootnoteInline } = props;
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [isToolbarVisible, setIsToolbarVisible] = useState(false);
-    const [showModal, setShowModal] = useState(false);
-    const [wordsToAdd, setWordsToAdd] = useState<string[]>([]);
     const [isEditorEmpty, setIsEditorEmpty] = useState(true);
     const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
     const initialContentRef = useRef<string>("");
@@ -284,10 +265,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
     const [footnoteCount, setFootnoteCount] = useState(1);
     const [characterCount, setCharacterCount] = useState(0);
-    
+
     // Track the baseline content for dirty checking (updated when LLM content is set)
     const quillInitialContentRef = useRef<string>("");
-    
+
+    // Skip reporting dirty/unsaved until after initial content and focus are applied (avoids false dirty on open).
+    const editorInitializedRef = useRef(false);
+
     // Track whether current content is LLM-generated and needs explicit save to be considered "user content"
     const isLLMContentNeedingApprovalRef = useRef<boolean>(false);
 
@@ -338,11 +322,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                                     setSkipOnChange(true);
 
                                     return true;
-                                }
-                            }
+                                },
+                            },
                         },
                     },
-                    spellChecker: {},
                 },
             });
             // Apply minimal direct styles; rely on CSS file for look-and-feel
@@ -553,44 +536,42 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                     // Renumber footnotes to ensure proper chronological order on load
                     renumberFootnotes();
+
+                    // Only after this point treat text-change as user edits (avoids false dirty on open).
+                    editorInitializedRef.current = true;
                 }, 100);
+            } else {
+                editorInitializedRef.current = true;
             }
-            // Store initial content when editor is mounted
-            initialContentRef.current = quill.root.innerHTML;
-            let isFirstLoad = true;
-            
-            // Check if initial content is LLM-generated (needs explicit save)
-            const checkIfLLMContent = () => {
-                if (props.editHistory && props.editHistory.length > 0) {
-                    // Get the most recent edit
-                    const latestEdit = props.editHistory[props.editHistory.length - 1];
-                    // Check if it's an LLM generation or edit (not user edit)
-                    // Only mark as needing approval if it's a preview edit (not already saved)
-                    if (latestEdit.type === EditType.LLM_GENERATION || latestEdit.type === EditType.LLM_EDIT) {
-                        // Only mark as needing approval if this is a preview edit (preview: true)
-                        // Saved edits (addContentToValue: true) don't have preview flag, so they don't need approval
-                        const isPreviewEdit = (latestEdit as any).preview === true;
-                        if (isPreviewEdit) {
-                            isLLMContentNeedingApprovalRef.current = true;
-                            debug("Editor initialized with LLM content needing approval", { latestEdit });
-                        } else {
-                            // LLM content was already saved, so it doesn't need approval
-                            isLLMContentNeedingApprovalRef.current = false;
-                            debug("Editor initialized with saved LLM content (no approval needed)", { latestEdit });
-                        }
+            // Store initial content when editor is mounted (baseline for dirty - never overwrite in handler)
+            const mountedHtml = quill.root.innerHTML;
+            initialContentRef.current = mountedHtml;
+            quillInitialContentRef.current = mountedHtml;
+
+            // Check if initial content is LLM-generated (needs explicit save) at mount
+            if (props.editHistory && props.editHistory.length > 0) {
+                const latestEdit = props.editHistory[props.editHistory.length - 1];
+                if (
+                    latestEdit.type === EditType.LLM_GENERATION ||
+                    latestEdit.type === EditType.LLM_EDIT
+                ) {
+                    const isPreviewEdit = (latestEdit as any).preview === true;
+                    if (isPreviewEdit) {
+                        isLLMContentNeedingApprovalRef.current = true;
+                        debug("Editor initialized with LLM content needing approval", {
+                            latestEdit,
+                        });
+                    } else {
+                        isLLMContentNeedingApprovalRef.current = false;
+                        debug("Editor initialized with saved LLM content (no approval needed)", {
+                            latestEdit,
+                        });
                     }
                 }
-            };
+            }
 
             // Add text-change event listener with source parameter
             quill.on("text-change", (delta: any, oldDelta: any, source: string) => {
-                if (isFirstLoad) {
-                    quillInitialContentRef.current = quill.root.innerHTML;
-                    checkIfLLMContent(); // Check on first load
-                    isFirstLoad = false;
-                    return;
-                }
-
                 // Skip on change so the tab key doesn't trigger dirty state logic.
                 if (skipOnChange) {
                     setSkipOnChange(false);
@@ -626,28 +607,26 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     return;
                 }
 
+                // Ignore user text-change until editor has finished initializing (avoids false dirty on open with content).
+                if (!editorInitializedRef.current) {
+                    return;
+                }
+
                 // Normal cell content editing logic (user-initiated changes only)
                 const initialQuillContent = "<p><br></p>";
-                let isDirty = false;
+                const baseline = quillInitialContentRef.current;
 
-                // More robust dirty checking
-                if (quillInitialContentRef.current !== initialQuillContent) {
-                    isDirty = content !== quillInitialContentRef.current;
-                } else {
-                    // If we started with empty content, any non-empty content is dirty
+                // Primary: any difference from baseline means dirty (ensures first keystroke always registers)
+                let isDirty = content !== baseline;
+
+                if (!isDirty && baseline === initialQuillContent) {
+                    // Started empty: any non-empty content is dirty
                     isDirty = !isQuillEmpty(quill) && content !== initialQuillContent;
                 }
-
-                // Additional check: if content is significantly different from initial, it's dirty
-                if (
-                    !isDirty &&
-                    content &&
-                    content !== "<p><br></p>" &&
-                    content !== quillInitialContentRef.current
-                ) {
+                if (!isDirty && content && content !== "<p><br></p>" && content !== baseline) {
                     isDirty = true;
                 }
-                
+
                 // Critical: If content is LLM-generated and hasn't been explicitly saved by user,
                 // keep it marked as dirty even if it matches baseline
                 if (!isDirty && isLLMContentNeedingApprovalRef.current) {
@@ -708,14 +687,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         footnote.classList.remove("footnote-selected");
                     });
 
-                    // Clean up spell checker
-                    const spellChecker = quillRef.current.getModule(
-                        "spellChecker"
-                    ) as QuillSpellChecker;
-                    if (spellChecker) {
-                        spellChecker.dispose();
-                    }
-
                     // Clear the reference
                     quillRef.current = null;
                 }
@@ -764,49 +735,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         } as EditorPostMessages);
     };
 
-    const handleAddWords = () => {
-        if (wordsToAdd.length > 0) {
-            window.vscodeApi.postMessage({
-                command: "addWord",
-                words: wordsToAdd,
-            });
-        }
-        setShowModal(false);
-    };
-
-    // Add message listener for prompt response
+    // Add message listener for LLM completion response
     useMessageHandler(
         "editor-promptResponse",
         (event: MessageEvent) => {
             if (quillRef.current) {
                 const quill = quillRef.current;
-                if (event.data.type === "providerSendsPromptedEditResponse") {
-                    const editedContent = event.data.content;
-                    // Use Quill's API to set content with "api" source (not "user")
-                    quill.clipboard.dangerouslyPasteHTML(editedContent, "api");
-                    
-                    // Update baseline for dirty checking - LLM content is the new "initial" state
-                    quillInitialContentRef.current = quill.root.innerHTML;
-                    
-                    // Mark as LLM content needing approval
-                    isLLMContentNeedingApprovalRef.current = true;
-                    
-                    // Manually update all state for programmatic changes
-                    const textContent = quill.getText();
-                    const charCount = textContent.trim().length;
-                    setCharacterCount(charCount);
-                    
-                    // Call onChange with processed content
-                    const contentIsEmpty = isQuillEmpty(quill);
-                    const finalContent = contentIsEmpty
-                        ? ""
-                        : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML));
-                    props.onChange?.({ html: finalContent });
-                    
-                    // Mark as dirty to ensure save button appears
-                    props.onDirtyChange?.(true, quill.root.innerHTML);
-                    setUnsavedChanges(true);
-                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     const completionCellId = event.data.content.cellId;
 
@@ -814,25 +749,25 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     if (completionCellId === props.currentLineId) {
                         // Use Quill's API to set content with "api" source (not "user")
                         quill.clipboard.dangerouslyPasteHTML(completionText, "api");
-                        
+
                         // Update baseline for dirty checking - LLM content is the new "initial" state
                         quillInitialContentRef.current = quill.root.innerHTML;
-                        
+
                         // Mark as LLM content needing approval
                         isLLMContentNeedingApprovalRef.current = true;
-                        
+
                         // Manually update all state for programmatic changes
                         const textContent = quill.getText();
                         const charCount = textContent.trim().length;
                         setCharacterCount(charCount);
-                        
+
                         // Call onChange with processed content
                         const contentIsEmpty = isQuillEmpty(quill);
                         const finalContent = contentIsEmpty
                             ? ""
                             : processQuillContentForSaving(getCleanedHtml(quill.root.innerHTML));
                         props.onChange?.({ html: finalContent });
-                        
+
                         // Mark as dirty to ensure save button appears
                         props.onDirtyChange?.(true, quill.root.innerHTML);
                         setUnsavedChanges(true);
@@ -1188,16 +1123,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 command: "llmCompletion",
                 content: { currentLineId: props.currentLineId, addContentToValue: false },
             });
-        },
-        openLibrary: () => {
-            const quill = quillRef.current!;
-            const words = quill
-                .getText()
-                .split(/[\s\n.,!?]+/)
-                .filter((w) => w.length > 0)
-                .filter((w, i, self) => self.indexOf(w) === i);
-            setWordsToAdd(words);
-            setShowModal(true);
         },
         showEditHistory: () => {
             setEditHistoryForCell(props.editHistory);
@@ -1713,41 +1638,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             >
                                 No edit history available
                             </div>
-                        )}
-                    </div>
-                </div>
-            )}
-            {showModal && (
-                <div
-                    style={{
-                        position: "fixed",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        padding: "20px",
-                        border: "1px solid var(--vscode-editor-foreground)",
-                        borderRadius: "4px",
-                        zIndex: 1000,
-                    }}
-                >
-                    <h3>Add Words to Dictionary</h3>
-                    <p style={{ margin: "10px 0" }}>
-                        {wordsToAdd.length > 0
-                            ? `Add all words to the dictionary?`
-                            : "No words found in the content."}
-                    </p>
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: "10px",
-                            justifyContent: "flex-end",
-                            marginTop: "20px",
-                        }}
-                    >
-                        <button onClick={() => setShowModal(false)}>Cancel</button>
-                        {wordsToAdd.length > 0 && (
-                            <button onClick={handleAddWords}>Add Words</button>
                         )}
                     </div>
                 </div>

@@ -34,12 +34,59 @@ function isCellInSelectedFiles(pair: TranslationPair, selectedFiles: string[]): 
 
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
+    // Pending search data to send when webview becomes ready
+    private pendingSearchData: { query: string; replaceText?: string } | null = null;
+    // Pending flag to enable replace mode when webview becomes ready
+    private pendingEnableReplace: boolean = false;
+    // Track whether webview has signaled ready
+    private _isWebviewReady: boolean = false;
+
     protected getWebviewId(): string {
         return "search-passages-sidebar";
     }
 
     protected getScriptPath(): string[] {
         return ["ParallelView", "index.js"];
+    }
+
+    // Set pending search data to be sent when webview is ready
+    // If webview is already ready, sends immediately
+    public setPendingSearch(query: string, replaceText?: string): void {
+        this.pendingSearchData = { query, replaceText };
+        if (this._isWebviewReady) {
+            this.sendPendingSearch();
+        }
+    }
+
+    // Set pending flag to enable replace mode when webview is ready
+    // If webview is already ready, sends immediately
+    public setPendingEnableReplace(): void {
+        this.pendingEnableReplace = true;
+        if (this._isWebviewReady) {
+            this.sendPendingEnableReplace();
+        }
+    }
+
+    // Send pending search data to webview and clear it
+    private sendPendingSearch(): void {
+        if (this.pendingSearchData && this._view?.webview) {
+            safePostMessageToView(this._view, {
+                command: "populateSearch",
+                query: this.pendingSearchData.query,
+                replaceText: this.pendingSearchData.replaceText,
+            });
+            this.pendingSearchData = null;
+        }
+    }
+
+    // Send enable replace message to webview and clear flag
+    private sendPendingEnableReplace(): void {
+        if (this.pendingEnableReplace && this._view?.webview) {
+            safePostMessageToView(this._view, {
+                command: "enableReplace",
+            });
+            this.pendingEnableReplace = false;
+        }
     }
 
     public async pinCellById(cellId: string, retryCount = 0) {
@@ -158,6 +205,18 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             console.error("Error getting project files:", error);
             return [];
         }
+    }
+
+    // Reset ready state when webview is recreated
+    protected onWebviewResolved(): void {
+        this._isWebviewReady = false;
+    }
+
+    // Override the onWebviewReady hook to send pending data
+    protected onWebviewReady(): void {
+        this._isWebviewReady = true;
+        this.sendPendingSearch();
+        this.sendPendingEnableReplace();
     }
 
     protected async handleMessage(message: any): Promise<void> {

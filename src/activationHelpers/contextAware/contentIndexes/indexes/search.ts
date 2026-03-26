@@ -27,21 +27,20 @@ export function normalizeUri(uri: string): string {
     }
 }
 
-export function searchTargetCellsByQuery(
+export async function searchTargetCellsByQuery(
     translationPairsIndex: IndexType,
     query: string,
     k: number = 5,
     fuzziness: number = 0.2
 ) {
-    return translationPairsIndex
-        .search(query, {
-            fields: ["targetContent"],
-            combineWith: "OR",
-            prefix: true,
-            fuzzy: fuzziness,
-            boost: { targetContent: 2, cellId: 1 },
-        })
-        .slice(0, k);
+    const results = await translationPairsIndex.search(query, {
+        fields: ["targetContent"],
+        combineWith: "OR",
+        prefix: true,
+        fuzzy: fuzziness,
+        boost: { targetContent: 2, cellId: 1 },
+    });
+    return results.slice(0, k);
 }
 
 export async function getSourceCellByCellIdFromAllSourceCells(
@@ -55,8 +54,8 @@ export async function getSourceCellByCellIdFromAllSourceCells(
             return {
                 cellId: result.cellId,
                 content: result.content,
-                versions: result.versions || [],
-                notebookId: result.notebookId || "",
+                versions: result.versions ?? [],
+                notebookId: result.source_file_path ?? "",
             };
         }
     }
@@ -89,8 +88,15 @@ export async function getTranslationPairFromProject(
                 ? translationPair.rawTargetContent
                 : translationPair.targetContent;
 
+            let cellLabel = translationPair.cellLabel;
+            const globalRefs = translationPair.structural_metadata?.globalReferences;
+            if (Array.isArray(globalRefs) && globalRefs.length > 0 && typeof globalRefs[0] === "string") {
+                cellLabel = globalRefs[0];
+            }
+
             return {
                 cellId,
+                cellLabel,
                 sourceCell: {
                     cellId: translationPair.cellId,
                     content: sourceContent,
@@ -111,7 +117,7 @@ export async function getTranslationPairFromProject(
     const searchResults = await translationPairsIndex.search(cellId, {
         fields: ["cellId", "sourceContent", "targetContent"],
         combineWith: "OR",
-        filter: (result: any) => result.cellId === cellId,
+        filter: (result) => result.cellId === cellId,
         isParallelPassagesWebview, // Pass through for raw content handling
     });
 
@@ -165,7 +171,15 @@ export async function getTranslationPairFromProject(
     let sourceOnlyResult: SourceCellVersions | null = null;
 
     if (sourceTextIndex instanceof SQLiteIndexManager) {
-        sourceOnlyResult = await sourceTextIndex.getById(cellId);
+        const byIdResult = await sourceTextIndex.getById(cellId);
+        if (byIdResult) {
+            sourceOnlyResult = {
+                cellId: byIdResult.cellId,
+                content: byIdResult.content,
+                versions: byIdResult.versions ?? [],
+                notebookId: byIdResult.source_file_path ?? "",
+            };
+        }
     }
 
     if (sourceOnlyResult) {
@@ -264,8 +278,8 @@ export async function getTranslationPairsFromSourceCellQuery(
                 debug(`[getTranslationPairsFromSourceCellQuery] ✅ Adding direct result for ${cellId}`);
                 translationPairs.push({
                     cellId,
-                    sourceCell: { cellId, content: searchResult.sourceContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
-                    targetCell: { cellId, content: searchResult.targetContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
+                    sourceCell: { cellId, content: searchResult.sourceContent, rawContent: searchResult.rawSourceContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
+                    targetCell: { cellId, content: searchResult.targetContent, rawContent: searchResult.rawTargetContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
                 });
             } else {
                 debug(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - empty content after trim`);
@@ -277,8 +291,8 @@ export async function getTranslationPairsFromSourceCellQuery(
                 debug(`[getTranslationPairsFromSourceCellQuery] ✅ Adding fetched result for ${cellId}`);
                 translationPairs.push({
                     cellId,
-                    sourceCell: { cellId, content: translationPair.sourceContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
-                    targetCell: { cellId, content: translationPair.targetContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
+                    sourceCell: { cellId, content: translationPair.sourceContent, rawContent: translationPair.rawSourceContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
+                    targetCell: { cellId, content: translationPair.targetContent, rawContent: translationPair.rawTargetContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
                 });
             } else {
                 debug(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - no valid translation pair found`);
@@ -301,12 +315,12 @@ export async function getTranslationPairsFromSourceCellQuery(
     return translationPairs;
 }
 
-export function handleTextSelection(translationPairsIndex: IndexType, selectedText: string) {
-    return searchTargetCellsByQuery(translationPairsIndex, selectedText);
+export async function handleTextSelection(translationPairsIndex: IndexType, selectedText: string) {
+    return await searchTargetCellsByQuery(translationPairsIndex, selectedText);
 }
 
 
-export function searchSimilarCellIds(
+export async function searchSimilarCellIds(
     translationPairsIndex: IndexType,
     cellId: string,
     k: number = 5,
@@ -315,14 +329,14 @@ export function searchSimilarCellIds(
     // Parse the input cellId into book and chapter
     const match = cellId.match(/^(\w+)\s*(\d+)/);
     if (!match) {
-        return translationPairsIndex
-            .search(cellId, {
-                fields: ["cellId"],
-                combineWith: "OR",
-                prefix: true,
-                fuzzy: fuzziness,
-                boost: { cellId: 2 },
-            })
+        const results = await translationPairsIndex.search(cellId, {
+            fields: ["cellId"],
+            combineWith: "OR",
+            prefix: true,
+            fuzzy: fuzziness,
+            boost: { cellId: 2 },
+        });
+        return results
             .slice(0, k)
             .map((result: any) => ({
                 cellId: result.cellId,
@@ -332,12 +346,12 @@ export function searchSimilarCellIds(
 
     // Search for exact book+chapter prefix (e.g., "GEN 2")
     const bookChapterPrefix = match[0];
-    return translationPairsIndex
-        .search(bookChapterPrefix, {
-            fields: ["cellId"],
-            prefix: true,
-            combineWith: "AND",
-        })
+    const results = await translationPairsIndex.search(bookChapterPrefix, {
+        fields: ["cellId"],
+        prefix: true,
+        combineWith: "AND",
+    });
+    return results
         .slice(0, k)
         .map((result: any) => ({
             cellId: result.cellId,
@@ -369,7 +383,7 @@ export async function findNextUntranslatedSourceCell(
             if (!hasTranslation) {
                 return {
                     cellId: result.cellId,
-                    content: result.content,
+                    content: result.content ?? "",
                 };
             }
         }
@@ -405,13 +419,50 @@ export async function searchAllCells(
         });
     }
 
-    // Helper to verify content contains query
-    function contentContainsQuery(content: string | undefined, queryLower: string): boolean {
-        if (!content) return false;
-        return stripHtml(content).includes(queryLower);
+    // Handle explicit search scope (source or target only)
+    if (searchScope === "source" && translationPairsIndex instanceof SQLiteIndexManager) {
+        // Search only source cells
+        const sourceCells = await translationPairsIndex.searchCells(query, "source", k * 2, options?.isParallelPassagesWebview || false);
+
+        const results: TranslationPair[] = [];
+        for (const cell of sourceCells) {
+            const translationPair = await getTranslationPairFromProject(
+                translationPairsIndex,
+                sourceTextIndex,
+                cell.cell_id,
+                options
+            );
+            if (translationPair && translationPair.sourceCell.content && matchesSelectedFiles(translationPair)) {
+                results.push(translationPair);
+            }
+        }
+
+        return results.slice(0, k);
     }
 
-    const queryLower = query.toLowerCase();
+    // For searchScope === "target", search directly in target cells
+    if (searchScope === "target" && translationPairsIndex instanceof SQLiteIndexManager) {
+        const targetCells = await translationPairsIndex.searchCells(query, "target", k * 2, options?.isParallelPassagesWebview || false);
+
+        const results: TranslationPair[] = [];
+        for (const cell of targetCells) {
+            const translationPair = await getTranslationPairFromProject(
+                translationPairsIndex,
+                sourceTextIndex,
+                cell.cell_id,
+                options
+            );
+            if (translationPair && translationPair.targetCell.content && matchesSelectedFiles(translationPair)) {
+                results.push(translationPair);
+            }
+        }
+
+        return results.slice(0, k);
+    }
+
+    // Normal search mode - search translation pairs with both source and target
+    // Note: searchScope is "both" here since "source" and "target" return early above
+    // Use the optimized SQLite method for complete pairs, then add incomplete pairs if needed
     let results: TranslationPair[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
@@ -429,67 +480,62 @@ export async function searchAllCells(
         );
 
         // Convert to TranslationPair format
-        results = searchResults.map((result) => ({
-            cellId: result.cellId || result.cell_id,
-            sourceCell: {
-                cellId: result.cellId || result.cell_id,
-                content: result.sourceContent || result.content || "",
-                uri: result.uri || "",
-                line: result.line || 0,
-            },
-            targetCell: {
-                cellId: result.cellId || result.cell_id,
-                content: result.targetContent || "",
-                uri: result.uri || "",
-                line: result.line || 0,
-            },
-        }));
-
-        // Filter out pairs with empty or minimal content (require both source and target)
-        results = results.filter((pair) => {
-            const sourceText = stripHtml(pair.sourceCell.content || "").trim();
-            const targetText = stripHtml(pair.targetCell.content || "").trim();
-            return sourceText.length > 3 && targetText.length > 3;
-        });
-
-        // Apply search scope content verification - query must appear in relevant content
-        if (query.trim()) {
-            results = results.filter((pair) => {
-                if (searchScope === "source") {
-                    return contentContainsQuery(pair.sourceCell.content, queryLower);
-                } else if (searchScope === "target") {
-                    return contentContainsQuery(pair.targetCell.content, queryLower);
-                } else {
-                    // "both" - query should appear in either source or target
-                    return contentContainsQuery(pair.sourceCell.content, queryLower) ||
-                           contentContainsQuery(pair.targetCell.content, queryLower);
+        results = searchResults.map((result) => {
+            let label = result.cellLabel ?? result.cell_label ?? null;
+            if (result.globalReferences) {
+                try {
+                    const refs = JSON.parse(result.globalReferences);
+                    if (Array.isArray(refs) && refs.length > 0 && typeof refs[0] === "string") {
+                        label = refs[0];
+                    }
+                } catch {
+                    // keep existing cellLabel
                 }
-            });
-        }
+            }
+            return {
+                cellId: result.cellId || result.cell_id,
+                cellLabel: label,
+                sourceCell: {
+                    cellId: result.cellId || result.cell_id,
+                    content: result.sourceContent || result.content || "",
+                    uri: result.uri || "",
+                    line: result.line || 0,
+                },
+                targetCell: {
+                    cellId: result.cellId || result.cell_id,
+                    content: result.targetContent || "",
+                    uri: result.uri || "",
+                    line: result.line || 0,
+                },
+            };
+        });
+    }
 
-        // Add incomplete pairs (source-only cells) if requested
-        if (includeIncomplete) {
-            const existingIds = new Set(results.map((r) => r.cellId));
-            const sourceOnlyCells = sourceTextIndex
-                .search(query, {
-                    fields: ["content"],
-                    combineWith: "OR",
-                    prefix: true,
-                    fuzzy: 0.2,
-                    boost: { content: 2 },
-                })
-                .filter((result: any) => {
-                    // Skip if already in results
-                    if (existingIds.has(result.cellId)) return false;
-                    // Require meaningful source content
-                    const sourceText = stripHtml(result.content || "").trim();
-                    if (sourceText.length <= 3) return false;
-                    // Verify query actually appears in content
-                    if (query.trim() && !sourceText.toLowerCase().includes(queryLower)) return false;
-                    return true;
-                })
-                .map((result: any) => ({
+    if (includeIncomplete) {
+        const sourceSearchResults = await sourceTextIndex.search(query, {
+            fields: ["content"],
+            combineWith: "OR",
+            prefix: true,
+            fuzzy: 0.2,
+            boost: { content: 2 },
+            ...options
+        });
+        const sourceOnlyCells = sourceSearchResults
+            .map((result: any) => {
+                let label = result.cellLabel;
+                if (result.globalReferences) {
+                    try {
+                        const refs = JSON.parse(result.globalReferences);
+                        if (Array.isArray(refs) && refs.length > 0 && typeof refs[0] === "string") {
+                            label = refs[0];
+                        }
+                    } catch {
+                        // keep existing cellLabel
+                    }
+                }
+                return {
                     cellId: result.cellId,
+                    cellLabel: label,
                     sourceCell: {
                         cellId: result.cellId,
                         content: result.content,
@@ -504,10 +550,14 @@ export async function searchAllCells(
                         notebookId: "",
                     },
                     score: result.score,
-                }));
+                };
+            })
+            .filter((pair: TranslationPair) => matchesSelectedFiles(pair))
+            .filter((sourcePair: TranslationPair) =>
+                !results.some(result => result.cellId === sourcePair.cellId)
+            );
 
-            results = [...results, ...sourceOnlyCells];
-        }
+        results = [...results, ...sourceOnlyCells];
     }
 
     // Apply file filtering once at the end

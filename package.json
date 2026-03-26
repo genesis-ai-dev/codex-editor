@@ -1,7 +1,7 @@
 {
     "name": "codex-editor-extension",
     "displayName": "Codex Translation Editor",
-    "description": "Support for `.codex` notebooks and translation source files. Includes Codex Language Server for translation drafting and checking diagnostics and features.",
+    "description": "Support for `.codex` notebooks and translation source files.",
     "publisher": "project-accelerate",
     "homepage": "https://codex-editor.gitbook.io/",
     "repository": {
@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.20.0",
+    "version": "0.22.0",
     "engines": {
         "node": ">=18.0.0",
         "vscode": "^1.78.0"
@@ -28,6 +28,24 @@
     ],
     "contributes": {
         "keybindings": [
+            {
+                "command": "codex-editor-extension.toggleInTabSearch",
+                "key": "ctrl+f",
+                "mac": "cmd+f",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesAllFiles",
+                "key": "ctrl+shift+f",
+                "mac": "cmd+shift+f",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesWithReplace",
+                "key": "ctrl+shift+r",
+                "mac": "cmd+shift+r",
+                "when": "activeCustomEditorId == 'codex.cellEditor'"
+            },
             {
                 "key": "cmd+shift+s",
                 "command": "codex-editor.preventSaveAs",
@@ -114,20 +132,8 @@
             ]
         },
         "menus": {
-            "view/title": [
-                {
-                    "command": "dictionaryTable.showDictionaryTable",
-                    "when": "view == dictionaryTable",
-                    "group": "navigation"
-                }
-            ],
-            "view/item/context": [
-                {
-                    "command": "dictionaryTable.showDictionaryTable",
-                    "when": "view == dictionaryTable",
-                    "group": "navigation"
-                }
-            ],
+            "view/title": [],
+            "view/item/context": [],
             "editor/title": [
                 {
                     "command": "codex-editor-extension.scm.stageAndCommitAll",
@@ -186,10 +192,6 @@
                 "command": "codex-editor.migrateAudioFiles",
                 "title": "Migrate Audio Files (.x-m4a to .m4a)",
                 "category": "Codex Editor"
-            },
-            {
-                "command": "codex-editor-extension.JOSH_COMMAND",
-                "title": "JOSH_COMMAND"
             },
             {
                 "command": "codex-editor-extension.forceReindex",
@@ -261,10 +263,6 @@
                 "command": "codex-editor.setGlobalLineNumbers",
                 "title": "Set Global Line Numbers",
                 "category": "Codex Project"
-            },
-            {
-                "command": "dictionaryTable.showDictionaryTable",
-                "title": "Dictionary Table: Show"
             },
             {
                 "command": "translationNotes.openTnEditor",
@@ -397,20 +395,6 @@
                 "title": "Get Target Cell by Cell ID"
             },
             {
-                "command": "extension.lookupWord",
-                "title": "Look Up Word",
-                "category": "Dictionary"
-            },
-            {
-                "command": "extension.importWiktionaryJSONL",
-                "title": "Import Wiktionary"
-            },
-            {
-                "command": "frontier.showWordsView",
-                "title": "Frontier: View All Words",
-                "category": "Frontier"
-            },
-            {
                 "command": "codex-project-manager.openAISettings",
                 "title": "Open AI Settings",
                 "category": "Codex Project Management"
@@ -463,6 +447,16 @@
                 "category": "Codex Maintenance"
             },
             {
+                "command": "codex-editor-extension.runVerseRangeLabelsAndPositionsMigration",
+                "title": "Codex: Fix Verse Range Labels and Positions",
+                "category": "Codex Maintenance"
+            },
+            {
+                "command": "codex-editor-extension.runCommentsMigration",
+                "title": "Codex: Migrate Legacy Comments",
+                "category": "Codex Maintenance"
+            },
+            {
                 "command": "codex-editor-extension.focusCommentsView",
                 "title": "Focus Comments View",
                 "category": "Codex Comments"
@@ -471,6 +465,21 @@
                 "command": "codex-editor-extension.navigateToCellInComments",
                 "title": "Navigate to Cell in Comments",
                 "category": "Codex Comments"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesWithReplace",
+                "title": "Open Parallel Passages with Replace",
+                "category": "Codex Search"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesCurrentFile",
+                "title": "Search in Current File",
+                "category": "Codex Search"
+            },
+            {
+                "command": "codex-editor-extension.openParallelPassagesAllFiles",
+                "title": "Search in All Files",
+                "category": "Codex Search"
             }
         ],
         "configuration": [
@@ -632,11 +641,6 @@
                             "type": "string"
                         }
                     },
-                    "codex-project-manager.spellcheckIsEnabled": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Enable or disable spellcheck for the project"
-                    },
                     "codex-project-manager.autoSyncEnabled": {
                         "type": "boolean",
                         "default": true,
@@ -680,21 +684,6 @@
                         ],
                         "default": "Do not auto sync",
                         "description": "Automatically Sync to Cloud every..."
-                    }
-                }
-            },
-            {
-                "title": "Codex Extension Server",
-                "properties": {
-                    "codex-editor-extension-server.enable": {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "Enable or disable the Codex Extension feature."
-                    },
-                    "codex-editor-extension-server.primarySourceText": {
-                        "type": "string",
-                        "default": "",
-                        "description": "The source text to use for the Codex Extension feature."
                     }
                 }
             },
@@ -890,12 +879,6 @@
                         "default": false,
                         "description": "If activated, inline completion LLM prompts will be saved to the `copilot-messages.log` file in the project."
                     },
-                    "codex-editor-extension.wordFrequencyThreshold": {
-                        "title": "Word Frequency Threshold",
-                        "type": "number",
-                        "default": 50,
-                        "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
-                    },
                     "codex-editor-extension.enableDoctrineGrading": {
                         "title": "Enable Doctrine Grading",
                         "type": "boolean",
@@ -945,7 +928,7 @@
                     "codex-editor-extension.abTestingProbability": {
                         "title": "A/B Testing Probability",
                         "type": "number",
-                        "default": 0.15,
+                        "default": 0.01,
                         "minimum": 0,
                         "maximum": 1,
                         "description": "Probability (0-1) that any eligible event will run a true A/B test. When not triggered, the system returns identical variants to keep UX consistent without doubling compute."
@@ -1012,16 +995,6 @@
                     }
                 ],
                 "priority": "default"
-            },
-            {
-                "viewType": "codex.dictionaryEditor",
-                "displayName": "Dictionary Editor",
-                "selector": [
-                    {
-                        "filenamePattern": "*.dictionary"
-                    }
-                ],
-                "priority": "default"
             }
         ]
     },
@@ -1079,7 +1052,6 @@
         "crypto-browserify": "^3.12.1",
         "encoding": "^0.1.13",
         "eslint": "^7.27.0",
-        "fts5-sql-bundle": "^1.0.2",
         "glob": "^7.1.4",
         "html-loader": "^5.1.0",
         "https-browserify": "^1.0.0",
@@ -1104,15 +1076,12 @@
         "typescript": "^5.4.2",
         "util": "^0.12.5",
         "vm-browserify": "^1.1.2",
-        "vscode-languageserver": "^9.0.1",
-        "vscode-languageserver-textdocument": "^1.0.12",
         "wdio-vscode-service": "^6.1.3",
         "webdriverio": "^8.45.0",
         "webpack": "^5.101.3",
         "webpack-cli": "^6.0.1"
     },
     "dependencies": {
-        "@types/better-sqlite3": "^7.6.11",
         "@types/csv-parse": "^1.2.5",
         "@types/xml2js": "^0.4.14",
         "@vscode/codicons": "^0.0.36",
@@ -1126,13 +1095,12 @@
         "csv-parse": "^5.6.0",
         "date-fns": "^2.30.0",
         "diff": "^7.0.0",
+        "dugite": "^3.0.0",
         "events": "^3.3.0",
         "fitty": "^2.4.2",
-        "fts5-sql-bundle": "^1.0.2",
         "hog-features": "^1.0.0",
         "i": "^0.3.7",
         "immutability-helper": "^3.1.1",
-        "isomorphic-git": "^1.34.0",
         "jimp": "^0.22.12",
         "md5": "^2.3.0",
         "meilisearch": "^0.38.0",
@@ -1153,7 +1121,6 @@
         "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",
         "uuid": "^9.0.1",
-        "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
         "webvtt-parser": "^2.2.0",
         "xlsx": "^0.18.5",

@@ -224,7 +224,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
 
     it("should render CellList with real translation units", async () => {
         const mockProps = {
-            spellCheckResponse: null,
             translationUnits: mockTranslationUnits,
             fullDocumentTranslationUnits: mockTranslationUnits,
             contentBeingUpdated: {
@@ -237,11 +236,9 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             handleSaveHtml: vi.fn(),
             vscode: mockVscode,
             textDirection: "ltr" as const,
-            cellDisplayMode: "inline" as any,
             isSourceText: false,
             windowHeight: 800,
             headerHeight: 100,
-            alertColorCodes: {},
             highlightedCellId: null,
             scrollSyncEnabled: true,
             currentUsername: "test-user",
@@ -285,7 +282,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -345,7 +341,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -432,7 +427,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
 
     it("should render CellList with multiple cells", async () => {
         const mockProps = {
-            spellCheckResponse: null,
             translationUnits: mockTranslationUnits,
             fullDocumentTranslationUnits: mockTranslationUnits,
             contentBeingUpdated: {
@@ -445,11 +439,9 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             handleSaveHtml: vi.fn(),
             vscode: mockVscode,
             textDirection: "ltr" as const,
-            cellDisplayMode: "inline" as any,
             isSourceText: false,
             windowHeight: 800,
             headerHeight: 100,
-            alertColorCodes: {},
             highlightedCellId: null,
             scrollSyncEnabled: true,
             currentUsername: "test-user",
@@ -490,7 +482,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -544,7 +535,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
 
         // Test that CellList and CellEditor can work together with proper data flow
         const cellListProps = {
-            spellCheckResponse: null,
             translationUnits: mockTranslationUnits,
             fullDocumentTranslationUnits: mockTranslationUnits,
             contentBeingUpdated: {
@@ -557,11 +547,9 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             handleSaveHtml: mockHandleSaveHtml,
             vscode: mockVscode,
             textDirection: "ltr" as const,
-            cellDisplayMode: "inline" as any,
             isSourceText: false,
             windowHeight: 800,
             headerHeight: 100,
-            alertColorCodes: {},
             highlightedCellId: null,
             scrollSyncEnabled: true,
             currentUsername: "test-user",
@@ -629,7 +617,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -702,7 +689,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -762,7 +748,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-2"],
                 cellContent: "<p>Other cell</p>",
@@ -817,7 +802,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -882,7 +866,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -997,7 +980,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: lockedCell.editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -1053,7 +1035,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: lockedCell.editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-1"],
                 cellContent: "<p>Test content</p>",
@@ -1124,7 +1105,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
             editHistory: mockTranslationUnits[0].editHistory,
             cellIndex: 0,
             cellType: CodexCellTypes.TEXT,
-            spellCheckResponse: null,
             contentBeingUpdated: {
                 cellMarkers: ["cell-2"],
                 cellContent: "<p>Other content</p>",
@@ -1205,7 +1185,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 editHistory: mockTranslationUnits[0].editHistory,
                 cellIndex: 0,
                 cellType: CodexCellTypes.TEXT,
-                spellCheckResponse: null,
                 contentBeingUpdated: {
                     cellMarkers: ["cell-no-audio"],
                     cellContent: "<p>Content without audio</p>",
@@ -1264,7 +1243,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 editHistory: mockTranslationUnits[0].editHistory,
                 cellIndex: 0,
                 cellType: CodexCellTypes.TEXT,
-                spellCheckResponse: null,
                 contentBeingUpdated: {
                     cellMarkers: ["cell-empty"],
                     cellContent: "<p>Empty audio cell</p>",
@@ -1321,7 +1299,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 editHistory: mockTranslationUnits[0].editHistory,
                 cellIndex: 0,
                 cellType: CodexCellTypes.TEXT,
-                spellCheckResponse: null,
                 contentBeingUpdated: {
                     cellMarkers: ["cell-transition"],
                     cellContent: "<p>Transition test</p>",
@@ -1395,7 +1372,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 editHistory: mockTranslationUnits[0].editHistory,
                 cellIndex: 0,
                 cellType: CodexCellTypes.TEXT,
-                spellCheckResponse: null,
                 contentBeingUpdated: {
                     cellMarkers: ["cell-deleted"],
                     cellContent: "<p>Deleted audio cell</p>",
@@ -1456,7 +1432,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 editHistory: mockTranslationUnits[0].editHistory,
                 cellIndex: 0,
                 cellType: CodexCellTypes.TEXT,
-                spellCheckResponse: null,
                 contentBeingUpdated: {
                     cellMarkers: ["cell-available"],
                     cellContent: "<p>Cell with audio</p>",
@@ -1528,7 +1503,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 editHistory: mockTranslationUnits[0].editHistory,
                 cellIndex: 0,
                 cellType: CodexCellTypes.TEXT,
-                spellCheckResponse: null,
                 contentBeingUpdated: {
                     cellMarkers: ["cell-null-response"],
                     cellContent: "<p>Null response test</p>",
@@ -1592,7 +1566,6 @@ describe("Real Cell Editor Save Workflow Integration Tests", () => {
                 editHistory: mockTranslationUnits[0].editHistory,
                 cellIndex: 0,
                 cellType: CodexCellTypes.TEXT,
-                spellCheckResponse: null,
                 contentBeingUpdated: {
                     cellMarkers: ["cell-cached"],
                     cellContent: "<p>Cached audio cell</p>",

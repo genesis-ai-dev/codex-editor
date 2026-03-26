@@ -4,11 +4,24 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import bibleData from "../assets/bible-books-lookup.json";
 import { Progress } from "../components/ui/progress";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 import "../tailwind.css";
 import { CodexItem } from "types";
-import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import { Languages, Heart } from "lucide-react";
+import { Languages, Mic, Heart } from "lucide-react";
 import { RenameModal } from "../components/RenameModal";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../components/ui/dialog";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -27,7 +40,6 @@ interface BibleBookInfo {
 
 interface State {
     codexItems: CodexItem[];
-    dictionaryItems: CodexItem[];
     expandedGroups: Set<string>;
     previousExpandedGroups: Set<string> | null;
     searchQuery: string;
@@ -43,6 +55,13 @@ interface State {
         isOpen: boolean;
         item: CodexItem | null;
         newName: string;
+    };
+    deleteModal: {
+        isOpen: boolean;
+        item: CodexItem | null;
+        displayName: string;
+        typedName: string;
+        isCorpus: boolean;
     };
 }
 
@@ -172,7 +191,6 @@ const formatLabel = (label: string, bibleBookMap: Map<string, BibleBookInfo>): s
 function NavigationView() {
     const [state, setState] = useState<State>({
         codexItems: [],
-        dictionaryItems: [],
         expandedGroups: new Set(),
         previousExpandedGroups: null,
         searchQuery: "",
@@ -189,11 +207,14 @@ function NavigationView() {
             item: null,
             newName: "",
         },
+        deleteModal: {
+            isOpen: false,
+            item: null,
+            displayName: "",
+            typedName: "",
+            isCorpus: false,
+        },
     });
-
-    const [expandedValidationTicks, setExpandedValidationTicks] = useState<Record<string, boolean>>(
-        {}
-    );
 
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
@@ -273,7 +294,6 @@ function NavigationView() {
                         return {
                             ...prevState,
                             codexItems: processedCodexItems,
-                            dictionaryItems: message.dictionaryItems || [],
                             hasReceivedInitialData: true,
                             showHealthIndicators: message.showHealthIndicators ?? false,
                         };
@@ -308,7 +328,6 @@ function NavigationView() {
         if (!state.searchQuery) return; // Only run when there's a search query
 
         const filteredCodexItems = filterItems(state.codexItems);
-        const filteredDictionaryItems = filterItems(state.dictionaryItems);
 
         // Calculate total number of visible items if all groups were expanded
         let totalItems = 0;
@@ -317,13 +336,6 @@ function NavigationView() {
             totalItems += 1; // Group header
             if (item.type === "corpus" && item.children) {
                 totalItems += item.children.length; // Child items
-            }
-        });
-
-        filteredDictionaryItems.forEach((item) => {
-            totalItems += 1;
-            if (item.type === "corpus" && item.children) {
-                totalItems += item.children.length;
             }
         });
 
@@ -344,20 +356,13 @@ function NavigationView() {
                     }
                 });
 
-                // Expand dictionary groups with results
-                filteredDictionaryItems.forEach((item) => {
-                    if (item.type === "corpus" && item.children && item.children.length > 0) {
-                        newExpandedGroups.add(item.label);
-                    }
-                });
-
                 return {
                     ...prev,
                     expandedGroups: newExpandedGroups,
                 };
             });
         }
-    }, [state.searchQuery, state.codexItems, state.dictionaryItems]);
+    }, [state.searchQuery, state.codexItems]);
 
     const toggleGroup = (label: string) => {
         setState((prevState) => {
@@ -409,18 +414,18 @@ function NavigationView() {
     };
 
     const handleDelete = (item: CodexItem) => {
-        vscode.postMessage({
-            command: "deleteFile",
-            uri: item.uri,
-            label: item.label,
-            type: item.type,
-        });
-    };
-
-    const handleToggleDictionary = () => {
-        vscode.postMessage({
-            command: "toggleDictionary",
-        });
+        const displayName =
+            item.fileDisplayName || formatLabel(item.label, state.bibleBookMap || new Map());
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                isOpen: true,
+                item,
+                displayName,
+                typedName: "",
+                isCorpus: false,
+            },
+        }));
     };
 
     const handleAddFiles = () => {
@@ -461,6 +466,74 @@ function NavigationView() {
                 newName: prev.renameModal.newName || currentCorpusName,
             },
         }));
+    };
+
+    const handleDeleteCorpusMarker = (item: CodexItem) => {
+        const displayName =
+            item.children?.[0]?.corpusMarker ||
+            formatLabel(item.label, state.bibleBookMap || new Map());
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                isOpen: true,
+                item,
+                displayName,
+                typedName: "",
+                isCorpus: true,
+            },
+        }));
+    };
+
+    const handleDeleteModalClose = () => {
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                isOpen: false,
+                item: null,
+                displayName: "",
+                typedName: "",
+                isCorpus: false,
+            },
+        }));
+    };
+
+    const handleDeleteModalInputChange = (value: string) => {
+        setState((prev) => ({
+            ...prev,
+            deleteModal: {
+                ...prev.deleteModal,
+                typedName: value,
+            },
+        }));
+    };
+
+    const handleDeleteModalConfirm = () => {
+        const { item, displayName, typedName, isCorpus } = state.deleteModal;
+        if (!item || typedName !== displayName) return;
+
+        if (isCorpus) {
+            vscode.postMessage({
+                command: "deleteCorpusMarker",
+                content: {
+                    corpusLabel: item.label,
+                    displayName,
+                    children:
+                        item.children?.map((c) => ({
+                            uri: c.uri,
+                            label: c.label,
+                            type: c.type,
+                        })) ?? [],
+                },
+            });
+        } else {
+            vscode.postMessage({
+                command: "deleteFile",
+                uri: item.uri,
+                label: item.label,
+                type: item.type,
+            });
+        }
+        handleDeleteModalClose();
     };
 
     const handleRenameModalClose = () => {
@@ -585,43 +658,32 @@ function NavigationView() {
             .filter((item): item is CodexItem => item !== null);
     };
 
-    const toggleTextValidationLevelTicks =
-        (itemKey: string) => (e: React.MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation();
-            e.preventDefault();
-            const key = `${itemKey}-text`;
-            setExpandedValidationTicks((prev) => ({ ...prev, [key]: !prev[key] }));
-        };
-
-    const toggleAudioValidationLevelTicks =
-        (itemKey: string) => (e: React.MouseEvent<HTMLButtonElement>) => {
-            e.stopPropagation();
-            e.preventDefault();
-            const key = `${itemKey}-audio`;
-            setExpandedValidationTicks((prev) => ({ ...prev, [key]: !prev[key] }));
-        };
-
-    const renderProgressSection = (
-        itemKey: string,
-        progress?: {
-            percentTranslationsCompleted?: number;
-            percentFullyValidatedTranslations?: number;
-            percentTextValidatedTranslations?: number;
-            percentAudioTranslationsCompleted?: number;
-            percentAudioValidatedTranslations?: number;
-            textValidationLevels?: number[];
-            audioValidationLevels?: number[];
-            requiredTextValidations?: number;
-            requiredAudioValidations?: number;
-            averageHealth?: number;
+    const getProgressValues = (progress?: {
+        percentTranslationsCompleted?: number;
+        percentTextValidatedTranslations?: number;
+        percentFullyValidatedTranslations?: number;
+        percentAudioTranslationsCompleted?: number;
+        percentAudioValidatedTranslations?: number;
+        textValidationLevels?: number[];
+        audioValidationLevels?: number[];
+        requiredTextValidations?: number;
+        requiredAudioValidations?: number;
+        averageHealth?: number;
+    }) => {
+        if (typeof progress !== "object") {
+            return {
+                textCompletion: 0,
+                textValidation: 0,
+                audioCompletion: 0,
+                audioValidation: 0,
+                textValidationLevels: [] as number[],
+                audioValidationLevels: [] as number[],
+                requiredTextValidations: undefined as number | undefined,
+                requiredAudioValidations: undefined as number | undefined,
+                averageHealth: undefined as number | undefined,
+            };
         }
-    ) => {
-        if (typeof progress !== "object") return null;
-        const textCompleted = Math.max(
-            0,
-            Math.min(100, progress.percentTranslationsCompleted ?? 0)
-        );
-        const textValidated = Math.max(
+        const textValidation = Math.max(
             0,
             Math.min(
                 100,
@@ -630,130 +692,33 @@ function NavigationView() {
                     0
             )
         );
-        const audioCompleted = Math.max(
-            0,
-            Math.min(100, progress.percentAudioTranslationsCompleted ?? 0)
-        );
-        const audioValidated = Math.max(
+        const audioValidation = Math.max(
             0,
             Math.min(100, progress.percentAudioValidatedTranslations ?? 0)
         );
-
-        const textLevels = Array.isArray(progress.textValidationLevels)
-            ? progress.textValidationLevels
-            : [textValidated];
-        const audioLevels = Array.isArray(progress.audioValidationLevels)
-            ? progress.audioValidationLevels
-            : [audioValidated];
-        const requiredText = progress.requiredTextValidations;
-        const requiredAudio = progress.requiredAudioValidations;
-
-        // Health indicator - compute percentage
-        // Only show health indicator when there's actual health data and feature flag is enabled
-        const health = progress.averageHealth;
-        const hasHealthData = typeof health === 'number' && state.showHealthIndicators;
-        const healthPercent = hasHealthData ? Math.round(health * 100) : 0;
-
-        return (
-            <div className="flex flex-col gap-y-4 pl-7">
-                {/* Health indicator - styled to match other progress bars */}
-                {hasHealthData && (
-                    <div className="flex gap-x-1">
-                        <span className="opacity-70 font-light">
-                            <Heart className="h-[14px] w-[14px]" />
-                        </span>
-                        <div className="mt-[2px] w-full">
-                            <div className="w-full">
-                                <div className="bg-primary/20 relative w-full overflow-hidden rounded-full h-[8px]">
-                                    <div
-                                        className="h-full transition-all"
-                                        style={{
-                                            width: `${healthPercent}%`,
-                                            backgroundColor: healthPercent >= 70
-                                                ? "var(--vscode-charts-green, #22c55e)"
-                                                : healthPercent >= 30
-                                                    ? "var(--vscode-charts-yellow, #eab308)"
-                                                    : "var(--vscode-charts-red, #ef4444)",
-                                        }}
-                                    />
-                                </div>
-                                <div className="flex items-center mt-0.5 gap-2">
-                                    <span className="text-[10px] font-medium text-primary">
-                                        {healthPercent}%
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex gap-x-1">
-                    <span className="opacity-70 font-light">
-                        <Languages className="h-[14px] w-[14px]" />
-                    </span>
-                    <div className="mt-[2px] w-full">
-                        <Progress
-                            value={textCompleted}
-                            validationValues={textLevels}
-                            requiredValidations={requiredText}
-                            showPercentage
-                            showValidationLevelTicks={!!expandedValidationTicks[`${itemKey}-text`]}
-                        />
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="items-start -mt-[3px] h-6 w-6"
-                        onClick={toggleTextValidationLevelTicks(itemKey)}
-                    >
-                        {expandedValidationTicks[`${itemKey}-text`] ? (
-                            <i className="codicon codicon-chevron-up" />
-                        ) : (
-                            <i className="codicon codicon-chevron-down" />
-                        )}
-                    </Button>
-                </div>
-                <div className="flex gap-x-1">
-                    <span className="opacity-70">
-                        <i className="codicon codicon-mic" />
-                    </span>
-                    <div className="mt-[2px] w-full">
-                        <Progress
-                            value={audioCompleted}
-                            validationValues={audioLevels}
-                            requiredValidations={requiredAudio}
-                            showPercentage
-                            showValidationLevelTicks={!!expandedValidationTicks[`${itemKey}-audio`]}
-                        />
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="items-start -mt-[3px] h-6 w-6"
-                        onClick={toggleAudioValidationLevelTicks(itemKey)}
-                    >
-                        <span className="hover:text-vscode-foreground">
-                            {expandedValidationTicks[`${itemKey}-audio`] ? (
-                                <i className="codicon codicon-chevron-up" />
-                            ) : (
-                                <i className="codicon codicon-chevron-down" />
-                            )}
-                        </span>
-                    </Button>
-                </div>
-            </div>
-        );
+        return {
+            textCompletion: Math.max(0, Math.min(100, progress.percentTranslationsCompleted ?? 0)),
+            textValidation,
+            audioCompletion: Math.max(
+                0,
+                Math.min(100, progress.percentAudioTranslationsCompleted ?? 0)
+            ),
+            audioValidation,
+            textValidationLevels: progress.textValidationLevels ?? [textValidation],
+            audioValidationLevels: progress.audioValidationLevels ?? [audioValidation],
+            requiredTextValidations: progress.requiredTextValidations,
+            requiredAudioValidations: progress.requiredAudioValidations,
+            averageHealth: progress.averageHealth,
+        };
     };
 
     const renderItem = (item: CodexItem) => {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
-        const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
+        const icon = isGroup ? "library" : "file";
         const displayLabel =
             item.fileDisplayName || formatLabel(item.label || "", state.bibleBookMap || new Map());
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
-
-        const isProjectDict = item.isProjectDictionary;
 
         // Handle click on the entire item container
         const handleItemClick = (e: React.MouseEvent) => {
@@ -769,57 +734,9 @@ function NavigationView() {
             }
         };
 
-        // Special rendering for project dictionary
-        if (isProjectDict) {
-            return (
-                <div key={item.label + item.uri}>
-                    <div
-                        className="flex flex-col gap-2 p-4 bg-vscode-sideBarSectionHeader-background rounded-lg border border-vscode-sideBarSectionHeader-border transition-all duration-200 hover:bg-accent shadow-sm hover:shadow-md cursor-pointer"
-                        onClick={handleItemClick}
-                    >
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <div className="flex flex-col gap-0.5">
-                                    <div className="flex items-center gap-1.5 text-sm font-semibold text-vscode-foreground">
-                                        <i className="codicon codicon-book text-lg text-vscode-symbolIcon-keywordForeground" />
-                                        Dictionary
-                                    </div>
-                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                        <i className="codicon codicon-list-ordered" />
-                                        <span>{item.wordCount || 0}</span>
-                                        <span>•</span>
-                                        <i
-                                            className={`codicon codicon-${
-                                                item.isEnabled ? "check" : "circle-slash"
-                                            }`}
-                                        />
-                                        <span>{item.isEnabled ? "ON" : "OFF"}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <Button
-                                variant={item.isEnabled ? "default" : "secondary"}
-                                size="sm"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleDictionary();
-                                }}
-                                title={`${item.isEnabled ? "Disable" : "Enable"} spellcheck`}
-                                className="flex items-center gap-1.5 min-w-[60px]"
-                            >
-                                <i
-                                    className={`codicon codicon-${
-                                        item.isEnabled ? "check" : "circle-slash"
-                                    }`}
-                                />
-                                {item.isEnabled ? "ON" : "OFF"}
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
+        const progressValues = getProgressValues(item.progress);
+        const hasProgress = item.progress && typeof item.progress === "object";
+        const hasAudio = progressValues.audioCompletion > 0 || progressValues.audioValidation > 0;
 
         return (
             <div key={item.label + item.uri}>
@@ -838,8 +755,9 @@ function NavigationView() {
                         }
                     }}
                 >
-                    <div className="p-3 flex flex-col gap-1.5">
-                        <div className="flex items-center gap-3 w-full min-h-6">
+                    <div className="py-2 px-3 flex flex-col gap-3 w-full">
+                        {/* Row 1: label + action buttons */}
+                        <div className="flex items-center gap-2 min-h-[24px]">
                             {isGroup && (
                                 <i
                                     className={`codicon ${
@@ -855,69 +773,133 @@ function NavigationView() {
                             <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-sm font-medium text-vscode-foreground leading-normal">
                                 {displayLabel}
                             </span>
-                        </div>
-                        {renderProgressSection(itemId, item.progress)}
-                    </div>
 
-                    {/* Menu button positioned absolutely */}
-                    {(!isGroup || item.type === "corpus") && (
-                        <>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="menu-button absolute top-2 right-2 w-6 h-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        title="More options"
-                                    >
-                                        <i className="codicon codicon-kebab-vertical" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-36 p-1" align="end" side="right">
-                                    {item.type === "codexDocument" && (
-                                        <div
-                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEditBookName(item);
-                                            }}
+                            {/* More options menu - visible on hover */}
+                            <div className="flex items-center flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="menu-button w-6 h-6"
+                                            title="More options"
+                                            onClick={(e) => e.stopPropagation()}
                                         >
-                                            <i className="codicon codicon-edit" />
-                                            Edit Book Name
+                                            <i className="codicon codicon-kebab-vertical text-xs" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" side="right">
+                                        {item.type === "codexDocument" && (
+                                            <DropdownMenuItem
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEditBookName(item);
+                                                }}
+                                            >
+                                                <i className="codicon codicon-edit mr-2" />
+                                                Edit Book Name
+                                            </DropdownMenuItem>
+                                        )}
+                                        {item.type === "corpus" && (
+                                            <DropdownMenuItem
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEditCorpusMarker(item);
+                                                }}
+                                            >
+                                                <i className="codicon codicon-edit mr-2" />
+                                                Rename Group
+                                            </DropdownMenuItem>
+                                        )}
+                                        {(item.type === "corpus" || !isGroup) && (
+                                            <DropdownMenuItem
+                                                className="text-destructive focus:text-destructive"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (item.type === "corpus") {
+                                                        handleDeleteCorpusMarker(item);
+                                                    } else {
+                                                        handleDelete(item);
+                                                    }
+                                                }}
+                                            >
+                                                <i className="codicon codicon-trash mr-2" />
+                                                Delete
+                                            </DropdownMenuItem>
+                                        )}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+                        </div>
+
+                        {/* Row 2: progress bars below label */}
+                        {hasProgress && (
+                            <div
+                                className="pl-7 flex flex-col gap-2 pointer-events-none"
+                                onClick={isGroup ? undefined : (e) => e.stopPropagation()}
+                            >
+                                {/* Health indicator */}
+                                {typeof progressValues.averageHealth === 'number' && state.showHealthIndicators && (() => {
+                                    const healthPercent = Math.round(progressValues.averageHealth! * 100);
+                                    return (
+                                        <div className="flex items-start gap-2">
+                                            <Heart className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
+                                            <div className="w-full">
+                                                <div className="bg-primary/20 relative w-full overflow-hidden rounded-full h-[8px]">
+                                                    <div
+                                                        className="h-full transition-all"
+                                                        style={{
+                                                            width: `${healthPercent}%`,
+                                                            backgroundColor: healthPercent >= 70
+                                                                ? "var(--vscode-charts-green, #22c55e)"
+                                                                : healthPercent >= 30
+                                                                    ? "var(--vscode-charts-yellow, #eab308)"
+                                                                    : "var(--vscode-charts-red, #ef4444)",
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center mt-0.5 gap-2">
+                                                    <span className="text-[10px] font-medium text-primary">
+                                                        {healthPercent}%
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </div>
-                                    )}
-                                    {item.type === "corpus" && (
-                                        <div
-                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEditCorpusMarker(item);
-                                            }}
-                                        >
-                                            <i className="codicon codicon-edit" />
-                                            Rename Group
-                                        </div>
-                                    )}
-                                    {!isGroup && (
-                                        <div
-                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDelete(item);
-                                            }}
-                                        >
-                                            <i className="codicon codicon-trash" />
-                                            Delete
-                                        </div>
-                                    )}
-                                </PopoverContent>
-                            </Popover>
-                        </>
-                    )}
+                                    );
+                                })()}
+                                {/* Text progress */}
+                                <div className="flex items-start gap-2">
+                                    <Languages className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
+                                    <Progress
+                                        value={progressValues.textCompletion}
+                                        validationValues={progressValues.textValidationLevels}
+                                        requiredValidations={progressValues.requiredTextValidations}
+                                        showPercentage
+                                        showTooltips
+                                    />
+                                </div>
+                                {/* Audio progress - only show if there's audio data */}
+                                {hasAudio && (
+                                    <div className="flex items-start gap-2">
+                                        <Mic className="h-4 w-4 flex-shrink-0 opacity-60 -mt-0.5" />
+                                        <Progress
+                                            value={progressValues.audioCompletion}
+                                            validationValues={progressValues.audioValidationLevels}
+                                            requiredValidations={
+                                                progressValues.requiredAudioValidations
+                                            }
+                                            showPercentage
+                                            showTooltips
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
                 {isGroup && isExpanded && item.children && (
-                    <div className="ml-4 mt-1.5 flex flex-col">
-                        {item.children.sort(sortItems).map(renderItem)}
+                    <div className="ml-4 mt-1 flex flex-col gap-0.5">
+                        {[...item.children].sort(sortItems).map((child) => renderItem(child))}
                     </div>
                 )}
             </div>
@@ -925,13 +907,11 @@ function NavigationView() {
     };
 
     const filteredCodexItems = filterItems(state.codexItems);
-    const filteredDictionaryItems = filterItems(state.dictionaryItems);
     const sortComparison = (a: CodexItem, b: CodexItem) => {
         const comparison = a.label.localeCompare(b.label);
         return sortOrder === "asc" ? comparison : -comparison;
     };
     filteredCodexItems.sort(sortComparison);
-    filteredDictionaryItems.sort(sortComparison);
 
     const renameTestamentAbbreviations = (fileName: string, hasBibleBookMap: boolean): string => {
         if (hasBibleBookMap) {
@@ -973,10 +953,6 @@ function NavigationView() {
         return !state.bookNameModal.newName.trim();
     }, [state.bookNameModal.newName]);
 
-    // Separate project dictionary from other dictionaries
-    const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
-    const otherDictionaries = filteredDictionaryItems.filter((item) => !item.isProjectDictionary);
-
     return (
         <div className="p-3 h-full overflow-hidden flex flex-col bg-vscode-sideBar-background">
             <div className="mb-4 flex gap-2 items-center">
@@ -1012,13 +988,12 @@ function NavigationView() {
                 </Button>
             </div>
 
-            <div className="flex-1 overflow-auto flex flex-col gap-2">
+            <div className="flex-1 overflow-auto flex flex-col gap-1.5">
                 {(() => {
-                    if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
+                    if (filteredCodexItems.length > 0) {
                         return (
                             <>
                                 {filteredCodexItems.map(renderItem)}
-                                {otherDictionaries.map(renderItem)}
                             </>
                         );
                     }
@@ -1040,31 +1015,28 @@ function NavigationView() {
             </div>
 
             <div className="mt-auto pt-4 flex flex-col gap-3 bg-vscode-sideBar-background relative">
-                {/* Add Files Button */}
-                <Button
-                    variant="default"
-                    onClick={handleAddFiles}
-                    title="Add files to translate"
-                    className="w-full py-4 px-5 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2.5"
-                >
-                    <i className="codicon codicon-add text-base" />
-                    <i className="codicon codicon-file-text text-base" />
-                    Add Files
-                </Button>
+                {/* Action Buttons - Side by Side */}
+                <div className="flex min-[311px]:flex-row flex-col gap-2">
+                    <Button
+                        variant="default"
+                        onClick={handleAddFiles}
+                        title="Add files to translate"
+                        className="flex-1 py-2.5 px-3 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2"
+                    >
+                        <i className="codicon codicon-add" />
+                        Add Files
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        onClick={handleOpenExport}
+                        title="Export files"
+                        className="flex-1 py-2.5 px-3 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2"
+                    >
+                        <i className="codicon codicon-cloud-upload" />
+                        Export
+                    </Button>
+                </div>
 
-                {/* Export Files Button */}
-                <Button
-                    variant="secondary"
-                    onClick={handleOpenExport}
-                    title="Export files"
-                    className="w-full py-3 px-5 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2.5"
-                >
-                    <i className="codicon codicon-cloud-upload" />
-                    Export Files
-                </Button>
-
-                {/* Project Dictionary */}
-                {projectDictionary && renderItem(projectDictionary)}
             </div>
 
             {/* Corpus Marker Modal */}
@@ -1096,6 +1068,96 @@ function NavigationView() {
                 onConfirm={handleBookNameModalConfirm}
                 onValueChange={handleBookNameModalInputChange}
             />
+
+            {/* Delete Confirmation Modal */}
+            <Dialog
+                open={state.deleteModal.isOpen}
+                onOpenChange={(isOpen) => !isOpen && handleDeleteModalClose()}
+            >
+                <DialogContent
+                    showCloseButton={false}
+                    className="bg-vscode-editor-background border-vscode-editorWidget-border min-w-[300px] max-w-[400px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
+                    style={{
+                        backgroundColor: "var(--vscode-editor-background)",
+                        borderColor: "var(--vscode-editorWidget-border)",
+                    }}
+                >
+                    <DialogHeader className="text-left">
+                        <DialogTitle
+                            className="text-base font-semibold mb-2"
+                            style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "var(--vscode-errorForeground)",
+                            }}
+                        >
+                            Delete {state.deleteModal.isCorpus ? "Folder" : "File"}
+                        </DialogTitle>
+                        <DialogDescription
+                            className="text-sm text-left leading-relaxed"
+                            style={{
+                                fontSize: "14px",
+                                color: "var(--vscode-descriptionForeground)",
+                                lineHeight: "1.5",
+                            }}
+                        >
+                            {state.deleteModal.isCorpus
+                                ? `This will permanently delete the folder and ${
+                                      state.deleteModal.item?.children?.length ?? 0
+                                  } file(s). This cannot be undone.`
+                                : "This will delete both the codex file and its corresponding source file. This cannot be undone."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <p className="text-sm mt-3 mb-1" style={{ color: "var(--vscode-foreground)" }}>
+                        Type{" "}
+                        <strong
+                            className="select-all"
+                            style={{ color: "var(--vscode-errorForeground)" }}
+                        >
+                            {state.deleteModal.displayName}
+                        </strong>{" "}
+                        to confirm:
+                    </p>
+                    <Input
+                        autoFocus
+                        type="text"
+                        value={state.deleteModal.typedName}
+                        onChange={(e) => handleDeleteModalInputChange(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleDeleteModalConfirm();
+                            } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                handleDeleteModalClose();
+                            }
+                        }}
+                        placeholder={state.deleteModal.displayName}
+                        className="w-full mb-4 bg-vscode-input-background placeholder:text-gray-500 text-vscode-input-foreground border-vscode-input-border"
+                        style={{
+                            padding: "8px",
+                            fontSize: "14px",
+                            backgroundColor: "var(--vscode-input-background)",
+                            color: "var(--vscode-input-foreground)",
+                            borderColor: "var(--vscode-input-border)",
+                            borderRadius: "6px",
+                        }}
+                    />
+                    <DialogFooter className="flex gap-3 justify-end">
+                        <Button variant="secondary" onClick={handleDeleteModalClose}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            className="cursor-pointer"
+                            onClick={handleDeleteModalConfirm}
+                            disabled={state.deleteModal.typedName !== state.deleteModal.displayName}
+                        >
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

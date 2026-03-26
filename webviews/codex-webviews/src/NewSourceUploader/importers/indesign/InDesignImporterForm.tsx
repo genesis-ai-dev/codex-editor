@@ -15,6 +15,7 @@ import {
 } from '../../../components/ui/card';
 import { Progress } from '../../../components/ui/progress';
 import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { v4 as uuidv4 } from 'uuid';
 import { 
     FileText, 
     Upload, 
@@ -23,6 +24,7 @@ import {
 import { IDMLParser } from './idmlParser';
 import { HTMLMapper } from './htmlMapper';
 import { createProcessedCell, sanitizeFileName, addMilestoneCellsToNotebookPair } from '../../utils/workflowHelpers';
+import { notifyImportStarted, notifyImportEnded } from '../../utils/importProgress';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { createIndesignVerseCellMetadata, createIndesignParagraphCellMetadata } from './cellMetadata';
 
@@ -107,6 +109,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
     const handleImport = useCallback(async () => {
         if (!selectedFile) return;
 
+        notifyImportStarted();
         setIsProcessing(true);
         setProgress('Starting import...');
         
@@ -128,7 +131,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
             
             // Validate ZIP signature (PK)
             if (firstBytes !== 'PK\u0003\u0004') {
-                throw new Error('The selected file does not appear to be a valid IDML file. IDML files should be ZIP-compressed starting with PK');
+                throw new Error('The selected file does not appear to be a valid InDesign (IDML) file. Please make sure you selected the correct file.');
             }
             
             // Step 2: Parse IDML
@@ -220,7 +223,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                             name: baseName, 
                             cells: simplifiedCells,
                             metadata: {
-                                id: `indesign-source-${Date.now()}`,
+                                id: uuidv4(),
                                 originalFileName: selectedFile.name,
                                 sourceFile: selectedFile.name,
                                 // Pass the original file bytes so the provider can persist it under .project/attachments/originals
@@ -253,7 +256,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                                 }
                             })),
                             metadata: {
-                                id: `indesign-codex-${Date.now()}`,
+                                id: uuidv4(),
                                 originalFileName: selectedFile.name,
                                 sourceFile: selectedFile.name,
                                 importerType: 'indesign',
@@ -304,6 +307,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
             addDebugLog(`Import error stack: ${error instanceof Error ? error.stack : 'No stack'}`);
             alert(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             setIsProcessing(false);
+            notifyImportEnded();
         } finally {
             setIsProcessing(false);
         }
@@ -391,7 +395,7 @@ export const InDesignImporterForm: React.FC<InDesignImporterFormProps> = ({
                 // Default: one cell per paragraph (non-verse or unmatched structure)
                 // Create cell metadata (generates UUID internally)
                 const { cellId, metadata: cellMetadata } = createIndesignParagraphCellMetadata({
-                    cellLabel: (globalCellIndex + 1).toString(),
+                    cellLabel: undefined,
                     originalContent: cleanText,
                     storyId: story.id || '',
                     paragraphId: paragraph.id || '',

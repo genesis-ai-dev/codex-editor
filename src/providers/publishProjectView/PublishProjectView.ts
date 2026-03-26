@@ -4,6 +4,8 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "../../extension";
 import { updateProjectSettings, updateMetadataFile } from "../../projectManager/utils/projectUtils";
+import { MetadataManager } from "../../utils/metadataManager";
+import { isOnline } from "../../utils/connectivityChecker";
 
 export interface GroupList {
     id: number;
@@ -43,14 +45,15 @@ export class PublishProjectView {
                         const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name || "";
                         let projectId: string | undefined;
 
-                        // Try to read projectId from metadata.json
+                        // Try to read projectId from metadata.json (use MetadataManager to avoid race with concurrent writes)
                         try {
                             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                             if (workspaceFolder) {
-                                const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-                                const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
-                                const metadata = JSON.parse(Buffer.from(metadataContent).toString());
-                                projectId = metadata.projectId || metadata.id;
+                                const result = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
+                                if (result.success && result.metadata) {
+                                    const metadata = result.metadata as Record<string, unknown>;
+                                    projectId = (metadata.projectId || metadata.id) as string | undefined;
+                                }
                             }
                         } catch (error) {
                             console.debug("[PublishProject] Could not read projectId from metadata.json:", error);
@@ -68,7 +71,6 @@ export class PublishProjectView {
                     }
                     case "fetchGroups": {
                         try {
-                            safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
                             const groups = (await vscode.commands.executeCommand(
                                 "frontier.listGroupsUserIsAtLeastMemberOf"
                             )) as GroupList[];
@@ -79,13 +81,19 @@ export class PublishProjectView {
                                 message:
                                     error instanceof Error ? error.message : String(error),
                             }, "PublishProject");
-                        } finally {
-                            // In case the panel was disposed during the async work, this will no-op safely
-                            safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
                         }
                         break;
                     }
                     case "createProject": {
+                        // Fast-fail if offline to avoid waiting through multiple retry attempts
+                        if (!(await isOnline())) {
+                            safePostMessageToPanel(this._panel, {
+                                type: "error",
+                                message: "You appear to be offline. Please check your internet connection and try again.",
+                            }, "PublishProject");
+                            break;
+                        }
+
                         await vscode.window.withProgress(
                             {
                                 location: vscode.ProgressLocation.Notification,
@@ -94,13 +102,13 @@ export class PublishProjectView {
                             },
                             async (progress) => {
                                 try {
-                                    // Initial progress message
                                     progress.report({
                                         increment: 0,
                                         message: "Publishing in progress. Please wait...",
                                     });
 
                                     safePostMessageToPanel(this._panel, { type: "busy", value: true }, "PublishProject");
+                                    this.notifyMainMenuPublishStatus(true, "Publishing...");
 
                                     // Check and populate user info if missing before publishing
                                     try {
@@ -153,10 +161,12 @@ export class PublishProjectView {
                                         throw new Error("No workspace folder found");
                                     }
 
-                                    const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-                                    const metadataContent = await vscode.workspace.fs.readFile(metadataPath);
-                                    const metadata = JSON.parse(Buffer.from(metadataContent).toString());
-                                    const projectId = metadata.projectId || metadata.id;
+                                    const metadataResult = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
+                                    if (!metadataResult.success || !metadataResult.metadata) {
+                                        throw new Error("Could not read metadata.json. Please try again.");
+                                    }
+                                    const metadata = metadataResult.metadata as Record<string, unknown>;
+                                    const projectId = (metadata.projectId || metadata.id) as string | undefined;
 
                                     if (!projectId) {
                                         throw new Error("Project ID not found in metadata.json. Cannot publish project without project ID.");
@@ -214,6 +224,7 @@ export class PublishProjectView {
                                 } finally {
                                     // If the panel has been disposed (e.g., after success), this will safely no-op
                                     safePostMessageToPanel(this._panel, { type: "busy", value: false }, "PublishProject");
+                                    this.notifyMainMenuPublishStatus(false);
                                 }
                             }
                         );
@@ -265,10 +276,23 @@ export class PublishProjectView {
 
     public dispose() {
         PublishProjectView.currentPanel = undefined;
+        this.notifyMainMenuPublishStatus(false);
         this._panel.dispose();
         while (this._disposables.length) {
             const d = this._disposables.pop();
             if (d) d.dispose();
+        }
+    }
+
+    private notifyMainMenuPublishStatus(isPublishingInProgress: boolean, publishingStage: string = "") {
+        try {
+            const mainMenuProvider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu");
+            (mainMenuProvider as any)?.receiveMessage({
+                command: "publishStatusUpdate",
+                data: { isPublishingInProgress, publishingStage },
+            });
+        } catch {
+            // Main menu may not be available
         }
     }
 

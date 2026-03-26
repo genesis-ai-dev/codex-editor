@@ -1,7 +1,54 @@
 import { useEffect, useRef } from "react";
 import { Dispatch, SetStateAction } from "react";
-import { QuillCellContent, SpellCheckResponse, MilestoneIndex } from "../../../../../types";
+import { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
+
+type AudioAvailability = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+
+/**
+ * Derives the audio availability state for a cell based on its attachments and selection.
+ * When an explicit selectedAudioId is missing, returns "missing" regardless of other entries.
+ * When no explicit selection exists, checks whether the implicit current audio
+ * (latest non-deleted by updatedAt) is missing—this is the one the provider would serve on play.
+ */
+const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
+    const atts = (unit?.attachments || {}) as Record<string, any>;
+    let hasAvailable = false;
+    let hasMissing = false;
+    let hasDeleted = false;
+
+    for (const key of Object.keys(atts)) {
+        const att = atts[key];
+        if (att?.type === "audio") {
+            if (att.isDeleted) hasDeleted = true;
+            else if (att.isMissing) hasMissing = true;
+            else hasAvailable = true;
+        }
+    }
+
+    // Prefer showing available when a valid file exists,
+    // even if the user's explicit selection points to a missing file.
+    if (hasAvailable) return "available";
+
+    const selectedId = unit?.metadata?.selectedAudioId;
+    const selectedAtt = selectedId ? atts[selectedId] : undefined;
+    if (selectedAtt?.type === "audio" && selectedAtt?.isMissing === true) {
+        return "missing";
+    }
+
+    if (!selectedId && hasMissing) {
+        const nonDeleted = Object.entries(atts)
+            .filter(([, att]) => att?.type === "audio" && !att.isDeleted)
+            .sort(([, a], [, b]) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        if (nonDeleted.length > 0 && nonDeleted[0][1].isMissing) {
+            return "missing";
+        }
+    }
+
+    if (hasMissing) return "missing";
+    if (hasDeleted) return "deletedOnly";
+    return "none";
+};
 
 interface UseVSCodeMessageHandlerProps {
     setContent: (
@@ -9,15 +56,13 @@ interface UseVSCodeMessageHandlerProps {
         isSourceText: boolean,
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
     ) => void;
-    setSpellCheckResponse: Dispatch<SetStateAction<SpellCheckResponse | null>>;
     jumpToCell: (cellId: string) => void;
+    jumpToCellWithPosition?: (cellId: string, milestoneIndex: number, subsectionIndex: number) => void;
     updateCell: (data: { cellId: string; newContent: string; progress: number; }) => void;
     autocompleteChapterComplete: () => void;
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
-    setAlertColorCodes: Dispatch<SetStateAction<{ [cellId: string]: number; }>>;
-    recheckAlertCodes: () => void;
 
     // New handlers for provider-centric state management
     updateAutocompletionState?: (state: {
@@ -83,15 +128,13 @@ interface UseVSCodeMessageHandlerProps {
 
 export const useVSCodeMessageHandler = ({
     setContent,
-    setSpellCheckResponse,
     jumpToCell,
+    jumpToCellWithPosition,
     updateCell,
     autocompleteChapterComplete,
     updateTextDirection,
     updateNotebookMetadata,
     updateVideoUrl,
-    setAlertColorCodes,
-    recheckAlertCodes,
 
     // New handlers
     updateAutocompletionState,
@@ -124,24 +167,13 @@ export const useVSCodeMessageHandler = ({
             switch (message.type) {
                 case "providerSendsInitialContent":
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
-                    // Bootstrap audio availability from initial content
                     try {
                         const units = (message.content || []) as QuillCellContent[];
-                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                        const availability: Record<string, AudioAvailability> = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
-                            let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
-                            const atts = unit?.attachments || ({} as any);
-                            for (const key of Object.keys(atts)) {
-                                const att = (atts as any)[key];
-                                if (att && att.type === "audio") {
-                                    if (att.isDeleted) hasDeleted = true;
-                                    else if (att.isMissing) hasMissing = true;
-                                    else hasAvailable = true;
-                                }
-                            }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            availability[cellId] = deriveAudioAvailability(unit);
                         }
                         setAudioAttachments(availability);
                     } catch { /* ignore */ }
@@ -157,38 +189,19 @@ export const useVSCodeMessageHandler = ({
                     } catch { console.error("Error deriving audio attachment availability"); }
                     try { updateNotebookMetadata(message.content); } catch { console.error("Error updating notebook metadata"); }
                     break;
-
-                    // Derive audio attachment availability from QuillCellContent.attachments
-                    try {
-                        const units = (message.content || []) as QuillCellContent[];
-                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
-                        for (const unit of units) {
-                            const cellId = unit?.cellMarkers?.[0];
-                            if (!cellId) continue;
-                            let hasAvailable = false;
-                            let hasMissing = false;
-                            let hasDeleted = false;
-                            const atts = unit?.attachments || {} as any;
-                            for (const key of Object.keys(atts)) {
-                                const att = (atts as any)[key];
-                                if (att && att.type === "audio") {
-                                    if (att.isDeleted) hasDeleted = true;
-                                    else if (att.isMissing) hasMissing = true;
-                                    else hasAvailable = true;
-                                }
-                            }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
-                        }
-                        setAudioAttachments(availability);
-                    } catch {
-                        // Swallow errors deriving attachments
-                    }
-                    break;
-                case "providerSendsSpellCheckResponse":
-                    setSpellCheckResponse(message.content);
                     break;
                 case "jumpToSection":
-                    jumpToCell(message.content);
+                    // Use pre-computed position from extension if available
+                    if (
+                        jumpToCellWithPosition &&
+                        typeof message.milestoneIndex === "number" &&
+                        typeof message.subsectionIndex === "number"
+                    ) {
+                        jumpToCellWithPosition(message.content, message.milestoneIndex, message.subsectionIndex);
+                    } else {
+                        // Fallback to old behavior
+                        jumpToCell(message.content);
+                    }
                     break;
                 case "updateCell":
                     updateCell(message.data);
@@ -204,12 +217,6 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
-                    break;
-                case "providerSendsgetAlertCodeResponse":
-                    setAlertColorCodes(message.content);
-                    break;
-                case "wordAdded":
-                    recheckAlertCodes();
                     break;
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
@@ -344,24 +351,13 @@ export const useVSCodeMessageHandler = ({
                     if (setShowHealthIndicators && typeof message.showHealthIndicators === 'boolean') {
                         setShowHealthIndicators(message.showHealthIndicators);
                     }
-                    // Bootstrap audio availability from initial cells
                     try {
                         const units = (message.cells || []) as QuillCellContent[];
-                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                        const availability: Record<string, AudioAvailability> = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
-                            let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
-                            const atts = unit?.attachments || ({} as any);
-                            for (const key of Object.keys(atts)) {
-                                const att = (atts as any)[key];
-                                if (att && att.type === "audio") {
-                                    if (att.isDeleted) hasDeleted = true;
-                                    else if (att.isMissing) hasMissing = true;
-                                    else hasAvailable = true;
-                                }
-                            }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            availability[cellId] = deriveAudioAvailability(unit);
                         }
                         setAudioAttachments(availability);
                     } catch { /* ignore */ }
@@ -384,24 +380,13 @@ export const useVSCodeMessageHandler = ({
                             message.allCellsInMilestone
                         );
                     }
-                    // Update audio availability for new cells
                     try {
                         const units = (message.cells || []) as QuillCellContent[];
-                        const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                        const availability: Record<string, AudioAvailability> = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
-                            let hasAvailable = false; let hasMissing = false; let hasDeleted = false;
-                            const atts = unit?.attachments || ({} as any);
-                            for (const key of Object.keys(atts)) {
-                                const att = (atts as any)[key];
-                                if (att && att.type === "audio") {
-                                    if (att.isDeleted) hasDeleted = true;
-                                    else if (att.isMissing) hasMissing = true;
-                                    else hasAvailable = true;
-                                }
-                            }
-                            availability[cellId] = hasAvailable ? "available" : hasMissing ? "missing" : hasDeleted ? "deletedOnly" : "none";
+                            availability[cellId] = deriveAudioAvailability(unit);
                         }
                         setAudioAttachments((prev) => ({ ...prev, ...availability }));
                     } catch { /* ignore */ }
@@ -416,15 +401,13 @@ export const useVSCodeMessageHandler = ({
         };
     }, [
         setContent,
-        setSpellCheckResponse,
         jumpToCell,
+        jumpToCellWithPosition,
         updateCell,
         autocompleteChapterComplete,
         updateTextDirection,
         updateNotebookMetadata,
         updateVideoUrl,
-        setAlertColorCodes,
-        recheckAlertCodes,
         updateAutocompletionState,
         updateSingleCellTranslationState,
         updateSingleCellQueueState,

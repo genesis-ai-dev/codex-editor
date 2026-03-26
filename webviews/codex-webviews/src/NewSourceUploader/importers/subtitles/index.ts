@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
     FileValidationResult,
@@ -194,8 +195,7 @@ export const parseFile = async (
         // Add cells using the ProcessedCell format
         for (let index = 0; index < parsed.cues.length; index++) {
             const cue = parsed.cues[index];
-            const includeCellLabels = options?.includeCellLabels ?? false;
-            const cellLabel = includeCellLabels ? String(index + 1) : null;
+            const cellLabel = null;
 
             // Create cell metadata with UUID, globalReferences, and chapterNumber
             const { cellId, metadata } = createSubtitleCellMetadata({
@@ -221,7 +221,7 @@ export const parseFile = async (
             name: baseName,
             cells,
             metadata: {
-                id: baseNameAsId,
+                id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
                 importerType: 'subtitles',
@@ -257,6 +257,7 @@ export const parseFile = async (
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
+                id: uuidv4(),
             },
         };
 

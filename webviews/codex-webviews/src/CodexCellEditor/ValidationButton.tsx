@@ -104,10 +104,47 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         }
     };
 
-    const scheduleCloseTimer = (callback: () => void, delay = 100) => {
-        clearCloseTimer();
-        closeTimerRef.current = window.setTimeout(callback, delay);
-    };
+        // Get the latest edit
+        const cellValueData = getCellValueData(cell);
+        if (!cellValueData) {
+            return;
+        }
+        setUserCreatedLatestEdit(
+            cellValueData.author === username && cellValueData.editType === "user-edit"
+        );
+
+        // Check if the current user has already validated this edit
+        if (cellValueData.validatedBy && username) {
+            // Look for the user's entry in validatedBy and check if isDeleted is false
+            const userEntry = cellValueData.validatedBy.find(
+                (entry) =>
+                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
+            );
+            setIsValidated(!!userEntry);
+
+            // Get all active validation users
+            const activeValidations = cellValueData.validatedBy.filter(
+                (entry) => isValidValidationEntry(entry) && !entry.isDeleted
+            );
+            setValidationUsers(activeValidations);
+        }
+    }, [cell, username]);
+
+    // Get the current username when component mounts and listen for configuration changes
+    useEffect(() => {
+        // Username is now bundled with initial content and passed down from parent
+        if (currentUsername) {
+            setUsername(currentUsername);
+        }
+        // No need to request username separately - it comes bundled with initial content
+    }, [currentUsername]);
+
+    // Update requiredValidations when prop changes
+    useEffect(() => {
+        if (requiredValidationsProp !== undefined && requiredValidationsProp !== null) {
+            setRequiredValidations(requiredValidationsProp);
+        }
+    }, [requiredValidationsProp]);
 
     // Listen for provider messages to clear pending state
     useMessageHandler(
@@ -182,14 +219,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         e.stopPropagation();
         if (isDisabled) return;
 
-        ignoreHoverRef.current = true;
-        window.setTimeout(() => {
-            ignoreHoverRef.current = false;
-        }, 200);
-
+        // Mark that this was a mouse click, not keyboard navigation
         wasKeyboardNavigationRef.current = false;
         setIsKeyboardFocused(false);
 
+        // Blur the button after mouse click to remove focus (prevents pulse from continuing)
         window.setTimeout(() => {
             if (buttonRef.current) {
                 const buttonElement = buttonRef.current.querySelector(
@@ -201,9 +235,23 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             }
         }, 0);
 
-        if (!isValidatedByCurrentUser) {
+        if (!isValidated) {
+            // Briefly ignore hover so the popover can't re-open immediately after validating.
+            ignoreHoverRef.current = true;
+            window.setTimeout(() => {
+                ignoreHoverRef.current = false;
+            }, 200);
+
             handleValidate(e);
             closePopover();
+        } else {
+            // Already validated — toggle the popover so the user can see validators / unvalidate
+            if (showPopover) {
+                closePopover();
+            } else {
+                setShowPopover(true);
+                textPopoverTracker.setActivePopover(uniqueId.current);
+            }
         }
     };
 
