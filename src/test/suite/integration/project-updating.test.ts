@@ -31,6 +31,7 @@ suite("Integration: Project updating", () => {
 
     suiteTeardown(() => {
         (globalThis as any).fetch = originalFetch;
+        dugiteGit.resetGitBinaryPath();
     });
 
     setup(async () => {

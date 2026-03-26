@@ -54,6 +54,10 @@ suite("Project Swap Tests", () => {
         dugiteGit.useEmbeddedGitBinary();
     });
 
+    suiteTeardown(() => {
+        dugiteGit.resetGitBinaryPath();
+    });
+
     setup(() => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-swap-"));
     });

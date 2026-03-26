@@ -56,6 +56,7 @@ suite("E2E: Project Swap Flow", () => {
 
     suiteTeardown(() => {
         (globalThis as any).fetch = originalFetch;
+        dugiteGit.resetGitBinaryPath();
     });
 
     setup(() => {

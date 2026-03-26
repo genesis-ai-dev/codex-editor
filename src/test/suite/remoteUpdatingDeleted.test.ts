@@ -17,6 +17,10 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         dugiteGit.useEmbeddedGitBinary();
     });
 
+    suiteTeardown(() => {
+        dugiteGit.resetGitBinaryPath();
+    });
+
     setup(() => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-update-deleted-"));
         projectUri = vscode.Uri.file(tempDir);

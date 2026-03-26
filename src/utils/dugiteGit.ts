@@ -10,6 +10,7 @@
 
 import { exec, type IGitExecutionOptions, type IGitResult } from "dugite";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { getAuthApi } from "../extension";
 
@@ -41,10 +42,19 @@ export function setGitBinaryPath(localGitDir: string, execPath: string): void {
 /**
  * Use dugite's own embedded git binary instead of resolving from frontier-auth.
  * Useful in test environments where the auth extension is unavailable.
+ *
+ * Resolves paths explicitly so we never rely on dugite's resolveEmbeddedGitDir(),
+ * which throws when `process.platform` is missing (can happen in some test bundles).
  */
 export function useEmbeddedGitBinary(): void {
-    gitEnvOverrides = {};
-    resolutionPromise = Promise.resolve();
+    const dugiteRoot = path.dirname(require.resolve("dugite/package.json"));
+    const localGitDir = path.join(dugiteRoot, "git");
+    const plat = process.platform ?? os.platform();
+    const execPath =
+        plat === "win32"
+            ? path.join(localGitDir, "cmd", "git.exe")
+            : path.join(localGitDir, "bin", "git");
+    setGitBinaryPath(localGitDir, execPath);
 }
 
 /**
