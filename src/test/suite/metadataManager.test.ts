@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { MetadataManager } from '../../utils/metadataManager';
+import { getCodexEditorRepoRoot } from './testRepoRoot';
 
 suite('MetadataManager Tests', () => {
     // Temporarily disable these tests until VS Code test environment issues are resolved
@@ -18,7 +19,7 @@ suite('MetadataManager Tests', () => {
 
     setup(async () => {
         // Create temporary test workspace
-        const tempDir = path.join(__dirname, '..', '..', '..', 'test-temp', `metadata-test-${Date.now()}`);
+        const tempDir = path.join(getCodexEditorRepoRoot(), 'test-temp', `metadata-test-${Date.now()}`);
         await fs.promises.mkdir(tempDir, { recursive: true });
         testWorkspaceUri = vscode.Uri.file(tempDir);
         metadataPath = vscode.Uri.joinPath(testWorkspaceUri, 'metadata.json');

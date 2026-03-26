@@ -201,6 +201,7 @@ const testConfig = {
         }),
         new webpack.DefinePlugin({
             "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+            "process.env.CODEX_EDITOR_REPO_ROOT": JSON.stringify(path.resolve(__dirname)),
         }),
         new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
             const module = resource.request.replace(/^node:/, "");

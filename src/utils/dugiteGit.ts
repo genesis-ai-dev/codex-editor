@@ -10,9 +10,33 @@
 
 import { exec, type IGitExecutionOptions, type IGitResult } from "dugite";
 import * as fs from "fs";
+import { createRequire } from "module";
 import * as os from "os";
 import * as path from "path";
 import { getAuthApi } from "../extension";
+
+/**
+ * Webpack can constant-fold `typeof __dirname === "string"` to `true` in bundles
+ * while still replacing `__dirname` with a numeric module id — use a helper so
+ * the typeof check runs on a parameter value at runtime.
+ */
+function isNonEmptyStringPath(value: unknown): value is string {
+    return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * The VS Code test bundle aliases `fs` to memfs, so existsSync misses real paths
+ * like `node_modules/dugite`. Resolve Node's real `fs` via createRequire.
+ */
+function existsOnRealFilesystem(checkPath: string): boolean {
+    try {
+        const anchor = path.join(process.cwd(), "package.json");
+        const diskFs = createRequire(anchor)("fs") as typeof fs;
+        return diskFs.existsSync(checkPath);
+    } catch {
+        return fs.existsSync(checkPath);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Binary path resolution (from frontier-auth)
@@ -46,8 +70,50 @@ export function setGitBinaryPath(localGitDir: string, execPath: string): void {
  * Resolves paths explicitly so we never rely on dugite's resolveEmbeddedGitDir(),
  * which throws when `process.platform` is missing (can happen in some test bundles).
  */
+function resolveDugitePackageRootFromDisk(): string {
+    const startDirs = new Set<string>();
+    const repoRootEnv = process.env.CODEX_EDITOR_REPO_ROOT;
+    if (typeof repoRootEnv === "string" && repoRootEnv.length > 0) {
+        startDirs.add(repoRootEnv);
+    }
+    // Must use isNonEmptyStringPath(__dirname) — not `typeof __dirname` inline —
+    // or webpack may fold that to `true` while __dirname is still a numeric module id.
+    if (isNonEmptyStringPath(__dirname)) {
+        startDirs.add(__dirname);
+    }
+    if (isNonEmptyStringPath(__filename)) {
+        startDirs.add(path.dirname(__filename));
+    }
+    if (typeof process.cwd === "function") {
+        const cwd = process.cwd();
+        if (typeof cwd === "string" && cwd.length > 0) {
+            startDirs.add(cwd);
+        }
+    }
+
+    for (const start of startDirs) {
+        let dir = start;
+        for (let depth = 0; depth < 30; depth++) {
+            const candidate = path.join(dir, "node_modules", "dugite", "package.json");
+            if (existsOnRealFilesystem(candidate)) {
+                return path.dirname(candidate);
+            }
+            const parent = path.dirname(dir);
+            if (parent === dir) {
+                break;
+            }
+            dir = parent;
+        }
+    }
+    throw new Error(
+        "useEmbeddedGitBinary: could not find dugite (node_modules/dugite/package.json). Install dependencies from the codex-editor repo root."
+    );
+}
+
 export function useEmbeddedGitBinary(): void {
-    const dugiteRoot = path.dirname(require.resolve("dugite/package.json"));
+    // Do not use require.resolve / createRequire.resolve for dugite here — webpack
+    // replaces those calls with numeric module ids in the test bundle.
+    const dugiteRoot = resolveDugitePackageRootFromDisk();
     const localGitDir = path.join(dugiteRoot, "git");
     const plat = process.platform ?? os.platform();
     const execPath =

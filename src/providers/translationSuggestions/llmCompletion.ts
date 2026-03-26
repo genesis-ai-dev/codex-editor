@@ -108,7 +108,9 @@ export async function llmCompletion(
     }
 
     const statusBarItem = getAutoCompleteStatusBarItem();
-    statusBarItem.show();
+    if (statusBarItem && typeof statusBarItem.show === "function") {
+        statusBarItem.show();
+    }
 
     try {
         // Get the source content for the current cell(s)
@@ -332,7 +334,9 @@ export async function llmCompletion(
                 `An error occurred while generating the completion. ${JSON.stringify(error)}`
             );
         } finally {
-            statusBarItem.hide();
+            if (statusBarItem && typeof statusBarItem.hide === "function") {
+                statusBarItem.hide();
+            }
         }
     } catch (error) {
         // Check if this is a cancellation error and re-throw as-is

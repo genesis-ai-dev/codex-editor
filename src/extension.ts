@@ -159,7 +159,7 @@ function finishRealtimeStep(): number {
     return globalThis.performance.now();
 }
 
-let autoCompleteStatusBarItem: StatusBarItem;
+let autoCompleteStatusBarItem: StatusBarItem | undefined;
 // let commitTimeout: any;
 // const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
@@ -374,15 +374,31 @@ export async function activate(context: vscode.ExtensionContext) {
         stepStart = trackTiming("Repairing Comments", migrationStart);
 
         // Initialize Frontier API first - needed before startup flow.
-        // This is a realtime step because frontier-auth downloads the Git runtime
-        // on first activation, which can take significant time on slow connections.
-        startRealtimeStep("Downloading Git Runtime");
-        const extension = await waitForExtensionActivation(
-            "frontier-rnd.frontier-authentication",
-            120_000, // 2 minutes — the Git binary download can be slow
+        // @vscode/test-electron sets CODEX_EXTENSION_TEST — use embedded dugite and do not call
+        // waitForExtensionActivation(): if Frontier Auth is installed globally, activate() would
+        // download Git with no timeout and block the splash for a long time.
+        const extensionTestMode = process.env.CODEX_EXTENSION_TEST === "1";
+        const frontierAuthId = "frontier-rnd.frontier-authentication";
+
+        if (extensionTestMode) {
+            const { useEmbeddedGitBinary } = await import("./utils/dugiteGit");
+            useEmbeddedGitBinary();
+        }
+
+        startRealtimeStep(
+            extensionTestMode ? "Preparing Git for tests" : "Downloading Git Runtime"
         );
+        let extension: vscode.Extension<unknown> | undefined;
+        if (extensionTestMode) {
+            extension = vscode.extensions.getExtension(frontierAuthId);
+        } else {
+            extension = await waitForExtensionActivation(frontierAuthId, 120_000);
+        }
         if (extension?.isActive) {
-            authApi = extension.exports;
+            const exports = extension.exports as FrontierAPI | undefined;
+            if (exports && typeof exports.getAuthStatus === "function") {
+                authApi = exports;
+            }
         }
         stepStart = finishRealtimeStep();
 
@@ -1314,7 +1330,7 @@ export async function deactivate() {
     }
 }
 
-export function getAutoCompleteStatusBarItem(): StatusBarItem {
+export function getAutoCompleteStatusBarItem(): StatusBarItem | undefined {
     return autoCompleteStatusBarItem;
 }
 
@@ -1323,11 +1339,13 @@ export function getNotebookMetadataManager(): NotebookMetadataManager {
 }
 
 export function getAuthApi(): FrontierAPI | undefined {
+    if (authApi && typeof authApi.getAuthStatus !== "function") {
+        authApi = undefined;
+    }
     if (!authApi) {
         const extension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         if (extension?.isActive) {
-            const exports = extension.exports as any;
-            // Defensive: only treat as auth API if it has expected surface area
+            const exports = extension.exports as FrontierAPI | undefined;
             if (exports && typeof exports.getAuthStatus === "function") {
                 authApi = exports;
             }

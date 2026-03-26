@@ -816,7 +816,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
 
                 if (!sourcePanel) {
-                    vscode.window.showWarningMessage("Could not open source for transcription. Please try again.");
+                    vscode.window.showWarningMessage(
+                        "Could not open source for transcription. Queuing translation anyway."
+                    );
+                    await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
                     return;
                 }
 

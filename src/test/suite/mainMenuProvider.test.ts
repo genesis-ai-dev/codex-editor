@@ -6,6 +6,7 @@ import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
 import { MetadataManager } from "../../utils/metadataManager";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { createMockExtensionContext } from "../testUtils";
+import { getCodexEditorRepoRoot } from "./testRepoRoot";
 import { ProjectManagerMessageFromWebview, ProjectEditHistory } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType } from "../../../types/enums";
@@ -38,11 +39,12 @@ suite("MainMenuProvider - Project Name Change Tests", () => {
         NotebookMetadataManager.resetInstance();
 
         // Create temporary test workspace
-        const tempDir = path.join(__dirname, "..", "..", "..", "test-temp", `mainmenu-test-${Date.now()}`);
+        const repoRoot = getCodexEditorRepoRoot();
+        const tempDir = path.join(repoRoot, "test-temp", `mainmenu-test-${Date.now()}`);
         await fs.promises.mkdir(tempDir, { recursive: true });
         testWorkspaceUri = vscode.Uri.file(tempDir);
         metadataPath = vscode.Uri.joinPath(testWorkspaceUri, "metadata.json");
-        testTempDir = vscode.Uri.file(path.join(__dirname, "..", "..", "..", "test-temp"));
+        testTempDir = vscode.Uri.file(path.join(repoRoot, "test-temp"));
 
         // Create initial metadata.json
         const initialMetadata = {

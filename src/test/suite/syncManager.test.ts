@@ -2,6 +2,8 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { SyncManager } from '../../projectManager/syncManager';
 import sinon from 'sinon';
+import * as connectivityChecker from '../../utils/connectivityChecker';
+import * as dugiteGit from '../../utils/dugiteGit';
 
 suite('SyncManager Lock Detection Tests', () => {
     let syncManager: SyncManager;
@@ -94,6 +96,8 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     let showInformationMessageStub: sinon.SinonStub;
     let openExternalStub: sinon.SinonStub;
     let getAuthApiStub: sinon.SinonStub;
+    let isOnlineStub: sinon.SinonStub;
+    let listRemotesStub: sinon.SinonStub | undefined;
     let versionChecksModule: any;
     let extensionModule: any;
     let mockAuthApi: any;
@@ -105,6 +109,8 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     setup(async () => {
         // Restore any existing stubs first to avoid double-wrapping errors
         sinon.restore();
+
+        isOnlineStub = sinon.stub(connectivityChecker, 'isOnline').resolves(true);
 
         // Create mock auth API that passes all checks
         mockAuthApi = {
@@ -139,6 +145,12 @@ suite('SyncManager VS Code Version Warning Tests', () => {
 
     teardown(() => {
         // Restore all stubs
+        if (isOnlineStub) {
+            isOnlineStub.restore();
+        }
+        if (listRemotesStub) {
+            listRemotesStub.restore();
+        }
         if (checkVSCodeVersionStub) {
             checkVSCodeVersionStub.restore();
         }

@@ -6,7 +6,7 @@ import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import * as path from "path";
 import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import * as dugiteGit from "../utils/dugiteGit";
-import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
+import * as versionChecks from "./utils/versionChecks";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
 import { markPendingUpdateRequired } from "../utils/localProjectSettings";
@@ -822,7 +822,7 @@ export class SyncManager {
         }
 
         // Enforce Frontier version requirement for sync operations (Git LFS safety gate)
-        const versionStatus = await getFrontierVersionStatus();
+        const versionStatus = await versionChecks.getFrontierVersionStatus();
         if (!versionStatus.ok) {
             this.isSyncInProgress = false;
             debug("Frontier version requirement not met. Blocking sync operation.");
@@ -834,7 +834,7 @@ export class SyncManager {
         }
 
         // Check VS Code version and show warning modal if needed (non-blocking)
-        const vscodeVersionStatus = checkVSCodeVersion();
+        const vscodeVersionStatus = versionChecks.checkVSCodeVersion();
         if (!vscodeVersionStatus.ok) {
             debug("VS Code version requirement not met. Showing warning modal.");
             const result = await vscode.window.showInformationMessage(

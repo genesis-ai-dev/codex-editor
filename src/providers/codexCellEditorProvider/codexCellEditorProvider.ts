@@ -1266,7 +1266,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 handleGlobalMessage(this, e as GlobalMessage);
                 return;
             }
-            handleMessages(e, webviewPanel, document, updateWebview, this);
+            try {
+                await handleMessages(e, webviewPanel, document, updateWebview, this);
+            } catch (err) {
+                console.error("handleMessages error:", err);
+            }
         });
         listeners.push(onMessageDisposable);
 
@@ -1335,7 +1339,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             return;
         }
 
-        handleMessages(
+        await handleMessages(
             message as EditorPostMessages,
             activePanel,
             this.currentDocument,

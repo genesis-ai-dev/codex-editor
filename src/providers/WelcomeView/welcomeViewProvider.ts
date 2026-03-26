@@ -32,7 +32,7 @@ export class WelcomeViewProvider {
     // Check if user is authenticated
     private _checkAuthStatus(): void {
         const authApi = getAuthApi();
-        if (authApi) {
+        if (authApi && typeof authApi.getAuthStatus === "function") {
             try {
                 const authStatus = authApi.getAuthStatus();
                 this._isAuthenticated = authStatus.isAuthenticated;
@@ -72,7 +72,7 @@ export class WelcomeViewProvider {
     // Setup authentication state listener
     private _setupAuthenticationListener(): void {
         const authApi = getAuthApi();
-        if (authApi) {
+        if (authApi && typeof authApi.onAuthStatusChanged === "function") {
             this._disposables.push(
                 authApi.onAuthStatusChanged((status) => {
                     debug(`[WelcomeView] Auth status changed: ${status?.isAuthenticated ? 'authenticated' : 'not authenticated'}`);
