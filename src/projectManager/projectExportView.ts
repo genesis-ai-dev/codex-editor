@@ -412,6 +412,15 @@ function getWebviewContent(
                                     </div>
                                 </div>
                             </div>
+                            <div id="usfmOptions" style="display: none;">
+                                <div class="format-option" data-format="usfm-no-validate" data-option="usfm">
+                                    <div class="format-option-content">
+                                        <strong>Generate USFM Without Validation</strong>
+                                        <p>Skip USFM validation for a faster export</p>
+                                        <span class="format-tag">May produce invalid USFM</span>
+                                    </div>
+                                </div>
+                            </div>
                             <!-- Subtitle options -->
                             <div class="format-section" id="subtitle-section" data-option="subtitles">
                                 <div class="format-section-header">
@@ -520,13 +529,6 @@ function getWebviewContent(
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                    <div id="usfmOptions" style="display: none; margin-top: 16px; margin-bottom: 16px; padding: 8px; border: 1px solid var(--vscode-input-border); border-radius: 4px;">
-                        <h4>USFM Export Options</h4>
-                        <div style="display: flex; align-items: center; margin-top: 8px; margin-bottom: 16px;">
-                            <input type="checkbox" id="skipValidation">
-                            <label for="skipValidation" style="margin-left: 8px;">Skip USFM validation (faster export, but may produce invalid USFM)</label>
                         </div>
                     </div>
                 </div>
@@ -829,7 +831,8 @@ function getWebviewContent(
                             option.classList.add('selected');
                             selectedFormat = option.dataset.format;
                             const usfmOptions = document.getElementById('usfmOptions');
-                            if (usfmOptions) usfmOptions.style.display = selectedFormat === 'usfm' ? 'block' : 'none';
+                            const isUsfmVariant = selectedFormat === 'usfm' || selectedFormat === 'usfm-no-validate';
+                            if (usfmOptions) usfmOptions.style.display = isUsfmVariant ? 'block' : 'none';
                             updateStep2Button();
                         });
                     });
@@ -837,10 +840,13 @@ function getWebviewContent(
                 });
 
                 function exportProject() {
-                    const formatToSend = selectedFormat || (selectedAudioMode ? 'audio' : null);
+                    let formatToSend = selectedFormat || (selectedAudioMode ? 'audio' : null);
                     if (!formatToSend || !exportPath || selectedFiles.size === 0) return;
                     const options = {};
-                    if (formatToSend === 'usfm') options.skipValidation = document.getElementById('skipValidation')?.checked;
+                    if (formatToSend === 'usfm-no-validate') {
+                        formatToSend = 'usfm';
+                        options.skipValidation = true;
+                    }
                     if (selectedAudioMode) {
                         options.includeAudio = true;
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
