@@ -351,7 +351,7 @@ function SearchTab({
                                 <button
                                     type="button"
                                     onClick={() => onSearchScopeChange("source")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    className={`px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
                                         searchScope === "source"
                                             ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
@@ -362,7 +362,7 @@ function SearchTab({
                                 <button
                                     type="button"
                                     onClick={() => onSearchScopeChange("target")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    className={`px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
                                         searchScope === "target"
                                             ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
