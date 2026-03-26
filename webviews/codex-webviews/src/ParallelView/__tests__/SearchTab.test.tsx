@@ -133,6 +133,91 @@ describe("SearchTab result rendering", () => {
     });
 });
 
+describe("SearchTab search-and-result-count flow", () => {
+    it("triggers a search and displays the correct result count", () => {
+        const allVerses = [
+            createMockVerse("GEN 1:1", "In the beginning God created", "Au commencement Dieu créa"),
+            createMockVerse("GEN 1:2", "And the earth was without form", "Et la terre était informe"),
+            createMockVerse("GEN 1:3", "And God said Let there be light", "Et Dieu dit Que la lumière soit"),
+            createMockVerse("EXO 1:1", "Now these are the names", "Voici les noms"),
+            createMockVerse("EXO 1:2", "Reuben Simeon Levi and Judah", "Ruben Siméon Lévi et Juda"),
+        ];
+
+        const props = defaultProps();
+        const { rerender } = render(<SearchTab {...props} />);
+
+        expect(screen.getByText("No search results")).toBeInTheDocument();
+
+        const input = screen.getByLabelText("Search Bible text");
+        fireEvent.change(input, { target: { value: "Levi" } });
+        expect(props.onQueryChange).toHaveBeenCalledWith("Levi");
+
+        rerender(<SearchTab {...props} lastQuery="Levi" />);
+
+        const searchButton = screen.getByRole("button", { name: "Search" });
+        fireEvent.click(searchButton);
+
+        expect(props.onSearch).toHaveBeenCalledTimes(1);
+        expect(props.onSearch.mock.calls[0][0]).toBe("Levi");
+
+        const matchingVerses = allVerses.filter(
+            (v) =>
+                v.sourceCell.content?.includes("Levi") ||
+                v.targetCell.content?.includes("Levi")
+        );
+        expect(matchingVerses).toHaveLength(1);
+
+        rerender(<SearchTab {...props} lastQuery="Levi" verses={matchingVerses} />);
+
+        expect(screen.queryByText("No search results")).not.toBeInTheDocument();
+        expect(screen.getByText("Search Results")).toBeInTheDocument();
+        expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
+    it("shows correct count when filtering narrows results", () => {
+        const props = defaultProps();
+
+        const broadResults = [
+            createMockVerse("GEN 1:1", "In the beginning God created the heavens", ""),
+            createMockVerse("GEN 1:3", "And God said Let there be light", ""),
+            createMockVerse("GEN 1:4", "And God saw the light that it was good", ""),
+        ];
+        const { rerender } = render(
+            <SearchTab {...props} lastQuery="God" verses={broadResults} />
+        );
+
+        expect(screen.getByText("Search Results")).toBeInTheDocument();
+        expect(screen.getByText("3")).toBeInTheDocument();
+
+        const narrowResults = [broadResults[0]];
+        rerender(
+            <SearchTab {...props} lastQuery="beginning" verses={narrowResults} />
+        );
+
+        expect(screen.getByText("1")).toBeInTheDocument();
+    });
+
+    it("returns to empty state when search yields no matches", () => {
+        const props = defaultProps();
+        const initialResults = [
+            createMockVerse("GEN 1:1", "In the beginning", "Au commencement"),
+        ];
+        const { rerender } = render(
+            <SearchTab {...props} lastQuery="beginning" verses={initialResults} />
+        );
+
+        expect(screen.getByText("Search Results")).toBeInTheDocument();
+        expect(screen.getByText("1")).toBeInTheDocument();
+
+        rerender(
+            <SearchTab {...props} lastQuery="xyznotfound" verses={[]} />
+        );
+
+        expect(screen.getByText("No search results")).toBeInTheDocument();
+        expect(screen.queryByText("Search Results")).not.toBeInTheDocument();
+    });
+});
+
 describe("SearchTab auto-scope-switch on replace text", () => {
     it("switches scope to 'target' when replace text is entered", async () => {
         const props = {
