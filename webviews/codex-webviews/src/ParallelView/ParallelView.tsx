@@ -423,6 +423,10 @@ function ParallelView() {
         setPinnedVerses((prev) => dedupeByCellId([...prev, ...unpinnedVerses]));
     };
 
+    const handleUnpinAll = () => {
+        setPinnedVerses([]);
+    };
+
     return (
         <div className="parallel-view">
             <WebviewHeader title="Parallel View" vscode={vscode} />
@@ -442,6 +446,7 @@ function ParallelView() {
                 selectedFiles={selectedFiles}
                 onSelectedFilesChange={setSelectedFiles}
                 onPinAll={handlePinAll}
+                onUnpinAll={handleUnpinAll}
                 onReplaceAll={handleReplaceAll}
                 replaceText={replaceText}
                 onReplaceTextChange={setReplaceText}

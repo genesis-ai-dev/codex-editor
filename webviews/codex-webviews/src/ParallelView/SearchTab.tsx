@@ -31,6 +31,7 @@ interface SearchTabProps {
     selectedFiles: string[];
     onSelectedFilesChange: (files: string[]) => void;
     onPinAll: () => void;
+    onUnpinAll: () => void;
     onReplaceAll?: (retainValidations: boolean) => void;
     replaceText?: string;
     onReplaceTextChange?: (text: string) => void;
@@ -61,6 +62,7 @@ function SearchTab({
     selectedFiles,
     onSelectedFilesChange,
     onPinAll,
+    onUnpinAll,
     onReplaceAll,
     replaceText = "",
     onReplaceTextChange,
@@ -240,6 +242,9 @@ function SearchTab({
     );
 
     const allSelected = projectFiles.length > 0 && selectedFiles.length === projectFiles.length;
+
+    const allResultsPinned =
+        verses.length > 0 && verses.every((v) => pinnedVerses.some((p) => p.cellId === v.cellId));
 
     const sortedVerses = useMemo(() => {
         const filtered = showPinnedOnly
@@ -502,14 +507,24 @@ function SearchTab({
                                 {verses.length > 0 && (
                                     <Button
                                         type="button"
-                                        variant="ghost"
+                                        variant={allResultsPinned ? "secondary" : "ghost"}
                                         size="sm"
-                                        onClick={onPinAll}
+                                        onClick={allResultsPinned ? onUnpinAll : onPinAll}
                                         className="h-7 px-2 text-xs"
-                                        aria-label="Pin all results"
+                                        aria-label={
+                                            allResultsPinned
+                                                ? "Unpin all results"
+                                                : "Pin all results"
+                                        }
                                     >
-                                        <span className="codicon codicon-pin"></span>
-                                        <span className="ml-1">Pin All</span>
+                                        <span
+                                            className={`codicon ${
+                                                allResultsPinned ? "codicon-pinned" : "codicon-pin"
+                                            }`}
+                                        ></span>
+                                        <span className="ml-1">
+                                            {allResultsPinned ? "Unpin All" : "Pin All"}
+                                        </span>
                                     </Button>
                                 )}
                             </div>
@@ -662,21 +677,33 @@ function SearchTab({
 
             {verses.length > 0 && (
                 <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                            {showPinnedOnly ? "Pinned Results" : "Search Results"}
-                        </span>
-                        <Badge variant="secondary">{sortedVerses.length}</Badge>
-                    </div>
+                    <button
+                        type="button"
+                        className={`flex items-center gap-1 transition-opacity ${
+                            !showPinnedOnly
+                                ? "text-sm font-medium"
+                                : "text-sm text-muted-foreground cursor-pointer hover:text-foreground"
+                        }`}
+                        onClick={() => showPinnedOnly && onTogglePinnedFilter?.()}
+                        aria-label="Show search results"
+                    >
+                        Search Results
+                        <Badge variant={!showPinnedOnly ? "default" : "outline"}>
+                            {verses.length}
+                        </Badge>
+                    </button>
                     {pinnedVerses.length > 0 && (
                         <button
                             type="button"
-                            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                            onClick={onTogglePinnedFilter}
-                            aria-label={showPinnedOnly ? "Show all results" : "Show pinned only"}
-                            title={showPinnedOnly ? "Show all results" : "Show pinned only"}
+                            className={`flex items-center gap-1 transition-opacity ${
+                                showPinnedOnly
+                                    ? "text-sm font-medium"
+                                    : "text-sm text-muted-foreground cursor-pointer hover:text-foreground"
+                            }`}
+                            onClick={() => !showPinnedOnly && onTogglePinnedFilter?.()}
+                            aria-label="Show pinned results"
                         >
-                            <span className="text-sm text-muted-foreground">Pinned:</span>
+                            Pinned
                             <Badge variant={showPinnedOnly ? "default" : "outline"}>
                                 {pinnedVerses.length}
                             </Badge>
