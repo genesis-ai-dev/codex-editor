@@ -739,6 +739,7 @@ function SearchTab({
                                 replaceText={replaceText}
                                 retainValidations={retainValidations}
                                 highlightSearchResults={highlightSearchResults}
+                                searchScope={searchScope}
                                 onReplace={
                                     onReplaceCell ||
                                     ((cellId, currentContent, retainValidations) => {

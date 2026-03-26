@@ -18,6 +18,7 @@ interface CellItemProps {
     retainValidations?: boolean;
     onReplace?: (cellId: string, currentContent: string, retainValidations: boolean) => void;
     highlightSearchResults?: boolean;
+    searchScope?: "both" | "source" | "target";
 }
 
 const stripHtmlTags = (html: string) => {
@@ -117,6 +118,7 @@ const CellItem: React.FC<CellItemProps> = ({
     retainValidations = false,
     onReplace,
     highlightSearchResults = true,
+    searchScope = "both",
 }) => {
     const [replaceSuccess, setReplaceSuccess] = useState(false);
     const [localRetainValidations, setLocalRetainValidations] =
@@ -162,29 +164,29 @@ const CellItem: React.FC<CellItemProps> = ({
         const plainText = stripHtml(sourceContent);
         if (!plainText) return null;
 
-        if (highlightSearchResults && searchQuery) {
+        if (highlightSearchResults && searchQuery && searchScope !== "target") {
             return highlightPlainText(plainText, searchQuery);
         }
         return null;
-    }, [item.sourceCell.content, searchQuery, highlightSearchResults]);
+    }, [item.sourceCell.content, searchQuery, highlightSearchResults, searchScope]);
 
     const targetContentDisplay = useMemo(() => {
         const targetContent = item.targetCell.content || "";
         if (!targetContent) return null;
 
-        if (replaceText && searchQuery) {
+        if (replaceText && searchQuery && searchScope !== "source") {
             const cleanTarget = stripHtml(targetContent);
             const replacedText = cleanTarget.replace(
                 new RegExp(escapeRegex(searchQuery), "gi"),
                 replaceText
             );
             return computeDiffHtml(targetContent, replacedText, searchQuery);
-        } else if (highlightSearchResults && searchQuery) {
+        } else if (highlightSearchResults && searchQuery && searchScope !== "source") {
             return highlightSearchMatches(targetContent, searchQuery);
         }
 
         return targetContent;
-    }, [item.targetCell.content, searchQuery, replaceText, highlightSearchResults]);
+    }, [item.targetCell.content, searchQuery, replaceText, highlightSearchResults, searchScope]);
 
     const hasMatch = useMemo(() => {
         if (!searchQuery.trim() || !item.targetCell.content) return false;
