@@ -1474,8 +1474,7 @@ type ProjectManagerMessageToWebview =
     }
     | { command: "asrSettings"; data: { endpoint: string; }; }
     | { command: "asrModels"; data: string[]; }
-    | { command: "asrSettingsSaved"; }
-    | { command: "toolsStatusSummary"; data: { sqlite: boolean; nativeSqliteAvailable: boolean; git: boolean; nativeGitAvailable: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode } };
+    | { command: "asrSettingsSaved"; };
 
 // Ensure the Project type is correctly defined
 interface LocalProject {

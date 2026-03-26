@@ -450,7 +450,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.store.setView(webviewView);
         this.store.initialize();
         this.sendProjectStateToWebview();
-        this.sendToolsStatusSummary();
 
         // Check update state on initialization
         this.updateCurrentState();
@@ -465,7 +464,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 if (webviewView.visible) {
                     this.sendProjectStateToWebview();
                     this.sendSyncSettings();
-                    this.sendToolsStatusSummary();
                 }
             })
         );
@@ -473,7 +471,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
     protected onWebviewReady(): void {
         this.sendProjectStateToWebview();
-        this.sendToolsStatusSummary();
     }
 
     private async executeCommandAndNotify(commandName: string) {
@@ -523,31 +520,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
     }
 
-    public async sendToolsStatusSummary(): Promise<void> {
-        try {
-            const { checkTools } = await import("../../utils/toolsManager");
-            const { getAudioToolMode, getGitToolMode, getSqliteToolMode } = await import("../../utils/toolPreferences");
-            const authApi = getAuthApi();
-            const result = await checkTools(this._context, authApi);
-            if (this._view) {
-                safePostMessageToView(this._view, {
-                    command: "toolsStatusSummary",
-                    data: {
-                        sqlite: result.sqlite,
-                        nativeSqliteAvailable: result.nativeSqliteAvailable,
-                        git: result.git,
-                        nativeGitAvailable: result.nativeGitAvailable,
-                        ffmpeg: result.ffmpeg,
-                        audioToolMode: getAudioToolMode(),
-                        gitToolMode: getGitToolMode(),
-                        sqliteToolMode: getSqliteToolMode(),
-                    },
-                } as ProjectManagerMessageToWebview, "MainMenu");
-            }
-        } catch (error) {
-            console.debug("[MainMenu] Could not send tools status summary:", error);
-        }
-    }
 
     protected async handleMessage(message: any): Promise<void> {
         // Handle main menu messages

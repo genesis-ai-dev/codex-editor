@@ -253,7 +253,6 @@ export class MissingToolsWarningProvider {
             ffmpeg: result.ffmpeg,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
-        this._notifyMainMenuToolsChanged();
     }
 
     private async _handleToggleGitMode(): Promise<void> {
@@ -273,7 +272,6 @@ export class MissingToolsWarningProvider {
             nativeGitAvailable: result.nativeGitAvailable,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
-        this._notifyMainMenuToolsChanged();
     }
 
     private async _handleToggleSqliteMode(): Promise<void> {
@@ -337,7 +335,6 @@ export class MissingToolsWarningProvider {
             nativeSqliteAvailable: result.nativeSqliteAvailable,
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
-        this._notifyMainMenuToolsChanged();
     }
 
     private async _handleDownloadTool(tool: "sqlite" | "git" | "ffmpeg"): Promise<void> {
@@ -412,20 +409,8 @@ export class MissingToolsWarningProvider {
             sqliteToolMode: getSqliteToolMode(),
         };
         safePostMessageToPanel(this._panel, message, "MissingToolsWarning");
-        this._notifyMainMenuToolsChanged();
     }
 
-    private async _notifyMainMenuToolsChanged(): Promise<void> {
-        try {
-            const { GlobalProvider } = await import("../../globalProvider");
-            const provider = GlobalProvider.getInstance().getProvider("codex-editor.mainMenu") as
-                | { sendToolsStatusSummary?: () => void; }
-                | undefined;
-            provider?.sendToolsStatusSummary?.();
-        } catch {
-            // MainMenu may not be available yet; silently ignore
-        }
-    }
 
     private _sendWarnings(
         result: ToolCheckResult,
