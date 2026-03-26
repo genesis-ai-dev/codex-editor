@@ -528,12 +528,12 @@ export async function searchAllCells(
 
     // Apply file filtering once at the end
     if (selectedFiles.length > 0) {
-        results = results.filter(matchesSelectedFiles);
+        combinedResults = combinedResults.filter(matchesSelectedFiles);
     }
 
     // Remove duplicates and sort by score
     const seen = new Set<string>();
-    results = results.filter((pair) => {
+    combinedResults = combinedResults.filter((pair) => {
         if (seen.has(pair.cellId)) return false;
         seen.add(pair.cellId);
         return true;
@@ -541,11 +541,11 @@ export async function searchAllCells(
 
     // Sort by score - BM25 scores are negative (more negative = better match)
     // So we sort ascending to put better matches first
-    results.sort((a, b) => {
+    combinedResults.sort((a, b) => {
         const scoreA = "score" in a ? (a.score as number) : 0;
         const scoreB = "score" in b ? (b.score as number) : 0;
         return scoreA - scoreB;
     });
 
-    return results.slice(0, k);
+    return combinedResults.slice(0, k);
 } 
