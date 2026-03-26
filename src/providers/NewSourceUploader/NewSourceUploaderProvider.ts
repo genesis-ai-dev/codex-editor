@@ -25,6 +25,7 @@ import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
+import { processNewlyImportedFiles } from "../../projectManager/utils/migrationUtils";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
@@ -215,12 +216,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             syncManager.endImportInProgress();
                         }
                     } else {
-                        // User cancelled, send cancellation message
-                        webviewPanel.webview.postMessage({
-                            command: "notification",
-                            type: "info",
-                            message: "Import cancelled by user"
-                        });
+                        webviewPanel.webview.postMessage({ command: "importCancelled" });
                     }
                 } else if (message.command === "writeTranslation") {
                     const syncManager = SyncManager.getInstance();
@@ -949,6 +945,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: trimmedCorpusMarker,
             textDirection: (processedNotebook.metadata.textDirection as "ltr" | "rtl" | undefined) || "ltr",
+            lineNumbersEnabled: true,
+            lineNumbersEnabledSource: "global",
             ...(fileDisplayName ? { fileDisplayName } : {}),
             ...(processedNotebook.metadata.videoUrl ? { videoUrl: processedNotebook.metadata.videoUrl } : {}),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
@@ -1020,11 +1018,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             if (conflicts.length > 0) {
                 const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
                 if (!confirmed) {
-                    webviewPanel.webview.postMessage({
-                        command: "notification",
-                        type: "info",
-                        message: "Import cancelled by user"
-                    });
+                    webviewPanel.webview.postMessage({ command: "importCancelled" });
                     return;
                 }
             }
@@ -1039,14 +1033,23 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
+        const reportProgress = (stage: string) => {
+            webviewPanel.webview.postMessage({ command: "importProgress", stage });
+        };
+
+        reportProgress("preparing");
+
         // Import the original file utilities
         const { saveOriginalFileWithDeduplication } = await import('./originalFileUtils');
 
         // Save original files if provided in metadata (with hash-based deduplication)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const pairsWithOriginalFiles = new Set<number>();
         if (workspaceFolder) {
-            for (const pair of message.notebookPairs) {
+            for (let pairIdx = 0; pairIdx < message.notebookPairs.length; pairIdx++) {
+                const pair = message.notebookPairs[pairIdx];
                 if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
+                    pairsWithOriginalFiles.add(pairIdx);
                     // Save the original file with deduplication
                     const requestedFileName = pair.source.metadata.originalFileName || 'document.docx';
                     const fileData: unknown = pair.source.metadata.originalFileData;
@@ -1184,6 +1187,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        reportProgress("creating");
+
         // Convert ProcessedNotebooks to NotebookPreview format
         const sourceNotebooks = await Promise.all(
             message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
@@ -1208,18 +1213,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         });
 
         // Register notebook references in the original files registry
-        // This tracks which notebooks use each original file, so we know when it's safe to delete
-        if (workspaceFolder) {
+        // Only for pairs that had an actual original file saved via deduplication
+        // (Bible imports from eBible/Macula set originalName to the book code, not a stored file)
+        if (workspaceFolder && pairsWithOriginalFiles.size > 0) {
             const { addNotebookReference } = await import('./originalFileUtils');
-            for (const createdFile of createdFiles) {
+            for (let i = 0; i < createdFiles.length; i++) {
+                if (!pairsWithOriginalFiles.has(i)) {
+                    continue;
+                }
+                const createdFile = createdFiles[i];
                 try {
-                    // Read the source notebook to get originalFileName from metadata
                     const sourceContent = await vscode.workspace.fs.readFile(createdFile.sourceUri);
                     const sourceNotebook = JSON.parse(new TextDecoder().decode(sourceContent));
                     const originalFileName = sourceNotebook?.metadata?.originalName || sourceNotebook?.metadata?.originalFileName;
 
                     if (originalFileName) {
-                        // Use the source filename (without extension) as the notebook base name
                         const notebookBaseName = path.basename(createdFile.sourceUri.fsPath).replace(/\.[^/.]+$/, '');
                         await addNotebookReference(workspaceFolder, originalFileName, notebookBaseName);
                     }
@@ -1229,6 +1237,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        reportProgress("metadata");
+
         // Migrate localized-books.json to codex metadata before deleting the file
         // Pass the newly created codex URIs directly to avoid search issues
         const createdCodexUris = createdFiles.map(f => f.codexUri);
@@ -1236,24 +1246,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Remove any localized book overrides to ensure fresh defaults after new source import
         await this.removeLocalizedBooksJsonIfPresent();
-
-        // Show success message
-        const count = message.notebookPairs.length;
-        const notebooksText = count === 1 ? "notebook" : "notebooks";
-        const firstNotebookName = message.notebookPairs[0]?.source.name || "unknown";
-
-        vscode.window.showInformationMessage(
-            count === 1
-                ? `Successfully imported "${firstNotebookName}"!`
-                : `Successfully imported ${count} ${notebooksText}!`
-        );
-
-        // Send success notification to webview
-        webviewPanel.webview.postMessage({
-            command: "notification",
-            type: "success",
-            message: "Notebooks created successfully!"
-        });
 
         // Send updated inventory after successful import
         const inventory = await this.fetchProjectInventory();
@@ -1266,18 +1258,36 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const metadataManager = getNotebookMetadataManager();
         await metadataManager.loadMetadata();
 
-        // Use incremental indexing for just the newly created files
+        // Process newly imported files (line numbers, importerType) before indexing
         if (createdFiles && createdFiles.length > 0) {
-            // Extract file paths from the created URIs
+            reportProgress("processing");
+
+            const allCreatedUris = createdFiles.flatMap(f => [f.sourceUri, f.codexUri]);
+            await processNewlyImportedFiles(allCreatedUris);
+
             const filePaths: string[] = [];
             for (const result of createdFiles) {
                 filePaths.push(result.sourceUri.fsPath);
                 filePaths.push(result.codexUri.fsPath);
             }
 
-            // Index only these specific files
-            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", filePaths);
+            reportProgress("indexing");
+            await vscode.commands.executeCommand(
+                "codex-editor-extension.indexSpecificFiles",
+                filePaths,
+                {
+                    externalProgressCallback: (message: string) => {
+                        webviewPanel.webview.postMessage({
+                            command: "importProgress",
+                            stage: "indexing",
+                            detail: message,
+                        });
+                    },
+                }
+            );
         }
+
+        webviewPanel.webview.postMessage({ command: "importComplete" });
     }
 
     /**
@@ -2382,36 +2392,18 @@ async function confirmOverwriteWithDetails(
         return `• ${c.displayName ? `${c.displayName} [${c.name}]` : c.name} (${parts.join(", ")})`;
     };
 
-    const fullList = items.map(makeLine).join("\n");
     const truncatedList = items.slice(0, maxItems).map(makeLine).join("\n");
     const hasMore = items.length > maxItems;
 
-    const baseMessage = hasMore
+    const message = hasMore
         ? `The following files already exist and will be overwritten (showing first ${maxItems} of ${items.length}):\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`
         : `The following files already exist and will be overwritten:\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`;
 
-    const choices = hasMore ? ["Overwrite Files", "View Details", "Abort Import"] : ["Overwrite Files", "Abort Import"];
     const action = await vscode.window.showWarningMessage<string>(
-        baseMessage,
+        message,
         { modal: true },
-        ...choices
+        "Overwrite Files"
     );
-
-    if (action === "View Details") {
-        const channel = vscode.window.createOutputChannel("Codex Import Conflicts");
-        channel.clear();
-        channel.appendLine("The following files already exist and will be overwritten:\n");
-        channel.appendLine(fullList);
-        channel.show(true);
-
-        const confirmAfterView = await vscode.window.showWarningMessage<string>(
-            "Proceed with overwriting the files listed in the 'Codex Import Conflicts' output?",
-            { modal: true },
-            "Overwrite Files",
-            "Abort Import"
-        );
-        return confirmAfterView === "Overwrite Files";
-    }
 
     return action === "Overwrite Files";
 }

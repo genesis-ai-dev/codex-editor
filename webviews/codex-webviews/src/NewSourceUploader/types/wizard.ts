@@ -45,6 +45,7 @@ export type WizardStep =
     | 'target-selection'     // Select source file for target
     | 'target-import'        // Import target files
     | 'system-message'       // Edit system message for AI translation
+    | 'importing'            // Import in progress (shown while backend processes)
     | 'success';             // Success screen
 
 /**
@@ -65,6 +66,12 @@ export interface WizardState {
     isLoadingInventory: boolean;
     isLoadingFileDetails: boolean;
     fileDetailsError?: string;
+    importProgress?: {
+        stage: string;
+        detail?: string;
+        count: number;
+        importName: string;
+    };
 }
 
 /**

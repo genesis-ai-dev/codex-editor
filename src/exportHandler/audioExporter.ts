@@ -471,7 +471,7 @@ export async function exportAudioAttachments(
 ): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
     const workspaceFolder = workspaceFolders[0];
