@@ -3519,6 +3519,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    searchNavigateToCell: async ({ event, webviewPanel, provider }) => {
+        const cellId = (event as any).content;
+        if (cellId) {
+            provider.scrollOtherPanelsToCell(cellId, webviewPanel);
+        }
+    },
+
     // Handler for expanding in-tab search to Parallel Passages (all files)
     expandSearchToAllFiles: async ({ event }) => {
         const typed = event as any;

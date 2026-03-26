@@ -818,8 +818,9 @@ export type EditorPostMessages =
     }
     | {
         command: "refreshWebviewAfterMilestoneEdits";
-        content?: Record<string, never>; // Empty content
-    };
+        content?: Record<string, never>;
+    }
+    | { command: "searchNavigateToCell"; content: string; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -1595,6 +1596,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "openSourceUpload"; }
     | { command: "openExportView"; }
     | { command: "openAISettings"; }
+    | { command: "openInterfaceSettings"; }
     | { command: "openLicenseSettings"; }
     | { command: "openExportView"; }
     | { command: "closeProject"; }
@@ -2364,6 +2366,10 @@ type EditorReceiveMessages =
     | {
         type: "highlightCell";
         cellId?: string;
+    }
+    | {
+        type: "scrollToCell";
+        cellId: string;
     }
     | {
         type: "updateCellsPerPage";

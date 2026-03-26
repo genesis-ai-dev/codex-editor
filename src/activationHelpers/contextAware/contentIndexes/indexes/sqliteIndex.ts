@@ -1687,31 +1687,47 @@ export class SQLiteIndexManager {
     ): Promise<any[]> {
         if (!this.db) throw new Error("Database not initialized");
 
-        // Reuse the same escaping logic from the search method
-        const escapeForFTS5 = (text: string): string => {
-            // First, handle quotes by doubling them
-            const escaped = text.replace(/"/g, '""');
-
-            // Split by whitespace but preserve the original tokens
-            const tokens = escaped.split(/\s+/).filter((token) => token.length > 0);
-
-            // Wrap each token in quotes to make it a phrase query
-            const escapedTokens = tokens.map((token) => `"${token}"`);
-
-            return escapedTokens.join(" ");
-        };
-
-        const ftsQuery = escapeForFTS5(query);
-
-        // If the query is empty after escaping, return empty results
-        if (!ftsQuery.trim()) {
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) {
             return [];
         }
 
-        // Build query for new schema with combined source/target rows
-        let sql = `
-            SELECT 
-                c.cell_id,
+        // Tokenize and build prefix-wildcard terms (same approach as searchCompleteTranslationPairs)
+        // This also strips out double quotes.
+        const words = trimmedQuery
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .split(/\s+/)
+            .filter(token => token.length > 0);
+
+        if (words.length === 0) {
+            return [];
+        }
+
+        const searchTerms: string[] = [];
+        for (const word of words) {
+            searchTerms.push(word);
+            if (word.length >= 2) {
+                searchTerms.push(word + '*');
+            }
+        }
+
+        const maxTerms = 30;
+        const finalTerms = searchTerms.slice(0, maxTerms);
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
+
+        const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
+        const likePattern = `%${escapedQuery}%`;
+
+        const contentTypeFilter = cellType
+            ? `cells_fts.content_type = '${cellType}'`
+            : "1=1";
+
+        const likeColumn = cellType === 'target' ? 't' : 's';
+        const likeCondition = `(c.${likeColumn}_content LIKE ? OR c.${likeColumn}_raw_content LIKE ?)`;
+
+        const caseColumns = `
                 CASE 
                     WHEN cells_fts.content_type = 'source' THEN c.s_content
                     WHEN cells_fts.content_type = 'target' THEN c.t_content
@@ -1736,25 +1752,62 @@ export class SQLiteIndexManager {
                     WHEN cells_fts.content_type = 'source' THEN s_file.file_type
                     WHEN cells_fts.content_type = 'target' THEN t_file.file_type
                 END as file_type,
-                cells_fts.content_type as cell_type,
-                bm25(cells_fts) as score
-            FROM cells_fts
-            JOIN cells c ON cells_fts.cell_id = c.cell_id
-            LEFT JOIN files s_file ON c.s_file_id = s_file.id
-            LEFT JOIN files t_file ON c.t_file_id = t_file.id
-            WHERE cells_fts MATCH ?
-                AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                cells_fts.content_type as cell_type`;
+
+        const likeContentColumn = cellType === 'target' ? 'c.t_content' : 'c.s_content';
+        const likeRawColumn = cellType === 'target' ? 'c.t_raw_content' : 'c.s_raw_content';
+        const likeWordCountColumn = cellType === 'target' ? 'c.t_word_count' : 'c.s_word_count';
+        const likeLineColumn = cellType === 'target' ? 'c.t_line_number' : 'c.s_line_number';
+        const likeFileJoin = cellType === 'target' ? 't_file' : 's_file';
+        const likeCellType = cellType || 'source';
+
+        const sql = `
+            SELECT DISTINCT
+                cell_id, content, raw_content, word_count, line,
+                file_path, file_type, cell_type, score
+            FROM (
+                -- FTS5 search with prefix wildcards
+                SELECT
+                    c.cell_id,
+                    ${caseColumns},
+                    bm25(cells_fts) as score
+                FROM cells_fts
+                JOIN cells c ON cells_fts.cell_id = c.cell_id
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE cells_fts MATCH ?
+                    AND ${contentTypeFilter}
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+
+                UNION
+
+                -- LIKE substring fallback
+                SELECT
+                    c.cell_id,
+                    ${likeContentColumn} as content,
+                    ${likeRawColumn} as raw_content,
+                    ${likeWordCountColumn} as word_count,
+                    ${likeLineColumn} as line,
+                    ${likeFileJoin}.file_path as file_path,
+                    ${likeFileJoin}.file_type as file_type,
+                    '${likeCellType}' as cell_type,
+                    0.0 as score
+                FROM cells c
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE ${likeCondition}
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+            )
+            ORDER BY score ASC
+            LIMIT ?
         `;
 
-        const params: (string | number)[] = [`content: ${ftsQuery}`];
-
-        if (cellType) {
-            sql += ` AND cells_fts.content_type = ?`;
-            params.push(cellType);
-        }
-
-        sql += ` ORDER BY score ASC LIMIT ?`;
-        params.push(limit);
+        const params: (string | number)[] = [
+            `content: ${cleanQuery}`,
+            likePattern,
+            likePattern,
+            limit,
+        ];
 
         const stmt = this.db.prepare(sql);
         const results = [];
@@ -1764,7 +1817,6 @@ export class SQLiteIndexManager {
             while (stmt.step()) {
                 const row = stmt.getAsObject();
 
-                // Verify content exists
                 if (!row.content) {
                     debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
                     continue;

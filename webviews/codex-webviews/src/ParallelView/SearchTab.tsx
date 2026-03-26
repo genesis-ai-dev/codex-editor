@@ -31,6 +31,7 @@ interface SearchTabProps {
     selectedFiles: string[];
     onSelectedFilesChange: (files: string[]) => void;
     onPinAll: () => void;
+    onUnpinAll: () => void;
     onReplaceAll?: (retainValidations: boolean) => void;
     replaceText?: string;
     onReplaceTextChange?: (text: string) => void;
@@ -42,6 +43,7 @@ interface SearchTabProps {
     forceReplaceExpanded?: boolean;
     showPinnedOnly?: boolean;
     onTogglePinnedFilter?: () => void;
+    highlightSearchResults?: boolean;
 }
 
 function SearchTab({
@@ -60,6 +62,7 @@ function SearchTab({
     selectedFiles,
     onSelectedFilesChange,
     onPinAll,
+    onUnpinAll,
     onReplaceAll,
     replaceText = "",
     onReplaceTextChange,
@@ -71,6 +74,7 @@ function SearchTab({
     forceReplaceExpanded,
     showPinnedOnly = false,
     onTogglePinnedFilter,
+    highlightSearchResults = true,
 }: SearchTabProps) {
     const [isReplaceExpanded, setIsReplaceExpanded] = useState(false);
 
@@ -225,12 +229,12 @@ function SearchTab({
         }
     };
 
-    const handleSelectAllFiles = () => {
+    const handleToggleAllFiles = () => {
+        if (allSelected) {
+            onSelectedFilesChange([]);
+            return;
+        }
         onSelectedFilesChange(projectFiles.map((f) => f.uri));
-    };
-
-    const handleDeselectAllFiles = () => {
-        onSelectedFilesChange([]);
     };
 
     const filteredFiles = projectFiles.filter((file) =>
@@ -238,7 +242,9 @@ function SearchTab({
     );
 
     const allSelected = projectFiles.length > 0 && selectedFiles.length === projectFiles.length;
-    const noneSelected = selectedFiles.length === 0;
+
+    const allResultsPinned =
+        verses.length > 0 && verses.every((v) => pinnedVerses.some((p) => p.cellId === v.cellId));
 
     const sortedVerses = useMemo(() => {
         const filtered = showPinnedOnly
@@ -252,7 +258,10 @@ function SearchTab({
     }, [verses, pinnedVerses, showPinnedOnly]);
 
     return (
-        <div className="flex flex-col h-full p-4 gap-4" onClick={handleClickOutside}>
+        <div
+            className="flex flex-col flex-1 min-h-0 p-4 gap-2 overflow-hidden"
+            onClick={handleClickOutside}
+        >
             <Card className="p-4">
                 <CardContent className="p-0">
                     <form onSubmit={handleSearch} className="flex flex-col gap-4">
@@ -328,15 +337,15 @@ function SearchTab({
                         </div>
 
                         {/* Options row - all search options in one organized row */}
-                        <div className="flex items-center gap-2 border-t pt-3 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
                             {/* Search scope toggle */}
                             <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
                                 <button
                                     type="button"
                                     onClick={() => onSearchScopeChange("both")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    className={`px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
                                         searchScope === "both"
-                                            ? "bg-background shadow-sm font-medium"
+                                            ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
                                     }`}
                                 >
@@ -345,9 +354,9 @@ function SearchTab({
                                 <button
                                     type="button"
                                     onClick={() => onSearchScopeChange("source")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    className={`px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
                                         searchScope === "source"
-                                            ? "bg-background shadow-sm font-medium"
+                                            ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
                                     }`}
                                 >
@@ -356,9 +365,9 @@ function SearchTab({
                                 <button
                                     type="button"
                                     onClick={() => onSearchScopeChange("target")}
-                                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    className={`px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
                                         searchScope === "target"
-                                            ? "bg-background shadow-sm font-medium"
+                                            ? "bg-primary text-primary-foreground shadow-sm font-medium"
                                             : "text-muted-foreground hover:text-foreground"
                                     }`}
                                 >
@@ -383,102 +392,98 @@ function SearchTab({
                             {/* File selector */}
                             {projectFiles.length > 0 && (
                                 <>
-                                    <div className="h-4 w-px bg-border" />
                                     <div className="file-selector-container relative">
-                                        <button
+                                        <Button
                                             type="button"
-                                            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                                            variant={showFileSelector ? "secondary" : "ghost"}
+                                            size="sm"
+                                            className="flex items-center gap-1 text-xs h-7 px-2"
                                             onClick={() => setShowFileSelector(!showFileSelector)}
                                         >
                                             <span className="codicon codicon-files"></span>
-                                            {allSelected
-                                                ? "All files"
-                                                : noneSelected
-                                                ? "No files"
+                                            {allSelected || selectedFiles.length === 0
+                                                ? "All Files"
                                                 : `${selectedFiles.length}/${projectFiles.length}`}
                                             <span
                                                 className={`codicon codicon-chevron-${
                                                     showFileSelector ? "up" : "down"
                                                 } text-[10px]`}
                                             ></span>
-                                        </button>
-                                    {showFileSelector && (
-                                        <Card className="absolute top-full left-0 mt-1 z-20 max-h-64 overflow-hidden flex flex-col min-w-[200px]">
-                                            <CardContent className="p-0 flex flex-col">
-                                                <div className="p-2 border-b flex gap-2">
-                                                    <Input
-                                                        type="text"
-                                                        placeholder="Search files..."
-                                                        value={fileSearchQuery}
-                                                        onChange={(e) =>
-                                                            setFileSearchQuery(e.target.value)
-                                                        }
-                                                        className="flex-1 h-7 text-xs"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={handleSelectAllFiles}
-                                                        className="text-xs h-7 px-2"
-                                                    >
-                                                        All
-                                                    </Button>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={handleDeselectAllFiles}
-                                                        className="text-xs h-7 px-2"
-                                                    >
-                                                        None
-                                                    </Button>
-                                                </div>
-                                                <div className="overflow-y-auto max-h-48">
-                                                    {filteredFiles.length === 0 ? (
-                                                        <div className="p-4 text-sm text-muted-foreground text-center">
-                                                            No files found
-                                                        </div>
-                                                    ) : (
-                                                        filteredFiles.map((file) => {
-                                                            const isSelected =
-                                                                selectedFiles.includes(file.uri);
-                                                            return (
-                                                                <div
-                                                                    key={file.uri}
-                                                                    className="flex items-center space-x-2 p-2 hover:bg-muted cursor-pointer"
-                                                                    onClick={() =>
-                                                                        handleFileToggle(file.uri)
-                                                                    }
-                                                                >
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={isSelected}
-                                                                        onChange={() =>
-                                                                            handleFileToggle(file.uri)
+                                        </Button>
+                                        {showFileSelector && (
+                                            <Card className="absolute top-full left-0 mt-1 z-20 max-h-64 overflow-hidden flex flex-col min-w-[200px]">
+                                                <CardContent className="p-0 flex flex-col">
+                                                    <div className="p-2 border-b flex items-center gap-2">
+                                                        <Input
+                                                            type="text"
+                                                            placeholder="Search files..."
+                                                            value={fileSearchQuery}
+                                                            onChange={(e) =>
+                                                                setFileSearchQuery(e.target.value)
+                                                            }
+                                                            className="flex-1 h-7 text-xs"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        />
+                                                        <label className="flex items-center gap-1.5 text-xs cursor-pointer px-1 whitespace-nowrap">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={allSelected}
+                                                                onChange={handleToggleAllFiles}
+                                                                className="h-3.5 w-3.5 rounded border border-input"
+                                                            />
+                                                            All Files
+                                                        </label>
+                                                    </div>
+                                                    <div className="overflow-y-auto max-h-48">
+                                                        {filteredFiles.length === 0 ? (
+                                                            <div className="p-4 text-sm text-muted-foreground text-center">
+                                                                No files found
+                                                            </div>
+                                                        ) : (
+                                                            filteredFiles.map((file) => {
+                                                                const isSelected =
+                                                                    selectedFiles.includes(
+                                                                        file.uri
+                                                                    );
+                                                                return (
+                                                                    <div
+                                                                        key={file.uri}
+                                                                        className="flex items-center space-x-2 p-2 hover:bg-muted cursor-pointer"
+                                                                        onClick={() =>
+                                                                            handleFileToggle(
+                                                                                file.uri
+                                                                            )
                                                                         }
-                                                                        className="h-4 w-4 rounded border border-input"
-                                                                    />
-                                                                    <span className="text-sm flex-1">
-                                                                        {file.name}
-                                                                    </span>
-                                                                    <Badge
-                                                                        variant="outline"
-                                                                        className="text-xs"
                                                                     >
-                                                                        {file.type === "source"
-                                                                            ? "Source"
-                                                                            : "Target"}
-                                                                    </Badge>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    )}
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={() =>
+                                                                                handleFileToggle(
+                                                                                    file.uri
+                                                                                )
+                                                                            }
+                                                                            className="h-4 w-4 rounded border border-input"
+                                                                        />
+                                                                        <span className="text-sm flex-1">
+                                                                            {file.name}
+                                                                        </span>
+                                                                        <Badge
+                                                                            variant="outline"
+                                                                            className="text-xs"
+                                                                        >
+                                                                            {file.type === "source"
+                                                                                ? "Source"
+                                                                                : "Target"}
+                                                                        </Badge>
+                                                                    </div>
+                                                                );
+                                                            })
+                                                        )}
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        )}
                                     </div>
                                 </>
                             )}
@@ -504,14 +509,24 @@ function SearchTab({
                                 {verses.length > 0 && (
                                     <Button
                                         type="button"
-                                        variant="ghost"
+                                        variant={allResultsPinned ? "secondary" : "ghost"}
                                         size="sm"
-                                        onClick={onPinAll}
+                                        onClick={allResultsPinned ? onUnpinAll : onPinAll}
                                         className="h-7 px-2 text-xs"
-                                        aria-label="Pin all results"
+                                        aria-label={
+                                            allResultsPinned
+                                                ? "Unpin all results"
+                                                : "Pin all results"
+                                        }
                                     >
-                                        <span className="codicon codicon-pin"></span>
-                                        <span className="ml-1">Pin All</span>
+                                        <span
+                                            className={`codicon ${
+                                                allResultsPinned ? "codicon-pinned" : "codicon-pin"
+                                            }`}
+                                        ></span>
+                                        <span className="ml-1">
+                                            {allResultsPinned ? "Unpin All" : "Pin All"}
+                                        </span>
                                     </Button>
                                 )}
                             </div>
@@ -658,28 +673,39 @@ function SearchTab({
                                 )}
                             </div>
                         )}
-
                     </form>
                 </CardContent>
             </Card>
 
             {verses.length > 0 && (
-                <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                            {showPinnedOnly ? "Pinned Results" : "Search Results"}
-                        </span>
-                        <Badge variant="secondary">{sortedVerses.length}</Badge>
-                    </div>
+                <div className="flex items-center justify-between py-2">
+                    <button
+                        type="button"
+                        className={`flex items-center gap-1 transition-opacity ${
+                            !showPinnedOnly
+                                ? "text-sm font-medium"
+                                : "text-sm text-muted-foreground cursor-pointer hover:text-foreground"
+                        }`}
+                        onClick={() => showPinnedOnly && onTogglePinnedFilter?.()}
+                        aria-label="Show search results"
+                    >
+                        Search Results
+                        <Badge variant={!showPinnedOnly ? "default" : "outline"}>
+                            {verses.length}
+                        </Badge>
+                    </button>
                     {pinnedVerses.length > 0 && (
                         <button
                             type="button"
-                            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                            onClick={onTogglePinnedFilter}
-                            aria-label={showPinnedOnly ? "Show all results" : "Show pinned only"}
-                            title={showPinnedOnly ? "Show all results" : "Show pinned only"}
+                            className={`flex items-center gap-1 transition-opacity ${
+                                showPinnedOnly
+                                    ? "text-sm font-medium"
+                                    : "text-sm text-muted-foreground cursor-pointer hover:text-foreground"
+                            }`}
+                            onClick={() => !showPinnedOnly && onTogglePinnedFilter?.()}
+                            aria-label="Show pinned results"
                         >
-                            <span className="text-sm text-muted-foreground">Pinned:</span>
+                            Pinned
                             <Badge variant={showPinnedOnly ? "default" : "outline"}>
                                 {pinnedVerses.length}
                             </Badge>
@@ -712,6 +738,8 @@ function SearchTab({
                                 searchQuery={lastQuery}
                                 replaceText={replaceText}
                                 retainValidations={retainValidations}
+                                highlightSearchResults={highlightSearchResults}
+                                searchScope={searchScope}
                                 onReplace={
                                     onReplaceCell ||
                                     ((cellId, currentContent, retainValidations) => {

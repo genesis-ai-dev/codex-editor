@@ -86,15 +86,20 @@ const applyDomHighlights = (
             while ((match = regex.exec(text)) !== null) {
                 // Add text before the match
                 if (match.index > lastIndex) {
-                    fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+                    fragment.appendChild(
+                        document.createTextNode(text.slice(lastIndex, match.index))
+                    );
                 }
 
-                const isCurrent = cellId === currentMatchCellId && matchCountInCell === currentMatchInCellIndex;
+                const isCurrent =
+                    cellId === currentMatchCellId && matchCountInCell === currentMatchInCellIndex;
 
                 if (showDiff) {
                     // Show inline diff: old text struck through, new text highlighted
                     const diffContainer = document.createElement("span");
-                    diffContainer.className = `${HIGHLIGHT_CLASS} floating-search-diff${isCurrent ? ` ${HIGHLIGHT_CURRENT_CLASS}` : ""}`;
+                    diffContainer.className = `${HIGHLIGHT_CLASS} floating-search-diff${
+                        isCurrent ? ` ${HIGHLIGHT_CURRENT_CLASS}` : ""
+                    }`;
 
                     // Old text (struck through)
                     const oldSpan = document.createElement("span");
@@ -488,7 +493,7 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
             const cell = translationUnits[cellIndex];
             if (!cell) continue;
 
-            let plainText = stripHtml(cell.cellContent);
+            const plainText = stripHtml(cell.cellContent);
             const searchRegex = new RegExp(escapeRegex(query), matchCase ? "g" : "gi");
             const newContent = plainText.replace(searchRegex, replaceText);
 
@@ -546,8 +551,8 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
     );
 
     // Match count display
-    const matchCountDisplay = useMemo(() => {
-        if (!query.trim()) return "";
+    const matchCountDisplay = useMemo((): React.ReactNode => {
+        if (!query.trim()) return null;
         if (totalDocumentMatches === 0) return "No matches";
 
         const pageMatchCount = pageMatches.length;
@@ -555,8 +560,18 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
             return `0 on page (${totalDocumentMatches} total)`;
         }
 
-        return `${globalMatchIndex} of ${pageMatchCount} of ${totalDocumentMatches}`;
-    }, [query, pageMatches.length, globalMatchIndex, totalDocumentMatches]);
+        const localIndex = currentMatchIndex + 1;
+        return (
+            <span className="floating-search-bar-match-count-lines">
+                <span>
+                    Page {localIndex} of {pageMatchCount}
+                </span>
+                <span>
+                    File {globalMatchIndex} of {totalDocumentMatches}
+                </span>
+            </span>
+        );
+    }, [query, pageMatches.length, currentMatchIndex, globalMatchIndex, totalDocumentMatches]);
 
     if (!isOpen) return null;
 

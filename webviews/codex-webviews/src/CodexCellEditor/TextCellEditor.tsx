@@ -251,7 +251,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
-    const { contentToScrollTo } = useContext(ScrollToContentContext);
+    const { contentToScrollTo, setContentToScrollTo } = useContext(ScrollToContentContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
@@ -452,12 +452,33 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [showFlashingBorder, centerEditor]);
 
+    const [isScrollHighlighted, setIsScrollHighlighted] = useState(false);
+    const scrollHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     useEffect(() => {
         if (contentToScrollTo && contentToScrollTo === cellMarkers[0] && cellEditorRef.current) {
             debug("Scrolling to content", { contentToScrollTo, cellMarkers });
             centerEditor();
+            setContentToScrollTo(null);
+
+            if (scrollHighlightTimerRef.current) {
+                clearTimeout(scrollHighlightTimerRef.current);
+            }
+            setIsScrollHighlighted(true);
+            scrollHighlightTimerRef.current = setTimeout(() => {
+                setIsScrollHighlighted(false);
+                scrollHighlightTimerRef.current = null;
+            }, 1500);
         }
-    }, [contentToScrollTo, centerEditor]);
+    }, [contentToScrollTo, centerEditor, cellMarkers, setContentToScrollTo]);
+
+    useEffect(() => {
+        return () => {
+            if (scrollHighlightTimerRef.current) {
+                clearTimeout(scrollHighlightTimerRef.current);
+            }
+        };
+    }, []);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [similarCells, setSimilarCells] = useState<SimilarCell[]>([]);
@@ -2147,7 +2168,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         showFlashingBorder
                             ? "ring-2 ring-blue-500 ring-opacity-50 animate-pulse rounded-lg p-2"
                             : ""
-                    }`}
+                    } ${isScrollHighlighted ? "cell-scroll-highlight" : ""}`}
                     ref={cellEditorRef}
                 >
                     <div className="flex-1">
