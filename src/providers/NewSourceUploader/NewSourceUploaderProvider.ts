@@ -5,13 +5,14 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage, AudioProcessingCompleteMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import {
     handleSelectAudioFile,
     handleReprocessAudioFile,
     handleRequestAudioSegment,
     handleUpdateAudioSegments,
     handleFinalizeAudioImport,
+    handleAudioProcessingComplete,
 } from "./importers/audioSplitter";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import type { SpreadsheetNotebookMetadata } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/processedNotebookMetadata";
@@ -725,6 +726,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     await handleRequestAudioSegment(message as RequestAudioSegmentMessage, webviewPanel);
                 } else if (message.command === "updateAudioSegments") {
                     await handleUpdateAudioSegments(message as UpdateAudioSegmentsMessage, webviewPanel);
+                } else if (message.command === "audioProcessingComplete") {
+                    handleAudioProcessingComplete(message as AudioProcessingCompleteMessage);
                 } else if (message.command === "finalizeAudioImport") {
                     await handleFinalizeAudioImport(
                         message as FinalizeAudioImportMessage,
@@ -740,6 +743,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             }
                         }
                     );
+                } else if (message.command === "openDownloadPage") {
+                    vscode.env.openExternal(vscode.Uri.parse("https://codexeditor.app"));
                 } else if (message.command === "saveFile") {
                     await this.handleSaveFile(message as SaveFileMessage, webviewPanel);
                 } else if (message.command === "systemMessage.generate") {

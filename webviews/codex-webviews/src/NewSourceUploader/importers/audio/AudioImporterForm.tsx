@@ -1,17 +1,39 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from 'uuid';
-import { ImporterComponentProps, SelectAudioFileMessage, ReprocessAudioFileMessage, FinalizeAudioImportMessage, AudioFileSelectedMessage, AudioFilesSelectedMessage, AudioImportProgressMessage, AudioImportCompleteMessage, UpdateAudioSegmentsMessage, AudioSegmentsUpdatedMessage } from "../../types/plugin";
+import {
+    ImporterComponentProps,
+    SelectAudioFileMessage,
+    ReprocessAudioFileMessage,
+    FinalizeAudioImportMessage,
+    AudioFileSelectedMessage,
+    AudioFilesSelectedMessage,
+    AudioFileForProcessingMessage,
+    ReprocessAudioInWebviewMessage,
+    AudioImportProgressMessage,
+    AudioImportCompleteMessage,
+    UpdateAudioSegmentsMessage,
+    AudioSegmentsUpdatedMessage,
+} from "../../types/plugin";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, Settings, Trash2, Plus } from "lucide-react";
+import { Upload, Music, Play, Pause, ArrowLeft, Check, AlertTriangle, Settings, Trash2, Plus, Info } from "lucide-react";
 import { Slider } from "../../../components/ui/slider";
 import { NotebookPair, ProcessedCell } from "../../types/common";
 import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
 import { createAudioCellMetadata } from "./cellMetadata";
+import {
+    base64DataUrlToArrayBuffer,
+    decodeAudio,
+    processAudioBuffer,
+    detectSilenceFromBuffer,
+    generatePeaks,
+    encodeWavSegment,
+    uint8ArrayToBase64,
+} from "../../../utils/audioProcessing";
 
 const vscode: { postMessage: (message: any) => void } = (window as any).vscodeApi;
 
@@ -30,6 +52,8 @@ interface AudioFileData {
     segments: Segment[];
     waveformPeaks: number[];
     fullAudioUri?: string;
+    /** Original file extension without dot (e.g. "mp3", "m4a"). Undefined when using fallback. */
+    sourceExtension?: string;
     thresholdDb?: number;
     minDuration?: number;
 }
@@ -106,6 +130,8 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
     const [isImporting, setIsImporting] = useState(false);
     const [importProgress, setImportProgress] = useState<{ stage: string; message: string; progress?: number; currentSegment?: number; totalSegments?: number; etaSeconds?: number } | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [usingFallback, setUsingFallback] = useState(false);
+    const audioBufferRef = useRef<AudioBuffer | null>(null);
     
     // VAD settings
     const [thresholdDb, setThresholdDb] = useState(-40);
@@ -158,6 +184,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         segments: data.segments,
                         waveformPeaks: data.waveformPeaks || [],
                         fullAudioUri: data.fullAudioUri,
+                        sourceExtension: data.sourceExtension,
                         thresholdDb: data.thresholdDb,
                         minDuration: data.minDuration,
                     };
@@ -194,6 +221,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         segments: f.segments,
                         waveformPeaks: f.waveformPeaks || [],
                         fullAudioUri: f.fullAudioUri,
+                        sourceExtension: f.sourceExtension,
                         thresholdDb: data.thresholdDb,
                         minDuration: data.minDuration,
                     }));
@@ -256,12 +284,27 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                     const nextNotebookPair = pendingNotebookPairs[nextIndex];
                                     const nextMapping = allSegmentMappings.find(m => m.sessionId === nextFile.sessionId);
                                     if (nextFile && nextNotebookPair && nextMapping) {
+                                        let nextEncodedSegments: Array<{ segmentId: string; wavBase64: string }> | undefined;
+                                        if (usingFallback && audioBufferRef.current) {
+                                            nextEncodedSegments = [];
+                                            for (const m of nextMapping.mappings) {
+                                                const seg = nextFile.segments.find((s) => s.id === m.segmentId);
+                                                if (seg) {
+                                                    const wavBytes = encodeWavSegment(audioBufferRef.current, seg.startSec, seg.endSec);
+                                                    nextEncodedSegments.push({
+                                                        segmentId: m.segmentId,
+                                                        wavBase64: uint8ArrayToBase64(wavBytes),
+                                                    });
+                                                }
+                                            }
+                                        }
                                         vscode.postMessage({
                                             command: "finalizeAudioImport",
                                             sessionId: nextFile.sessionId,
                                             documentName: nextNotebookPair.source.name,
                                             notebookPairs: [nextNotebookPair],
                                             segmentMappings: nextMapping.mappings,
+                                            encodedSegments: nextEncodedSegments,
                                         } as FinalizeAudioImportMessage);
                                     }
                                 }
@@ -288,6 +331,117 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         setError(data.error || "Failed to update segments");
                     }
                 }
+            } else if (message.command === "audioFileForProcessing") {
+                const data = message as AudioFileForProcessingMessage;
+                setUsingFallback(true);
+                setIsLoading(true);
+                setError(null);
+
+                (async () => {
+                    try {
+                        const arrayBuffer = base64DataUrlToArrayBuffer(data.fullAudioUri);
+                        const audioBuffer = await decodeAudio(arrayBuffer);
+                        audioBufferRef.current = audioBuffer;
+
+                        const result = processAudioBuffer(audioBuffer, data.thresholdDb, data.minDuration);
+                        const segments = result.segments.map((seg, index) => ({
+                            id: `${data.sessionId}-seg${index + 1}`,
+                            startSec: seg.startSec,
+                            endSec: seg.endSec,
+                        }));
+
+                        vscode.postMessage({
+                            command: "audioProcessingComplete",
+                            sessionId: data.sessionId,
+                            durationSec: result.durationSec,
+                            segments,
+                        });
+
+                        const fileData: AudioFileData = {
+                            sessionId: data.sessionId,
+                            fileName: data.fileName,
+                            durationSec: result.durationSec,
+                            segments,
+                            waveformPeaks: result.peaks,
+                            fullAudioUri: data.fullAudioUri,
+                            thresholdDb: data.thresholdDb,
+                            minDuration: data.minDuration,
+                        };
+
+                        setAudioFiles((prev) => {
+                            const exists = prev.findIndex((f) => f.sessionId === data.sessionId);
+                            if (exists >= 0) {
+                                const updated = [...prev];
+                                updated[exists] = fileData;
+                                return updated;
+                            }
+                            return [...prev, fileData];
+                        });
+                        setAudioFile(fileData);
+                        setSelectedFileIndex(0);
+
+                        if (data.thresholdDb !== undefined) {
+                            setThresholdDb(data.thresholdDb);
+                            setAppliedThresholdDb(data.thresholdDb);
+                        }
+                        if (data.minDuration !== undefined) {
+                            setMinDuration(data.minDuration);
+                            setAppliedMinDuration(data.minDuration);
+                        }
+                        setIsLoading(false);
+
+                        if (!documentName || documentName === "AudioDocument") {
+                            const nameWithoutExt = data.fileName.replace(/\.[^/.]+$/, "");
+                            setDocumentName(nameWithoutExt);
+                        }
+                    } catch (err) {
+                        console.error("[AudioImporter] Web Audio processing failed:", err);
+                        setError(err instanceof Error ? err.message : "Web Audio processing failed");
+                        setIsLoading(false);
+                    }
+                })();
+            } else if (message.command === "reprocessAudioInWebview") {
+                const data = message as ReprocessAudioInWebviewMessage;
+                if (!audioBufferRef.current) return;
+
+                const result = processAudioBuffer(
+                    audioBufferRef.current,
+                    data.thresholdDb,
+                    data.minDuration,
+                );
+                const segments = result.segments.map((seg, index) => ({
+                    id: `${data.sessionId}-seg${index + 1}`,
+                    startSec: seg.startSec,
+                    endSec: seg.endSec,
+                }));
+
+                vscode.postMessage({
+                    command: "audioProcessingComplete",
+                    sessionId: data.sessionId,
+                    durationSec: result.durationSec,
+                    segments,
+                });
+
+                setAudioFile((prev) => {
+                    if (!prev || prev.sessionId !== data.sessionId) return prev;
+                    const updated: AudioFileData = {
+                        ...prev,
+                        segments,
+                        waveformPeaks: result.peaks,
+                        durationSec: result.durationSec,
+                        thresholdDb: data.thresholdDb,
+                        minDuration: data.minDuration,
+                    };
+                    setAudioFiles((files) =>
+                        files.map((f) => (f.sessionId === data.sessionId ? updated : f)),
+                    );
+                    return updated;
+                });
+                setThresholdDb(data.thresholdDb);
+                setAppliedThresholdDb(data.thresholdDb);
+                setMinDuration(data.minDuration);
+                setAppliedMinDuration(data.minDuration);
+                setIsLoading(false);
             }
         };
 
@@ -610,7 +764,8 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
 
             file.segments.forEach((segment, index) => {
                 const attachmentId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-seg${index + 1}`;
-                const fileName = `${attachmentId}.wav`;
+                const ext = usingFallback ? "wav" : (file.sourceExtension || "wav");
+                const fileName = `${attachmentId}.${ext}`;
                 const url = `.project/attachments/files/${docId}/${fileName}`;
 
                 // Create cell metadata with UUID, globalReferences, and chapterNumber
@@ -724,22 +879,35 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             const notebookPair = notebookPairs[index];
 
             if (mapping && notebookPair) {
+                let encodedSegments: Array<{ segmentId: string; wavBase64: string }> | undefined;
+
+                if (usingFallback && audioBufferRef.current) {
+                    encodedSegments = [];
+                    for (const m of mapping.mappings) {
+                        const seg = file.segments.find((s) => s.id === m.segmentId);
+                        if (seg) {
+                            const wavBytes = encodeWavSegment(audioBufferRef.current, seg.startSec, seg.endSec);
+                            encodedSegments.push({
+                                segmentId: m.segmentId,
+                                wavBase64: uint8ArrayToBase64(wavBytes),
+                            });
+                        }
+                    }
+                }
+
                 vscode.postMessage({
                     command: "finalizeAudioImport",
                     sessionId: file.sessionId,
                     documentName: notebookPair.source.name,
                     notebookPairs: [notebookPair],
                     segmentMappings: mapping.mappings,
+                    encodedSegments,
                 } as FinalizeAudioImportMessage);
             }
-
-            // Wait for import to complete before starting next
-            // This will be handled by the audioImportComplete message handler
         };
 
-        // Start importing first file
         importNext(0);
-    }, [audioFiles, documentName, onComplete]);
+    }, [audioFiles, documentName, onComplete, usingFallback]);
 
     const waveformPeaks = audioFile?.waveformPeaks || [];
     const maxPeak = waveformPeaks.length > 0 ? Math.max(...waveformPeaks) : 1;
@@ -1223,6 +1391,22 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         <Alert variant="destructive">
                             <AlertTriangle className="h-4 w-4" />
                             <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    )}
+
+                    {usingFallback && (
+                        <Alert>
+                            <Info className="h-4 w-4" />
+                            <AlertDescription>
+                                Audio tools are not installed. Segments can only be exported as .wav files. If you'd like to export or preserve your source file format, please{" "}
+                                <button
+                                    className="underline font-medium hover:opacity-80"
+                                    onClick={() => vscode.postMessage({ command: "openDownloadPage" })}
+                                >
+                                    download the audio tools
+                                </button>{" "}
+                                first.
+                            </AlertDescription>
                         </Alert>
                     )}
 

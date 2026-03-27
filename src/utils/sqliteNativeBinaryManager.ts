@@ -345,6 +345,24 @@ export async function ensureSqliteNativeBinary(
         );
     }
 
+    // Fast-fail when offline: no point retrying downloads that cannot succeed.
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const resp = await fetch("https://github.com", {
+            method: "HEAD",
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!resp.ok) {
+            throw new Error("GitHub unreachable");
+        }
+    } catch {
+        throw new Error(
+            "SQLite binary is not cached and the network is unavailable. Search features require an initial online setup."
+        );
+    }
+
     // If another call is already downloading, piggyback on that promise
     // to avoid concurrent extractions into the same directory
     if (downloadInProgress) {
@@ -372,10 +390,7 @@ export async function ensureSqliteNativeBinary(
                     return downloadedPath;
                 } catch (error) {
                     const msg = error instanceof Error ? error.message : String(error);
-                    vscode.window.showErrorMessage(
-                        `Search setup failed: ${msg}. ` +
-                        `Search features will be unavailable until this is resolved.`
-                    );
+                    console.warn(`[SQLite] Binary download failed: ${msg}`);
                     throw error;
                 }
             }

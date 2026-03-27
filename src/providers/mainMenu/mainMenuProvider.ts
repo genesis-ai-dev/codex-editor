@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfProjectIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -250,7 +250,7 @@ class ProjectManagerStore {
             this.isRefreshing = true;
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
-            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
+            const hasMetadata = hasWorkspace ? await checkIfProjectIsInitialized() : false;
 
             const canInitializeProject = hasWorkspace && !hasMetadata;
             const workspaceIsOpen = hasWorkspace;
@@ -450,6 +450,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.store.setView(webviewView);
         this.store.initialize();
         this.sendProjectStateToWebview();
+        this.sendToolsStatusSummary();
 
         // Check update state on initialization
         this.updateCurrentState();
@@ -464,6 +465,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 if (webviewView.visible) {
                     this.sendProjectStateToWebview();
                     this.sendSyncSettings();
+                    this.sendToolsStatusSummary();
                 }
             })
         );
@@ -512,6 +514,28 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     isGitAvailable,
                 },
             } as ProjectManagerMessageToWebview, "MainMenu");
+        }
+    }
+
+    public async sendToolsStatusSummary(): Promise<void> {
+        try {
+            const { checkTools } = await import("../../utils/toolsManager");
+            const { getAudioToolMode } = await import("../../utils/toolPreferences");
+            const authApi = getAuthApi();
+            const result = await checkTools(this._context, authApi);
+            if (this._view) {
+                safePostMessageToView(this._view, {
+                    command: "toolsStatusSummary",
+                    data: {
+                        sqlite: result.sqlite,
+                        git: result.git,
+                        ffmpeg: result.ffmpeg,
+                        audioToolMode: getAudioToolMode(),
+                    },
+                } as ProjectManagerMessageToWebview, "MainMenu");
+            }
+        } catch (error) {
+            console.debug("[MainMenu] Could not send tools status summary:", error);
         }
     }
 
@@ -924,6 +948,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openCodexMigrationTool":
                 await vscode.commands.executeCommand("codex-editor.openCodexMigrationTool");
+                break;
+            case "openToolsStatus":
+                await vscode.commands.executeCommand("codex-editor.openToolsStatus");
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();

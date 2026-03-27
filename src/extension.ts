@@ -22,6 +22,7 @@ import { createIndexWithContext } from "./activationHelpers/contextAware/content
 import { StatusBarItem } from "vscode";
 import { initNativeSqlite, isNativeSqliteReady } from "./utils/nativeSqlite";
 import { ensureSqliteNativeBinary } from "./utils/sqliteNativeBinaryManager";
+import { isOnline } from "./utils/connectivityChecker";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
@@ -46,7 +47,7 @@ import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool"
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { fileExists } from "./utils/webviewUtils";
-import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
+import { checkIfProjectIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import {
@@ -58,6 +59,10 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
+import { checkTools, getUnavailableTools } from "./utils/toolsManager";
+import { initToolPreferences } from "./utils/toolPreferences";
+import { downloadFFmpeg } from "./utils/ffmpegManager";
+import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
@@ -299,6 +304,8 @@ export async function activate(context: vscode.ExtensionContext) {
         console.warn("[Extension] Could not ensure temp directory exists:", e);
     }
 
+    initToolPreferences(context);
+
     // Save tab layout and close all editors before showing splash screen
     try {
         await saveTabLayout(context);
@@ -386,17 +393,48 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = finishRealtimeStep();
 
-        // Update git configuration files after Frontier auth is connected
-        // This ensures .gitignore and .gitattributes are current when extension starts
+        // If metadata.json is missing but the workspace has a .git with a remote,
+        // try to recover metadata.json from git history / remote.
+        if (!metadataExists && workspaceFolders && workspaceFolders.length > 0) {
+            const recoveryStart = globalThis.performance.now();
+            try {
+                const wsPath = workspaceFolders[0].uri.fsPath;
+                const gitFolderUri = vscode.Uri.joinPath(workspaceFolders[0].uri, ".git");
+                await vscode.workspace.fs.stat(gitFolderUri);
+
+                const { listRemotes } = await import("./utils/dugiteGit");
+                const remotes = await listRemotes(wsPath);
+                if (remotes.length > 0) {
+                    const { recoverMetadataFromGit } = await import("./projectManager/utils/projectUtils");
+                    const recovered = await recoverMetadataFromGit(wsPath);
+                    if (recovered) {
+                        metadataExists = true;
+                        console.log("[Extension] Recovered metadata.json from git — startup flow will handle UI");
+                    } else {
+                        console.warn(
+                            "[Extension] metadata.json is missing and could not be recovered from the remote repository. " +
+                            "The startup flow will prompt the user to re-create the project configuration."
+                        );
+                    }
+                }
+            } catch {
+                // No .git folder or git binary unavailable — skip recovery
+            }
+            trackTiming("Metadata Recovery Check", recoveryStart);
+        }
+
+        // Ensure git repo exists and config files are up-to-date.
+        // If metadata.json exists but .git doesn't (e.g., project created while git was
+        // unavailable), auto-initialize git now that the binary may be available.
         const gitConfigStart = globalThis.performance.now();
         if (metadataExists) {
             try {
-                const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+                const { ensureGitRepoInitialized, ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+                await ensureGitRepoInitialized();
                 await ensureGitConfigsAreUpToDate();
                 console.log("[Extension] Git configuration files updated on startup");
             } catch (error) {
                 console.error("[Extension] Error updating git config files on startup:", error);
-                // Don't fail startup due to git config update errors
             }
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
@@ -426,8 +464,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
+        // Check connectivity once so we can skip network-dependent downloads when offline.
+        const networkAvailable = await isOnline();
+        if (!networkAvailable) {
+            console.log("[Extension] Offline — will skip tool downloads and use cached binaries if available");
+        }
+
         // Download the native SQLite binary if not already present.
-        // This blocks with a progress notification on first run (~2 MB download).
+        // ensureSqliteNativeBinary returns instantly from local cache/disk,
+        // and only attempts a network download if the binary isn't present locally.
         const sqliteBinaryStart = globalThis.performance.now();
         try {
             const binaryPath = await ensureSqliteNativeBinary(context);
@@ -435,13 +480,121 @@ export async function activate(context: vscode.ExtensionContext) {
             initNativeSqlite(binaryPath);
             console.log("[SQLite] Native module initialized successfully");
         } catch (error: any) {
-            console.error("[SQLite] Failed to set up native binary:", error?.message || error);
-            console.error("[SQLite] Stack:", error?.stack);
-            vscode.window.showWarningMessage(
-                "SQLite native module could not be loaded. Search features will be unavailable."
-            );
+            if (!networkAvailable) {
+                console.log("[SQLite] Offline — binary not cached locally, search unavailable until online");
+            } else {
+                console.error("[SQLite] Failed to set up native binary:", error?.message || error);
+                console.error("[SQLite] Stack:", error?.stack);
+            }
         }
         stepStart = trackTiming("Setting up search engine", sqliteBinaryStart);
+
+        // Download FFmpeg if not already present.
+        // downloadFFmpeg checks local cache first, only
+        // hitting the network if the binary isn't present on disk.
+        const audioToolsStart = globalThis.performance.now();
+        try {
+            updateSplashScreenSync(0, "Setting up audio tools...");
+            await downloadFFmpeg(context);
+        } catch (error) {
+            if (!networkAvailable) {
+                console.log("[Extension] Offline — audio tools not cached locally, audio features unavailable until online");
+            } else {
+                console.error("[Extension] Error downloading audio tools:", error);
+            }
+        }
+        stepStart = trackTiming("Setting up audio tools", audioToolsStart);
+
+        // Run a fresh tool availability check after all download attempts
+        const toolCheckStart = globalThis.performance.now();
+        let toolCheckResult: Awaited<ReturnType<typeof checkTools>>;
+        let unavailableTools: string[];
+        try {
+            toolCheckResult = await checkTools(context, authApi);
+            unavailableTools = getUnavailableTools(toolCheckResult);
+        } catch (error) {
+            console.error("[Extension] checkTools() threw unexpectedly:", error);
+            toolCheckResult = { git: false, sqlite: false, ffmpeg: false };
+            unavailableTools = getUnavailableTools(toolCheckResult);
+        }
+        stepStart = trackTiming("Checking tool availability", toolCheckStart);
+
+        const ok = (v: boolean) => v ? "ok" : "MISSING";
+        console.info(
+            `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}`
+        );
+
+        // When offline, non-critical tools (git, audio) being unavailable is
+        // expected and not actionable -- skip the blocking warning panel.
+        const hasCriticalMissing = !toolCheckResult.sqlite;
+        const showWarningPanel =
+            unavailableTools.length > 0 && (networkAvailable || hasCriticalMissing);
+
+        if (unavailableTools.length > 0 && !showWarningPanel) {
+            console.log(
+                "[Extension] Offline -- non-critical tools unavailable (%s), continuing without warning panel",
+                unavailableTools.join(", ")
+            );
+        }
+
+        if (showWarningPanel) {
+            console.warn(
+                "[Extension] Unavailable tools after download attempts:",
+                unavailableTools.join(", ")
+            );
+
+            const warningProvider = new MissingToolsWarningProvider(context);
+            context.subscriptions.push(warningProvider);
+
+            // Start showing the warning panel (creates the tab synchronously),
+            // then close the splash. This ensures a visible tab exists at all
+            // times, preventing the WelcomeView from flashing during the gap.
+            const userActionPromise = warningProvider.show(
+                toolCheckResult,
+                async () => {
+                    const retryOnline = await isOnline();
+                    if (!retryOnline) {
+                        console.warn("[Extension] Offline — cannot retry tool downloads");
+                        return checkTools(context, authApi).catch(() => toolCheckResult);
+                    }
+
+                    const current = await checkTools(context, authApi).catch(() => toolCheckResult);
+
+                    if (!current.git) {
+                        try {
+                            await authApi?.retryGitBinaryDownload?.();
+                        } catch (e) {
+                            console.error("[Extension] Git binary retry failed:", e);
+                        }
+                    }
+                    if (!current.sqlite) {
+                        try {
+                            const binaryPath = await ensureSqliteNativeBinary(context);
+                            initNativeSqlite(binaryPath);
+                        } catch (e) {
+                            console.error("[Extension] SQLite retry failed:", e);
+                        }
+                    }
+                    if (!current.ffmpeg) {
+                        try { await downloadFFmpeg(context); } catch (e) {
+                            console.error("[Extension] FFmpeg retry failed:", e);
+                        }
+                    }
+                    return checkTools(context, authApi).catch(() => current);
+                }
+            );
+
+            // Now that the warning tab exists, close the splash screen.
+            closeSplashScreen();
+
+            const userAction = await userActionPromise;
+
+            if (userAction === "blocked" && !toolCheckResult.sqlite) {
+                // SQLite is missing and the user closed the panel without
+                // continuing. The extension cannot function without SQLite.
+                return;
+            }
+        }
 
         // Check for pending update (swap) downloads (after workspace is ready)
         if (workspaceFolders && workspaceFolders.length > 0) {
@@ -631,6 +784,22 @@ export async function activate(context: vscode.ExtensionContext) {
         autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
         autoCompleteStatusBarItem.hide();
         context.subscriptions.push(autoCompleteStatusBarItem);
+
+        if (!toolCheckResult.git) {
+            const gitStatusBarItem = vscode.window.createStatusBarItem(
+                vscode.StatusBarAlignment.Left,
+                0
+            );
+            gitStatusBarItem.text = "$(warning) Offline (missing sync tools)";
+            gitStatusBarItem.tooltip =
+                "Git sync tools could not be downloaded. Sync and collaboration features are unavailable. Download the Codex application from codexeditor.app for full support.";
+            gitStatusBarItem.backgroundColor = new vscode.ThemeColor(
+                "statusBarItem.warningBackground"
+            );
+            gitStatusBarItem.show();
+            context.subscriptions.push(gitStatusBarItem);
+        }
+
         stepStart = trackTiming("Initializing Status Bar", statusBarStart);
 
         // Show activation summary
@@ -679,7 +848,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // After migrations complete, trigger sync directly
         // (All migrations have finished executing since they're awaited sequentially)
         try {
-            const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+            const hasCodexProject = await checkIfProjectIsInitialized();
             if (hasCodexProject) {
                 const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
@@ -767,6 +936,12 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand("codex-editor.openCodexMigrationTool", () =>
             openCodexMigrationTool(context)
         )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openToolsStatus", async () => {
+            const provider = new MissingToolsWarningProvider(context);
+            await provider.showToolsStatus();
+        })
     );
 
     // Command: Migrate validations for user edits across project

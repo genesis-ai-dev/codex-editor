@@ -598,6 +598,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
     }
 
+    /**
+     * Re-stat metadata.json to get a fresh isProjectInitialized value,
+     * avoiding stale preflight state that can cause the initialize form to flash.
+     */
+    private async getFreshProjectInitialized(): Promise<boolean> {
+        try {
+            const ws = vscode.workspace.workspaceFolders;
+            if (!ws?.length) {
+                return this.preflightState.workspaceState.isProjectSetup;
+            }
+            const metadataUri = vscode.Uri.joinPath(ws[0].uri, "metadata.json");
+            const content = await vscode.workspace.fs.readFile(metadataUri);
+            const metadata = JSON.parse(content.toString());
+            const hasSource = metadata.languages?.some(
+                (l: { projectStatus?: string }) => l.projectStatus === "source"
+            );
+            const hasTarget = metadata.languages?.some(
+                (l: { projectStatus?: string }) => l.projectStatus === "target"
+            );
+            return !!metadata.projectName && !!hasSource && !!hasTarget;
+        } catch {
+            return this.preflightState.workspaceState.isProjectSetup;
+        }
+    }
+
     private async initializeFrontierApi() {
         try {
             this.frontierApi = getAuthApi();
@@ -605,7 +630,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Clear cached preflight check to ensure we get fresh auth state
                 this._preflightPromise = undefined;
 
-                // Get initial auth status
+                const isProjectInitialized = await this.getFreshProjectInitialized();
+
                 const initialStatus = this.frontierApi?.getAuthStatus();
                 this.updateAuthState({
                     isAuthExtensionInstalled: true,
@@ -613,7 +639,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isLoading: false,
                     workspaceState: {
                         isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
+                        isProjectInitialized,
                     },
                 });
 
@@ -630,7 +656,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                 });
                 disposable && this.disposables.push(disposable);
-                // Remove expensive sendList call from initialization - defer until needed
             } else {
                 this.updateAuthState({
                     isAuthExtensionInstalled: false,
@@ -1103,6 +1128,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             this.stateMachine.send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
         } catch {
             this.stateMachine.send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+            const folderName = vscode.workspace.workspaceFolders?.[0]?.name ?? "";
+            this.safeSendMessage({
+                command: "provideWorkspaceContext",
+                workspaceFolderName: folderName,
+            });
         }
     }
 
@@ -2493,6 +2523,69 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "project.initializeWithLanguages": {
+                debugLog("Initializing project with languages");
+
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                let projectId: string | undefined;
+
+                if (workspaceFolders && workspaceFolders[0]) {
+                    projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                }
+
+                const { sourceLanguage, targetLanguage } = message as {
+                    sourceLanguage: import("codex-types").LanguageMetadata;
+                    targetLanguage: import("codex-types").LanguageMetadata;
+                };
+
+                await createNewProject({ projectId, sourceLanguage, targetLanguage });
+
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        await vscode.workspace.fs.stat(metadataUri);
+
+                        // Generate copilot system message in the background
+                        const srcRef = sourceLanguage?.refName;
+                        const tgtRef = targetLanguage?.refName;
+                        if (srcRef && tgtRef) {
+                            const workspaceUri = workspaceFolders[0].uri;
+                            import("../../copilotSettings/copilotSettings").then(({ generateChatSystemMessage }) =>
+                                generateChatSystemMessage({ refName: srcRef }, { refName: tgtRef }, workspaceUri).then(async (msg) => {
+                                    if (msg) {
+                                        const { MetadataManager: MM } = await import("../../utils/metadataManager");
+                                        await MM.setChatSystemMessage(msg, workspaceUri);
+                                        console.debug("[StartupFlow] Generated copilot system message after metadata recovery");
+                                    }
+                                })
+                            ).catch((err) => {
+                                console.debug("[StartupFlow] Background system message generation failed (non-critical):", err);
+                            });
+                        }
+
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.showProjectOverview"
+                        );
+
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: true,
+                        });
+
+                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                    } catch (error) {
+                        console.error("Error checking metadata.json:", error);
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: false,
+                        });
+                    }
+                }
+                break;
+            }
             case "webview.ready": {
                 // Try to initialize Frontier API if it's missing (e.g. extension just installed)
                 if (!this.frontierApi) {
@@ -2536,6 +2629,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } else {
                     this.stateMachine.send({
                         type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT,
+                    });
+                    const folderName = vscode.workspace.workspaceFolders?.[0]?.name ?? "";
+                    this.safeSendMessage({
+                        command: "provideWorkspaceContext",
+                        workspaceFolderName: folderName,
                     });
                 }
                 break;

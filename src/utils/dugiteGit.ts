@@ -448,6 +448,12 @@ export async function deleteRemote(dir: string, name: string): Promise<void> {
     assertSuccess("remote remove", result);
 }
 
+/** Fetch from a remote (defaults to "origin"). */
+export async function fetch(dir: string, remote = "origin"): Promise<void> {
+    const result = await gitExec(["fetch", remote], dir);
+    assertSuccess("fetch", result);
+}
+
 /** Status matrix entry, matching isomorphic-git's format. */
 export type StatusMatrixEntry = [string, 0 | 1 | 2, 0 | 1 | 2, 0 | 1 | 2];
 

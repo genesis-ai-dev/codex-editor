@@ -108,6 +108,22 @@ function EditableField({
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
 const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 
+const TOOL_DOT_STYLES: Record<string, { icon: string; color: string }> = {
+    ok: { icon: "codicon-pass-filled", color: "#22c55e" },
+    missing: { icon: "codicon-error", color: "#ef4444" },
+    fallback: { icon: "codicon-warning", color: "#f59e0b" },
+};
+
+const ToolDot: React.FC<{ status: "ok" | "missing" | "fallback" }> = ({ status }) => {
+    const { icon, color } = TOOL_DOT_STYLES[status];
+    return (
+        <i
+            className={`codicon ${icon}`}
+            style={{ color, fontSize: "14px" }}
+        />
+    );
+};
+
 interface ProjectManagerState {
     projectOverview: any | null;
     webviewReady: boolean;
@@ -182,6 +198,13 @@ function MainMenu() {
     const isOnline = network?.online ?? true;
 
     const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
+
+    const [toolsStatus, setToolsStatus] = useState<{
+        sqlite: boolean;
+        git: boolean;
+        ffmpeg: boolean;
+        audioToolMode: "auto" | "builtin";
+    } | null>(null);
 
     // Optimistic local state for validation counters so rapid clicks work correctly.
     // Without this, each click reads from the stale server-confirmed state (which
@@ -355,7 +378,9 @@ function MainMenu() {
                         },
                     }));
                     break;
-                // Speech-to-text settings moved to Copilot Settings panel
+                case "toolsStatusSummary":
+                    setToolsStatus(message.data);
+                    break;
             }
         };
 
@@ -864,15 +889,19 @@ function MainMenu() {
                                                     }
                                                 }}
                                                 disabled={
+                                                    !state.isGitAvailable ||
                                                     projectState.isPublishingInProgress ||
                                                     projectState.isImportInProgress ||
                                                     !isOnline ||
                                                     !state.isFrontierExtensionEnabled
                                                 }
+                                                title={!state.isGitAvailable ? "Sync unavailable — missing sync tools" : undefined}
                                                 size="sm"
                                                 className="flex-shrink-0"
                                             >
-                                                {projectState.isPublishingInProgress ? (
+                                                {!state.isGitAvailable ? (
+                                                    "Sync Unavailable"
+                                                ) : projectState.isPublishingInProgress ? (
                                                     <>
                                                         <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
                                                         {projectState.publishingStage ||
@@ -965,6 +994,23 @@ function MainMenu() {
                                                     executeCommand("openCodexMigrationTool"),
                                             },
                                             {
+                                                icon: "codicon-circuit-board",
+                                                label: "Tools Status",
+                                                action: () =>
+                                                    executeCommand("openToolsStatus"),
+                                                suffix: toolsStatus ? (
+                                                    <span className="flex items-center gap-1 ml-auto">
+                                                        <ToolDot status={toolsStatus.sqlite ? "ok" : "missing"} />
+                                                        <ToolDot status={toolsStatus.git ? "ok" : "missing"} />
+                                                        <ToolDot status={
+                                                            !toolsStatus.ffmpeg ? "missing"
+                                                                : toolsStatus.audioToolMode === "builtin" ? "fallback"
+                                                                    : "ok"
+                                                        } />
+                                                    </span>
+                                                ) : null,
+                                            },
+                                            {
                                                 icon: "codicon-extensions",
                                                 label: projectState.isCheckingForUpdates
                                                     ? "Checking..."
@@ -1010,6 +1056,7 @@ function MainMenu() {
                                                 <span className={item.destructive ? "" : ""}>
                                                     {item.label}
                                                 </span>
+                                                {item.suffix}
                                             </button>
                                         ))}
                                     </div>
