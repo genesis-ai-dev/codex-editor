@@ -4,7 +4,6 @@
 
 # Allowlist what we need (only extension output, NOT test bundles)
 !out/*.js
-!out/*.js.map
 !out/node_modules/**
 !assets/**
 
