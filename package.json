@@ -516,6 +516,11 @@
                         "default": false,
                         "description": "Internal flag indicating the global references migration has completed."
                     },
+                    "codex-project-manager.editValueObjectMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the edit value object migration has completed."
+                    },
                     "codex-project-manager.chatSystemMessageToMetadataMigrationCompleted": {
                         "type": "boolean",
                         "default": false,

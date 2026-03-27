@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../serializer";
 import { mergeDuplicateCellsUsingResolverLogic } from "../projectManager/utils/merge/resolvers";
 import { EditMapUtils } from "../utils/editMapUtils";
@@ -6,6 +7,7 @@ import { EditType } from "../../types/enums";
 import { getAuthApi } from "../extension";
 import type { CustomNotebookCellData } from "../../types";
 import type { MigrationMatchResult } from "./types";
+import { resolveCellValue } from "../utils/cellValueResolver";
 
 const cloneCell = (cell: CustomNotebookCellData): CustomNotebookCellData => {
     return JSON.parse(JSON.stringify(cell)) as CustomNotebookCellData;
@@ -28,8 +30,9 @@ const addMigrationEdit = (
         cell.metadata.edits = [];
     }
     cell.metadata.edits.push({
+        id: randomUUID(),
         editMap: EditMapUtils.value(),
-        value: cell.value,
+        value: resolveCellValue(cell as any),
         timestamp,
         type: EditType.MIGRATION,
         author,

@@ -90,6 +90,7 @@ interface TranslationPair {
 
 // Generic EditHistoryItem that infers value type from editMap
 interface EditHistoryItem<TEditMap extends readonly string[] = readonly string[]> {
+    id?: string;
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
     timestamp: number;
@@ -647,11 +648,15 @@ type EditMapValueType<T extends readonly string[]> =
 
 // Conditional type for EditHistory that infers value type based on editMap
 type EditHistoryBase = {
+    id?: string;
     author: string;
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
 };
+
+/** On-disk representation of cell.value when using the edit-value-object format */
+type CellValueOnDisk = { selectedEdit: string; updatedAt: number };
 
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
     editMap: TEditMap;
@@ -665,6 +670,7 @@ export type EditHistoryMutable = EditHistory;
 
 // Utility type for creating type-safe edits
 export type EditFor<TEditMap extends readonly string[]> = {
+    id?: string;
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
     author: string;
@@ -675,6 +681,7 @@ export type EditFor<TEditMap extends readonly string[]> = {
 
 // File-level edit type for metadata edits (separate from EditHistory)
 export type FileEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
+    id?: string;
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
     timestamp: number;
@@ -684,6 +691,7 @@ export type FileEditHistory<TEditMap extends readonly string[] = readonly string
 
 // Project-level metadata edit type (for metadata.json)
 export type ProjectEditHistory<TEditMap extends readonly string[] = readonly string[]> = {
+    id?: string;
     editMap: TEditMap;
     value: EditMapValueType<TEditMap>;
     timestamp: number;
@@ -710,6 +718,7 @@ type BaseCustomCellMetaData = {
     id: string;
     type: CodexCellTypes;
     edits: EditHistory[];
+    activeEditId?: string;
     parentId?: string; // UUID of parent cell (for child cells like cues, paratext, etc.)
     isLocked?: boolean;
 };
@@ -914,6 +923,7 @@ interface QuillCellContent {
     cellContent: string;
     cellType: CodexCellTypes;
     editHistory: Array<EditHistory>;
+    activeEditId?: string;
     timestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;

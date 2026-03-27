@@ -29,6 +29,7 @@ type DeletedCorpusMarkerEditMap = ["deletedCorpusMarker"];
 type DeletedFileEditMap = ["deletedFile"];
 
 import { EditType } from "../../types/enums";
+import { generateCellIdFromHash } from "./uuidUtils";
 
 // Utility functions for working with editMaps
 export const EditMapUtils = {
@@ -213,21 +214,35 @@ export function deduplicateFileMetadataEdits(
         return [];
     }
 
-    // Create a Map to track unique edits by key: timestamp:editMap:value
+    // Dedup: prefer edit id as primary key, fall back to composite key for legacy
     const editMap = new Map<string, any>();
 
     edits.forEach((edit) => {
         if (edit.editMap && Array.isArray(edit.editMap)) {
-            const editMapKey = edit.editMap.join('.');
-            // Properly serialize object values to avoid [object Object] issue
-            const valueKey = typeof edit.value === 'object' && edit.value !== null
-                ? JSON.stringify(edit.value)
-                : String(edit.value);
-            const key = `${edit.timestamp}:${editMapKey}:${valueKey}`;
+            let key: string;
+            if (edit.id) {
+                key = edit.id;
+            } else {
+                const editMapKey = edit.editMap.join('.');
+                const valueKey = typeof edit.value === 'object' && edit.value !== null
+                    ? JSON.stringify(edit.value)
+                    : String(edit.value);
+                key = `${edit.timestamp}:${editMapKey}:${valueKey}`;
+            }
 
-            // Keep the first occurrence of a duplicate (file-level edits don't have validatedBy)
             if (!editMap.has(key)) {
                 editMap.set(key, edit);
+            } else if (edit.validatedBy) {
+                // Merge validatedBy arrays on collision
+                const existing = editMap.get(key)!;
+                if (!existing.validatedBy) {
+                    existing.validatedBy = [];
+                }
+                for (const v of edit.validatedBy) {
+                    if (v && !existing.validatedBy.some((ev: any) => ev?.username === v.username)) {
+                        existing.validatedBy.push(v);
+                    }
+                }
             }
         }
     });
@@ -289,6 +304,7 @@ export function addMetadataEdit(
 
     // Create the new edit entry
     const newEdit = {
+        id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         editMap,
         value,
         timestamp: currentTimestamp,
@@ -321,6 +337,7 @@ export function addProjectMetadataEdit(
 
     // Create the new edit entry
     const newEdit = {
+        id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         editMap,
         value,
         timestamp: currentTimestamp,
@@ -331,4 +348,14 @@ export function addProjectMetadataEdit(
     // Add the new edit and deduplicate (can reuse the same deduplication function)
     metadata.edits.push(newEdit);
     metadata.edits = deduplicateFileMetadataEdits(metadata.edits);
+}
+
+/**
+ * Generates a deterministic edit ID from edit content using SHA-256.
+ * Input: `${value}:${timestamp}:${author}` → SHA-256 → UUID format.
+ * Used for backfilling IDs on existing edits during migration.
+ */
+export async function generateEditId(value: string, timestamp: number, author: string): Promise<string> {
+    const input = `${value}:${timestamp}:${author}`;
+    return generateCellIdFromHash(input);
 }
