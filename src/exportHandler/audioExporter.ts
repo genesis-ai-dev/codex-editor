@@ -28,11 +28,6 @@ function sanitizeFileComponent(input: string): string {
         .replace(/_+/g, "_");
 }
 
-function formatDateForFolder(d: Date): string {
-    const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-}
-
 // REMOVE: This doesn't seem to be used anywhere
 /**
  * Parses a cell reference ID (from globalReferences) to extract book, chapter, and verse.
@@ -481,17 +476,8 @@ export async function exportAudioAttachments(
     }
     const workspaceFolder = workspaceFolders[0];
 
-    // Resolve project name
-    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-    let projectName = projectConfig.get<string>("projectName", "");
-    if (!projectName) {
-        projectName = basename(workspaceFolder.uri.fsPath);
-    }
-
-    const dateStamp = formatDateForFolder(new Date());
-    const exportRoot = vscode.Uri.file(userSelectedPath);
-    const finalExportDir = vscode.Uri.joinPath(exportRoot, "export", `${sanitizeFileComponent(projectName)}-${dateStamp}`);
-    await vscode.workspace.fs.createDirectory(finalExportDir);
+    const exportDir = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportDir);
 
     const includeTimestamps = !!options?.includeTimestamps;
     const selectedFiles = filesToExport.map((p) => vscode.Uri.file(p));
@@ -516,7 +502,7 @@ export async function exportAudioAttachments(
                 progress.report({ message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`, increment });
 
                 const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
-                const bookFolder = vscode.Uri.joinPath(finalExportDir, sanitizeFileComponent(bookCode));
+                const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(bookCode));
                 await vscode.workspace.fs.createDirectory(bookFolder);
 
                 let notebook: CodexNotebookAsJSONData;
@@ -629,7 +615,7 @@ export async function exportAudioAttachments(
             }
 
             debug(`Export summary: ${copiedCount} files copied, ${missingCount} skipped`);
-            vscode.window.showInformationMessage(`Audio export completed: ${copiedCount} files copied${missingCount ? `, ${missingCount} skipped` : ""}. Output: ${finalExportDir.fsPath}`);
+            vscode.window.showInformationMessage(`Audio export completed: ${copiedCount} files copied${missingCount ? `, ${missingCount} skipped` : ""}. Output: ${exportDir.fsPath}`);
         }
     );
 }
