@@ -535,6 +535,120 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
 }
 
 /**
+ * Auto-initialize git for a project that has metadata.json but no .git folder.
+ * This handles the case where a project was created while git was unavailable
+ * and git has since been installed/downloaded.
+ */
+export async function ensureGitRepoInitialized(): Promise<boolean> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        return false;
+    }
+
+    const workspacePath = workspaceFolder.uri.fsPath;
+
+    const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+    try {
+        await vscode.workspace.fs.stat(metadataUri);
+    } catch {
+        return false;
+    }
+
+    const gitFolderUri = vscode.Uri.joinPath(workspaceFolder.uri, ".git");
+    try {
+        await vscode.workspace.fs.stat(gitFolderUri);
+        return true;
+    } catch {
+        // .git doesn't exist — attempt recovery
+    }
+
+    try {
+        await dugiteGit.init(workspacePath);
+        await ensureGitConfigsAreUpToDate();
+        await ensureGitDisabledInSettings();
+
+        await dugiteGit.add(workspacePath, ".");
+
+        const authApi = getAuthApi();
+        let userInfo;
+        try {
+            const authStatus = authApi?.getAuthStatus();
+            if (authStatus?.isAuthenticated) {
+                userInfo = await authApi?.getUserInfo();
+            }
+        } catch {
+            // no user info available
+        }
+
+        const author = {
+            name:
+                userInfo?.username ||
+                vscode.workspace.getConfiguration("codex-project-manager").get<string>("userName") ||
+                "Unknown",
+            email:
+                userInfo?.email ||
+                vscode.workspace.getConfiguration("codex-project-manager").get<string>("userEmail") ||
+                "unknown",
+        };
+
+        await dugiteGit.commit(
+            workspacePath,
+            "Initial commit: Initialize git for existing project",
+            { name: author.name, email: author.email },
+        );
+
+        console.log("[ProjectUtils] Auto-initialized git for existing project");
+        return true;
+    } catch (error) {
+        debug("Could not auto-initialize git (binary may be unavailable):", error);
+        return false;
+    }
+}
+
+/**
+ * Recover metadata.json from git history or remote for synced projects.
+ * Tries local HEAD first, then fetches from the remote and reads from the
+ * default branch (origin/HEAD, origin/main, origin/master).
+ * Returns true if recovery succeeded.
+ */
+export async function recoverMetadataFromGit(workspacePath: string): Promise<boolean> {
+    const metadataPath = vscode.Uri.joinPath(vscode.Uri.file(workspacePath), "metadata.json");
+
+    // 1. Try restoring from local HEAD
+    try {
+        const content = await dugiteGit.readBlobAtRef(workspacePath, "HEAD", "metadata.json");
+        await vscode.workspace.fs.writeFile(metadataPath, content);
+        console.log("[ProjectUtils] Recovered metadata.json from local HEAD");
+        return true;
+    } catch {
+        debug("metadata.json not found at HEAD, trying remote");
+    }
+
+    // 2. Fetch from remote and try common branch refs
+    try {
+        await dugiteGit.fetch(workspacePath, "origin");
+    } catch (fetchErr) {
+        debug("Could not fetch from origin:", fetchErr);
+        return false;
+    }
+
+    const candidateRefs = ["origin/HEAD", "origin/main", "origin/master"];
+    for (const ref of candidateRefs) {
+        try {
+            const content = await dugiteGit.readBlobAtRef(workspacePath, ref, "metadata.json");
+            await vscode.workspace.fs.writeFile(metadataPath, content);
+            console.log(`[ProjectUtils] Recovered metadata.json from ${ref}`);
+            return true;
+        } catch {
+            // try next ref
+        }
+    }
+
+    debug("Could not recover metadata.json from any remote ref");
+    return false;
+}
+
+/**
  * Gets the current user name for edit tracking
  */
 async function getCurrentUserName(): Promise<string> {
@@ -966,52 +1080,32 @@ export async function syncMetadataToConfiguration() {
     }
 }
 
-export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
+export async function checkIfProjectIsInitialized(): Promise<boolean> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        debug("No workspace folder found"); // Changed to log since this is expected when no folder is open
+        debug("No workspace folder found");
         return false;
     }
 
     const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
 
-    let metadataExists = false;
-    let gitExists = false;
-
     try {
-        // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
-        metadataExists = true;
 
-        // Sync metadata values to configuration
-        // Wrap in try/catch to prevent sync failures from blocking initialization
         try {
             await syncMetadataToConfiguration();
         } catch (e) {
             debug("Failed to sync metadata to configuration:", e);
         }
+
+        // metadata.json exists → project is initialized.
+        // Missing .git is handled separately by ensureGitRepoInitialized() on startup
+        // and by the MissingToolsWarning panel if git is unavailable.
+        return true;
     } catch {
-        debug("No metadata.json file found yet"); // Changed to log since this is expected for new projects
+        debug("No metadata.json file found yet");
+        return false;
     }
-
-    try {
-        // Check git repository
-        await dugiteGit.resolveRef(workspaceFolder.uri.fsPath, "HEAD");
-        gitExists = true;
-
-        // If both metadata and git exist, ensure git configuration files are up-to-date
-        if (metadataExists) {
-            await ensureGitConfigsAreUpToDate();
-            // NOTE: ensureGitDisabledInSettings() is now called AFTER sync in extension.ts
-            // to avoid creating a dirty working directory before sync operations
-        }
-    } catch {
-        debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
-    }
-
-
-
-    return metadataExists && gitExists;
 }
 
 export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean; }) => {
@@ -1848,6 +1942,9 @@ async function updateGitignoreFile(): Promise<void> {
         "# Don't sync SQLite auxiliary files",
         ".project/*.sqlite-wal",
         ".project/*.sqlite-shm",
+        "",
+        "# Don't sync temporary files",
+        ".project/.temp/**",
         "",
         "# Don't sync user-specific files",
         ".project/complete_drafts.txt",

@@ -20,16 +20,10 @@
  */
 
 import { EventEmitter } from "events";
+import type { IAsyncDatabase, RunResult } from "./sqliteTypes";
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-/** Result of an INSERT/UPDATE/DELETE operation */
-export interface RunResult {
-    /** Row ID of the last inserted row */
-    lastID: number;
-    /** Number of rows affected by the statement */
-    changes: number;
-}
+// Re-export so existing consumers that import RunResult from here don't break.
+export type { RunResult } from "./sqliteTypes";
 
 /**
  * The raw native binding exported by node_sqlite3.node.
@@ -287,7 +281,7 @@ export function isNativeSqliteReady(): boolean {
  * Promise-based wrapper around the native SQLite Database.
  * All methods return Promises instead of using callbacks.
  */
-export class AsyncDatabase {
+export class AsyncDatabase implements IAsyncDatabase {
     private db: WrappedDatabase;
     /** Set to true after close() — guards against use-after-close and double-close. */
     private closed = false;
@@ -526,6 +520,16 @@ export class AsyncDatabase {
                 }
             });
         });
+    }
+
+    /**
+     * Flush pending writes to disk.
+     * For the native backend this is a no-op — the OS page cache and WAL
+     * handle persistence automatically. The method exists so that
+     * SQLiteIndexManager can call `db.flush()` uniformly on both backends.
+     */
+    async flush(): Promise<void> {
+        // No-op: native SQLite writes through the OS page cache / WAL.
     }
 
     /**
