@@ -27,6 +27,7 @@ import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats,
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
+import { queueHealthPropagation } from "../../utils/healthPropagation";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -511,6 +512,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
             Promise.resolve(this.addCellToIndexImmediately(cellId, newContent, editType)).catch(error => {
                 console.error(`[CodexDocument] Async error in immediate indexing for cell ${cellId}:`, error);
             });
+
+            // Propagate health changes to similar cells when content is updated
+            if (cellToUpdate.metadata?.health !== undefined) {
+                queueHealthPropagation(cellId);
+            }
         }
 
     }
@@ -2516,6 +2522,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             }
         }
 
+        // Propagate health changes to similar cells
+        queueHealthPropagation(cellId);
+
         // Mark document as dirty
         this._isDirty = true;
         this._dirtyCellIds.add(cellId);
@@ -2648,6 +2657,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellToUpdate.metadata.health = 0.3;
             }
         }
+
+        // Propagate health changes to similar cells
+        queueHealthPropagation(cellId);
 
         // Mark document as dirty
         this._isDirty = true;

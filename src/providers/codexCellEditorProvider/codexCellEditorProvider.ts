@@ -48,6 +48,7 @@ import {
 } from "../../utils/fileTypeUtils";
 import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
+import { setHealthUpdateCallback } from "../../utils/healthPropagation";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -319,6 +320,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
 
         this.context.subscriptions.push(configurationChangeDisposable);
+
+        // Register health propagation callback to bridge SQLite updates to in-memory docs + webviews
+        setHealthUpdateCallback((updates) => {
+            for (const { cellId, health } of updates) {
+                for (const [docUri, document] of this.documents) {
+                    const cell = document.getCell(cellId);
+                    if (cell) {
+                        // Update in-memory document
+                        cell.metadata.health = health;
+                        // Push to webview if panel is open
+                        const panel = this.webviewPanels.get(docUri);
+                        if (panel) {
+                            safePostMessageToPanel(panel, {
+                                type: "providerUpdatesCellHealth",
+                                content: { cellId, health },
+                            });
+                        }
+                        break; // Cell found, no need to check other documents
+                    }
+                }
+            }
+        });
 
         // Register a command to update validation indicators
         this.context.subscriptions.push(

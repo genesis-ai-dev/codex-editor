@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent } from "../../../../types";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
@@ -104,47 +103,10 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         }
     };
 
-        // Get the latest edit
-        const cellValueData = getCellValueData(cell);
-        if (!cellValueData) {
-            return;
-        }
-        setUserCreatedLatestEdit(
-            cellValueData.author === username && cellValueData.editType === "user-edit"
-        );
-
-        // Check if the current user has already validated this edit
-        if (cellValueData.validatedBy && username) {
-            // Look for the user's entry in validatedBy and check if isDeleted is false
-            const userEntry = cellValueData.validatedBy.find(
-                (entry) =>
-                    isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
-            );
-            setIsValidated(!!userEntry);
-
-            // Get all active validation users
-            const activeValidations = cellValueData.validatedBy.filter(
-                (entry) => isValidValidationEntry(entry) && !entry.isDeleted
-            );
-            setValidationUsers(activeValidations);
-        }
-    }, [cell, username]);
-
-    // Get the current username when component mounts and listen for configuration changes
-    useEffect(() => {
-        // Username is now bundled with initial content and passed down from parent
-        if (currentUsername) {
-            setUsername(currentUsername);
-        }
-        // No need to request username separately - it comes bundled with initial content
-    }, [currentUsername]);
-
-    // Update requiredValidations when prop changes
-    useEffect(() => {
-        if (requiredValidationsProp !== undefined && requiredValidationsProp !== null) {
-            setRequiredValidations(requiredValidationsProp);
-        }
-    }, [requiredValidationsProp]);
+    const scheduleCloseTimer = (callback: () => void, delay: number) => {
+        clearCloseTimer();
+        closeTimerRef.current = window.setTimeout(callback, delay);
+    };
 
     // Listen for provider messages to clear pending state
     useMessageHandler(
@@ -315,15 +277,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         clearCloseTimer();
     };
 
-    const buttonStyle = {
-        height: "16px",
-        width: "16px",
-        padding: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-    };
-
     // Show as in-progress when pending (waiting for provider response)
     const isValidationInProgress = isPendingValidation;
     const isDisabled = isSourceText || isValidationInProgress || Boolean(externallyDisabled);
@@ -333,24 +286,31 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         return null;
     }
 
+    const isValidated = isValidatedByCurrentUser || currentValidations > 0;
+
     return (
         <div
             ref={buttonRef}
-            className={`validation-button-container relative inline-block ${
+            className={`validation-button-container relative inline-flex items-center justify-center ${
                 isKeyboardFocused ? "keyboard-focused" : ""
             }`}
             onMouseEnter={showPopoverHandler}
             onMouseLeave={hidePopoverHandler}
         >
-            <VSCodeButton
-                appearance="icon"
+            <button
+                type="button"
                 style={{
-                    ...buttonStyle,
-                    // Add orange border for pending validations
-                    ...(isPendingValidation && {
-                        border: "2px solid #f5a623",
-                        borderRadius: "50%",
-                    }),
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    cursor: isDisabled ? "default" : "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "18px",
+                    height: "18px",
+                    opacity: isDisabled ? 0.5 : 1,
                 }}
                 onClick={handleButtonClick}
                 onKeyDown={handleKeyDown}
@@ -362,7 +322,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         ? "Validating..."
                         : isDisabled
                         ? disabledReason || "Validation requires text and audio"
-                        : undefined
+                        : isValidated
+                        ? "Validated"
+                        : "Click to validate"
                 }
             >
                 <ValidationStatusIcon
@@ -376,17 +338,13 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     showHealthRadial={showHealthIndicators}
                     isPendingValidation={isPendingValidation}
                 />
-            </VSCodeButton>
+            </button>
 
             <style>
                 {`
                 @keyframes spin {
                     from { transform: rotate(0deg); }
                     to { transform: rotate(360deg); }
-                }
-                .validation-button-container .pending {
-                    border: 2px solid #f5a623;
-                    border-radius: 50%;
                 }
                 `}
             </style>

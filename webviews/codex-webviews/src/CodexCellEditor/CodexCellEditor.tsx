@@ -1411,6 +1411,25 @@ const CodexCellEditor: React.FC = () => {
                 }
             }
 
+            // Listen for propagated health updates (from health propagation service)
+            if (message.type === "providerUpdatesCellHealth") {
+                if (message.content?.cellId && message.content?.health !== undefined) {
+                    setTranslationUnits((prevUnits) =>
+                        prevUnits.map((unit) =>
+                            unit.cellMarkers[0] === message.content.cellId
+                                ? {
+                                      ...unit,
+                                      metadata: {
+                                          ...unit.metadata,
+                                          health: message.content.health,
+                                      },
+                                  }
+                                : unit
+                        )
+                    );
+                }
+            }
+
             // Listen for audio validation state updates to refresh progress
             if (message.type === "providerUpdatesAudioValidationState") {
                 // Update cell health in translationUnits when audio validation includes health

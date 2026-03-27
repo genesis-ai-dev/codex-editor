@@ -241,79 +241,75 @@ const ValidationStatusIcon: React.FC<ValidationStatusIconProps> = ({
         );
     }
 
+    // Validated state: show fully-filled radial circle with a checkmark in the center
     const isFullyValidated = currentValidations >= requiredValidations;
-
-    // Show optimistic checkmark if animation completed and we're waiting for backend confirmation
-    // When optimistic, show single checkmark (not check-all) since we don't know if it's fully validated yet
     const shouldShowCheckmark = isValidatedByCurrentUser || showOptimisticCheckmark;
+    const isValidated = isFullyValidated || shouldShowCheckmark || currentValidations > 0;
 
-    if (isFullyValidated) {
-        if (shouldShowCheckmark) {
-            return (
-                <div className="flex items-center justify-center text-sm font-light">
-                    <i
-                        className="codicon codicon-check-all"
-                        style={{
-                            fontSize: "14px",
-                            color: isDisabled
-                                ? "var(--vscode-disabledForeground)"
-                                : "var(--vscode-charts-green)",
-                            filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
-                        }}
-                    ></i>
-                    {displayValidationText && <span className="ml-1">Fully validated</span>}
-                </div>
-            );
-        }
-        return (
-            <div className="flex items-center justify-center text-sm font-light">
-                <i
-                    className="codicon codicon-check-all"
-                    style={{
-                        fontSize: "14px",
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-charts-green)",
-                        filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
-                    }}
-                ></i>
-                {displayValidationText && (
-                    <span className="ml-1">Fully validated by other user(s)</span>
-                )}
-            </div>
-        );
-    }
-
-    if (shouldShowCheckmark) {
-        return (
-            <div className="flex items-center justify-center text-sm font-light">
-                <i
-                    className="codicon codicon-check"
-                    style={{
-                        fontSize: "14px",
-                        color: isDisabled
-                            ? "var(--vscode-disabledForeground)"
-                            : "var(--vscode-charts-green)",
-                        filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))",
-                    }}
-                ></i>
-                {displayValidationText && <span className="ml-1">Validated by you</span>}
-            </div>
-        );
-    }
+    const validatedContainerSize = 18;
+    const validatedStrokeWidth = 2.5;
+    const validatedRadius = (validatedContainerSize - validatedStrokeWidth) / 2;
+    const validatedCircumference = 2 * Math.PI * validatedRadius;
+    const validatedColor = "#22c55e"; // green-500, fully healthy
 
     return (
-        <div className="flex items-center justify-center text-sm font-light">
-            <i
-                className="codicon codicon-circle-filled"
-                style={{
-                    fontSize: "12px",
-                    color: isDisabled
-                        ? "var(--vscode-disabledForeground)"
-                        : "var(--vscode-descriptionForeground)",
-                }}
-            ></i>
-            {displayValidationText && <span className="ml-1">Validated by other user(s)</span>}
+        <div className="flex items-center justify-center text-sm font-light relative">
+            <div
+                className="relative inline-flex items-center justify-center"
+                style={{ width: validatedContainerSize, height: validatedContainerSize }}
+            >
+                {/* Full radial circle - 100% filled */}
+                <svg
+                    width={validatedContainerSize}
+                    height={validatedContainerSize}
+                    style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        transform: "rotate(-90deg)",
+                    }}
+                >
+                    {/* Background circle */}
+                    <circle
+                        cx={validatedContainerSize / 2}
+                        cy={validatedContainerSize / 2}
+                        r={validatedRadius}
+                        fill="none"
+                        stroke="rgba(128, 128, 128, 0.15)"
+                        strokeWidth={validatedStrokeWidth}
+                    />
+                    {/* Full progress circle */}
+                    <circle
+                        cx={validatedContainerSize / 2}
+                        cy={validatedContainerSize / 2}
+                        r={validatedRadius}
+                        fill="none"
+                        stroke={isDisabled ? "var(--vscode-disabledForeground)" : validatedColor}
+                        strokeWidth={validatedStrokeWidth}
+                        strokeDasharray={validatedCircumference}
+                        strokeDashoffset={0}
+                        strokeLinecap="round"
+                    />
+                </svg>
+                {/* Checkmark in center */}
+                <i
+                    className={`codicon ${isFullyValidated ? "codicon-check-all" : "codicon-check"}`}
+                    style={{
+                        fontSize: "10px",
+                        color: isDisabled
+                            ? "var(--vscode-disabledForeground)"
+                            : validatedColor,
+                        position: "relative",
+                        zIndex: 1,
+                        filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.3))",
+                    }}
+                ></i>
+            </div>
+            {displayValidationText && (
+                <span className="ml-1">
+                    {isFullyValidated ? "Fully validated" : "Validated"}
+                </span>
+            )}
         </div>
     );
 };

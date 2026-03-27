@@ -1861,25 +1861,59 @@ export class SQLiteIndexManager {
         if (!this.db || cellIds.length === 0) return new Map();
 
         const placeholders = cellIds.map(() => '?').join(',');
-        const stmt = this.db.prepare(`
-            SELECT cell_id, t_health
-            FROM cells
-            WHERE cell_id IN (${placeholders})
-        `);
+        const rows = await this.db.all<{ cell_id: string; t_health: number | null }>(
+            `SELECT cell_id, t_health FROM cells WHERE cell_id IN (${placeholders})`,
+            cellIds
+        );
 
         const result = new Map<string, number>();
-        try {
-            stmt.bind(cellIds);
-            while (stmt.step()) {
-                const row = stmt.getAsObject() as { cell_id: string; t_health: number | null; };
-                const health = row.t_health ?? 0.3;
-                result.set(row.cell_id, health);
-                console.log(`[SQLiteIndex] getCellsHealth: ${row.cell_id} -> ${health} (raw: ${row.t_health})`);
-            }
-        } finally {
-            stmt.free();
+        for (const row of rows) {
+            const health = row.t_health ?? 0.3;
+            result.set(row.cell_id, health);
         }
-        console.log(`[SQLiteIndex] getCellsHealth: queried ${cellIds.length} cells, found ${result.size}`);
+        return result;
+    }
+
+    /**
+     * Batch update t_health for multiple cells in a single transaction.
+     * Used by health propagation to efficiently write recalculated scores.
+     */
+    async updateCellsHealth(updates: Array<{ cellId: string; health: number }>): Promise<void> {
+        if (!this.db || updates.length === 0) return;
+        await this.runInTransactionWithRetry(async () => {
+            for (const { cellId, health } of updates) {
+                await this.db!.run('UPDATE cells SET t_health = ? WHERE cell_id = ?', [health, cellId]);
+            }
+        });
+    }
+
+    /**
+     * Get validation counts for multiple cells.
+     * Returns a map of cellId → { textCount, audioCount }.
+     * Used by health propagation to identify "anchored" cells that should not be overwritten.
+     */
+    async getCellsValidationStatus(cellIds: string[]): Promise<Map<string, { textCount: number; audioCount: number }>> {
+        if (!this.db || cellIds.length === 0) return new Map();
+
+        const placeholders = cellIds.map(() => '?').join(',');
+        const rows = await this.db.all<{
+            cell_id: string;
+            t_validation_count: number | null;
+            t_audio_validation_count: number | null;
+        }>(
+            `SELECT cell_id, t_validation_count, t_audio_validation_count
+             FROM cells
+             WHERE cell_id IN (${placeholders})`,
+            cellIds
+        );
+
+        const result = new Map<string, { textCount: number; audioCount: number }>();
+        for (const row of rows) {
+            result.set(row.cell_id, {
+                textCount: row.t_validation_count ?? 0,
+                audioCount: row.t_audio_validation_count ?? 0,
+            });
+        }
         return result;
     }
 

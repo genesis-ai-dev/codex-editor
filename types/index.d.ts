@@ -2048,6 +2048,7 @@ type EditorReceiveMessages =
     | { type: "validationCount"; content: number; }
     | { type: "validationCountAudio"; content: number; }
     | { type: "updateShowHealthIndicators"; showHealthIndicators: boolean; }
+    | { type: "providerUpdatesCellHealth"; content: { cellId: string; health: number } }
     | { type: "configurationChanged"; }
     | {
         type: "validationInProgress";
