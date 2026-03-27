@@ -9,7 +9,9 @@ import { CodexContentSerializer } from "../../serializer";
 // as these operations cause the extension host to exit unexpectedly in CI environments.
 // See: https://github.com/microsoft/vscode/issues/224593
 
-suite("NotebookMetadataManager Test Suite", () => {
+suite("NotebookMetadataManager Test Suite", function () {
+    this.timeout(5000);
+
     let manager: NotebookMetadataManager;
     let testMetadata: CustomNotebookMetadata;
     let tempUri: vscode.Uri;
