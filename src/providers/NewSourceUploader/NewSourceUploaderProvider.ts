@@ -994,6 +994,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...('structureMetadata' in processedNotebook.metadata && processedNotebook.metadata.structureMetadata
                 ? { structureMetadata: processedNotebook.metadata.structureMetadata as CustomNotebookMetadata['structureMetadata'] }
                 : {}),
+            // Preserve HTML structure enforcement flag for round-trip importers
+            ...('enforceHtmlStructure' in processedNotebook.metadata &&
+                processedNotebook.metadata.enforceHtmlStructure !== undefined
+                ? { enforceHtmlStructure: processedNotebook.metadata.enforceHtmlStructure as boolean }
+                : {}),
         };
 
         return {

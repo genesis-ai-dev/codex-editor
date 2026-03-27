@@ -6,6 +6,68 @@ import {
     EXPORT_OPTIONS_BY_FILE_TYPE,
     type FileGroup,
 } from "./utils/exportViewUtils";
+import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
+import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
+
+/**
+ * Check selected codex files for HTML structure mismatches against their source cells.
+ * Returns total count of mismatched cells for display in the export warning.
+ */
+async function checkHtmlStructureMismatches(
+    filesToExport: string[]
+): Promise<{ totalMismatches: number; fileDetails: { file: string; count: number }[] }> {
+    const fileDetails: { file: string; count: number }[] = [];
+    let totalMismatches = 0;
+
+    for (const filePath of filesToExport) {
+        try {
+            const fileUri = vscode.Uri.file(filePath);
+            const codexNotebook = await readCodexNotebookFromUri(fileUri);
+            const metadata = codexNotebook.metadata as any;
+
+            if (!metadata?.enforceHtmlStructure) continue;
+
+            // Use sourceFsPath from metadata (source and codex live in different directories)
+            const sourcePath = metadata.sourceFsPath as string | undefined;
+            if (!sourcePath) continue;
+            const sourceUri = vscode.Uri.file(sourcePath);
+
+            let sourceNotebook;
+            try {
+                sourceNotebook = await readCodexNotebookFromUri(sourceUri);
+            } catch {
+                continue;
+            }
+
+            const sourceMap = new Map<string, string>();
+            for (const cell of sourceNotebook.cells) {
+                if (cell.metadata?.id && cell.value) {
+                    sourceMap.set(cell.metadata.id, cell.value);
+                }
+            }
+
+            let mismatchCount = 0;
+            for (const cell of codexNotebook.cells) {
+                const cellId = cell.metadata?.id;
+                if (!cellId || !cell.value) continue;
+                const sourceContent = sourceMap.get(cellId);
+                if (!sourceContent) continue;
+                const diff = compareHtmlStructure(sourceContent, cell.value);
+                if (!diff.isMatch) mismatchCount++;
+            }
+
+            if (mismatchCount > 0) {
+                const fileName = filePath.split(/[\\/]/).pop() || filePath;
+                fileDetails.push({ file: fileName, count: mismatchCount });
+                totalMismatches += mismatchCount;
+            }
+        } catch (err) {
+            console.warn(`[checkHtmlStructureMismatches] Error checking ${filePath}:`, err);
+        }
+    }
+
+    return { totalMismatches, fileDetails };
+}
 
 export async function openProjectExportView(context: vscode.ExtensionContext) {
     const panel = vscode.window.createWebviewPanel(
@@ -73,6 +135,25 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 break;
             case "export":
                 try {
+                    // For round-trip exports, check for HTML structure mismatches and prompt
+                    if (message.format === "rebuild-export" && message.filesToExport?.length) {
+                        const { totalMismatches, fileDetails } =
+                            await checkHtmlStructureMismatches(message.filesToExport as string[]);
+                        if (totalMismatches > 0) {
+                            const details = fileDetails
+                                .map((f) => `  ${f.file}: ${f.count} cell(s)`)
+                                .join("\n");
+                            const choice = await vscode.window.showWarningMessage(
+                                `${totalMismatches} cell(s) have mismatched HTML structure that may break the round-trip export:\n\n${details}\n\nDo you still want to continue?`,
+                                { modal: true },
+                                "Export Anyway"
+                            );
+                            if (choice !== "Export Anyway") {
+                                break;
+                            }
+                        }
+                    }
+
                     await vscode.commands.executeCommand(
                         `codex-editor-extension.exportCodexContent`,
                         {
@@ -89,6 +170,17 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                     );
                 }
                 break;
+            case "checkHtmlStructure": {
+                const mismatchResults = await checkHtmlStructureMismatches(
+                    message.filesToExport as string[]
+                );
+                safePostMessageToPanel(
+                    panel,
+                    { command: "htmlStructureCheckResult", mismatches: mismatchResults },
+                    "ProjectExport"
+                );
+                break;
+            }
             case "cancel":
                 panel.dispose();
                 break;
@@ -304,6 +396,57 @@ function getWebviewContent(
                     border-radius: 4px;
                 }
                 .step-content { flex: 1; overflow-y: auto; }
+                .popup-overlay {
+                    display: none;
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.4);
+                    z-index: 100;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .popup-overlay.visible { display: flex; }
+                .popup-card {
+                    background: var(--vscode-editor-background);
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 6px;
+                    padding: 20px 24px;
+                    max-width: 480px;
+                    width: 90%;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+                }
+                .popup-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin-bottom: 12px;
+                    color: var(--vscode-charts-yellow, #ca8a04);
+                }
+                .popup-header h4 { margin: 0; flex: 1; }
+                .popup-close {
+                    background: none;
+                    border: none;
+                    color: var(--vscode-editor-foreground);
+                    cursor: pointer;
+                    padding: 4px;
+                    font-size: 16px;
+                    opacity: 0.7;
+                }
+                .popup-close:hover { opacity: 1; background: none; }
+                .popup-body {
+                    font-size: 0.9em;
+                    color: var(--vscode-editor-foreground);
+                    line-height: 1.5;
+                }
+                .popup-file-list {
+                    margin: 8px 0;
+                    padding: 8px 12px;
+                    background: rgba(202, 138, 4, 0.08);
+                    border: 1px solid rgba(202, 138, 4, 0.25);
+                    border-radius: 4px;
+                    font-size: 0.9em;
+                }
+                .popup-file-list div { padding: 2px 0; }
             </style>
         </head>
         <body>
@@ -519,6 +662,25 @@ function getWebviewContent(
         }
             </div>
 
+            <div class="popup-overlay" id="htmlMismatchPopup" onclick="if(event.target===this)closeHtmlMismatchPopup()">
+                <div class="popup-card">
+                    <div class="popup-header">
+                        <i class="codicon codicon-warning"></i>
+                        <h4>HTML Structure Mismatch</h4>
+                        <button class="popup-close" onclick="closeHtmlMismatchPopup()" title="Close">
+                            <i class="codicon codicon-close"></i>
+                        </button>
+                    </div>
+                    <div class="popup-body">
+                        <p id="htmlMismatchSummary"></p>
+                        <div class="popup-file-list" id="htmlMismatchFileList"></div>
+                        <p style="margin-top: 8px; color: var(--vscode-descriptionForeground); font-size: 0.85em;">
+                            Review and resolve these in the editor before exporting, or proceed with the export anyway.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <script>
                 const vscode = acquireVsCodeApi();
                 const fileGroups = ${groupsJson};
@@ -729,6 +891,11 @@ function getWebviewContent(
                         if (el) el.textContent = message.path;
                         updateExportButton();
                     }
+                    if (message.command === 'htmlStructureCheckResult') {
+                        if (message.mismatches && message.mismatches.totalMismatches > 0) {
+                            showHtmlMismatchPopup(message.mismatches);
+                        }
+                    }
                 });
 
                 document.addEventListener('DOMContentLoaded', () => {
@@ -783,6 +950,15 @@ function getWebviewContent(
                             selectedFormat = option.dataset.format;
                             const usfmOptions = document.getElementById('usfmOptions');
                             if (usfmOptions) usfmOptions.style.display = selectedFormat === 'usfm' ? 'block' : 'none';
+
+                            // Check HTML structure mismatches for round-trip export
+                            if (selectedFormat === 'rebuild-export' && selectedFiles.size > 0) {
+                                vscode.postMessage({
+                                    command: 'checkHtmlStructure',
+                                    filesToExport: Array.from(selectedFiles)
+                                });
+                            }
+
                             updateStep2Button();
                         });
                     });
@@ -792,6 +968,28 @@ function getWebviewContent(
                     // audio-format is handled by the general format-option click handler above
 
                 });
+
+                function showHtmlMismatchPopup(mismatches) {
+                    const summary = document.getElementById('htmlMismatchSummary');
+                    const fileList = document.getElementById('htmlMismatchFileList');
+                    const popup = document.getElementById('htmlMismatchPopup');
+                    if (!summary || !fileList || !popup) return;
+
+                    summary.textContent = mismatches.totalMismatches +
+                        ' cell(s) have mismatched HTML structure that may break the round-trip export.';
+
+                    fileList.innerHTML = mismatches.fileDetails
+                        .map(f => '<div><i class="codicon codicon-file" style="margin-right:4px;"></i>' +
+                            f.file + ' — <strong>' + f.count + '</strong> cell(s)</div>')
+                        .join('');
+
+                    popup.classList.add('visible');
+                }
+
+                function closeHtmlMismatchPopup() {
+                    const popup = document.getElementById('htmlMismatchPopup');
+                    if (popup) popup.classList.remove('visible');
+                }
 
                 function exportProject() {
                     const formatToSend = selectedFormat || (selectedAudio ? 'audio' : null);

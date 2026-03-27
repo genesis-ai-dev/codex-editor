@@ -385,7 +385,7 @@ async function exportCodexContentAsDocxRoundtrip(
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
             // Import experimental DOCX exporter
-            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/experiment/docxExporter");
+            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
 
             // For each selected codex file, find its original attachment and create a translated copy in export folder
             for (const [index, filePath] of filesToExport.entries()) {
@@ -483,7 +483,7 @@ async function exportCodexContentAsPdfRoundtrip(
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
             // Import DOCX exporter (we'll use it to create DOCX, then convert to PDF)
-            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/experiment/docxExporter");
+            const { exportDocxWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter");
 
             // For each selected codex file, export as DOCX then convert to PDF
             for (const [index, filePath] of filesToExport.entries()) {

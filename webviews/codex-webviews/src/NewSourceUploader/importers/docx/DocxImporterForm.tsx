@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { ImporterComponentProps } from "../../types/plugin";
+import EnforceStructureCheckbox from "../../components/EnforceStructureCheckbox";
 import { NotebookPair, ImportProgress } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import {
@@ -12,7 +13,7 @@ import {
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Info } from "lucide-react";
-import { validateFile, parseFile } from "./experiment/index";
+import { validateFile, parseFile } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
 import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
@@ -46,6 +47,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
     // Debug console state (like Biblica importer)
     const [debugLogs, setDebugLogs] = useState<string[]>([]);
     const [showCompleteButton, setShowCompleteButton] = useState(false);
+    const [enforceHtmlStructure, setEnforceHtmlStructure] = useState(true);
 
     const addDebugLog = useCallback((message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -115,6 +117,11 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
                 addDebugLog(`Successfully parsed ${file.name}`);
                 results.push(importResult.notebookPair);
+            }
+
+            for (const pair of results) {
+                pair.source.metadata = { ...pair.source.metadata, enforceHtmlStructure };
+                pair.codex.metadata = { ...pair.codex.metadata, enforceHtmlStructure };
             }
 
             const finalResult = results.length === 1 ? results[0] : results;
@@ -336,6 +343,11 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                             </Button>
                         </div>
                     )}
+
+                    <EnforceStructureCheckbox
+                        checked={enforceHtmlStructure}
+                        onCheckedChange={setEnforceHtmlStructure}
+                    />
 
                     {progress.length > 0 && (
                         <div className="space-y-3">
