@@ -19,6 +19,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
+import { shouldUseNativeGit } from "../../utils/toolPreferences";
 
 class ProjectManagerStore {
     private preflightState: ProjectManagerState = {
@@ -490,7 +491,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         // Check authentication and git binary status independently so a
         // failure in one doesn't zero out the other.
         let isAuthenticated = false;
-        let isGitAvailable = false;
+        let frontierReportsSyncCapable = false;
         const frontierApi = getAuthApi();
         if (frontierApi) {
             try {
@@ -500,11 +501,17 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 console.debug("Could not get authentication status:", error);
             }
             try {
-                isGitAvailable = frontierApi.isGitAvailable?.() ?? frontierApi.isGitBinaryAvailable?.() ?? false;
+                const general = frontierApi.isGitAvailable?.();
+                const binary = frontierApi.isGitBinaryAvailable?.() ?? false;
+                // Do not use ?? between these: false from isGitAvailable must not skip the binary check.
+                frontierReportsSyncCapable = general === true || binary;
             } catch (error) {
                 console.debug("Could not get git availability:", error);
             }
         }
+        // Main menu "sync available" matches the actual git backend: isomorphic-git when
+        // shouldUseNativeGit() is false, otherwise we need Frontier's dugite binary.
+        const isGitAvailable = !shouldUseNativeGit() || frontierReportsSyncCapable;
 
         if (this._view) {
             safePostMessageToView(this._view, {
