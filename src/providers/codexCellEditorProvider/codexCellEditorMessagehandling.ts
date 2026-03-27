@@ -89,14 +89,6 @@ async function withErrorHandling<T>(
     }
 }
 
-async function safeExecuteSmartEditCommand<T>(commandId: string, ...args: unknown[]): Promise<T | null> {
-    const allCommands = await vscode.commands.getCommands(true);
-    if (!allCommands.includes(commandId)) {
-        return null;
-    }
-    return vscode.commands.executeCommand<T>(commandId, ...args);
-}
-
 // Message handler context type
 interface MessageHandlerContext {
     event: EditorPostMessages;
@@ -1243,7 +1235,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     generateBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "generateBacktranslation"; }>;
-        const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.generateBacktranslation",
             typedEvent.content.text,
             typedEvent.content.cellId,
@@ -1257,7 +1249,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     editBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "editBacktranslation"; }>;
-        const updatedBacktranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const updatedBacktranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.editBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.newText,
@@ -1272,7 +1264,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     getBacktranslation: async ({ event, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getBacktranslation"; }>;
-        const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.getBacktranslation",
             typedEvent.content.cellId
         );
@@ -1286,9 +1278,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "getBatchBacktranslations"; }>;
         const cellIds = typedEvent.content.cellIds;
 
+        // Fetch backtranslations for all cell IDs
         const backtranslations: { [cellId: string]: SavedBacktranslation | null; } = {};
         for (const cellId of cellIds) {
-            const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+            const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
                 "codex-smart-edits.getBacktranslation",
                 cellId
             );
@@ -1303,7 +1296,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     setBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setBacktranslation"; }>;
-        const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.setBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.originalText,
