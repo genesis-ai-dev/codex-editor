@@ -89,7 +89,7 @@ const CellLabelText: React.FC<{
 }> = React.memo(({ label, forceLabelTopRow }) => {
     return (
         <div
-            className="cell-label-text text-primary inline-block text-right relative -top-[2px] ml-px"
+            className="ph-mask cell-label-text text-primary inline-block text-right relative -top-[2px] ml-px"
             style={{
                 fontWeight:
                     CELL_DISPLAY_MODE === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? 500 : "normal",
@@ -615,10 +615,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             }}
                             className="invisible"
                         >
-                            <CellLabelText
-                                label={lineNumber}
-                                forceLabelTopRow={forceLabelTopRow}
-                            />
+                            <CellLabelText label={lineNumber} forceLabelTopRow={forceLabelTopRow} />
                         </div>
                     ) : null}
                     <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
@@ -918,15 +915,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     onClick={handleCellContentClick}
                 >
                     {/* Cell label - shown after line number when present */}
-                    {label && (
-                        <CellLabelText
-                            label={label}
-                            forceLabelTopRow={forceLabelTopRow}
-                        />
-                    )}
+                    {label && <CellLabelText label={label} forceLabelTopRow={forceLabelTopRow} />}
                     <div
                         tabIndex={0}
-                        className={`flex-1 min-w-0 min-h-[1rem] ${
+                        className={`ph-mask flex-1 min-w-0 min-h-[1rem] ${
                             lineNumbersEnabled ? "pr-[0.25rem]" : "px-[0.25rem]"
                         }`}
                         title={!isCellLocked ? "Click to edit" : "Cell is locked"}

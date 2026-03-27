@@ -868,6 +868,12 @@
                         "default": "",
                         "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
                     },
+                    "codex-editor-extension.sessionRecordingEnabled": {
+                        "title": "Session Recording",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, session replays are buffered locally and only sent when an error occurs, to help diagnose issues."
+                    },
                     "codex-editor-extension.debugMode": {
                         "title": "Debugging Mode",
                         "type": "boolean",
@@ -1107,6 +1113,7 @@
         "pdf-parse": "^1.1.1",
         "pdfjs-dist": "4.0.379",
         "pnpm": "^8.15.5",
+        "posthog-node": "^5.21.2",
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",
         "sax": "^1.4.1",

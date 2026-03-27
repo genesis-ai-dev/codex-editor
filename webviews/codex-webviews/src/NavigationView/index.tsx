@@ -1,5 +1,7 @@
+import "../shared/posthog";
 import React, { useState, useEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import bibleData from "../assets/bible-books-lookup.json";
@@ -1129,4 +1131,8 @@ function NavigationView() {
 }
 
 const root = createRoot(document.getElementById("root")!);
-root.render(<NavigationView />);
+root.render(
+    <ErrorBoundary>
+        <NavigationView />
+    </ErrorBoundary>
+);

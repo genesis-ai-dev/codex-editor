@@ -59,6 +59,7 @@ import {
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
+import { initTelemetry, shutdownTelemetry, captureException } from "./utils/telemetry";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
@@ -323,6 +324,18 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error showing splash screen:", error);
         // Continue with activation even if splash screen fails
     }
+
+    initTelemetry();
+
+    process.on("uncaughtException", (error) => {
+        console.error("[Extension] Uncaught exception:", error);
+        captureException(error, { source: "uncaughtException" });
+    });
+
+    process.on("unhandledRejection", (reason) => {
+        console.error("[Extension] Unhandled rejection:", reason);
+        captureException(reason, { source: "unhandledRejection" });
+    });
 
     let stepStart = activationStart;
 
@@ -1302,6 +1315,8 @@ export async function deactivate() {
         clearInterval(currentStepTimer);
         currentStepTimer = null;
     }
+
+    await shutdownTelemetry();
 
     // Close the index manager's database connection and clear the global reference
     try {

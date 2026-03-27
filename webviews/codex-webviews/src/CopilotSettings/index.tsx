@@ -1,5 +1,7 @@
+import "../shared/posthog";
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { Switch } from "../components/ui/switch";
 import { Button } from "../components/ui/button";
@@ -177,4 +179,8 @@ function CopilotSettingsApp() {
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root")!);
-root.render(<CopilotSettingsApp />);
+root.render(
+    <ErrorBoundary>
+        <CopilotSettingsApp />
+    </ErrorBoundary>
+);
