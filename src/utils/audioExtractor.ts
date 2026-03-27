@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { shouldUseNativeAudio } from './toolPreferences';
 // Load spawn lazily to avoid bundling 'child_process' in test/browser builds
 function getSpawn(): ((command: string, args?: readonly string[]) => any) | null {
     try {
@@ -146,8 +147,9 @@ export async function extractAudioFromVideo(
     endTime: number = Number.POSITIVE_INFINITY
 ): Promise<Buffer> {
     const hasFFmpeg = await isFFmpegAvailable();
+    const useNative = shouldUseNativeAudio(hasFFmpeg);
 
-    if (hasFFmpeg) {
+    if (useNative) {
         console.log('Using FFmpeg to extract audio from video');
         try {
             return await extractAudioWithFFmpeg(videoData, startTime, endTime);
@@ -156,7 +158,7 @@ export async function extractAudioFromVideo(
             return fallbackCopyVideo(videoData);
         }
     } else {
-        console.log('FFmpeg not available, using fallback method');
+        console.log('Using built-in audio mode for video extraction');
         return fallbackCopyVideo(videoData);
     }
 }

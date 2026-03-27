@@ -109,12 +109,11 @@ suite("Audio Import Test Suite", () => {
             assert.ok(typeof audioProcessor.processAudioFile === "function", "Should export processAudioFile");
         });
 
-        test("should retrieve FFprobe path (on-demand download or system)", () => {
-            // With on-demand download, FFprobe is downloaded automatically or uses system FFprobe
+        test("should export isFFmpegAvailable (FFprobe eliminated)", () => {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
             const audioProcessor = require("../../../utils/audioProcessor");
             assert.ok(audioProcessor, "audioProcessor module should be importable");
-            assert.ok(typeof audioProcessor.detectSilence === "function", "Should export detectSilence");
+            assert.ok(typeof audioProcessor.isFFmpegAvailable === "function", "Should export isFFmpegAvailable");
         });
     });
 

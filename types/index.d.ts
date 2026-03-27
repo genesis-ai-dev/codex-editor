@@ -179,6 +179,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
+    | { command: "project.initializeWithLanguages"; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
     | { command: "startup.dismiss"; }
@@ -292,7 +293,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "systemMessage.generated"; message: string; }
     | { command: "systemMessage.generateError"; error: string; }
     | { command: "systemMessage.saved"; }
-    | { command: "systemMessage.saveError"; error: string; };
+    | { command: "systemMessage.saveError"; error: string; }
+    | { command: "provideWorkspaceContext"; workspaceFolderName: string; };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV; }
@@ -1477,7 +1479,8 @@ type ProjectManagerMessageToWebview =
     }
     | { command: "asrSettings"; data: { endpoint: string; }; }
     | { command: "asrModels"; data: string[]; }
-    | { command: "asrSettingsSaved"; };
+    | { command: "asrSettingsSaved"; }
+    | { command: "toolsStatusSummary"; data: { sqlite: boolean; git: boolean; nativeGitAvailable: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode } };
 
 // Ensure the Project type is correctly defined
 interface LocalProject {
@@ -2239,3 +2242,24 @@ type EditorReceiveMessages =
         totalMatches: number;
         error?: string;
     };
+
+export type AudioToolMode = "auto" | "builtin";
+export type GitToolMode = "auto" | "builtin";
+
+export type MessagesToMissingToolsWarning =
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode }
+    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
+    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
+    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean };
+
+export type MessagesFromMissingToolsWarning =
+    | { command: "retry" }
+    | { command: "continue" }
+    | { command: "openDownloadPage" }
+    | { command: "close" }
+    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "toggleAudioMode" }
+    | { command: "toggleGitMode" };
