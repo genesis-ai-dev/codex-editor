@@ -453,9 +453,20 @@ ChapterNavigationHeaderProps) {
                 // requestCellsForMilestone handles state updates internally
                 // (both for cached pages and when loading new pages)
                 requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
+
+                // If scroll sync is enabled, notify the paired panel to sync
+                if (scrollSyncEnabled) {
+                    vscode.postMessage({
+                        command: "syncChapterToOther",
+                        content: {
+                            milestoneIndex: newMilestoneIdx,
+                            subsectionIndex: newSubsectionIdx,
+                        },
+                    });
+                }
             }
         },
-        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone, milestoneIndex?.milestones.length]
+        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone, milestoneIndex?.milestones.length, scrollSyncEnabled, vscode]
     );
 
     // Use dynamic responsive state variables based on content overflow
@@ -507,6 +518,7 @@ ChapterNavigationHeaderProps) {
                 shouldUseMinimalLayout ? "p-1" : "p-2"
             } max-w-full items-center transition-all duration-200 ease-in-out`}
             ref={headerContainerRef}
+            onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
         >
             {/* Hamburger menu positioned on the left when space is insufficient */}
             {shouldShowHamburger && (

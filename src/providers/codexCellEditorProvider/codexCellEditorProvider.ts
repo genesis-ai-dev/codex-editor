@@ -218,6 +218,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Track current milestone/subsection per document to preserve position during updates
     public currentMilestoneSubsectionMap: Map<string, { milestoneIndex: number; subsectionIndex: number; }> = new Map();
 
+    // Track which file pairs have chapter sync enabled (keyed by base filename e.g. "GEN")
+    public chapterSyncEnabled: Set<string> = new Set();
+
     public static getInstance(): CodexCellEditorProvider | undefined {
         return CodexCellEditorProvider.instance;
     }
@@ -502,6 +505,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.webviewPanels.set(document.uri.toString(), webviewPanel);
         // Track the document
         this.documents.set(document.uri.toString(), document);
+
+        // Auto-enable chapter sync since webview defaults to scrollSyncEnabled=true
+        const baseFileNameForSync = path.basename(document.uri.fsPath).replace(/\.(source|codex)$/, "");
+        this.chapterSyncEnabled.add(baseFileNameForSync);
 
         // Listen for when this editor becomes active
         const viewStateDisposable: vscode.Disposable = webviewPanel.onDidChangeViewState((e) => {
@@ -2723,7 +2730,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         });
 
                         // If this is the matching source file, find the target position and jump to it
-                        if (isMatchingSource && sourceUri) {
+                        // Only navigate source to matching chapter if chapter sync is enabled
+                        const baseFileNameForCellSync = path.basename(codexUri.fsPath).replace(/\.(source|codex)$/, "");
+                        if (isMatchingSource && sourceUri && this.chapterSyncEnabled.has(baseFileNameForCellSync)) {
                             // Get the source document to find the matching cell and fetch cells
                             const sourceDoc = this.documents.get(sourceUri.toString());
                             if (sourceDoc) {
@@ -4038,6 +4047,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add a method to expose webviewPanels in a controlled way
     public getWebviewPanels(): Map<string, vscode.WebviewPanel> {
         return this.webviewPanels;
+    }
+
+    public getDocumentByUri(uri: string): CodexCellDocument | undefined {
+        return this.documents.get(uri);
     }
 
     // Add method to load bible book map
