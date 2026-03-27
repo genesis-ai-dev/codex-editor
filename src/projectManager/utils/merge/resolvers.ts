@@ -1770,7 +1770,7 @@ function isValidSelection(selectedId: string, attachments?: { [key: string]: any
     return attachment &&
         attachment.type === "audio" &&
         !attachment.isDeleted &&
-        !attachment.isMissing;
+        attachment.audioAvailability !== "missing";
 }
 
 /**

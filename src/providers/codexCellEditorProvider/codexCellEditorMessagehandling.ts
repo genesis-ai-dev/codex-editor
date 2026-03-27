@@ -20,7 +20,8 @@ import { getAuthApi } from "@/extension";
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 import { toPosixPath } from "../../utils/pathUtils";
-import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
+import { computeCellIdsAudioAvailability, revalidateCellAttachmentAvailability } from "../../utils/audioMissingUtils";
+import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
 // Comment out problematic imports
@@ -453,67 +454,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             try {
                 const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const notebookData = JSON.parse(document.getText());
-                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
-                if (Array.isArray(notebookData?.cells) && workspaceFolder) {
+                const availability: Record<string, AudioAvailabilityState> = {};
+                if (Array.isArray(notebookData?.cells)) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
                         if (!id) continue;
-                        let hasAvailable = false;
-                        let hasAvailablePointer = false;
-                        let hasMissing = false;
-                        let hasDeleted = false;
-                        const atts = cell?.metadata?.attachments || {};
-                        for (const key of Object.keys(atts)) {
-                            const att: any = (atts as any)[key];
-                            if (att && att.type === "audio") {
-                                if (att.isDeleted) {
-                                    hasDeleted = true;
-                                } else if (att.isMissing) {
-                                    hasMissing = true;
-                                } else {
-                                    try {
-                                        const url = String(att.url || "");
-                                        if (url) {
-                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
-                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                            const isPtr = await isPointerFile(abs).catch(() => false);
-                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
-                                        } else {
-                                            hasAvailable = true;
-                                        }
-                                    } catch { hasAvailable = true; }
-                                }
-                            }
-                        }
-
-                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
-                        const selectedId = cell?.metadata?.selectedAudioId;
-                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
-                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
-
-                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (selectedIsMissing) state = "missing";
-                        else if (hasAvailable) state = "available-local";
-                        else if (hasAvailablePointer) state = "available-pointer";
-                        else if (hasMissing) state = "missing";
-                        else if (hasDeleted) state = "deletedOnly";
-                        else state = "none";
-
-                        // Apply installed-version gate (no modal) to avoid showing Play when blocked
-                        if (state !== "available-local") {
-                            try {
-                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
-                                const status = await getFrontierVersionStatus();
-                                if (!status.ok) {
-                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
-                                        state = "available-pointer";
-                                    }
-                                }
-                            } catch { /* ignore */ }
-                        }
-
-                        availability[id] = state as any;
+                        availability[id] = await computeCellAudioStateWithVersionGate(
+                            cell?.metadata?.attachments,
+                            cell?.metadata?.selectedAudioId,
+                        );
                     }
                 }
                 provider.postMessageToWebview(webviewPanel, {
@@ -1936,7 +1885,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
                                     debug("Saved streamed file to disk (stream-and-save mode)");
-                                    // Immediately inform webview this cell now has a local file
+                                    // Update the attachment's availability in the document
+                                    try {
+                                        const currentAtt = document.getCurrentAttachment(cellId, "audio");
+                                        if (currentAtt) {
+                                            document.updateCellAttachment(cellId, currentAtt.attachmentId, {
+                                                ...currentAtt.attachment,
+                                                audioAvailability: "available-local",
+                                            } as any);
+                                        }
+                                    } catch { /* non-fatal */ }
                                     try {
                                         safePostMessageToPanel(webviewPanel, {
                                             type: "providerSendsAudioAttachments",
@@ -1945,7 +1903,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     } catch { /* non-fatal */ }
                                 } catch (saveError) {
                                     console.warn("Failed to save streamed file:", saveError);
-                                    // Don't fail the whole operation if save fails
                                 }
                             }
                         } else {
@@ -2058,7 +2015,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
-                                    // Targeted availability update for this cell
+                                    // Update the attachment's availability in the document
+                                    try {
+                                        const currentAtt = document.getCurrentAttachment(cellId, "audio");
+                                        if (currentAtt) {
+                                            document.updateCellAttachment(cellId, currentAtt.attachmentId, {
+                                                ...currentAtt.attachment,
+                                                audioAvailability: "available-local",
+                                            } as any);
+                                        }
+                                    } catch { /* non-fatal */ }
                                     try {
                                         safePostMessageToPanel(webviewPanel, {
                                             type: "providerSendsAudioAttachments",
@@ -2315,8 +2281,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 isDeleted: false,
+                audioAvailability: "available-local",
                 createdBy: createdBy,
-                // Persist optional metadata if provided by client
                 ...(typedEvent.content.metadata ? { metadata: typedEvent.content.metadata } : {}),
             } as any);
 
@@ -2346,78 +2312,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const availability: Record<string, AudioAvailabilityState> = {};
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
-                let hasAvailable = false;
-                let hasAvailablePointer = false;
-                let hasMissing = false;
-                let hasDeleted = false;
-                const atts = cell?.metadata?.attachments || {};
-                for (const key of Object.keys(atts)) {
-                    const att: any = (atts as any)[key];
-                    if (att && att.type === "audio") {
-                        if (att.isDeleted) {
-                            hasDeleted = true;
-                        } else if (att.isMissing) {
-                            hasMissing = true;
-                        } else {
-                            try {
-                                const url = String(att.url || "");
-                                if (url) {
-                                    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                    const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
-                                    try {
-                                        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
-                                        const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                        const isPtr = await isPointerFile(filesAbs).catch(() => false);
-                                        if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
-                                    } catch {
-                                        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                                            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                                            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
-                                        try {
-                                            await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
-                                            hasAvailablePointer = true;
-                                        } catch {
-                                            hasMissing = true;
-                                        }
-                                    }
-                                } else {
-                                    hasMissing = true;
-                                }
-                            } catch { hasMissing = true; }
-                        }
-                    }
-                }
-                const selectedId = cell?.metadata?.selectedAudioId;
-                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
-                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
-
-                // Provisional state — prefer showing available when a valid file exists,
-                // even if the user's explicit selection points to a missing file.
-                let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                if (hasAvailable) state = "available-local";
-                else if (hasAvailablePointer) state = "available-pointer";
-                else if (selectedIsMissing || hasMissing) state = "missing";
-                else if (hasDeleted) state = "deletedOnly";
-                else state = "none";
-
-                if (state !== "available-local") {
-                    try {
-                        const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
-                        const status = await getFrontierVersionStatus();
-                        if (!status.ok) {
-                            if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
-                                state = "available-pointer";
-                            }
-                        }
-                    } catch { /* ignore */ }
-                }
-
-                availability[cellId] = state as any;
+                availability[cellId] = await computeCellAudioStateWithVersionGate(
+                    cell?.metadata?.attachments,
+                    cell?.metadata?.selectedAudioId,
+                );
             }
 
             provider.postMessageToWebview(webviewPanel, {
@@ -2462,6 +2365,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     } as any);
                 }
             }
+
+            provider.updateMilestoneProgressForDocument(document);
         } catch (error) {
             console.error("Error saving audio attachment:", error);
             provider.postMessageToWebview(webviewPanel, {
@@ -2584,67 +2489,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-            const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const availability: Record<string, AudioAvailabilityState> = {};
             let validatedByArray: ValidationEntry[] = [];
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
                 if (!cellId) continue;
-                let hasAvailable = false;
-                let hasAvailablePointer = false;
-                let hasMissing = false;
-                let hasDeleted = false;
                 const atts = cell?.metadata?.attachments || {};
 
-                for (const key of Object.keys(atts)) {
-                    const att: any = (atts as any)[key];
-                    if (att && att.type === "audio") {
-                        if (att.isDeleted) {
-                            hasDeleted = true;
-                        } else if (att.isMissing) {
-                            hasMissing = true;
-                        } else {
-                            // Differentiate pointer vs real file by inspecting attachments/files path
-                            try {
-                                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                                const url = String(att.url || "");
-                                if (ws && url) {
-                                    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                    const abs = path.join(ws.uri.fsPath, filesPath);
-                                    const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                    const isPtr = await isPointerFile(abs).catch(() => false);
-                                    if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
-                                } else {
-                                    hasAvailable = true;
-                                }
-                            } catch {
-                                hasAvailable = true;
-                            }
-                        }
-                    }
+                availability[cellId] = await computeCellAudioStateWithVersionGate(
+                    atts,
+                    cell?.metadata?.selectedAudioId,
+                );
 
-                    if (cellId === typedEvent.content.cellId && key === cell?.metadata?.selectedAudioId) {
-                        const validatedBy = Array.isArray(att?.validatedBy) ? att.validatedBy : [];
-                        validatedByArray = [...validatedBy];
+                // Extract validatedBy for the target cell's selected audio
+                if (cellId === typedEvent.content.cellId && cell?.metadata?.selectedAudioId) {
+                    const selectedAtt = (atts as any)[cell.metadata.selectedAudioId];
+                    if (selectedAtt) {
+                        validatedByArray = Array.isArray(selectedAtt.validatedBy)
+                            ? [...selectedAtt.validatedBy]
+                            : [];
                     }
-                }
-                // If the user's selected audio is missing, show missing icon regardless of other attachments.
-                const selectedId = cell?.metadata?.selectedAudioId;
-                const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
-                const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
-
-                if (selectedIsMissing) {
-                    availability[cellId] = "missing";
-                } else if (hasAvailable) {
-                    availability[cellId] = "available-local";
-                } else if (hasAvailablePointer) {
-                    availability[cellId] = "available-pointer";
-                } else if (hasMissing) {
-                    availability[cellId] = "missing";
-                } else if (hasDeleted) {
-                    availability[cellId] = "deletedOnly";
-                } else {
-                    availability[cellId] = "none";
                 }
             }
 
@@ -3144,7 +3009,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 type: "audio",
                                 url: relativePathPosix,
                                 updatedAt: timestamp,
-                                isDeleted: false
+                                isDeleted: false,
+                                audioAvailability: "available-local",
                             };
 
                             // Calculate duration: startTime from previous cell, endTime from current cell
@@ -3255,91 +3121,46 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (!workspaceFolder) return;
-            const changed = await revalidateCellMissingFlags(document, workspaceFolder, cellId);
 
-            // If anything changed, persist and send updated history and availability
-            if (changed) {
+            // Update the document's attachment metadata from disk state, then save if changed.
+            // This ensures the audio history entries returned below reflect actual availability.
+            const metadataChanged = await revalidateCellAttachmentAvailability(
+                document,
+                workspaceFolder,
+                cellId,
+            );
+            if (metadataChanged) {
                 await document.save(new vscode.CancellationTokenSource().token);
-
-                // Send updated history
-                const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
-                const currentAttachment = document.getCurrentAttachment(cellId, "audio");
-                const explicitSelection = document.getExplicitAudioSelection(cellId);
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "audioHistoryReceived",
-                    content: {
-                        cellId,
-                        audioHistory,
-                        currentAttachmentId: currentAttachment?.attachmentId ?? null,
-                        hasExplicitSelection: explicitSelection !== null
-                    }
-                });
-
-                // Send updated availability for this cell
-                try {
-                    const documentText = document.getText();
-                    const notebookData = JSON.parse(documentText);
-                    const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
-                    const availability: { [k: string]: "available" | "missing" | "deletedOnly" | "none"; } = {} as any;
-                    const cell = cells.find((c: any) => c?.metadata?.id === cellId);
-                    if (cell) {
-                        let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
-                        const atts = cell?.metadata?.attachments || {};
-                        for (const key of Object.keys(atts)) {
-                            const att: any = atts[key];
-                            if (att && att.type === "audio") {
-                                if (att.isDeleted) hasDeleted = true;
-                                else if (att.isMissing) hasMissing = true;
-                                else {
-                                    try {
-                                        const url = String(att.url || "");
-                                        if (url) {
-                                            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                                            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
-                                            const { isPointerFile } = await import("../../utils/lfsHelpers");
-                                            const isPtr = await isPointerFile(abs).catch(() => false);
-                                            if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
-                                        } else {
-                                            hasAvailable = true;
-                                        }
-                                    } catch { hasAvailable = true; }
-                                }
-                            }
-                        }
-                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
-                        const selectedId = cell?.metadata?.selectedAudioId;
-                        const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
-                        const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
-
-                        // Provisional state
-                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (selectedIsMissing) state = "missing";
-                        else if (hasAvailable) state = "available-local";
-                        else if (hasAvailablePointer) state = "available-pointer";
-                        else if (hasMissing) state = "missing";
-                        else if (hasDeleted) state = "deletedOnly";
-                        else state = "none";
-
-                        // Apply installed-version gate to avoid Play icon when blocked
-                        if (state !== "available-local") {
-                            try {
-                                const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
-                                const status = await getFrontierVersionStatus();
-                                if (!status.ok) {
-                                    if (state !== "missing" && state !== "deletedOnly" && state !== "none") {
-                                        state = "available-pointer";
-                                    }
-                                }
-                            } catch { /* ignore */ }
-                        }
-
-                        availability[cellId] = state as any;
-                        safePostMessageToPanel(webviewPanel, { type: "providerSendsAudioAttachments", attachments: availability });
-                    }
-                } catch { /* ignore */ }
             }
+
+            // Compute version-gated cell-level availability from metadata (now up-to-date)
+            const availabilityByCell = await computeCellIdsAudioAvailability(
+                document,
+                workspaceFolder,
+                [cellId],
+            );
+            const state = availabilityByCell[cellId] ?? "none";
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: { [cellId]: state },
+            });
+
+            // Send history with freshly-updated attachment metadata
+            const audioHistory = document.getAttachmentHistory(cellId, "audio") || [];
+            const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+            const explicitSelection = document.getExplicitAudioSelection(cellId);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioHistoryReceived",
+                content: {
+                    cellId,
+                    audioHistory,
+                    currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                    hasExplicitSelection: explicitSelection !== null,
+                },
+            });
         } catch (err) {
-            console.error("Failed to revalidate missing for cell", { cellId, err });
+            console.error("Failed to compute availability for cell", { cellId, err });
         }
     },
 
@@ -3399,6 +3220,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 allCellsInMilestone: processedAllCellsInMilestone,
                 sourceCellMap,
             });
+
+            // Compute and send filesystem-checked audio availability for the page cells
+            // so the webview doesn't rely on potentially stale persisted metadata.
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (ws) {
+                const pageCellIds = cells
+                    .map((c: any) => c.cellMarkers?.[0])
+                    .filter(Boolean) as string[];
+                if (pageCellIds.length > 0) {
+                    const availability = await computeCellIdsAudioAvailability(
+                        document, ws, pageCellIds,
+                    );
+                    if (Object.keys(availability).length > 0) {
+                        safePostMessageToPanel(webviewPanel, {
+                            type: "providerSendsAudioAttachments",
+                            attachments: availability as any,
+                        });
+                    }
+                }
+            }
 
             debug(`Sent cells for milestone ${milestoneIndex}, subsection ${subsectionIndex}: ${processedCells.length} cells`);
         } catch (error) {

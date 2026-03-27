@@ -7,45 +7,59 @@ type AudioAvailability = "available" | "available-local" | "available-pointer" |
 
 /**
  * Derives the audio availability state for a cell based on its attachments and selection.
- * When an explicit selectedAudioId is missing, returns "missing" regardless of other entries.
- * When no explicit selection exists, checks whether the implicit current audio
- * (latest non-deleted by updatedAt) is missing—this is the one the provider would serve on play.
+ *
+ * Uses `audioAvailability` as the primary field, then falls back to the legacy
+ * `isMissing` boolean.  When neither field is set the attachment is treated as
+ * "unknown" (not counted as available) so that the filesystem-based check from
+ * the provider can supply the definitive answer.  This prevents a sync merge
+ * that drops the legacy `isMissing` flag from incorrectly showing a play icon.
  */
+type AttAvailability = "available-local" | "available-pointer" | "missing" | "deletedOnly" | "unknown";
+
+const classifyAttachment = (att: any): AttAvailability => {
+    if (att.isDeleted) return "deletedOnly";
+    if (att.audioAvailability) return att.audioAvailability as AttAvailability;
+    if (att.isMissing === true) return "missing";
+    if (att.isMissing === false) return "available-local";
+    return "unknown";
+};
+
 const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
     const atts = (unit?.attachments || {}) as Record<string, any>;
-    let hasAvailable = false;
+    let hasAvailableLocal = false;
+    let hasAvailablePointer = false;
     let hasMissing = false;
     let hasDeleted = false;
+    let hasUnknown = false;
 
     for (const key of Object.keys(atts)) {
         const att = atts[key];
-        if (att?.type === "audio") {
-            if (att.isDeleted) hasDeleted = true;
-            else if (att.isMissing) hasMissing = true;
-            else hasAvailable = true;
+        if (att?.type !== "audio") continue;
+
+        const state = classifyAttachment(att);
+        switch (state) {
+            case "available-local":
+                hasAvailableLocal = true;
+                break;
+            case "available-pointer":
+                hasAvailablePointer = true;
+                break;
+            case "missing":
+                hasMissing = true;
+                break;
+            case "deletedOnly":
+                hasDeleted = true;
+                break;
+            default:
+                hasUnknown = true;
+                break;
         }
     }
 
-    // Prefer showing available when a valid file exists,
-    // even if the user's explicit selection points to a missing file.
-    if (hasAvailable) return "available";
-
-    const selectedId = unit?.metadata?.selectedAudioId;
-    const selectedAtt = selectedId ? atts[selectedId] : undefined;
-    if (selectedAtt?.type === "audio" && selectedAtt?.isMissing === true) {
-        return "missing";
-    }
-
-    if (!selectedId && hasMissing) {
-        const nonDeleted = Object.entries(atts)
-            .filter(([, att]) => att?.type === "audio" && !att.isDeleted)
-            .sort(([, a], [, b]) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        if (nonDeleted.length > 0 && nonDeleted[0][1].isMissing) {
-            return "missing";
-        }
-    }
-
+    if (hasAvailableLocal) return "available-local";
+    if (hasAvailablePointer) return "available-pointer";
     if (hasMissing) return "missing";
+    if (hasUnknown) return "none";
     if (hasDeleted) return "deletedOnly";
     return "none";
 };
