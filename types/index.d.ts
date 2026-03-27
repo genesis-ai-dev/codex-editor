@@ -179,6 +179,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
+    | { command: "project.initializeWithLanguages"; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
     | { command: "startup.dismiss"; }
@@ -292,7 +293,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "systemMessage.generated"; message: string; }
     | { command: "systemMessage.generateError"; error: string; }
     | { command: "systemMessage.saved"; }
-    | { command: "systemMessage.saveError"; error: string; };
+    | { command: "systemMessage.saveError"; error: string; }
+    | { command: "provideWorkspaceContext"; workspaceFolderName: string; };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV; }
@@ -2234,3 +2236,12 @@ type EditorReceiveMessages =
         totalMatches: number;
         error?: string;
     };
+
+export type MessagesToMissingToolsWarning =
+    | { command: "showWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean; ffprobe: boolean }
+    | { command: "updateWarnings"; git: boolean; sqlite: boolean; ffmpeg: boolean; ffprobe: boolean };
+
+export type MessagesFromMissingToolsWarning =
+    | { command: "retry" }
+    | { command: "continue" }
+    | { command: "openDownloadPage" };

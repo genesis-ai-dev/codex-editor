@@ -288,7 +288,7 @@ export async function openProject(projectPath: string) {
 
             // Sync metadata values to configuration after folder is open
             // Note: This doesn't execute immediately as the above command opens a new window
-            // The syncMetadataToConfiguration will be called when checkIfMetadataAndGitIsInitialized
+            // The syncMetadataToConfiguration will be called when checkIfProjectIsInitialized
             // is invoked in the new window
         } catch (error) {
             await vscode.window.showErrorMessage(

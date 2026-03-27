@@ -42,6 +42,7 @@ export function initializeAudioProcessor(context: vscode.ExtensionContext): void
     console.log('[audioProcessor] Initialized with extension context');
 }
 
+
 export interface AudioFileMetadata {
     id: string;
     name: string;
