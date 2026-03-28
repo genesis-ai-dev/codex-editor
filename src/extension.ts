@@ -340,6 +340,36 @@ export async function activate(context: vscode.ExtensionContext) {
         // Continue with activation even if splash screen fails
     }
 
+    // Check for version pins before heavy initialization
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders && workspaceFolders.length > 0) {
+        try {
+            const projectUri = workspaceFolders[0].uri;
+            const result = await MetadataManager.safeReadMetadata(projectUri);
+            if (result.success && result.metadata?.meta?.pinnedExtensions) {
+                const pins = result.metadata.meta.pinnedExtensions;
+                const myPin = pins["project-accelerate.codex-editor-extension"];
+                if (myPin) {
+                    const myVersion = MetadataManager.getCurrentExtensionVersion(
+                        "project-accelerate.codex-editor-extension"
+                    );
+                    if (myVersion && myVersion !== myPin.version) {
+                        console.log(
+                            `[Extension] Version mismatch detected: ${myVersion} != ${myPin.version}. Suspending initialization for Conductor.`
+                        );
+                        // Trigger the "sync" style UI in the splash screen
+                        trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
+                        updateSplashScreenSync(0, "Applying extension version pins...");
+                        // Halt activation - the window will be reloaded by CodexConductor
+                        return;
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("[Extension] Error checking for version pins:", err);
+        }
+    }
+
     let stepStart = activationStart;
 
     try {
@@ -362,7 +392,6 @@ export async function activate(context: vscode.ExtensionContext) {
         stepStart = trackTiming("Loading Project Metadata", metadataStart);
 
         // Check for metadata.json early — this determines if we're in a Codex project
-        const workspaceFolders = vscode.workspace.workspaceFolders;
         let metadataExists = false;
         if (workspaceFolders && workspaceFolders.length > 0) {
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
