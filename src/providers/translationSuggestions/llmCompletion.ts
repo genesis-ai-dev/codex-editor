@@ -61,11 +61,13 @@ function handleABTestResult(
         isAttentionCheck?: boolean;
         correctIndex?: number;
         decoyCellId?: string;
+        names?: string[];
     } | null,
     currentCellId: string,
     testIdPrefix: string,
     completionConfig: CompletionConfig,
-    returnHTML: boolean
+    returnHTML: boolean,
+    exampleCellIds?: string[]
 ): LLMCompletionResult | null {
     if (result && Array.isArray(result.variants) && result.variants.length === 2) {
         const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
@@ -78,6 +80,8 @@ function handleABTestResult(
             isAttentionCheck: result.isAttentionCheck,
             correctIndex: result.correctIndex,
             decoyCellId: result.decoyCellId,
+            names: result.names,
+            exampleCellIds,
         };
     }
     return null;
@@ -91,6 +95,8 @@ export interface LLMCompletionResult {
     isAttentionCheck?: boolean;
     correctIndex?: number;
     decoyCellId?: string;
+    names?: string[];
+    exampleCellIds?: string[]; // IDs of cells used as few-shot examples
 }
 
 export async function llmCompletion(
@@ -171,6 +177,10 @@ export async function llmCompletion(
             numberOfFewShotExamples,
             completionConfig.useOnlyValidatedExamples
         );
+
+        // Extract example cell IDs for health calculation
+        const exampleCellIds = finalExamples.map(ex => ex.cellId);
+
         if (completionConfig.debugMode) {
             console.debug(`[llmCompletion] Retrieved ${finalExamples.length} few-shot examples:`, finalExamples.map(ex => ({ cellId: ex.cellId, source: ex.sourceCell?.content?.substring(0, 50) + '...', target: ex.targetCell?.content?.substring(0, 50) + '...' })));
         }
@@ -284,7 +294,8 @@ export async function llmCompletion(
                         currentCellId,
                         "attention",
                         completionConfig,
-                        returnHTML
+                        returnHTML,
+                        exampleCellIds
                     );
 
                     if (testResult) {
@@ -318,6 +329,7 @@ export async function llmCompletion(
             return {
                 variants,
                 isABTest: false, // Identical variants – UI should hide A/B controls
+                exampleCellIds,
             };
         } catch (error) {
             // Check if this is a cancellation error and re-throw as-is

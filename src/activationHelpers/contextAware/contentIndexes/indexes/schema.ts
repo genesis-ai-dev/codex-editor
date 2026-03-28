@@ -64,6 +64,7 @@ export const CREATE_TABLES_SQL = `
         t_audio_validated_by TEXT,
         t_audio_is_fully_validated BOOLEAN DEFAULT FALSE,
         milestone_index INTEGER,
+        t_health REAL DEFAULT 0.3,
         cell_label TEXT,
         parent_id TEXT,
         is_locked BOOLEAN DEFAULT FALSE,

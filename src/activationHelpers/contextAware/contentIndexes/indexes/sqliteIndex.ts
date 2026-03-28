@@ -91,6 +91,7 @@ interface ExtractedCellMetadata {
     audioValidationCount?: number;
     audioValidatedBy?: string;
     audioIsFullyValidated?: boolean;
+    health?: number;
     parentId?: string | null;
     isLocked?: boolean;
     startTime?: number | null;
@@ -1227,7 +1228,7 @@ export class SQLiteIndexManager {
 
         if (cellType === 'target') {
             columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated',
-                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated');
+                't_audio_validation_count', 't_audio_validated_by', 't_audio_is_fully_validated', 't_health');
             values.push(
                 actualEditTimestamp,
                 extractedMetadata.validationCount || 0,
@@ -1235,7 +1236,8 @@ export class SQLiteIndexManager {
                 extractedMetadata.isFullyValidated ? 1 : 0,
                 extractedMetadata.audioValidationCount || 0,
                 extractedMetadata.audioValidatedBy || null,
-                extractedMetadata.audioIsFullyValidated ? 1 : 0
+                extractedMetadata.audioIsFullyValidated ? 1 : 0,
+                extractedMetadata.health ?? 0.3
             );
         }
 
@@ -1852,6 +1854,67 @@ export class SQLiteIndexManager {
         }
 
         return null;
+    }
+
+    // Get health values for multiple cells
+    async getCellsHealth(cellIds: string[]): Promise<Map<string, number>> {
+        if (!this.db || cellIds.length === 0) return new Map();
+
+        const placeholders = cellIds.map(() => '?').join(',');
+        const rows = await this.db.all<{ cell_id: string; t_health: number | null }>(
+            `SELECT cell_id, t_health FROM cells WHERE cell_id IN (${placeholders})`,
+            cellIds
+        );
+
+        const result = new Map<string, number>();
+        for (const row of rows) {
+            const health = row.t_health ?? 0.3;
+            result.set(row.cell_id, health);
+        }
+        return result;
+    }
+
+    /**
+     * Batch update t_health for multiple cells in a single transaction.
+     * Used by health propagation to efficiently write recalculated scores.
+     */
+    async updateCellsHealth(updates: Array<{ cellId: string; health: number }>): Promise<void> {
+        if (!this.db || updates.length === 0) return;
+        await this.runInTransactionWithRetry(async () => {
+            for (const { cellId, health } of updates) {
+                await this.db!.run('UPDATE cells SET t_health = ? WHERE cell_id = ?', [health, cellId]);
+            }
+        });
+    }
+
+    /**
+     * Get validation counts for multiple cells.
+     * Returns a map of cellId → { textCount, audioCount }.
+     * Used by health propagation to identify "anchored" cells that should not be overwritten.
+     */
+    async getCellsValidationStatus(cellIds: string[]): Promise<Map<string, { textCount: number; audioCount: number }>> {
+        if (!this.db || cellIds.length === 0) return new Map();
+
+        const placeholders = cellIds.map(() => '?').join(',');
+        const rows = await this.db.all<{
+            cell_id: string;
+            t_validation_count: number | null;
+            t_audio_validation_count: number | null;
+        }>(
+            `SELECT cell_id, t_validation_count, t_audio_validation_count
+             FROM cells
+             WHERE cell_id IN (${placeholders})`,
+            cellIds
+        );
+
+        const result = new Map<string, { textCount: number; audioCount: number }>();
+        for (const row of rows) {
+            result.set(row.cell_id, {
+                textCount: row.t_validation_count ?? 0,
+                audioCount: row.t_audio_validation_count ?? 0,
+            });
+        }
+        return result;
     }
 
     // Get translation pair by cell ID
@@ -4385,6 +4448,13 @@ export class SQLiteIndexManager {
         if (!result.currentEditTimestamp && audioDetails.latestTimestamp !== null) {
             result.currentEditTimestamp = audioDetails.latestTimestamp;
         }
+
+        // Extract health from metadata (if set)
+        // Health is optional - if not present, it will default to 0.3 when used
+        if (typeof metadata.health === 'number') {
+            result.health = metadata.health;
+        }
+        // No need to log when health is missing - it's expected for cells without health scores
 
         return result;
     }

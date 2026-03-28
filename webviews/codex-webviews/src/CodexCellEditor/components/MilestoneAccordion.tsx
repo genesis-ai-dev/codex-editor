@@ -10,7 +10,7 @@ import {
 import { ProgressDots } from "./ProgressDots";
 import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import { Languages, Check, RotateCcw } from "lucide-react";
+import { Languages, Heart, Check, RotateCcw } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
@@ -43,9 +43,12 @@ interface MilestoneAccordionProps {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        averageHealth?: number;
     };
     requestSubsectionProgress?: (milestoneIdx: number) => void;
     vscode: any;
+    handleEditMilestoneModalOpen: () => void;
+    showHealthIndicators?: boolean;
 }
 
 export function MilestoneAccordion({
@@ -63,6 +66,8 @@ export function MilestoneAccordion({
     calculateSubsectionProgress,
     requestSubsectionProgress,
     vscode,
+    handleEditMilestoneModalOpen,
+    showHealthIndicators = false,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -298,6 +303,7 @@ export function MilestoneAccordion({
                 audioValidationLevels: backendProgress.audioValidationLevels,
                 requiredTextValidations: backendProgress.requiredTextValidations,
                 requiredAudioValidations: backendProgress.requiredAudioValidations,
+                averageHealth: backendProgress.averageHealth,
             };
         }
 
@@ -319,6 +325,7 @@ export function MilestoneAccordion({
             audioValidationLevels: undefined,
             requiredTextValidations: undefined,
             requiredAudioValidations: undefined,
+            averageHealth: undefined,
         };
     };
 
@@ -855,29 +862,60 @@ export function MilestoneAccordion({
                                                             }`}
                                                         >
                                                             <span>{subsection.label}</span>
-                                                            <ProgressDots
-                                                                className="gap-x-[14px]"
-                                                                audio={{
-                                                                    validatedPercent:
-                                                                        percentages.audioValidatedPercent,
-                                                                    completedPercent:
-                                                                        percentages.audioCompletedPercent,
-                                                                    validationLevels:
-                                                                        progress.audioValidationLevels,
-                                                                    requiredValidations:
-                                                                        progress.requiredAudioValidations,
-                                                                }}
-                                                                text={{
-                                                                    validatedPercent:
-                                                                        percentages.textValidatedPercent,
-                                                                    completedPercent:
-                                                                        percentages.textCompletedPercent,
-                                                                    validationLevels:
-                                                                        progress.textValidationLevels,
-                                                                    requiredValidations:
-                                                                        progress.requiredTextValidations,
-                                                                }}
-                                                            />
+                                                            <div className="flex items-center gap-3">
+                                                                {showHealthIndicators && typeof progress.averageHealth === 'number' && (
+                                                                    <div
+                                                                        className="flex items-center gap-1"
+                                                                        title={`Health: ${Math.round(progress.averageHealth * 100)}%`}
+                                                                    >
+                                                                        <Heart
+                                                                            className="h-[12px] w-[12px]"
+                                                                            style={{
+                                                                                color: progress.averageHealth >= 0.7
+                                                                                    ? "var(--vscode-charts-green, #22c55e)"
+                                                                                    : progress.averageHealth >= 0.3
+                                                                                        ? "var(--vscode-charts-yellow, #eab308)"
+                                                                                        : "var(--vscode-charts-red, #ef4444)",
+                                                                            }}
+                                                                        />
+                                                                        <span
+                                                                            className="text-[11px] font-medium"
+                                                                            style={{
+                                                                                color: progress.averageHealth >= 0.7
+                                                                                    ? "var(--vscode-charts-green, #22c55e)"
+                                                                                    : progress.averageHealth >= 0.3
+                                                                                        ? "var(--vscode-charts-yellow, #eab308)"
+                                                                                        : "var(--vscode-charts-red, #ef4444)",
+                                                                            }}
+                                                                        >
+                                                                            {Math.round(progress.averageHealth * 100)}%
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                                <ProgressDots
+                                                                    className="gap-x-[14px]"
+                                                                    audio={{
+                                                                        validatedPercent:
+                                                                            percentages.audioValidatedPercent,
+                                                                        completedPercent:
+                                                                            percentages.audioCompletedPercent,
+                                                                        validationLevels:
+                                                                            progress.audioValidationLevels,
+                                                                        requiredValidations:
+                                                                            progress.requiredAudioValidations,
+                                                                    }}
+                                                                    text={{
+                                                                        validatedPercent:
+                                                                            percentages.textValidatedPercent,
+                                                                        completedPercent:
+                                                                            percentages.textCompletedPercent,
+                                                                        validationLevels:
+                                                                            progress.textValidationLevels,
+                                                                        requiredValidations:
+                                                                            progress.requiredTextValidations,
+                                                                    }}
+                                                                />
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
