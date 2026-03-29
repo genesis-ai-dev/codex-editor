@@ -1,16 +1,28 @@
-import React, { useRef, useState, useEffect } from "react";
-import ReactPlayer from "react-player";
+import React, { useState, useEffect, useRef } from "react";
 import VideoPlayer from "./VideoPlayer";
-import TimelineEditor from "./TimelineEditor";
-import { QuillCellContent, TimeBlock } from "../../../../types";
+import { QuillCellContent } from "../../../../types";
 import { useMouse } from "@uidotdev/usehooks";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
+import { useMultiCellAudioPlayback } from "./hooks/useMultiCellAudioPlayback";
+
+type AudioAttachmentState =
+    | "available"
+    | "available-local"
+    | "available-pointer"
+    | "deletedOnly"
+    | "none"
+    | "missing";
 
 interface VideoTimelineEditorProps {
     videoUrl: string;
     translationUnitsForSection: QuillCellContent[];
     vscode: any;
-    playerRef: React.RefObject<ReactPlayer>;
+    playerRef: React.RefObject<ReactPlayerRef>;
+    audioAttachments?: {
+        [cellId: string]: AudioAttachmentState;
+    };
+    muteVideoWhenPlayingAudio?: boolean;
 }
 
 const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
@@ -18,6 +30,8 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     translationUnitsForSection,
     vscode,
     playerRef,
+    audioAttachments,
+    muteVideoWhenPlayingAudio = true,
 }) => {
     const [playerHeight, setPlayerHeight] = useState<number>(300);
     const [isDragging, setIsDragging] = useState(false);
@@ -54,34 +68,41 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
             document.removeEventListener("mouseup", handleMouseUp);
         };
     }, [isDragging, mouse.y, startY, startHeight]);
-    // const playerRef = useRef<ReactPlayer>(null);
-    const [autoPlay, setAutoPlay] = useState(true);
-    const [currentTime, setCurrentTime] = useState(0);
 
-    // Add this function to handle seeking
-    const handleSeek = (time: number) => {
-        if (playerRef.current) {
-            playerRef.current.seekTo(time, "seconds");
+    const [autoPlay, setAutoPlay] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+
+    // Throttle time updates so we don't re-render on every timeupdate (many/sec), which
+    // was preventing volume adjustments from sticking. ~10 updates/sec keeps audio sync tight.
+    const lastTimeUpdateRef = useRef(0);
+    const THROTTLE_MS = 100;
+    const handleTimeUpdate = (time: number) => {
+        const now = Date.now();
+        if (now - lastTimeUpdateRef.current >= THROTTLE_MS) {
+            lastTimeUpdateRef.current = now;
+            setCurrentTime(time);
         }
     };
 
-    const removeHtmlTags = (text: string) => {
-        return text
-            .replace(/<[^>]*>?/g, "")
-            .replace(/\n/g, " ")
-            .replace(/&nbsp; ?/g, " ");
+    const handlePlay = () => {
+        setIsVideoPlaying(true);
     };
 
-    const data: TimeBlock[] = translationUnitsForSection.map((unit) => ({
-        begin: unit.timestamps?.startTime || 0,
-        end: unit.timestamps?.endTime || 0,
-        text: removeHtmlTags(unit.cellContent),
-        id: unit.cellMarkers[0],
-    }));
-
-    const handleTimeUpdate = (time: number) => {
-        setCurrentTime(time);
+    const handlePause = () => {
+        setIsVideoPlaying(false);
     };
+
+    // Use multi-cell audio playback hook
+    useMultiCellAudioPlayback({
+        translationUnitsForSection,
+        audioAttachments,
+        playerRef,
+        vscode,
+        isVideoPlaying,
+        currentVideoTime: currentTime,
+        muteVideoWhenPlayingAudio,
+    });
 
     return (
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -91,15 +112,9 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 translationUnitsForSection={translationUnitsForSection}
                 autoPlay={autoPlay}
                 onTimeUpdate={handleTimeUpdate}
+                onPlay={handlePlay}
+                onPause={handlePause}
                 playerHeight={playerHeight}
-            />
-            <TimelineEditor
-                autoPlay={autoPlay}
-                playerRef={playerRef}
-                data={data}
-                vscode={vscode}
-                setAutoPlay={setAutoPlay}
-                currentTime={currentTime}
             />
             <div
                 style={{

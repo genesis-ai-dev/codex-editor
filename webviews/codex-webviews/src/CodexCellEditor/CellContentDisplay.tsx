@@ -1,14 +1,7 @@
-import React, { useContext, useEffect, useRef, useState, useMemo, useCallback } from "react";
-import {
-    EditorCellContent,
-    EditorPostMessages,
-    Timestamps,
-    EditHistory,
-    QuillCellContent,
-} from "../../../../types";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { EditorPostMessages, QuillCellContent } from "../../../../types";
+import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
-import { CodexCellTypes } from "../../../../types/enums";
-import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
 import AudioValidationButton from "./AudioValidationButton";
@@ -31,6 +24,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "../components/ui/dialog";
+import AudioPlayButton from "./AudioPlayButton";
 import { MessageCircle } from "lucide-react";
 import AudioPlayButton from "./AudioPlayButton";
 
@@ -74,6 +68,12 @@ interface CellContentDisplayProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
+    // Video player props
+    playerRef?: React.RefObject<ReactPlayerRef>;
+    shouldShowVideoPlayer?: boolean;
+    videoUrl?: string;
+    // Audio playback state from other webview type (source or target)
+    isOtherTypeAudioPlaying?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -123,6 +123,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         allTranslationsComplete = false,
         handleCellTranslation,
         handleCellClick,
+        playerRef,
+        shouldShowVideoPlayer = false,
+        videoUrl,
         audioAttachments,
         footnoteOffset = 0,
         isCorrectionEditorMode = false,
@@ -136,8 +139,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        isOtherTypeAudioPlaying = false,
     }) => {
-        // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
         // Lock state is ONLY honored from top-level metadata.isLocked
         const isCellLocked = !!cell.metadata?.isLocked;
@@ -149,14 +152,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
-        const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-
         const cellRef = useRef<HTMLDivElement>(null);
         const contentRef = useRef<HTMLDivElement>(null);
 
         // Effect to attach event listeners to footnote markers
         useEffect(() => {
-            if (!contentRef.current) return;
+            // Add type guard to ensure contentRef.current is a DOM element
+            if (!contentRef.current || !(contentRef.current instanceof Element)) return;
 
             // Find all footnote markers in the rendered content
             const markers = contentRef.current.querySelectorAll("sup.footnote-marker");
@@ -186,7 +188,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             });
 
             // Use the proper footnote numbering utility
-            if (contentRef.current) {
+            if (contentRef.current instanceof Element) {
                 updateFootnoteNumbering(contentRef.current, footnoteOffset + 1, false);
             }
 
@@ -525,6 +527,43 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
+            const timestamps = () => {
+                if (
+                    cell.timestamps &&
+                    (cell.timestamps.startTime !== undefined ||
+                        cell.timestamps.endTime !== undefined)
+                ) {
+                    return (
+                        <div
+                            className="timestamp-display"
+                            style={{
+                                fontSize: "0.75rem",
+                                color: "var(--vscode-descriptionForeground)",
+                                marginTop: "0.25rem",
+                                fontFamily: "monospace",
+                                opacity: 0.8,
+                                textAlign: "start",
+                                width: "100%",
+                            }}
+                        >
+                            {cell.timestamps.startTime !== undefined &&
+                            cell.timestamps.endTime !== undefined ? (
+                                <span>
+                                    {formatTime(cell.timestamps.startTime)} →{" "}
+                                    {formatTime(cell.timestamps.endTime)}
+                                </span>
+                            ) : cell.timestamps.startTime !== undefined ? (
+                                <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                            ) : cell.timestamps.endTime !== undefined ? (
+                                <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                            ) : null}
+                        </div>
+                    );
+                }
+
+                return null;
+            };
+
             // Handle empty cell case
             if (
                 (!cell.cellContent || cell.cellContent.trim() === "") &&
@@ -532,16 +571,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 (!isSourceText || !isAudioOnly)
             ) {
                 return (
-                    <div
-                        ref={contentRef}
-                        className="cell-content empty-cell-content"
-                        style={{
-                            color: "var(--vscode-descriptionForeground)",
-                            fontStyle: "italic",
-                            opacity: 0.8,
-                        }}
-                    >
-                        {isSourceText ? "No text" : "Click to translate"}
+                    <div className="flex flex-col gap-[0.5rem]">
+                        <div
+                            ref={contentRef}
+                            className="cell-content empty-cell-content"
+                            style={{
+                                color: "var(--vscode-descriptionForeground)",
+                                fontStyle: "italic",
+                                opacity: 0.8,
+                            }}
+                        >
+                            {isSourceText ? "No text" : "Click to translate"}
+                        </div>
+                        {timestamps()}
                     </div>
                 );
             }
@@ -571,8 +613,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             // Render content with timestamp display when timestamps are present
             return (
                 <div
-                    onClick={handleCellContentClick}
-                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                    className="flex flex-col gap-[0.5rem]"
+                    onClick={() => {
+                        hideTooltip();
+                        handleCellClick(cellIds[0]);
+                    }}
                 >
                     <div
                         ref={contentRef}
@@ -581,34 +626,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             __html: processedHtml,
                         }}
                     />
-                    {cell.timestamps &&
-                        (cell.timestamps.startTime !== undefined ||
-                            cell.timestamps.endTime !== undefined) && (
-                            <div
-                                className="timestamp-display"
-                                style={{
-                                    fontSize: "0.75rem",
-                                    color: "var(--vscode-descriptionForeground)",
-                                    marginTop: "0.25rem",
-                                    fontFamily: "monospace",
-                                    opacity: 0.8,
-                                    textAlign: "start",
-                                    width: "100%",
-                                }}
-                            >
-                                {cell.timestamps.startTime !== undefined &&
-                                cell.timestamps.endTime !== undefined ? (
-                                    <span>
-                                        {formatTime(cell.timestamps.startTime)} →{" "}
-                                        {formatTime(cell.timestamps.endTime)}
-                                    </span>
-                                ) : cell.timestamps.startTime !== undefined ? (
-                                    <span>Start: {formatTime(cell.timestamps.startTime)}</span>
-                                ) : cell.timestamps.endTime !== undefined ? (
-                                    <span>End: {formatTime(cell.timestamps.endTime)}</span>
-                                ) : null}
-                            </div>
-                        )}
+                    {timestamps()}
                 </div>
             );
         };
@@ -852,6 +870,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             (window as any).openCellById;
                                                         if (typeof open === "function") open(id);
                                                     }}
+                                                    playerRef={playerRef}
+                                                    cellTimestamps={cell.timestamps}
+                                                    shouldShowVideoPlayer={shouldShowVideoPlayer}
+                                                    videoUrl={videoUrl}
+                                                    disabled={isOtherTypeAudioPlaying}
+                                                    isSourceText={isSourceText}
                                                 />
                                             );
                                         })()}
