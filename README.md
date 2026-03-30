@@ -1,7 +1,6 @@
 DO NOT MERGE THIS PR.
 
-This exists for extension pinning testing purposes only.
-
+This exists for extension pinning testing purposes only. 2  
 
 
 # Codex Translation Editor Extension
