@@ -1,4 +1,4 @@
-# Codex Translation Editor Extension
+# Codex Translation Editor Extension test
 
 The Codex Translation Editor Extension is a powerful Visual Studio Code extension designed to enhance the experience of working with scripture translation projects. It provides support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files, integrating seamlessly with Translator's Copilot Language Server for scripture drafting, checking diagnostics, and offering advanced features to streamline the translation process.
 
