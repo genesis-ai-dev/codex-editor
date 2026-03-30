@@ -675,7 +675,7 @@ function getWebviewContent(
                     if (btn) btn.disabled = selectedFiles.size === 0;
                 }
 
-                function initStep2Options() {
+                function initStep2Options(resetFormatSelection) {
                     const key = selectedGroupKey || 'unknown';
                     const show = (option) => {
                         const allowed = exportOptionsConfig[option];
@@ -687,14 +687,18 @@ function getWebviewContent(
                         const visible = show(opt);
                         el.classList.toggle('hidden', !visible);
                     });
-                    // Visibility for HTML/USFM is controlled by data-option and exportOptionsConfig
-                    selectedFormat = null;
-                    // Clear previous selected state for format options but keep audio selection intact
-                    document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(opt => {
-                        opt.classList.remove('selected');
-                        opt.style.backgroundColor = '';
-                        opt.style.borderColor = '';
-                    });
+                    // Only clear text format when entering step 2 from step 1 (file group may have changed).
+                    // When returning from step 3, keep the user's format choice; audio already behaved this way.
+                    if (resetFormatSelection) {
+                        selectedFormat = null;
+                        document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(opt => {
+                            opt.classList.remove('selected');
+                            opt.style.backgroundColor = '';
+                            opt.style.borderColor = '';
+                        });
+                        const usfmOptionsEl = document.getElementById('usfmOptions');
+                        if (usfmOptionsEl) usfmOptionsEl.style.display = 'none';
+                    }
                     updateStep2Button();
                 }
 
@@ -722,6 +726,7 @@ function getWebviewContent(
                 }
 
                 function goToStep(n) {
+                    const prevStep = currentStep;
                     document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
                     document.getElementById('step' + n).classList.add('active');
                     document.querySelectorAll('.step-dot').forEach((dot, i) => {
@@ -732,7 +737,7 @@ function getWebviewContent(
                     currentStep = n;
                     updateButtonVisibility();
                     if (n === 2) {
-                        initStep2Options();
+                        initStep2Options(prevStep === 1);
                     } else if (n === 3) {
                         updateExportButton();
                     }
