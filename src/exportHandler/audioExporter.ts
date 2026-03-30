@@ -9,6 +9,12 @@ import { getFFmpegPath } from "../utils/ffmpegManager";
 
 const execAsync = promisify(exec);
 
+let extensionContext: vscode.ExtensionContext | undefined;
+
+export const initializeAudioExporter = (context: vscode.ExtensionContext): void => {
+    extensionContext = context;
+};
+
 // Debug logging for audio export diagnostics
 const DEBUG = false;
 function debug(...args: any[]) {
@@ -353,7 +359,7 @@ async function convertToWav(
     originalExt: string,
     sampleRate: number = 48000
 ): Promise<Uint8Array> {
-    const ffmpegBinaryPath = await getFFmpegPath();
+    const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
     if (!ffmpegBinaryPath) {
         throw new Error("FFmpeg not available");
     }
