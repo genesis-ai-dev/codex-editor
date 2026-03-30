@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { subtitlesImporter } from './index';
+import { subtitlesImporter, validateSubtitleTimestamps } from './index';
 
 // Minimal File-like shim for tests
 class MockFile {
@@ -41,4 +41,135 @@ describe('subtitlesImporter.parseFile', () => {
     });
 });
 
+describe('validateSubtitleTimestamps', () => {
+    it('returns no warnings for a well-ordered VTT', () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '1',
+            '00:00:01.000 --> 00:00:03.000',
+            'First cue',
+            '',
+            '2',
+            '00:00:04.000 --> 00:00:06.000',
+            'Second cue',
+            '',
+            '3',
+            '00:00:07.000 --> 00:00:09.000',
+            'Third cue',
+        ].join('\n');
 
+        expect(validateSubtitleTimestamps(vtt)).toEqual([]);
+    });
+
+    it('returns no warnings for a well-ordered SRT', () => {
+        const srt = [
+            '1',
+            '00:00:01,000 --> 00:00:03,000',
+            'First cue',
+            '',
+            '2',
+            '00:00:04,000 --> 00:00:06,000',
+            'Second cue',
+        ].join('\n');
+
+        expect(validateSubtitleTimestamps(srt)).toEqual([]);
+    });
+
+    it('ignores small overlaps from multi-speaker cues (<5s)', () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '1',
+            '00:00:10.000 --> 00:00:14.000',
+            'Speaker A',
+            '',
+            '1',
+            '00:00:10.000 --> 00:00:14.000',
+            'Speaker B (same timestamp, overlap of 4s)',
+        ].join('\n');
+
+        expect(validateSubtitleTimestamps(vtt)).toEqual([]);
+    });
+
+    it('warns when timestamps jump backwards significantly (corrupted hour)', () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '1',
+            '01:00:23.625 --> 01:00:28.458',
+            'Cue with wrong hour',
+            '',
+            '2',
+            '00:00:52.886 --> 00:00:54.763',
+            'Cue with correct hour (jumps back ~3573s)',
+        ].join('\n');
+
+        const warnings = validateSubtitleTimestamps(vtt);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toMatch(/non-sequential timestamps/);
+        expect(warnings[0]).toMatch(/1 hour/);
+    });
+
+    it('counts multiple out-of-order cues', () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '1',
+            '01:00:23.000 --> 01:00:28.000',
+            'Wrong hour',
+            '',
+            '2',
+            '00:00:30.000 --> 00:00:35.000',
+            'Correct (jump back)',
+            '',
+            '3',
+            '01:00:40.000 --> 01:00:45.000',
+            'Wrong hour again',
+            '',
+            '4',
+            '00:00:50.000 --> 00:00:55.000',
+            'Correct (jump back again)',
+        ].join('\n');
+
+        const warnings = validateSubtitleTimestamps(vtt);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toMatch(/2 subtitle cue/);
+    });
+
+    it('reports minutes for moderate jumps', () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '1',
+            '00:05:00.000 --> 00:05:30.000',
+            'Later cue first',
+            '',
+            '2',
+            '00:01:00.000 --> 00:01:05.000',
+            'Earlier cue second (jumps back ~270s)',
+        ].join('\n');
+
+        const warnings = validateSubtitleTimestamps(vtt);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toMatch(/\d+ minutes/);
+    });
+
+    it('reports seconds for small jumps', () => {
+        const vtt = [
+            'WEBVTT',
+            '',
+            '1',
+            '00:00:30.000 --> 00:00:40.000',
+            'Later cue first',
+            '',
+            '2',
+            '00:00:10.000 --> 00:00:15.000',
+            'Earlier cue second (jumps back ~30s)',
+        ].join('\n');
+
+        const warnings = validateSubtitleTimestamps(vtt);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toMatch(/\d+ seconds/);
+    });
+});
