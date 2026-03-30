@@ -1024,12 +1024,7 @@ type ProjectMetadata = {
             [lang: string]: string;
         };
     };
-    languages: Array<{
-        tag: string;
-        name: {
-            [lang: string]: string;
-        };
-    }>;
+    languages: Array<LanguageMetadata>;
     type: {
         flavorType: {
             name: string;
@@ -2242,27 +2237,27 @@ export type GitToolMode = "auto" | "builtin" | "force-builtin";
 export type SqliteToolMode = "auto" | "builtin" | "force-builtin";
 
 export type MessagesToMissingToolsWarning =
-    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; }
-    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; }
-    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean; }
-    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; }
-    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean; }
-    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean; }
-    | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean; }
-    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean; }
-    | { command: "showDeleteButtons"; }
-    | { command: "showForceBuiltinButtons"; }
-    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg"; };
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode }
+    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
+    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
+    | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean }
+    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean }
+    | { command: "showDeleteButtons" }
+    | { command: "showForceBuiltinButtons" }
+    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg" };
 
 export type MessagesFromMissingToolsWarning =
-    | { command: "retry"; }
-    | { command: "continue"; }
-    | { command: "openDownloadPage"; }
-    | { command: "close"; }
-    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg"; }
-    | { command: "toggleAudioMode"; }
-    | { command: "toggleGitMode"; }
-    | { command: "toggleSqliteMode"; }
-    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg"; }
-    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg"; }
-    | { command: "reloadWindow"; };
+    | { command: "retry" }
+    | { command: "continue" }
+    | { command: "openDownloadPage" }
+    | { command: "close" }
+    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "toggleAudioMode" }
+    | { command: "toggleGitMode" }
+    | { command: "toggleSqliteMode" }
+    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "reloadWindow" };
