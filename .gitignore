@@ -2,10 +2,12 @@ out
 node_modules
 .vscode-test/
 *.vsix
+/package-lock.json
 pnpm-lock.yaml
 __pycache__
 /webviews/commentsWebview
 .DS_Store
+package-lock.json
 .wdio-vscode-service
 # TypeScript build cache
 .tsbuildinfo
