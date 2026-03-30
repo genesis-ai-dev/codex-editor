@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isNativeSqliteReady } from "./nativeSqlite";
 
 // ---------------------------------------------------------------------------
 // Audio tool preferences
@@ -129,8 +130,5 @@ export const shouldUseNativeSqlite = (): boolean => {
     if (mode === "builtin" || mode === "force-builtin") {
         return false;
     }
-    // Lazy import to avoid circular dependency at module load time
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { isNativeSqliteReady } = require("./nativeSqlite");
     return isNativeSqliteReady();
 };
