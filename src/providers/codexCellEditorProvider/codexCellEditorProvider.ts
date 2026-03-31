@@ -1122,6 +1122,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             debug("Jump to cell event received:", value);
+            // Pre-populate the target position so that updateWebview() — which runs before
+            // navigateToSection in the pending queue — sends a refreshCurrentPage at the
+            // correct milestone instead of resetting to chapter 1 for newly-opened files.
+            const position = document.findMilestoneAndSubsectionForCell(value, this.CELLS_PER_PAGE);
+            if (position) {
+                this.currentMilestoneSubsectionMap.set(document.uri.toString(), position);
+            }
             this.scheduleWebviewUpdate(document.uri.toString(), () => {
                 navigateToSection(value);
             });
