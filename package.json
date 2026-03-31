@@ -194,6 +194,16 @@
                 "category": "Codex Editor"
             },
             {
+                "command": "codex-editor.openToolsStatus",
+                "title": "Status",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.advancedToolSettings",
+                "title": "Advanced Tool Settings",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor-extension.forceReindex",
                 "title": "Force Reindex",
                 "icon": "$(refresh)",
@@ -683,6 +693,20 @@
                 }
             },
             {
+                "title": "Codex Editor: Tool Preferences",
+                "properties": {
+                    "codex-editor.gitBackendMode": {
+                        "type": "string",
+                        "enum": [
+                            "auto",
+                            "builtin"
+                        ],
+                        "default": "auto",
+                        "description": "Git backend: 'auto' uses the native dugite binary when available, 'builtin' always uses the bundled isomorphic-git."
+                    }
+                }
+            },
+            {
                 "title": "Codex Extension",
                 "properties": {
                     "codex-editor-extension.api_key": {
@@ -1092,10 +1116,12 @@
         "diff": "^7.0.0",
         "dugite": "^3.0.0",
         "events": "^3.3.0",
+        "fts5-sql-bundle": "^1.0.2",
         "fitty": "^2.4.2",
         "hog-features": "^1.0.0",
         "i": "^0.3.7",
         "immutability-helper": "^3.1.1",
+        "isomorphic-git": "^1.27.1",
         "jimp": "^0.22.12",
         "md5": "^2.3.0",
         "meilisearch": "^0.38.0",

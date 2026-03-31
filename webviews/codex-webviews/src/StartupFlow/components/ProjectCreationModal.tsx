@@ -19,35 +19,45 @@ interface ProjectCreationModalProps {
     open: boolean;
     onClose: () => void;
     vscode: WebviewApi<any>;
+    recoveryMode?: boolean;
+    defaultProjectName?: string;
 }
 
 export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     open,
     onClose,
     vscode,
+    recoveryMode = false,
+    defaultProjectName = "",
 }) => {
-    const [projectName, setProjectName] = useState("");
+    const [projectName, setProjectName] = useState(defaultProjectName);
     const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata | null>(null);
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
     const [touched, setTouched] = useState(false);
     const [nameError, setNameError] = useState<string | null>(null);
     const [activePicker, setActivePicker] = useState<"source" | "target" | "projectType" | null>(null);
 
-    // Reset form when modal closes
     useEffect(() => {
         if (!open) {
-            setProjectName("");
+            if (!recoveryMode) {
+                setProjectName("");
+            }
             setSourceLanguage(null);
             setTargetLanguage(null);
             setTouched(false);
             setNameError(null);
             setActivePicker(null);
         }
-    }, [open]);
+    }, [open, recoveryMode]);
 
-    // Validate project name
     useEffect(() => {
-        if (!touched) return;
+        if (recoveryMode && defaultProjectName) {
+            setProjectName(defaultProjectName);
+        }
+    }, [recoveryMode, defaultProjectName]);
+
+    useEffect(() => {
+        if (!touched || recoveryMode) return;
         const trimmedName = projectName.trim();
         if (trimmedName.length === 0) {
             setNameError("Project name is required");
@@ -56,9 +66,12 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
         } else {
             setNameError(null);
         }
-    }, [projectName, touched]);
+    }, [projectName, touched, recoveryMode]);
 
     const isFormValid = (): boolean => {
+        if (recoveryMode) {
+            return sourceLanguage !== null && targetLanguage !== null;
+        }
         const trimmedName = projectName.trim();
         return (
             trimmedName.length > 0 &&
@@ -70,12 +83,20 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
 
     const handleSubmit = () => {
         if (!isFormValid()) return;
-        vscode.postMessage({
-            command: "project.createForUpload",
-            projectName: projectName.trim(),
-            sourceLanguage: sourceLanguage!,
-            targetLanguage: targetLanguage!,
-        } as MessagesToStartupFlowProvider);
+        if (recoveryMode) {
+            vscode.postMessage({
+                command: "project.initializeWithLanguages",
+                sourceLanguage: sourceLanguage!,
+                targetLanguage: targetLanguage!,
+            } as MessagesToStartupFlowProvider);
+        } else {
+            vscode.postMessage({
+                command: "project.createForUpload",
+                projectName: projectName.trim(),
+                sourceLanguage: sourceLanguage!,
+                targetLanguage: targetLanguage!,
+            } as MessagesToStartupFlowProvider);
+        }
     };
 
     const handleLanguageSelect = (language: LanguageMetadata) => {
@@ -85,6 +106,12 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
             setTargetLanguage(language);
         }
     };
+
+    const title = recoveryMode ? "Restore Project Settings" : "Create New Project";
+    const description = recoveryMode
+        ? "Your project is missing its configuration. Please select your languages to restore it."
+        : "Configure your translation project settings";
+    const submitLabel = recoveryMode ? "Restore Project" : "Get Started";
 
     return (
         <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -97,17 +124,14 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                 }}
             >
                 <DialogHeader>
-                    <DialogTitle>Create New Project</DialogTitle>
-                    <DialogDescription>
-                        Configure your translation project settings
-                    </DialogDescription>
+                    <DialogTitle>{title}</DialogTitle>
+                    <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-6 py-4">
-                    {/* Project Name */}
                     <div className="space-y-2">
                         <Label htmlFor="project-name">
-                            Project Name <span className="text-red-500">*</span>
+                            Project Name {!recoveryMode && <span className="text-red-500">*</span>}
                         </Label>
                         <Input
                             id="project-name"
@@ -115,14 +139,14 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                             value={projectName}
                             onChange={(e) => setProjectName(e.target.value)}
                             onBlur={() => setTouched(true)}
-                            className={nameError ? "border-red-500" : ""}
+                            disabled={recoveryMode}
+                            className={nameError ? "border-red-500" : recoveryMode ? "opacity-60" : ""}
                         />
                         {nameError && touched && (
                             <p className="text-sm text-red-500">{nameError}</p>
                         )}
                     </div>
 
-                    {/* Source Language */}
                     <div className="space-y-2">
                         <Label>
                             Source Language <span className="text-red-500">*</span>
@@ -137,7 +161,6 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                         />
                     </div>
 
-                    {/* Target Language */}
                     <div className="space-y-2">
                         <Label>
                             Target Language <span className="text-red-500">*</span>
@@ -154,11 +177,13 @@ export const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
                 </div>
 
                 <DialogFooter>
-                    <Button variant="ghost" onClick={onClose}>
-                        Cancel
-                    </Button>
-                    <Button onClick={handleSubmit} disabled={!isFormValid()} title="Upload Sources">
-                        Get Started
+                    {!recoveryMode && (
+                        <Button variant="ghost" onClick={onClose}>
+                            Cancel
+                        </Button>
+                    )}
+                    <Button onClick={handleSubmit} disabled={!isFormValid()}>
+                        {submitLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>
