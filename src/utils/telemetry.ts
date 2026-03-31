@@ -10,6 +10,11 @@ const POSTHOG_HOST = "https://us.i.posthog.com";
 let client: PostHog | undefined;
 let distinctId: string | undefined;
 
+const isTelemetryEnabled = (): boolean =>
+    vscode.workspace
+        .getConfiguration("codex-editor-extension")
+        .get<boolean>("telemetryEnabled", true);
+
 const buildDistinctId = (): string => {
     const uuid = crypto.randomUUID();
     try {
@@ -46,6 +51,10 @@ const getSystemProperties = () => ({
 });
 
 export const initTelemetry = (): void => {
+    if (!isTelemetryEnabled()) {
+        return;
+    }
+
     distinctId = buildDistinctId();
 
     client = new PostHog(POSTHOG_PROJECT_TOKEN, {
@@ -111,6 +120,10 @@ const SESSION_RECORDING_WEBVIEWS = new Set([
 ]);
 
 export const getPostHogWebviewScript = (nonce: string, webviewName?: string): string => {
+    if (!isTelemetryEnabled()) {
+        return `<script nonce="${nonce}">/* telemetry disabled */</script>`;
+    }
+
     const userEnabled = vscode.workspace
         .getConfiguration("codex-editor-extension")
         .get<boolean>("sessionRecordingEnabled", false);
