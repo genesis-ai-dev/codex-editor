@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfProjectIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
@@ -19,6 +19,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
+import { shouldUseNativeGit } from "../../utils/toolPreferences";
 
 class ProjectManagerStore {
     private preflightState: ProjectManagerState = {
@@ -250,7 +251,7 @@ class ProjectManagerStore {
             this.isRefreshing = true;
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
-            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
+            const hasMetadata = hasWorkspace ? await checkIfProjectIsInitialized() : false;
 
             const canInitializeProject = hasWorkspace && !hasMetadata;
             const workspaceIsOpen = hasWorkspace;
@@ -509,19 +510,30 @@ export class MainMenuProvider extends BaseWebviewProvider {
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
 
-        // Check authentication and git binary status
+        // Check authentication and git binary status independently so a
+        // failure in one doesn't zero out the other.
         let isAuthenticated = false;
-        let isGitAvailable = false;
-        try {
-            const frontierApi = getAuthApi();
-            if (frontierApi) {
+        let frontierReportsSyncCapable = false;
+        const frontierApi = getAuthApi();
+        if (frontierApi) {
+            try {
                 const authStatus = frontierApi.getAuthStatus();
                 isAuthenticated = authStatus?.isAuthenticated ?? false;
-                isGitAvailable = frontierApi.isGitBinaryAvailable?.() ?? false;
+            } catch (error) {
+                console.debug("Could not get authentication status:", error);
             }
-        } catch (error) {
-            console.debug("Could not get authentication status:", error);
+            try {
+                const general = frontierApi.isGitAvailable?.();
+                const binary = frontierApi.isGitBinaryAvailable?.() ?? false;
+                // Do not use ?? between these: false from isGitAvailable must not skip the binary check.
+                frontierReportsSyncCapable = general === true || binary;
+            } catch (error) {
+                console.debug("Could not get git availability:", error);
+            }
         }
+        // Main menu "sync available" matches the actual git backend: isomorphic-git when
+        // shouldUseNativeGit() is false, otherwise we need Frontier's dugite binary.
+        const isGitAvailable = !shouldUseNativeGit() || frontierReportsSyncCapable;
 
         if (this._view) {
             safePostMessageToView(this._view, {
@@ -536,6 +548,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             } as ProjectManagerMessageToWebview, "MainMenu");
         }
     }
+
 
     protected async handleMessage(message: any): Promise<void> {
         // Handle main menu messages
@@ -872,6 +885,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 const syncManager = SyncManager.getInstance();
                 await syncManager.updateFromConfiguration();
 
+                await this.sendSyncSettings();
                 break;
             }
             case "triggerSync": {
@@ -883,9 +897,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 const frontierApi = getAuthApi();
                 if (frontierApi?.retryGitBinaryDownload) {
                     const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    const { setNativeGitAvailable } = await import("../../utils/toolPreferences");
                     resetGitBinaryPath();
                     const success = await frontierApi.retryGitBinaryDownload();
                     if (success) {
+                        setNativeGitAvailable(true);
                         vscode.window.showInformationMessage("Sync setup completed successfully.");
                     }
                     await this.sendSyncSettings();
@@ -953,6 +969,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openCodexMigrationTool":
                 await vscode.commands.executeCommand("codex-editor.openCodexMigrationTool");
+                break;
+            case "openToolsStatus":
+                await vscode.commands.executeCommand("codex-editor.openToolsStatus");
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();

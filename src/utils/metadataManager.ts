@@ -471,8 +471,8 @@ export class MetadataManager {
 
         if (result.success && result.metadata) {
             const metadata = result.metadata as any;
-            sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            sourceLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "source");
+            targetLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "target");
         }
 
         if (!sourceLanguage || !targetLanguage) {

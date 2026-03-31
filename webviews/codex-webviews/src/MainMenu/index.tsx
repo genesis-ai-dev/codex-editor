@@ -118,6 +118,7 @@ function EditableField({
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
 const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 
+
 interface ProjectManagerState {
     projectOverview: any | null;
     webviewReady: boolean;
@@ -894,15 +895,19 @@ function MainMenu() {
                                                     }
                                                 }}
                                                 disabled={
+                                                    !state.isGitAvailable ||
                                                     projectState.isPublishingInProgress ||
                                                     projectState.isImportInProgress ||
                                                     !isOnline ||
                                                     !state.isFrontierExtensionEnabled
                                                 }
+                                                title={!state.isGitAvailable ? "Sync unavailable — missing sync tools" : undefined}
                                                 size="sm"
                                                 className="flex-shrink-0"
                                             >
-                                                {projectState.isPublishingInProgress ? (
+                                                {!state.isGitAvailable ? (
+                                                    "Sync Unavailable"
+                                                ) : projectState.isPublishingInProgress ? (
                                                     <>
                                                         <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
                                                         {projectState.publishingStage ||

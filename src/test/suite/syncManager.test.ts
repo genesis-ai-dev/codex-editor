@@ -94,8 +94,10 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     let showInformationMessageStub: sinon.SinonStub;
     let openExternalStub: sinon.SinonStub;
     let getAuthApiStub: sinon.SinonStub;
+    let listRemotesStub: sinon.SinonStub;
     let versionChecksModule: any;
     let extensionModule: any;
+    let dugiteGitModule: any;
     let mockAuthApi: any;
 
     suiteSetup(() => {
@@ -137,15 +139,19 @@ suite('SyncManager VS Code Version Warning Tests', () => {
             requiredVersion: '0.4.24'
         });
 
-        // Stub isOnline to return true so executeSync doesn't bail out early
-        connectivityModule = await import('../../utils/connectivityChecker');
-        isOnlineStub = sinon.stub(connectivityModule, 'isOnline').resolves(true);
-
-        // Stub dugiteGit.listRemotes so the "no git remote" check doesn't exit early
-        dugiteModule = await import('../../utils/dugiteGit');
-        listRemotesStub = sinon.stub(dugiteModule, 'listRemotes').resolves([
-            { remote: 'origin', url: 'https://example.com/repo.git' }
+        // Stub dugiteGit.listRemotes so the "not published" guard doesn't fire
+        dugiteGitModule = await import('../../utils/dugiteGit');
+        listRemotesStub = sinon.stub(dugiteGitModule, 'listRemotes').resolves([
+            { remote: 'origin', url: 'https://example.com/test.git' }
         ]);
+
+        // Stub isOnline so the offline guard doesn't fire
+        const connectivityModule = await import('../../utils/connectivityChecker');
+        sinon.stub(connectivityModule, 'isOnline').resolves(true);
+
+        // Stub private guards so they don't block reaching the version check
+        sinon.stub(syncManager as any, 'checkUpdating').resolves(false);
+        sinon.stub(syncManager as any, 'checkProjectSwap').resolves(false);
 
         // Stub VS Code APIs
         showInformationMessageStub = sinon.stub(vscode.window, 'showInformationMessage');
@@ -153,6 +159,34 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     });
 
     teardown(() => {
+        // Restore all stubs
+        if (checkVSCodeVersionStub) {
+            checkVSCodeVersionStub.restore();
+        }
+        if (getFrontierVersionStatusStub) {
+            getFrontierVersionStatusStub.restore();
+        }
+        if (getAuthApiStub) {
+            getAuthApiStub.restore();
+        }
+        if (listRemotesStub) {
+            listRemotesStub.restore();
+        }
+        // Restore VS Code API stubs if they exist
+        try {
+            if (showInformationMessageStub && typeof showInformationMessageStub.restore === 'function') {
+                showInformationMessageStub.restore();
+            }
+        } catch {
+            // Already restored or not a stub
+        }
+        try {
+            if (openExternalStub && typeof openExternalStub.restore === 'function') {
+                openExternalStub.restore();
+            }
+        } catch {
+            // Already restored or not a stub
+        }
         sinon.restore();
     });
 

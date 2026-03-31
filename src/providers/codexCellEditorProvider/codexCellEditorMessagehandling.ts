@@ -30,6 +30,19 @@ function debug(...args: any[]): void {
     }
 }
 
+const AUDIO_MIME_MAP: Record<string, string> = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".webm": "audio/webm",
+    ".flac": "audio/flac",
+};
+
+const audioExtensionToMime = (ext: string): string =>
+    AUDIO_MIME_MAP[ext.toLowerCase()] ?? "application/octet-stream";
+
 // Track pending attention checks - keyed by testId
 interface PendingAttentionCheck {
     cellId: string;
@@ -261,7 +274,7 @@ async function getAudioFilePathForCell(
         // Fallback to parsing cell ID (legacy)
         basename = toBookChapterVerseBasename(cellId);
     }
-    const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+    const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
 
     const attachmentsFilesPath = path.join(
         workspaceFolder.uri.fsPath,
@@ -1736,10 +1749,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 if (fileExists && fileStats) {
                     const ext = path.extname(fullPath).toLowerCase();
-                    const mimeType = ext === ".webm" ? "audio/webm" :
-                        ext === ".mp3" ? "audio/mp3" :
-                            ext === ".m4a" ? "audio/mp4" :
-                                ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                    const mimeType = audioExtensionToMime(ext);
 
                     let fileData: Uint8Array;
 
@@ -1963,10 +1973,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                             // Send to webview
                             const ext = path.extname(fullPath).toLowerCase();
-                            const mimeType = ext === ".webm" ? "audio/webm" :
-                                ext === ".mp3" ? "audio/mp3" :
-                                    ext === ".m4a" ? "audio/mp4" :
-                                        ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                            const mimeType = audioExtensionToMime(ext);
                             const base64Data = `data:${mimeType};base64,${Buffer.from(lfsData).toString('base64')}`;
 
                             safePostMessageToPanel(webviewPanel, {
@@ -2025,7 +2032,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         for (const attachmentsPath of tryPaths) {
             if (!(await pathExists(attachmentsPath))) continue;
             const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
-            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+            const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
 
             for (const [entryName, entryType] of files) {
                 if (entryType !== vscode.FileType.File) continue;
@@ -2036,11 +2043,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         const fullPath = path.join(attachmentsPath, audioFile);
 
                         const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
-                        const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
-                            audioFile.endsWith('.mp3') ? 'audio/mp3' :
-                                audioFile.endsWith('.m4a') ? 'audio/mp4' :
-                                    audioFile.endsWith('.ogg') ? 'audio/ogg' :
-                                        'audio/wav';
+                        const mimeType = audioExtensionToMime(path.extname(audioFile));
                         const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                         safePostMessageToPanel(webviewPanel, {
@@ -2311,10 +2314,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             {
                 const absPath = path.isAbsolute(filesPath) ? filesPath : path.join(workspaceFolder.uri.fsPath, filesPath);
                 const extNow = path.extname(absPath).toLowerCase();
-                const mimeNow = extNow === ".webm" ? "audio/webm" :
-                    extNow === ".mp3" ? "audio/mp3" :
-                        extNow === ".m4a" ? "audio/mp4" :
-                            extNow === ".ogg" ? "audio/ogg" : "audio/wav";
+                const mimeNow = audioExtensionToMime(extNow);
 
                 let base64Now: string | null = null;
                 try {
@@ -3664,7 +3664,7 @@ export async function scanForAudioAttachments(
                             const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
 
                             // Look for any audio files that might match this cell
-                            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+                            const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
                             const audioFiles = files
                                 .filter(([name, type]) => type === vscode.FileType.File)
                                 .map(([name]) => name)
