@@ -94,8 +94,10 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     let showInformationMessageStub: sinon.SinonStub;
     let openExternalStub: sinon.SinonStub;
     let getAuthApiStub: sinon.SinonStub;
+    let listRemotesStub: sinon.SinonStub;
     let versionChecksModule: any;
     let extensionModule: any;
+    let dugiteGitModule: any;
     let mockAuthApi: any;
 
     suiteSetup(() => {
@@ -132,6 +134,20 @@ suite('SyncManager VS Code Version Warning Tests', () => {
             requiredVersion: '0.4.18'
         });
 
+        // Stub dugiteGit.listRemotes so the "not published" guard doesn't fire
+        dugiteGitModule = await import('../../utils/dugiteGit');
+        listRemotesStub = sinon.stub(dugiteGitModule, 'listRemotes').resolves([
+            { remote: 'origin', url: 'https://example.com/test.git' }
+        ]);
+
+        // Stub isOnline so the offline guard doesn't fire
+        const connectivityModule = await import('../../utils/connectivityChecker');
+        sinon.stub(connectivityModule, 'isOnline').resolves(true);
+
+        // Stub private guards so they don't block reaching the version check
+        sinon.stub(syncManager as any, 'checkUpdating').resolves(false);
+        sinon.stub(syncManager as any, 'checkProjectSwap').resolves(false);
+
         // Stub VS Code APIs
         showInformationMessageStub = sinon.stub(vscode.window, 'showInformationMessage');
         openExternalStub = sinon.stub(vscode.env, 'openExternal');
@@ -147,6 +163,9 @@ suite('SyncManager VS Code Version Warning Tests', () => {
         }
         if (getAuthApiStub) {
             getAuthApiStub.restore();
+        }
+        if (listRemotesStub) {
+            listRemotesStub.restore();
         }
         // Restore VS Code API stubs if they exist
         try {
