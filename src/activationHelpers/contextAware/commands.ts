@@ -10,7 +10,7 @@ import {
 } from "../../utils/codexNotebookUtils";
 import { jumpToCellInNotebook } from "../../utils";
 import { setTargetFont } from "../../projectManager/projectInitializers";
-import { CodexExportFormat, exportCodexContent } from "../../exportHandler/exportHandler";
+import { CodexExportFormat, exportCodexContent, type ExportOptions } from "../../exportHandler/exportHandler";
 
 
 import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
@@ -158,7 +158,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             format: CodexExportFormat;
             userSelectedPath: string;
             filesToExport: string[];
-            options?: { skipValidation?: boolean; removeIds?: boolean; };
+            options?: ExportOptions;
         }) => {
             await exportCodexContent(format, userSelectedPath, filesToExport, options);
         }
