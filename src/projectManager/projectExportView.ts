@@ -545,12 +545,7 @@ function getWebviewContent(
                                 Select Location
                             </button>
                         </div>
-                        <div id="exportOutputOptions" style="margin-top: 16px;">
-                            <div style="display: flex; align-items: center;">
-                                <input type="checkbox" id="zipOutput">
-                                <label for="zipOutput" style="margin-left: 8px;">Zip output</label>
-                            </div>
-                        </div>
+                        
                     </div>
                 </div>
                 `
@@ -848,7 +843,6 @@ function getWebviewContent(
                         options.includeAudio = true;
                         options.includeTimestamps = selectedAudioMode === 'audio-timestamps';
                     }
-                    if (document.getElementById('zipOutput')?.checked) options.zipOutput = true;
                     vscode.postMessage({
                         command: 'export',
                         format: formatToSend,
