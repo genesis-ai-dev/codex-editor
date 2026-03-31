@@ -1024,12 +1024,7 @@ type ProjectMetadata = {
             [lang: string]: string;
         };
     };
-    languages: Array<{
-        tag: string;
-        name: {
-            [lang: string]: string;
-        };
-    }>;
+    languages: Array<LanguageMetadata>;
     type: {
         flavorType: {
             name: string;
