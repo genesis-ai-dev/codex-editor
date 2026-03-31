@@ -5,7 +5,13 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SyncSettings } from "../components/SyncSettings";
-import { vscode } from "../EditableReactTable/utilities/vscode";
+import {
+    TextDisplaySettingsModal,
+    type TextDisplaySettings,
+} from "../components/TextDisplaySettingsModal";
+import { getVSCodeAPI } from "../shared/vscodeApi";
+
+const vscode = getVSCodeAPI();
 import "../tailwind.css";
 
 // Inline editable field component
@@ -102,6 +108,7 @@ function EditableField({
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
 const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 
+
 interface ProjectManagerState {
     projectOverview: any | null;
     webviewReady: boolean;
@@ -139,6 +146,7 @@ interface State {
     syncDelayMinutes: number;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
+    isGitAvailable: boolean;
 }
 
 function MainMenu() {
@@ -168,6 +176,7 @@ function MainMenu() {
         syncDelayMinutes: 5,
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
+        isGitAvailable: true,
     });
 
     const network = useNetworkState();
@@ -302,6 +311,7 @@ function MainMenu() {
                             message.data.isFrontierExtensionEnabled ??
                             prevState.isFrontierExtensionEnabled,
                         isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
+                        isGitAvailable: message.data.isGitAvailable ?? prevState.isGitAvailable,
                     }));
                     break;
                 case "updateStateChanged":
@@ -344,7 +354,6 @@ function MainMenu() {
                         },
                     }));
                     break;
-                // Speech-to-text settings moved to Copilot Settings panel
             }
         };
 
@@ -428,6 +437,10 @@ function MainMenu() {
 
     const handleTriggerSync = () => {
         handleProjectAction("triggerSync");
+    };
+
+    const handleDownloadSyncRuntime = () => {
+        handleProjectAction("downloadSyncRuntime");
     };
 
     // Speech-to-text settings controls moved to Copilot Settings panel
@@ -838,18 +851,28 @@ function MainMenu() {
                                                     }
                                                 }}
                                                 disabled={
+                                                    !state.isGitAvailable ||
                                                     projectState.isPublishingInProgress ||
+                                                    projectState.isImportInProgress ||
                                                     !isOnline ||
                                                     !state.isFrontierExtensionEnabled
                                                 }
+                                                title={!state.isGitAvailable ? "Sync unavailable — missing sync tools" : undefined}
                                                 size="sm"
                                                 className="flex-shrink-0"
                                             >
-                                                {projectState.isPublishingInProgress ? (
+                                                {!state.isGitAvailable ? (
+                                                    "Sync Unavailable"
+                                                ) : projectState.isPublishingInProgress ? (
                                                     <>
                                                         <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
                                                         {projectState.publishingStage ||
                                                             "Publishing..."}
+                                                    </>
+                                                ) : projectState.isImportInProgress ? (
+                                                    <>
+                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                                        Importing...
                                                     </>
                                                 ) : !isOnline ? (
                                                     "Offline"
@@ -876,10 +899,12 @@ function MainMenu() {
                                     isImportInProgress={projectState.isImportInProgress ?? false}
                                     isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
                                     isAuthenticated={state.isAuthenticated}
+                                    isGitAvailable={state.isGitAvailable}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
                                     onLogin={handleLogin}
+                                    onDownloadSyncRuntime={handleDownloadSyncRuntime}
                                 />
                             )}
 

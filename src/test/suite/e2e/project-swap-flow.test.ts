@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import * as git from "isomorphic-git";
+import * as dugiteGit from "../../../utils/dugiteGit";
 import {
     ProjectSwapEntry,
     ProjectSwapInfo,
@@ -39,6 +39,7 @@ suite("E2E: Project Swap Flow", () => {
     let originalFetch: typeof globalThis.fetch;
 
     suiteSetup(() => {
+        dugiteGit.useEmbeddedGitBinary();
         // Stub fetch to avoid actual network calls
         originalFetch = (globalThis as any).fetch;
         (globalThis as any).fetch = async (input: any, _init?: any) => {
@@ -1784,16 +1785,11 @@ async function createTestProject(tempDir: string, name: string): Promise<string>
     fs.writeFileSync(path.join(projectDir, "metadata.json"), JSON.stringify(metadata, null, 2));
 
     // Initialize git
-    await git.init({ fs, dir: projectDir, defaultBranch: "main" });
+    await dugiteGit.init(projectDir);
     fs.writeFileSync(path.join(projectDir, "test.txt"), "test");
-    await git.add({ fs, dir: projectDir, filepath: "metadata.json" });
-    await git.add({ fs, dir: projectDir, filepath: "test.txt" });
-    await git.commit({
-        fs,
-        dir: projectDir,
-        message: "Initial commit",
-        author: { name: "Test", email: "test@example.com" },
-    });
+    await dugiteGit.add(projectDir, "metadata.json");
+    await dugiteGit.add(projectDir, "test.txt");
+    await dugiteGit.commit(projectDir, "Initial commit", { name: "Test", email: "test@example.com" });
 
     return projectDir;
 }
