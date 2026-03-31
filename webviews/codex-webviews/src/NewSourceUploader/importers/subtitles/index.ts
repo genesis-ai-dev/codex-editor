@@ -21,12 +21,6 @@ import { createSubtitleCellMetadata } from './cellMetadata';
 const SUPPORTED_EXTENSIONS = ['vtt', 'srt', 'ass', 'sub'];
 
 /**
- * Threshold in seconds for flagging a timestamp as significantly out-of-order.
- * Small overlaps (<5s) are common in multi-speaker subtitle files and are ignored.
- */
-const OUT_OF_ORDER_THRESHOLD_SECONDS = 5;
-
-/**
  * Scans raw subtitle text for non-sequential timestamps.
  * Returns an array of warning strings (empty if no issues found).
  * Works with both VTT (`.` separator) and SRT (`,` separator) formats.
@@ -39,7 +33,7 @@ export const validateSubtitleTimestamps = (content: string): string[] => {
     let match: RegExpExecArray | null;
     let prevEndTime = -1;
     let cueIndex = 0;
-    const majorJumps: { cueIndex: number; jumpBackSeconds: number }[] = [];
+    const majorJumps: { cueIndex: number; jumpBackSeconds: number; }[] = [];
 
     while ((match = timestampRegex.exec(content)) !== null) {
         cueIndex++;
@@ -56,7 +50,7 @@ export const validateSubtitleTimestamps = (content: string): string[] => {
 
         if (prevEndTime >= 0 && startTime < prevEndTime) {
             const jumpBack = prevEndTime - startTime;
-            if (jumpBack > OUT_OF_ORDER_THRESHOLD_SECONDS) {
+            if (jumpBack > 0) {
                 majorJumps.push({ cueIndex, jumpBackSeconds: jumpBack });
             }
         }
@@ -69,14 +63,14 @@ export const validateSubtitleTimestamps = (content: string): string[] => {
             maxJump >= 3000
                 ? `${Math.round(maxJump / 3600)} hour(s)`
                 : maxJump >= 120
-                  ? `${Math.round(maxJump / 60)} minutes`
-                  : `${Math.round(maxJump)} seconds`;
+                    ? `${Math.round(maxJump / 60)} minutes`
+                    : `${Math.round(maxJump)} seconds`;
 
         warnings.push(
             `Found ${majorJumps.length} subtitle cue(s) with non-sequential timestamps ` +
-                `(jumping backwards by up to ${formattedMaxJump}). ` +
-                `This typically indicates corrupted timing data (e.g., incorrect hour values). ` +
-                `The imported content may not be in the correct order.`
+            `(jumping backwards by up to ${formattedMaxJump}). ` +
+            `This typically indicates corrupted timing data (e.g., incorrect hour values). ` +
+            `The imported content may not be in the correct order.`
         );
     }
 
