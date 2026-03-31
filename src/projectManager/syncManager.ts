@@ -10,7 +10,7 @@ import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChe
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
 import { markPendingUpdateRequired } from "../utils/localProjectSettings";
-import { isNativeSqliteReady } from "../utils/nativeSqlite";
+import { isDatabaseReady } from "../utils/sqliteDatabaseFactory";
 import { isOnline } from "../utils/connectivityChecker";
 
 const DEBUG_SYNC_MANAGER = false;
@@ -333,11 +333,54 @@ export class SyncManager {
         });
     }
 
-    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean; } {
+    private audioProcessingCount: number = 0;
+    private audioProcessingListeners: Array<(inProgress: boolean) => void> = [];
+
+    public beginAudioProcessing(): void {
+        this.audioProcessingCount++;
+        debug("Audio processing started (count=%d)", this.audioProcessingCount);
+        this.notifyAudioProcessingListeners();
+    }
+
+    public endAudioProcessing(): void {
+        if (this.audioProcessingCount > 0) {
+            this.audioProcessingCount--;
+            debug("Audio processing ended (count=%d)", this.audioProcessingCount);
+            this.notifyAudioProcessingListeners();
+        }
+    }
+
+    public isAudioProcessingInProgress(): boolean {
+        return this.audioProcessingCount > 0;
+    }
+
+    public addAudioProcessingListener(listener: (inProgress: boolean) => void): vscode.Disposable {
+        this.audioProcessingListeners.push(listener);
+        return new vscode.Disposable(() => {
+            const index = this.audioProcessingListeners.indexOf(listener);
+            if (index !== -1) {
+                this.audioProcessingListeners.splice(index, 1);
+            }
+        });
+    }
+
+    private notifyAudioProcessingListeners(): void {
+        const inProgress = this.isAudioProcessingInProgress();
+        this.audioProcessingListeners.forEach((listener) => {
+            try {
+                listener(inProgress);
+            } catch (error) {
+                console.error("Error notifying audio processing listener:", error);
+            }
+        });
+    }
+
+    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean; isAudioProcessingInProgress: boolean } {
         return {
             isSyncInProgress: this.isSyncInProgress,
             syncStage: this.currentSyncStage,
             isImportInProgress: this.isImportInProgress(),
+            isAudioProcessingInProgress: this.isAudioProcessingInProgress(),
         };
     }
 
@@ -1255,8 +1298,8 @@ export class SyncManager {
 
     // Fallback method for basic index rebuild (original logic as backup)
     private async fallbackIndexRebuild(): Promise<void> {
-        if (!isNativeSqliteReady()) {
-            console.warn("[SyncManager] Skipping index rebuild — SQLite not available");
+        if (!isDatabaseReady()) {
+            console.warn("[SyncManager] Skipping index rebuild — no SQLite backend available");
             return;
         }
 
