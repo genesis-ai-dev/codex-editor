@@ -64,11 +64,11 @@ import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
 import { initializeAudioExporter } from "./exportHandler/audioExporter";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
-import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
+import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
-import { initTelemetry, shutdownTelemetry, captureException } from "./utils/telemetry";
+import { initTelemetry, shutdownTelemetry, captureException, captureEvent } from "./utils/telemetry";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
@@ -415,6 +415,13 @@ export async function activate(context: vscode.ExtensionContext) {
         const gitMode = getGitToolMode();
         const effectiveBackend = gitMode === "builtin" ? "isomorphic-git (forced)" : gitAvailable ? "dugite (native)" : "isomorphic-git (no binary)";
         console.log(`[codex] Git backend mode: ${gitMode}, effective: ${effectiveBackend}`);
+        if (!gitAvailable || gitMode === "builtin") {
+            captureEvent("tool_fallback_used", {
+                tool: "git",
+                reason: gitMode === "builtin" ? "user_preference_builtin" : "binary_unavailable",
+                mode: gitMode,
+            });
+        }
         stepStart = finishRealtimeStep();
 
         // If metadata.json is missing but the workspace has a .git with a remote,
@@ -518,6 +525,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 await initFts5Sqlite(context);
                 const reason = sqliteMode === "builtin" ? "user preference" : "native unavailable";
                 console.log(`[SQLite] fts5-sql-bundle (WASM) initialized (${reason})`);
+                captureEvent("tool_fallback_used", {
+                    tool: "sqlite",
+                    reason: sqliteMode === "builtin" ? "user_preference_builtin" : "native_load_failed",
+                    mode: sqliteMode,
+                });
             } catch (fallbackError: any) {
                 if (!nativeLoaded) {
                     console.error("[SQLite] Both native and fts5 fallback failed:", fallbackError?.message || fallbackError);
@@ -562,6 +574,14 @@ export async function activate(context: vscode.ExtensionContext) {
         console.info(
             `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}`
         );
+
+        if (!toolCheckResult.ffmpeg) {
+            captureEvent("tool_fallback_used", {
+                tool: "audio",
+                reason: "ffmpeg_unavailable",
+                mode: getAudioToolMode(),
+            });
+        }
 
         // When offline, non-critical tools (git, audio) being unavailable is
         // expected and not actionable -- skip the blocking warning panel.
