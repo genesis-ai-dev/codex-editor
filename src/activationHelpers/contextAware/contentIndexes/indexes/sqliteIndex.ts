@@ -196,9 +196,6 @@ const debug = (message: string, ...args: any[]) => {
     DEBUG_MODE && console.log(`[SQLiteIndex] ${message}`, ...args);
 };
 
-// Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 16; // cell_label format: "BOOK CHAPTER:POSITION" (e.g., "GEN 5:12")
-
 export class SQLiteIndexManager {
     private db: IAsyncDatabase | null = null;
     private dbPath: string | null = null;
