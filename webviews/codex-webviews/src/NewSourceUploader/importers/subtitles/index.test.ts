@@ -76,7 +76,7 @@ describe('validateSubtitleTimestamps', () => {
         expect(validateSubtitleTimestamps(srt)).toEqual([]);
     });
 
-    it('ignores small overlaps from multi-speaker cues (<5s)', () => {
+    it('catches small overlaps from multi-speaker cues (<5s)', () => {
         const vtt = [
             'WEBVTT',
             '',
