@@ -521,6 +521,8 @@ export interface AudioFileSelectedMessage {
     segments: Array<{ id: string; startSec: number; endSec: number; }>;
     waveformPeaks: number[];
     fullAudioUri?: string;
+    /** Original file extension without dot (e.g. "mp3", "m4a"). Present when FFmpeg is used. */
+    sourceExtension?: string;
     thresholdDb?: number;
     minDuration?: number;
     error?: string;
@@ -535,10 +537,39 @@ export interface AudioFilesSelectedMessage {
         segments: Array<{ id: string; startSec: number; endSec: number; }>;
         waveformPeaks: number[];
         fullAudioUri?: string;
+        /** Original file extension without dot (e.g. "mp3", "m4a"). Present when FFmpeg is used. */
+        sourceExtension?: string;
     }>;
     thresholdDb?: number;
     minDuration?: number;
     error?: string;
+}
+
+/** Extension host -> webview: audio file ready for Web Audio API processing (fallback path) */
+export interface AudioFileForProcessingMessage {
+    command: 'audioFileForProcessing';
+    sessionId: string;
+    fileName: string;
+    fullAudioUri: string;
+    sizeBytes: number;
+    thresholdDb: number;
+    minDuration: number;
+}
+
+/** Extension host -> webview: re-run silence detection with new VAD params (fallback path) */
+export interface ReprocessAudioInWebviewMessage {
+    command: 'reprocessAudioInWebview';
+    sessionId: string;
+    thresholdDb: number;
+    minDuration: number;
+}
+
+/** Webview -> extension host: results from Web Audio API processing (fallback path) */
+export interface AudioProcessingCompleteMessage {
+    command: 'audioProcessingComplete';
+    sessionId: string;
+    durationSec: number;
+    segments: Array<{ id: string; startSec: number; endSec: number }>;
 }
 
 export interface RequestAudioSegmentMessage {
@@ -561,7 +592,9 @@ export interface FinalizeAudioImportMessage {
     sessionId: string;
     documentName: string;
     notebookPairs: NotebookPair[];
-    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string; }>;
+    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }>;
+    /** WAV-encoded segment data produced by the webview (Web Audio API fallback path). */
+    encodedSegments?: Array<{ segmentId: string; wavBase64: string }>;
 }
 
 export interface AudioImportProgressMessage {
@@ -607,4 +640,4 @@ export interface AudioUriResponseMessage {
     error?: string;
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage; 
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | AudioFileForProcessingMessage | ReprocessAudioInWebviewMessage | AudioProcessingCompleteMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage;
