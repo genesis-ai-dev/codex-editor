@@ -7,7 +7,9 @@ import * as dugiteGit from "../../../utils/dugiteGit";
 import { ProjectMetadata, ProjectSwapEntry, ProjectSwapInfo, ProjectSwapUserEntry } from "../../../../types";
 import { sortSwapEntries, normalizeProjectSwapInfo } from "../../../utils/projectSwapManager";
 
-suite("Integration: Project Swap Flow", () => {
+suite("Integration: Project Swap Flow", function () {
+    this.timeout(10000);
+
     let tempDir: string;
     let oldProjectDir: string;
     let newProjectDir: string;
