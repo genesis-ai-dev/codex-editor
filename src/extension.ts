@@ -345,23 +345,61 @@ export async function activate(context: vscode.ExtensionContext) {
     if (workspaceFolders && workspaceFolders.length > 0) {
         try {
             const projectUri = workspaceFolders[0].uri;
-            const result = await MetadataManager.safeReadMetadata(projectUri);
-            if (result.success && result.metadata?.meta?.pinnedExtensions) {
-                const pins = result.metadata.meta.pinnedExtensions;
-                const myPin = pins["project-accelerate.codex-editor-extension"];
+
+            // Priority 1: Check for Remote Pins (authoritative for users)
+            let remotePins: Record<string, { version: string; url: string }> | undefined;
+            try {
+                remotePins = await vscode.commands.executeCommand(
+                    "frontier.getRemotePinnedExtensions"
+                );
+            } catch (e) {
+                // Command might not exist if Frontier isn't active/installed
+            }
+
+            if (remotePins) {
+                const myPin = remotePins["project-accelerate.codex-editor-extension"];
                 if (myPin) {
                     const myVersion = MetadataManager.getCurrentExtensionVersion(
                         "project-accelerate.codex-editor-extension"
                     );
                     if (myVersion && myVersion !== myPin.version) {
                         console.log(
-                            `[Extension] Version mismatch detected: ${myVersion} != ${myPin.version}. Suspending initialization for Conductor.`
+                            `[Extension] Remote version mismatch: ${myVersion} != ${myPin.version}. Suspending for Conductor.`
                         );
-                        // Trigger the "sync" style UI in the splash screen
-                        trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
+                        trackTiming(
+                            "Starting Project Synchronization (Version Pin Enforcement)",
+                            activationStart
+                        );
                         updateSplashScreenSync(0, "Applying extension version pins...");
-                        // Halt activation - the window will be reloaded by CodexConductor
                         return;
+                    } else {
+                        // We match the remote authority — proceed even if metadata.json is different (to allow merge)
+                        console.log(
+                            `[Extension] Remote version matched (${myVersion}). Proceeding to activation.`
+                        );
+                    }
+                }
+            } else {
+                // Priority 2: Fall back to local metadata.json
+                const result = await MetadataManager.safeReadMetadata(projectUri);
+                if (result.success && result.metadata?.meta?.pinnedExtensions) {
+                    const pins = result.metadata.meta.pinnedExtensions;
+                    const myPin = pins["project-accelerate.codex-editor-extension"];
+                    if (myPin) {
+                        const myVersion = MetadataManager.getCurrentExtensionVersion(
+                            "project-accelerate.codex-editor-extension"
+                        );
+                        if (myVersion && myVersion !== myPin.version) {
+                            console.log(
+                                `[Extension] Local version mismatch: ${myVersion} != ${myPin.version}. Suspending for Conductor.`
+                            );
+                            trackTiming(
+                                "Starting Project Synchronization (Version Pin Enforcement)",
+                                activationStart
+                            );
+                            updateSplashScreenSync(0, "Applying extension version pins...");
+                            return;
+                        }
                     }
                 }
             }
