@@ -24,7 +24,7 @@ import {
     AlertCircle,
 } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
-import { subtitlesImporter } from "./index";
+import { subtitlesImporter, validateSubtitleTimestamps } from "./index";
 import { subtitlesImporterPlugin } from "./index.tsx";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
 import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
@@ -45,6 +45,7 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
     const [result, setResult] = useState<NotebookPair | null>(null);
     const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
     const [previewContent, setPreviewContent] = useState<string>("");
+    const [fileWarnings, setFileWarnings] = useState<string[]>([]);
     const [subtitleStats, setSubtitleStats] = useState<{
         totalCues: number;
         duration: string;
@@ -64,6 +65,7 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
             setResult(null);
             setAlignedCells(null);
             setSubtitleStats(null);
+            setFileWarnings([]);
 
             // Show preview and analyze file
             try {
@@ -103,6 +105,9 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
                     duration,
                     format,
                 });
+
+                const timestampWarnings = validateSubtitleTimestamps(text);
+                setFileWarnings(timestampWarnings);
             } catch (err) {
                 console.warn("Could not preview file:", err);
             }
@@ -579,6 +584,17 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
                                         </div>
                                     </CardContent>
                                 </Card>
+                            )}
+
+                            {fileWarnings.length > 0 && (
+                                <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+                                    <AlertCircle className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
+                                    <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                                        {fileWarnings.map((warning, index) => (
+                                            <p key={index}>{warning}</p>
+                                        ))}
+                                    </AlertDescription>
+                                </Alert>
                             )}
 
                             {previewContent && (
