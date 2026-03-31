@@ -1074,7 +1074,41 @@ export async function syncMetadataToConfiguration() {
             debug("No valid validationCountAudio found in metadata");
         }
 
-        // Add other metadata properties sync here as needed
+        // Sync sourceLanguage and targetLanguage from metadata to config
+        if (Array.isArray(metadata.languages) && metadata.languages.length > 0) {
+            const metadataSource = metadata.languages.find(
+                (lang: LanguageMetadata) => lang.projectStatus === LanguageProjectStatus.SOURCE
+            );
+            const metadataTarget = metadata.languages.find(
+                (lang: LanguageMetadata) => lang.projectStatus === LanguageProjectStatus.TARGET
+            );
+
+            if (metadataSource) {
+                const currentSource = config.get("sourceLanguage") as LanguageMetadata | undefined;
+                const needsUpdate = !currentSource
+                    || !currentSource.tag
+                    || currentSource.tag !== metadataSource.tag
+                    || currentSource.refName !== metadataSource.refName;
+
+                if (needsUpdate) {
+                    debug(`Syncing sourceLanguage from metadata (${metadataSource.refName}) to configuration`);
+                    await config.update("sourceLanguage", metadataSource, vscode.ConfigurationTarget.Workspace);
+                }
+            }
+
+            if (metadataTarget) {
+                const currentTarget = config.get("targetLanguage") as LanguageMetadata | undefined;
+                const needsUpdate = !currentTarget
+                    || !currentTarget.tag
+                    || currentTarget.tag !== metadataTarget.tag
+                    || currentTarget.refName !== metadataTarget.refName;
+
+                if (needsUpdate) {
+                    debug(`Syncing targetLanguage from metadata (${metadataTarget.refName}) to configuration`);
+                    await config.update("targetLanguage", metadataTarget, vscode.ConfigurationTarget.Workspace);
+                }
+            }
+        }
     } catch (error) {
         console.error("Error syncing metadata to configuration:", error);
     }
