@@ -547,6 +547,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+
     getCommentsForCell: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getCommentsForCell"; }>;
         try {
