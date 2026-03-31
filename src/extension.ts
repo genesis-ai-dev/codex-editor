@@ -62,6 +62,7 @@ import {
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
 import { initializeAudioExtractor } from "./utils/audioExtractor";
+import { initializeAudioExporter } from "./exportHandler/audioExporter";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
 import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
@@ -322,6 +323,7 @@ export async function activate(context: vscode.ExtensionContext) {
     initializeAudioProcessor(context);
     initializeAudioMerger(context);
     initializeAudioExtractor(context);
+    initializeAudioExporter(context);
 
     // Register and show splash screen immediately before anything else
     try {
