@@ -105,7 +105,7 @@ suite("VTT round-trip integration (mock VTT fixtures)", function () {
         });
         assert.ok(alignedTextCell, "Expected at least one aligned text cell");
 
-        const alignedStart = alignedTextCell!.notebookCell.metadata.data.startTime as number;
+        const alignedStart = alignedTextCell!.notebookCell!.metadata!.data!.startTime as number;
         const expectedContent = importedByStart.get(alignedStart);
         assert.ok(expectedContent, "Expected imported content for aligned text cell");
         assert.strictEqual(
