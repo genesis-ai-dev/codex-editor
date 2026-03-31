@@ -107,7 +107,6 @@ suite('SyncManager VS Code Version Warning Tests', () => {
     let connectivityModule: any;
     let isOnlineStub: sinon.SinonStub;
     let dugiteModule: any;
-    let listRemotesStub: sinon.SinonStub;
 
     setup(async () => {
         // Restore any existing stubs first to avoid double-wrapping errors
