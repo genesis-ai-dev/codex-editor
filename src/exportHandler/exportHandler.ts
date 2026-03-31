@@ -7,7 +7,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
-import { zipDirectory } from "./utils/zipUtils";
+
 // import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -215,7 +215,6 @@ export enum CodexExportFormat {
 export interface ExportOptions {
     skipValidation?: boolean;
     removeIds?: boolean;
-    zipOutput?: boolean;
     includeAudio?: boolean;
     includeTimestamps?: boolean;
 }
@@ -1611,7 +1610,6 @@ export async function exportCodexContent(
     filesToExport: string[],
     options?: ExportOptions
 ) {
-    const shouldZip = options?.zipOutput ?? false;
     const includeAudio = options?.includeAudio === true && format !== CodexExportFormat.AUDIO;
     const isMulti = includeAudio;
 
@@ -1624,7 +1622,7 @@ export async function exportCodexContent(
     const baseName = `${projectName}-${formatLabel}-${dateStamp}`;
     let candidate = path.join(userSelectedPath, baseName);
     let suffix = 1;
-    while (fs.existsSync(candidate) || fs.existsSync(`${candidate}.zip`)) {
+    while (fs.existsSync(candidate)) {
         candidate = path.join(userSelectedPath, `${baseName}-${suffix}`);
         suffix++;
     }
@@ -1687,13 +1685,6 @@ export async function exportCodexContent(
     }
 
     await Promise.all(exportPromises);
-
-    if (shouldZip) {
-        const zipPath = `${wrapperPath}.zip`;
-        await zipDirectory(wrapperPath, zipPath);
-        fs.rmSync(wrapperPath, { recursive: true, force: true });
-        vscode.window.showInformationMessage(`Exported to ${zipPath}`);
-    }
 }
 
 // Compact helpers for id handling and lookups
