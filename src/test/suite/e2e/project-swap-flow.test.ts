@@ -34,9 +34,7 @@ import {
  * 
  * Run with Husky pre-push hook via `npm test`
  */
-suite("E2E: Project Swap Flow", function () {
-    this.timeout(10000);
-
+suite("E2E: Project Swap Flow", () => {
     let tempDir: string;
     let originalFetch: typeof globalThis.fetch;
 

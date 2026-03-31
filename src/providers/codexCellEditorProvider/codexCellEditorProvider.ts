@@ -2449,14 +2449,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const validationCount = config.get("validationCount", 1);
         const validationCountAudio = config.get("validationCountAudio", 1);
         const authApi = await this.getAuthApi();
-        let userInfo;
-        try {
-            if (authApi && typeof authApi.getUserInfo === "function") {
-                userInfo = await authApi.getUserInfo();
-            }
-        } catch (error) {
-            console.warn("[CodexCellEditorProvider] Failed to fetch user info during refreshWebview:", error);
-        }
+        const userInfo = await authApi?.getUserInfo();
         const username = userInfo?.username || "anonymous";
 
         // Build milestone index for paginated loading
