@@ -21,6 +21,63 @@ import { createSubtitleCellMetadata } from './cellMetadata';
 const SUPPORTED_EXTENSIONS = ['vtt', 'srt', 'ass', 'sub'];
 
 /**
+ * Scans raw subtitle text for non-sequential timestamps.
+ * Returns an array of warning strings (empty if no issues found).
+ * Works with both VTT (`.` separator) and SRT (`,` separator) formats.
+ */
+export const validateSubtitleTimestamps = (content: string): string[] => {
+    const warnings: string[] = [];
+    const timestampRegex =
+        /(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/g;
+
+    let match: RegExpExecArray | null;
+    let prevEndTime = -1;
+    let cueIndex = 0;
+    const majorJumps: { cueIndex: number; jumpBackSeconds: number; }[] = [];
+
+    while ((match = timestampRegex.exec(content)) !== null) {
+        cueIndex++;
+        const startTime =
+            parseInt(match[1]) * 3600 +
+            parseInt(match[2]) * 60 +
+            parseInt(match[3]) +
+            parseInt(match[4]) / 1000;
+        const endTime =
+            parseInt(match[5]) * 3600 +
+            parseInt(match[6]) * 60 +
+            parseInt(match[7]) +
+            parseInt(match[8]) / 1000;
+
+        if (prevEndTime >= 0 && startTime < prevEndTime) {
+            const jumpBack = prevEndTime - startTime;
+            if (jumpBack > 0) {
+                majorJumps.push({ cueIndex, jumpBackSeconds: jumpBack });
+            }
+        }
+        prevEndTime = endTime;
+    }
+
+    if (majorJumps.length > 0) {
+        const maxJump = Math.max(...majorJumps.map((j) => j.jumpBackSeconds));
+        const formattedMaxJump =
+            maxJump >= 3000
+                ? `${Math.round(maxJump / 3600)} hour(s)`
+                : maxJump >= 120
+                    ? `${Math.round(maxJump / 60)} minutes`
+                    : `${Math.round(maxJump)} seconds`;
+
+        warnings.push(
+            `Found ${majorJumps.length} subtitle cue(s) with non-sequential timestamps ` +
+            `(jumping backwards by up to ${formattedMaxJump}). ` +
+            `This typically indicates corrupted timing data (e.g., incorrect hour values). ` +
+            `The imported content may not be in the correct order.`
+        );
+    }
+
+    return warnings;
+};
+
+/**
  * Parses SRT content and converts it to VTT-like structure
  */
 const parseSRTContent = (content: string) => {
@@ -117,6 +174,10 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
             warnings.push('No timestamp patterns found - this may not be a subtitle file');
         }
 
+        // Check for non-sequential timestamps
+        const timestampWarnings = validateSubtitleTimestamps(content);
+        warnings.push(...timestampWarnings);
+
     } catch (error) {
         errors.push('Could not read file content');
     }
@@ -186,6 +247,8 @@ export const parseFile = async (
         if (!parsed.cues || parsed.cues.length === 0) {
             throw new Error('No subtitle cues found in the file');
         }
+
+        const timestampWarnings = validateSubtitleTimestamps(content);
 
         onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 70));
 
@@ -273,6 +336,7 @@ export const parseFile = async (
         return {
             success: true,
             notebookPair: notebookPairWithMilestones,
+            warnings: timestampWarnings.length > 0 ? timestampWarnings : undefined,
             metadata: {
                 segmentCount: sourceNotebook.cells.length,
                 format,
