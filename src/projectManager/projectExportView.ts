@@ -404,20 +404,18 @@ function getWebviewContent(
                                             <p>Export in Universal Standard Format Markers</p>
                                         </div>
                                     </div>
+                                    <div class="format-option" data-format="usfm-no-validate" data-option="usfm">
+                                        <div class="format-option-content">
+                                            <strong>Generate USFM Without Validation</strong>
+                                            <p>Skip USFM validation for a faster export</p>
+                                            <span class="format-tag">May produce invalid USFM</span>
+                                        </div>
+                                    </div>
                                     <div class="format-option" data-format="html" data-option="html">
                                         <div class="format-option-content">
                                             <strong>Generate HTML</strong>
                                             <p>Export as web pages with chapter navigation</p>
                                         </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div id="usfmOptions" style="display: none;">
-                                <div class="format-option" data-format="usfm-no-validate" data-option="usfm">
-                                    <div class="format-option-content">
-                                        <strong>Generate USFM Without Validation</strong>
-                                        <p>Skip USFM validation for a faster export</p>
-                                        <span class="format-tag">May produce invalid USFM</span>
                                     </div>
                                 </div>
                             </div>
@@ -696,8 +694,7 @@ function getWebviewContent(
                             opt.style.backgroundColor = '';
                             opt.style.borderColor = '';
                         });
-                        const usfmOptionsEl = document.getElementById('usfmOptions');
-                        if (usfmOptionsEl) usfmOptionsEl.style.display = 'none';
+                        
                     }
                     updateStep2Button();
                 }
@@ -821,8 +818,6 @@ function getWebviewContent(
                             if (option.classList.contains('selected')) {
                                 option.classList.remove('selected');
                                 selectedFormat = null;
-                                const usfmOptions = document.getElementById('usfmOptions');
-                                if (usfmOptions) usfmOptions.style.display = 'none';
                                 updateStep2Button();
                                 return;
                             }
@@ -835,9 +830,6 @@ function getWebviewContent(
                             });
                             option.classList.add('selected');
                             selectedFormat = option.dataset.format;
-                            const usfmOptions = document.getElementById('usfmOptions');
-                            const isUsfmVariant = selectedFormat === 'usfm' || selectedFormat === 'usfm-no-validate';
-                            if (usfmOptions) usfmOptions.style.display = isUsfmVariant ? 'block' : 'none';
                             updateStep2Button();
                         });
                     });
