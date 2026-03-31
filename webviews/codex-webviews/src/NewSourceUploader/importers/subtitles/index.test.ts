@@ -89,7 +89,10 @@ describe('validateSubtitleTimestamps', () => {
             'Speaker B (same timestamp, overlap of 4s)',
         ].join('\n');
 
-        expect(validateSubtitleTimestamps(vtt)).toEqual([]);
+        const warnings = validateSubtitleTimestamps(vtt);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toMatch(/non-sequential timestamps/);
+        expect(warnings[0]).toMatch(/4 seconds/);
     });
 
     it('warns when timestamps jump backwards significantly (corrupted hour)', () => {
