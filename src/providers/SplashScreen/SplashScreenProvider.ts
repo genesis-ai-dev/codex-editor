@@ -77,9 +77,14 @@ export class SplashScreenProvider {
         // Execute UI commands in background after splash is visible
         setTimeout(async () => {
             try {
-                // Maximize editor and hide tab bar after splash is shown
-                await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-                debug("[SplashScreen] Maximized editor layout");
+                // Check if UI minification is disabled
+                const disableUiMinification = vscode.workspace.getConfiguration("codex-editor-extension").get("disableUiMinification", false);
+                
+                if (!disableUiMinification) {
+                    // Maximize editor and hide tab bar after splash is shown
+                    await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+                    debug("[SplashScreen] Maximized editor layout");
+                }
             } catch (error) {
                 console.warn("Failed to execute maximize command:", error);
             }
