@@ -120,4 +120,3 @@ With the extension project open in VS Code, do the following:
 ## Translator's Copilot Server
 
 This server is running in the background. See the README under the `servers` folder on the GitHub repository for more information.
-
