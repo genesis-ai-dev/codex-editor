@@ -73,6 +73,7 @@ interface CellContentDisplayProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
+    htmlStructureError?: string;
 }
 
 const DEBUG_ENABLED = false;
@@ -134,6 +135,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        htmlStructureError,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -145,6 +147,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [showOfflineModal, setShowOfflineModal] = useState(false);
         const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
         const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
+        const [isResolvingStructure, setIsResolvingStructure] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -202,6 +205,23 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             // Completely disable fading to prevent any glitches during translation
             setFadingOut(false);
         }, [allTranslationsComplete, translationState, isInTranslationProcess]);
+
+        useEffect(() => {
+            if (!htmlStructureError) {
+                setIsResolvingStructure(false);
+            }
+        }, [htmlStructureError]);
+
+        useEffect(() => {
+            const handler = (e: Event) => {
+                const detail = (e as CustomEvent).detail;
+                if (detail?.cellId === cellIds[0]) {
+                    setIsResolvingStructure(false);
+                }
+            };
+            window.addEventListener("htmlStructureResolved", handler);
+            return () => window.removeEventListener("htmlStructureResolved", handler);
+        }, [cellIds]);
 
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
@@ -384,6 +404,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const getBorderStyle = () => {
             if (hasDuplicateId) {
                 return { borderColor: "red" };
+            }
+            if (htmlStructureError) {
+                return { borderColor: "var(--vscode-charts-yellow, #ca8a04)" };
             }
 
             // Explicitly reset border properties when no translation state
@@ -961,6 +984,46 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 >
                                     {backtranslation.backtranslation}
                                 </ReactMarkdown>
+                            </div>
+                        )}
+
+                        {htmlStructureError && (
+                            <div
+                                style={{
+                                    marginTop: "0.25rem",
+                                    padding: "0.25rem 0.5rem",
+                                    fontSize: "0.8em",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "0.5rem",
+                                    color: "var(--vscode-charts-yellow, #ca8a04)",
+                                    backgroundColor: "rgba(202, 138, 4, 0.08)",
+                                    borderRadius: "4px",
+                                    border: "1px solid rgba(202, 138, 4, 0.25)",
+                                }}
+                            >
+                                <i className={`codicon ${isResolvingStructure ? "codicon-loading codicon-modifier-spin" : "codicon-warning"}`} />
+                                <span style={{ flex: 1 }}>
+                                    {isResolvingStructure
+                                        ? "Resolving structure..."
+                                        : `Structure mismatch: ${htmlStructureError}`}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isResolvingStructure}
+                                    style={{ height: "1.4rem", fontSize: "0.75rem", padding: "0 0.4rem" }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsResolvingStructure(true);
+                                        vscode.postMessage({
+                                            command: "resolveHtmlStructure",
+                                            content: { cellId: cellIds[0] },
+                                        } as EditorPostMessages);
+                                    }}
+                                >
+                                    {isResolvingStructure ? "Resolving…" : "Resolve"}
+                                </Button>
                             </div>
                         )}
                     </div>
