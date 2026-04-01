@@ -182,9 +182,6 @@ function MainMenu() {
     const network = useNetworkState();
     const isOnline = network?.online ?? true;
 
-    const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
-
-
     // Optimistic local state for validation counters so rapid clicks work correctly.
     // Without this, each click reads from the stale server-confirmed state (which
     // hasn't round-tripped yet), causing lost increments and UI bouncing.
@@ -447,17 +444,6 @@ function MainMenu() {
     };
 
     // Speech-to-text settings controls moved to Copilot Settings panel
-
-    const handleApplyTextDisplaySettings = (settings: TextDisplaySettings) => {
-        try {
-            vscode.postMessage({
-                command: "applyTextDisplaySettings",
-                data: settings,
-            });
-        } catch (error) {
-            console.error("Could not apply text display settings:", error);
-        }
-    };
 
     const getLanguageDisplay = (languageObj: any): string => {
         if (!languageObj) return "Missing";
@@ -954,8 +940,9 @@ function MainMenu() {
                                             },
                                             {
                                                 icon: "codicon-text-size",
-                                                label: "Text Display",
-                                                action: () => setIsTextDisplaySettingsOpen(true),
+                                                label: "Interface Settings",
+                                                action: () =>
+                                                    handleProjectAction("openInterfaceSettings"),
                                             },
                                             {
                                                 icon: "codicon-symbol-array",
@@ -1096,12 +1083,6 @@ function MainMenu() {
                 Codex Editor {projectState.appVersion ? `v${projectState.appVersion}` : ""}
             </div>
 
-            {/* Text Display Settings Modal */}
-            <TextDisplaySettingsModal
-                isOpen={isTextDisplaySettingsOpen}
-                onClose={() => setIsTextDisplaySettingsOpen(false)}
-                onApply={handleApplyTextDisplaySettings}
-            />
         </div>
     );
 }
