@@ -253,9 +253,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const isVisible = e.webviewPanel.visible;
             StartupFlowGlobalState.instance.setOpen(isVisible);
 
-            // When becoming visible again, refresh the list
             if (isVisible) {
                 this.sendList(webviewPanel);
+                // Re-check metadata every time the panel becomes visible so
+                // that a stale "Restore Project Configuration" screen is
+                // dismissed if the project has since been fully set up
+                // (e.g. after the New Source Uploader tab closes).
+                this.refreshProjectState();
             }
         });
         this.disposables.push(visibilityDisposable);
@@ -598,6 +602,50 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
     }
 
+    /**
+     * Re-stat metadata.json to get a fresh isProjectInitialized value,
+     * avoiding stale preflight state that can cause the initialize form to flash.
+     */
+    private async getFreshProjectInitialized(): Promise<boolean> {
+        try {
+            const ws = vscode.workspace.workspaceFolders;
+            if (!ws?.length) {
+                return this.preflightState.workspaceState.isProjectSetup;
+            }
+            const metadataUri = vscode.Uri.joinPath(ws[0].uri, "metadata.json");
+            const content = await vscode.workspace.fs.readFile(metadataUri);
+            const metadata = JSON.parse(content.toString());
+            const hasSource = metadata.languages?.some(
+                (l: { projectStatus?: string; }) => l.projectStatus === "source"
+            );
+            const hasTarget = metadata.languages?.some(
+                (l: { projectStatus?: string; }) => l.projectStatus === "target"
+            );
+            return !!metadata.projectName && !!hasSource && !!hasTarget;
+        } catch {
+            return this.preflightState.workspaceState.isProjectSetup;
+        }
+    }
+
+    /**
+     * Re-read metadata.json and transition the state machine if the project
+     * is now fully set up.  This closes the Startup Flow panel when the
+     * project has a name, source language, and target language — regardless
+     * of whether the cached preflight state is stale.
+     *
+     * Safe to call at any time; silently no-ops when metadata is still
+     * incomplete or the state machine is already in ALREADY_WORKING.
+     */
+    public async refreshProjectState(): Promise<void> {
+        const isReady = await this.getFreshProjectInitialized();
+        if (isReady) {
+            debugLog("refreshProjectState: project is fully set up, transitioning to ALREADY_WORKING");
+            this.stateMachine.send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+        } else {
+            debugLog("refreshProjectState: project metadata still incomplete");
+        }
+    }
+
     private async initializeFrontierApi() {
         try {
             this.frontierApi = getAuthApi();
@@ -605,7 +653,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Clear cached preflight check to ensure we get fresh auth state
                 this._preflightPromise = undefined;
 
-                // Get initial auth status
+                const isProjectInitialized = await this.getFreshProjectInitialized();
+
                 const initialStatus = this.frontierApi?.getAuthStatus();
                 this.updateAuthState({
                     isAuthExtensionInstalled: true,
@@ -613,7 +662,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isLoading: false,
                     workspaceState: {
                         isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
+                        isProjectInitialized,
                     },
                 });
 
@@ -630,7 +679,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                 });
                 disposable && this.disposables.push(disposable);
-                // Remove expensive sendList call from initialization - defer until needed
             } else {
                 this.updateAuthState({
                     isAuthExtensionInstalled: false,
@@ -1103,6 +1151,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             this.stateMachine.send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
         } catch {
             this.stateMachine.send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+            const folderName = vscode.workspace.workspaceFolders?.[0]?.name ?? "";
+            this.safeSendMessage({
+                command: "provideWorkspaceContext",
+                workspaceFolderName: folderName,
+            });
         }
     }
 
@@ -2056,30 +2109,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
-    private setupMetadataWatcher(webviewPanel: vscode.WebviewPanel) {
-        // Dispose of any existing watcher
+    private setupMetadataWatcher(_webviewPanel: vscode.WebviewPanel) {
         this.metadataWatcher?.dispose();
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) return;
 
-        // Create a new watcher for metadata.json
         this.metadataWatcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(workspaceFolders[0], "metadata.json")
         );
 
-        // When metadata.json is created
-        // FIXME: this logic isn't right - metadata.json doesn't get created with the complete project data initially.
-        // part of the reason behind this is wanting to init git, create a project id, etc.
-        // We *could* refactor the project creation logic to be more concise, but currently we can't say the project is initialized until the metadata.json is created AND populated (in the initialization function).
-        // this.metadataWatcher.onDidCreate(() => {
-        //     safePostMessageToPanel(webviewPanel, {
-        //         command: "project.initializationStatus",
-        //         isInitialized: true,
-        //     });
-        // });
+        // Unlike a simple "file exists?" check, refreshProjectState reads
+        // and validates the full metadata (projectName + source + target
+        // language).  This avoids the old FIXME where creation was detected
+        // before the file was fully populated: if the file is still
+        // incomplete the method silently no-ops.
+        const onMetadataChanged = () => this.refreshProjectState();
+        this.metadataWatcher.onDidCreate(onMetadataChanged);
+        this.metadataWatcher.onDidChange(onMetadataChanged);
 
-        // Add watcher to disposables
         this.disposables.push(this.metadataWatcher);
     }
 
@@ -2493,6 +2541,69 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "project.initializeWithLanguages": {
+                debugLog("Initializing project with languages");
+
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                let projectId: string | undefined;
+
+                if (workspaceFolders && workspaceFolders[0]) {
+                    projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                }
+
+                const { sourceLanguage, targetLanguage } = message as {
+                    sourceLanguage: import("codex-types").LanguageMetadata;
+                    targetLanguage: import("codex-types").LanguageMetadata;
+                };
+
+                await createNewProject({ projectId, sourceLanguage, targetLanguage });
+
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        await vscode.workspace.fs.stat(metadataUri);
+
+                        // Generate copilot system message in the background
+                        const srcRef = sourceLanguage?.refName;
+                        const tgtRef = targetLanguage?.refName;
+                        if (srcRef && tgtRef) {
+                            const workspaceUri = workspaceFolders[0].uri;
+                            import("../../copilotSettings/copilotSettings").then(({ generateChatSystemMessage }) =>
+                                generateChatSystemMessage({ refName: srcRef }, { refName: tgtRef }, workspaceUri).then(async (msg) => {
+                                    if (msg) {
+                                        const { MetadataManager: MM } = await import("../../utils/metadataManager");
+                                        await MM.setChatSystemMessage(msg, workspaceUri);
+                                        console.debug("[StartupFlow] Generated copilot system message after metadata recovery");
+                                    }
+                                })
+                            ).catch((err) => {
+                                console.debug("[StartupFlow] Background system message generation failed (non-critical):", err);
+                            });
+                        }
+
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.showProjectOverview"
+                        );
+
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: true,
+                        });
+
+                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                    } catch (error) {
+                        console.error("Error checking metadata.json:", error);
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: false,
+                        });
+                    }
+                }
+                break;
+            }
             case "webview.ready": {
                 // Try to initialize Frontier API if it's missing (e.g. extension just installed)
                 if (!this.frontierApi) {
@@ -2522,20 +2633,29 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
-                // Check if metadata exists and project is set up
-                if (preflightState.workspaceState.hasMetadata) {
-                    if (preflightState.workspaceState.isProjectSetup) {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
-                        });
-                    } else {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
-                        });
-                    }
+                // The cached preflight may have been computed before metadata.json
+                // was written (e.g. pending project creation runs after preflight).
+                // Always do a fresh disk check so we don't show "Restore Project
+                // Configuration" for an already-initialized project.
+                const freshProjectReady = await this.getFreshProjectInitialized();
+
+                if (freshProjectReady) {
+                    debugLog("webview.ready: fresh metadata check shows project is set up");
+                    this.stateMachine.send({
+                        type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
+                    });
+                } else if (preflightState.workspaceState.hasMetadata) {
+                    this.stateMachine.send({
+                        type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
+                    });
                 } else {
                     this.stateMachine.send({
                         type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT,
+                    });
+                    const folderName = vscode.workspace.workspaceFolders?.[0]?.name ?? "";
+                    this.safeSendMessage({
+                        command: "provideWorkspaceContext",
+                        workspaceFolderName: folderName,
                     });
                 }
                 break;

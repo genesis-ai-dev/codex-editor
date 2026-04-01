@@ -1,15 +1,16 @@
 /**
- * Audio extraction utilities for extracting audio from video files
- * Uses fluent-ffmpeg if available, otherwise falls back to simple copy
+ * Audio extraction utilities for extracting audio from video files.
+ * Uses the extension-owned FFmpeg binary, otherwise falls back to simple copy.
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-// Load spawn lazily to avoid bundling 'child_process' in test/browser builds
+import { shouldUseNativeAudio } from './toolPreferences';
+import { getFFmpegPath } from './ffmpegManager';
+
 function getSpawn(): ((command: string, args?: readonly string[]) => any) | null {
     try {
-        // Use eval to prevent webpack from statically analyzing this require
         // eslint-disable-next-line no-eval
         const req = eval('require') as any;
         const cp = req('child_process');
@@ -19,45 +20,33 @@ function getSpawn(): ((command: string, args?: readonly string[]) => any) | null
     }
 }
 
+let extensionContext: vscode.ExtensionContext | undefined;
+
+export const initializeAudioExtractor = (context: vscode.ExtensionContext): void => {
+    extensionContext = context;
+};
+
 /**
- * Check if ffmpeg is available on the system
+ * Check if the extension-owned FFmpeg binary is available.
  */
 async function isFFmpegAvailable(): Promise<boolean> {
-    return new Promise((resolve) => {
-        const spawn = getSpawn();
-        if (!spawn) {
-            // In environments without child_process (e.g., tests), report not available
-            resolve(false);
-            return;
-        }
-
-        const ffmpeg = spawn('ffmpeg', ['-version']);
-
-        // Set a timeout to avoid hanging
-        const timeout = setTimeout(() => {
-            ffmpeg.kill();
-            resolve(false);
-        }, 5000);
-
-        ffmpeg.on('error', () => {
-            clearTimeout(timeout);
-            resolve(false);
-        });
-        ffmpeg.on('exit', (code: number | null) => {
-            clearTimeout(timeout);
-            resolve(code === 0);
-        });
-    });
+    const ffmpegPath = await getFFmpegPath(extensionContext);
+    return ffmpegPath !== null;
 }
 
 /**
- * Extract audio from video using ffmpeg
+ * Extract audio from video using the extension-owned FFmpeg binary.
  */
 async function extractAudioWithFFmpeg(
     videoData: Buffer,
     startTime: number,
     endTime: number
 ): Promise<Buffer> {
+    const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    if (!ffmpegBinaryPath) {
+        throw new Error('FFmpeg not available');
+    }
+
     return new Promise((resolve, reject) => {
         const spawn = getSpawn();
         if (!spawn) {
@@ -71,18 +60,15 @@ async function extractAudioWithFFmpeg(
         const tempVideoPath = path.join(tempDir, `temp_video_${Date.now()}.mp4`);
         const tempAudioPath = path.join(tempDir, `temp_audio_${Date.now()}.webm`);
 
-        // Write video to temp file
         fs.writeFileSync(tempVideoPath, videoData);
 
-        // Build ffmpeg command
         const args = [
             '-i', tempVideoPath,
-            '-vn', // No video
-            '-acodec', 'libopus', // Use Opus codec for webm
-            '-b:a', '128k', // Audio bitrate
+            '-vn',
+            '-acodec', 'libopus',
+            '-b:a', '128k',
         ];
 
-        // Add time range if specified
         if (startTime > 0) {
             args.push('-ss', startTime.toString());
         }
@@ -90,9 +76,9 @@ async function extractAudioWithFFmpeg(
             args.push('-t', (endTime - startTime).toString());
         }
 
-        args.push('-y', tempAudioPath); // Output file
+        args.push('-y', tempAudioPath);
 
-        const ffmpeg = spawn('ffmpeg', args);
+        const ffmpeg = spawn(ffmpegBinaryPath, args);
 
         let stderr = '';
         ffmpeg.stderr.on('data', (data: Buffer) => {
@@ -146,8 +132,9 @@ export async function extractAudioFromVideo(
     endTime: number = Number.POSITIVE_INFINITY
 ): Promise<Buffer> {
     const hasFFmpeg = await isFFmpegAvailable();
+    const useNative = shouldUseNativeAudio(hasFFmpeg);
 
-    if (hasFFmpeg) {
+    if (useNative) {
         console.log('Using FFmpeg to extract audio from video');
         try {
             return await extractAudioWithFFmpeg(videoData, startTime, endTime);
@@ -156,7 +143,7 @@ export async function extractAudioFromVideo(
             return fallbackCopyVideo(videoData);
         }
     } else {
-        console.log('FFmpeg not available, using fallback method');
+        console.log('Using built-in audio mode for video extraction');
         return fallbackCopyVideo(videoData);
     }
 }

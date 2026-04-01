@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import JSZip from "jszip";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import * as path from "path";
@@ -8,6 +7,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
+
 // import { exportRtfWithPandoc } from "../../webviews/codex-webviews/src/NewSourceUploader/importers/rtf/pandocNodeBridge";
 
 const execAsync = promisify(exec);
@@ -215,6 +215,8 @@ export enum CodexExportFormat {
 export interface ExportOptions {
     skipValidation?: boolean;
     removeIds?: boolean;
+    includeAudio?: boolean;
+    includeTimestamps?: boolean;
 }
 
 // IDML Round-trip export: Uses idmlExporter or biblicaExporter based on filename
@@ -1608,65 +1610,80 @@ export async function exportCodexContent(
     filesToExport: string[],
     options?: ExportOptions
 ) {
-    // Check if audio export should also be included alongside the text format export
-    const includeAudio = (options as any)?.includeAudio === true && format !== CodexExportFormat.AUDIO;
+    const includeAudio = options?.includeAudio === true && format !== CodexExportFormat.AUDIO;
+    const isMulti = includeAudio;
 
-    // Prepare export promises
+    // Always create a wrapper folder
+    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+    const projectName = projectConfig.get<string>("projectName", "") ||
+        basename(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "export");
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const formatLabel = isMulti ? "multi" : format;
+    const baseName = `${projectName}-${formatLabel}-${dateStamp}`;
+    let candidate = path.join(userSelectedPath, baseName);
+    let suffix = 1;
+    while (fs.existsSync(candidate)) {
+        candidate = path.join(userSelectedPath, `${baseName}-${suffix}`);
+        suffix++;
+    }
+    const wrapperPath = candidate;
+
+    // In multi mode, each export type gets its own subfolder
+    const formatPath = isMulti ? path.join(wrapperPath, format) : wrapperPath;
+    const audioPath = isMulti ? path.join(wrapperPath, "audio") : wrapperPath;
+
     const exportPromises: Promise<void>[] = [];
 
-    // Add text format export
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
-            exportPromises.push(exportCodexContentAsPlaintext(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsPlaintext(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.USFM:
-            exportPromises.push(exportCodexContentAsUsfm(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsUsfm(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.HTML:
-            exportPromises.push(exportCodexContentAsHtml(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsHtml(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.AUDIO: {
             const { exportAudioAttachments } = await import("./audioExporter");
-            exportPromises.push(exportAudioAttachments(userSelectedPath, filesToExport, { includeTimestamps: (options as any)?.includeTimestamps }));
+            exportPromises.push(exportAudioAttachments(wrapperPath, filesToExport, { includeTimestamps: options?.includeTimestamps }));
             break;
         }
         case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
-            exportPromises.push(exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, true));
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, true));
             break;
         case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
-            exportPromises.push(exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false));
+            exportPromises.push(exportCodexContentAsSubtitlesVtt(formatPath, filesToExport, options, false));
             break;
         case CodexExportFormat.SUBTITLES_SRT:
-            exportPromises.push(exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsSubtitlesSrt(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.XLIFF:
-            exportPromises.push(exportCodexContentAsXliff(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsXliff(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.CSV:
-            exportPromises.push(exportCodexContentAsCsv(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsCsv(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.TSV:
-            exportPromises.push(exportCodexContentAsTsv(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsTsv(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.REBUILD_EXPORT:
-            exportPromises.push(exportCodexContentAsRebuild(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsRebuild(formatPath, filesToExport, options));
             break;
         case CodexExportFormat.BACKTRANSLATIONS:
-            exportPromises.push(exportCodexContentAsBacktranslations(userSelectedPath, filesToExport, options));
+            exportPromises.push(exportCodexContentAsBacktranslations(formatPath, filesToExport, options));
             break;
     }
 
-    // Add audio export if requested alongside text format
     if (includeAudio) {
         const { exportAudioAttachments } = await import("./audioExporter");
         exportPromises.push(
-            exportAudioAttachments(userSelectedPath, filesToExport, {
-                includeTimestamps: (options as any)?.includeTimestamps
+            exportAudioAttachments(audioPath, filesToExport, {
+                includeTimestamps: options?.includeTimestamps
             })
         );
     }
 
-    // Execute all exports in parallel
     await Promise.all(exportPromises);
 }
 
