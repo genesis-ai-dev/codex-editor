@@ -320,6 +320,21 @@ export const useVSCodeMessageHandler = ({
                     }
                     break;
 
+                case "providerSendsResolvedHtmlStructure": {
+                    const { cellId, resolvedContent } = message.content as {
+                        cellId: string;
+                        resolvedContent: string;
+                    };
+                    if (resolvedContent) {
+                        updateCell({ cellId, newContent: resolvedContent, progress: 100 });
+                    }
+                    // Notify CellContentDisplay to reset loading state (works for both success and failure)
+                    window.dispatchEvent(
+                        new CustomEvent("htmlStructureResolved", { detail: { cellId } })
+                    );
+                    break;
+                }
+
                 case "providerSendsInitialContentPaginated":
                     if (typeof (message as any).rev === "number") {
                         const msgRev = (message as any).rev as number;

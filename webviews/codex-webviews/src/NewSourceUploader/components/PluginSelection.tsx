@@ -37,7 +37,7 @@ const PluginCard: React.FC<{
 }> = ({ plugin, onSelect, className }) => {
     const Icon = plugin.icon;
     const isEnabled = plugin.enabled !== false;
-    const isBetaPlugin = plugin.id === "pdf-importer" || plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "spreadsheet";
+    const isBetaPlugin = plugin.id === "indesign-importer" || plugin.id === "biblica-importer" || plugin.id === "reach4life-importer" || plugin.id === "spreadsheet";
 
     return (
         <Card
