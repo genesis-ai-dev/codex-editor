@@ -45,7 +45,7 @@ export function generateSrtData(
         return (
             !metadata?.data?.merged &&
             metadata?.type !== CodexCellTypes.MILESTONE &&
-            !!metadata?.data?.startTime
+            metadata?.data?.startTime != null
         );
     });
 
