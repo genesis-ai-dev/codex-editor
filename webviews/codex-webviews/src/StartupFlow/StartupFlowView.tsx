@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from "react";
-import { useActor } from "@xstate/react";
+import { LanguageMetadata } from "codex-types";
 import { LoginRegisterStep } from "./components/LoginRegisterStep";
-import { WorkspaceStep } from "./components/WorkspaceStep";
 import { ProjectSetupStep } from "./components/ProjectSetupStep";
-import { VSCodeButton, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./StartupFlowView.css";
 import { AuthState } from "./types";
 import {
@@ -26,7 +25,9 @@ const vscode = acquireVsCodeApi();
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
     const [authState, setAuthState] = useState<AuthState | null>(null);
-    const [isInitializing, setIsInitializing] = useState(false);
+    const [workspaceFolderName, setWorkspaceFolderName] = useState("");
+
+    const [showInitForm, setShowInitForm] = useState(false);
 
     // Use ref to maintain current state value for the stable event listener
     const valueRef = useRef<StartupFlowStates | null>(null);
@@ -34,6 +35,16 @@ export const StartupFlowView: React.FC = () => {
     // Keep ref in sync with state
     useEffect(() => {
         valueRef.current = value;
+    }, [value]);
+
+    // Debounce the initialize form to prevent a brief flash when metadata
+    // actually exists but the state machine hasn't caught up yet.
+    useEffect(() => {
+        if (value === StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT) {
+            const timer = setTimeout(() => setShowInitForm(true), 250);
+            return () => clearTimeout(timer);
+        }
+        setShowInitForm(false);
     }, [value]);
 
     // Connectivity detection - notify extension when coming back online
@@ -125,8 +136,10 @@ export const StartupFlowView: React.FC = () => {
                     break;
                 }
                 case "setupComplete": {
-                    // console.log("setupComplete called");
-                    // send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                    break;
+                }
+                case "provideWorkspaceContext": {
+                    setWorkspaceFolderName(message.workspaceFolderName ?? "");
                     break;
                 }
             }
@@ -385,103 +398,154 @@ export const StartupFlowView: React.FC = () => {
                     // send={send}
                 />
             )}
-            {value === StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT && (
-                <div
-                    style={{
-                        display: "flex",
-                        gap: "10px",
-                        width: "100%",
-                        height: "100vh",
-                        alignItems: "center",
-                        justifyContent: "center",
-                    }}
-                >
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: "10px",
-                            marginBottom: "37vh",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexDirection: "column",
-                        }}
-                    >
-                        <i
-                            className="codicon codicon-symbol-variable"
-                            style={{ fontSize: "72px" }}
-                        ></i>
-                        <InitializeProjectButton
-                            isInitializing={isInitializing}
-                            onClick={async () => {
-                                if (!isInitializing) {
-                                    setIsInitializing(true);
-                                    vscode.postMessage({
-                                        command: "project.initialize",
-                                        waitForStateUpdate: true,
-                                    } as MessagesToStartupFlowProvider);
-                                }
-                            }}
-                        />
-                    </div>
-                </div>
+            {value === StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT && showInitForm && (
+                <InitializeProjectForm
+                    defaultProjectName={workspaceFolderName}
+                    vscode={vscode}
+                />
             )}
 
         </div>
     );
 };
 
-const InitializeProjectButton = ({
-    onClick,
-    isInitializing,
+const InitializeProjectForm = ({
+    defaultProjectName,
+    vscode,
 }: {
-    onClick: () => void;
-    isInitializing: boolean;
+    defaultProjectName: string;
+    vscode: ReturnType<typeof acquireVsCodeApi>;
 }) => {
-    const [dots, setDots] = useState("");
+    const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata | null>(null);
+    const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [LanguagePickerComponent, setLanguagePickerComponent] = useState<React.ComponentType<any> | null>(null);
 
     useEffect(() => {
-        if (!isInitializing) return;
+        import("../shared/components/LanguagePicker").then((mod) => {
+            setLanguagePickerComponent(() => mod.LanguagePicker);
+        });
+    }, []);
 
-        const interval = setInterval(() => {
-            setDots((prev) => (prev.length >= 3 ? "" : prev + "."));
-        }, 500);
+    const handleLanguageSelect = (language: LanguageMetadata) => {
+        if (language.projectStatus === "source") {
+            setSourceLanguage(language);
+        } else {
+            setTargetLanguage(language);
+        }
+    };
 
-        return () => clearInterval(interval);
-    }, [isInitializing]);
+    const handleSubmit = () => {
+        if (!sourceLanguage || !targetLanguage || isSubmitting) return;
+        setIsSubmitting(true);
+        vscode.postMessage({
+            command: "project.initializeWithLanguages",
+            sourceLanguage,
+            targetLanguage,
+        } as MessagesToStartupFlowProvider);
+    };
+
+    const isFormValid = sourceLanguage !== null && targetLanguage !== null;
 
     return (
-        <VSCodeButton
-            onClick={onClick}
+        <div
             style={{
-                width: "200px",
                 display: "flex",
-                justifyContent: "center",
+                flexDirection: "column",
                 alignItems: "center",
-                gap: "4px",
+                justifyContent: "center",
+                flex: 1,
+                gap: "24px",
+                padding: "2rem",
             }}
         >
             <div
                 style={{
-                    minWidth: "140px",
                     display: "flex",
-                    justifyContent: "center",
+                    flexDirection: "column",
+                    gap: "20px",
+                    width: "100%",
+                    maxWidth: "500px",
                 }}
             >
-                {isInitializing ? (
+                <div style={{ textAlign: "center", marginBottom: "8px" }}>
+                    <i
+                        className="codicon codicon-symbol-variable"
+                        style={{ fontSize: "48px", marginBottom: "12px", display: "block" }}
+                    ></i>
+                    <h2 style={{ margin: "0 0 4px 0", fontSize: "1.3rem" }}>
+                        Restore Project Configuration
+                    </h2>
+                    <p style={{ margin: 0, opacity: 0.7, fontSize: "0.9rem" }}>
+                        Project metadata was not found. Please re-select your languages.
+                    </p>
+                </div>
+
+                {defaultProjectName && (
+                    <div
+                        style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+                        title="Project name is derived from the workspace folder and cannot be changed."
+                    >
+                        <label style={{ fontSize: "0.85rem", opacity: 0.8 }}>
+                            Project <i className="codicon codicon-lock" style={{ fontSize: "0.75rem", marginLeft: "4px" }}></i>
+                        </label>
+                        <div
+                            style={{
+                                padding: "6px 10px",
+                                opacity: 0.6,
+                                borderRadius: "4px",
+                                border: "1px solid var(--vscode-input-border, #444)",
+                                background: "var(--vscode-input-background, #1e1e1e)",
+                                cursor: "not-allowed",
+                            }}
+                        >
+                            {defaultProjectName}
+                        </div>
+                    </div>
+                )}
+
+                {LanguagePickerComponent ? (
                     <>
-                        Initializing Project
-                        <span style={{ width: "18px", textAlign: "left" }}>{dots}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                            <label style={{ fontSize: "0.85rem" }}>
+                                Source Language <span style={{ color: "var(--vscode-errorForeground)" }}>*</span>
+                            </label>
+                            <LanguagePickerComponent
+                                onLanguageSelect={handleLanguageSelect}
+                                projectStatus="source"
+                                label="Select Source Language"
+                                initialLanguage={sourceLanguage || undefined}
+                                isActive={false}
+                                onActivate={() => {}}
+                            />
+                        </div>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                            <label style={{ fontSize: "0.85rem" }}>
+                                Target Language <span style={{ color: "var(--vscode-errorForeground)" }}>*</span>
+                            </label>
+                            <LanguagePickerComponent
+                                onLanguageSelect={handleLanguageSelect}
+                                projectStatus="target"
+                                label="Select Target Language"
+                                initialLanguage={targetLanguage || undefined}
+                                isActive={false}
+                                onActivate={() => {}}
+                            />
+                        </div>
                     </>
                 ) : (
-                    <>
-                        Initialize Project
-                        <i
-                            className="codicon codicon-arrow-right"
-                            style={{ marginLeft: "4px" }}
-                        ></i>
-                    </>
+                    <div style={{ textAlign: "center", padding: "20px" }}>Loading...</div>
                 )}
+
+                <VSCodeButton
+                    onClick={handleSubmit}
+                    disabled={!isFormValid || isSubmitting}
+                    style={{ marginTop: "8px" }}
+                >
+                    {isSubmitting ? "Initializing..." : "Initialize Project"}
+                </VSCodeButton>
             </div>
-        </VSCodeButton>
+        </div>
     );
 };

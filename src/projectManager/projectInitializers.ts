@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { getProjectMetadata } from "../utils";
 import { LanguageProjectStatus } from "codex-types";
 import * as path from "path";
-import git from "isomorphic-git";
+import * as dugiteGit from "../utils/dugiteGit";
 import fs from "fs";
 import {
     createProjectCommentFiles,
@@ -78,7 +78,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
         : undefined;
     if (!workspaceFolder) {
         vscode.window.showErrorMessage(
-            "No workspace folder found. Please open a folder to store your project in."
+            "No project folder found. Please open a folder first."
         );
     }
 
@@ -87,11 +87,11 @@ export async function initializeProject(shouldImportUSFM: boolean) {
     vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: "Initializing new project...",
+            title: "Setting up new project...",
             cancellable: false,
         },
         async (progress) => {
-            progress.report({ increment: 0, message: "Starting initialization..." });
+            progress.report({ increment: 0, message: "Getting started..." });
 
             try {
                 const workspaceFolder = vscode.workspace.workspaceFolders
@@ -99,7 +99,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     : undefined;
                 if (!workspaceFolder) {
                     vscode.window.showErrorMessage(
-                        "No workspace folder found. Please open a folder to store your project in."
+                        "No project folder found. Please open a folder first."
                     );
                     return;
                 }
@@ -119,50 +119,38 @@ export async function initializeProject(shouldImportUSFM: boolean) {
 
                 if (!projectScope) {
                     vscode.window.showErrorMessage(
-                        "Failed to initialize new project: project scope not found."
+                        "Failed to set up new project: no books selected for the project."
                     );
                     return;
                 }
-                progress.report({ increment: 50, message: "Setting up GitHub repository..." });
+                progress.report({ increment: 50, message: "Setting up project files..." });
 
                 // Check and initialize git if missing
                 try {
                     const workspacePath = workspaceFolder.uri.fsPath;
                     let isGitInitialized = false;
                     try {
-                        await git.resolveRef({
-                            fs,
-                            dir: workspacePath,
-                            ref: "HEAD",
-                        });
+                        await dugiteGit.resolveRef(workspacePath, "HEAD");
                         isGitInitialized = true;
                     } catch {
                         // Not initialized
                     }
 
                     if (!isGitInitialized) {
-                        await git.init({
-                            fs,
-                            dir: workspacePath,
-                            defaultBranch: "main",
-                        });
+                        await dugiteGit.init(workspacePath);
 
                         // Dynamically import to avoid circular dependency
                         const { ensureGitConfigsAreUpToDate, ensureGitDisabledInSettings } = await import("./utils/projectUtils");
                         await ensureGitConfigsAreUpToDate();
                         await ensureGitDisabledInSettings();
 
-                        await git.add({
-                            fs,
-                            dir: workspacePath,
-                            filepath: "metadata.json",
-                        });
+                        await dugiteGit.add(workspacePath, "metadata.json");
 
                         if (fs.existsSync(path.join(workspacePath, ".gitignore"))) {
-                            await git.add({ fs, dir: workspacePath, filepath: ".gitignore" });
+                            await dugiteGit.add(workspacePath, ".gitignore");
                         }
                         if (fs.existsSync(path.join(workspacePath, ".gitattributes"))) {
-                            await git.add({ fs, dir: workspacePath, filepath: ".gitattributes" });
+                            await dugiteGit.add(workspacePath, ".gitattributes");
                         }
 
                         const { getAuthApi } = await import("../extension");
@@ -172,20 +160,19 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                             userInfo = await authApi.getUserInfo();
                         }
 
-                        await git.commit({
-                            fs,
-                            dir: workspacePath,
-                            message: "Initial commit",
-                            author: {
+                        await dugiteGit.commit(
+                            workspacePath,
+                            "Initial commit",
+                            {
                                 name: userInfo?.username || "Codex User",
-                                email: userInfo?.email || "user@example.com"
-                            }
-                        });
+                                email: userInfo?.email || "user@example.com",
+                            },
+                        );
                         console.log("Initialized git repository and created initial commit.");
                     }
                 } catch (error) {
                     console.error("Error initializing git repository:", error);
-                    vscode.window.showErrorMessage(`Failed to initialize git repository: ${error}`);
+                    vscode.window.showErrorMessage(`Failed to set up sync for this project.`);
                 }
 
                 if (shouldImportUSFM) {
@@ -198,7 +185,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     });
                     progress.report({
                         increment: 80,
-                        message: "Creating project notebooks from USFM...",
+                        message: "Creating project notebooks from source files...",
                     });
                     await createProjectNotebooks({
                         shouldOverWrite: true,
@@ -207,7 +194,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     });
                 }
 
-                // Ensure the files directory exists for dictionary and other project files
+                // Ensure the files directory exists for project files
                 const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, "files");
                 try {
                     await vscode.workspace.fs.createDirectory(filesDir);
@@ -219,10 +206,10 @@ export async function initializeProject(shouldImportUSFM: boolean) {
 
                 await createProjectCommentFiles();
 
-                progress.report({ increment: 100, message: "Project initialization complete." });
-                vscode.window.showInformationMessage("Project initialized successfully.");
+                progress.report({ increment: 100, message: "Project setup complete." });
+                vscode.window.showInformationMessage("Project is ready!");
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to initialize new project: ${error}`);
+                vscode.window.showErrorMessage(`Failed to set up new project: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
     );

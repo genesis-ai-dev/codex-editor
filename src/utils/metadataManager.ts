@@ -458,8 +458,8 @@ export class MetadataManager {
 
         if (result.success && result.metadata) {
             const metadata = result.metadata as any;
-            sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            sourceLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "source");
+            targetLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "target");
         }
 
         if (!sourceLanguage || !targetLanguage) {
@@ -591,25 +591,10 @@ export class MetadataManager {
 }
 
 /**
- * Register commands that frontier-authentication can call to write to metadata.json
- * This implements the "single writer" principle - only codex-editor writes to metadata.json
+ * Register commands that frontier-authentication can call to read metadata.json.
+ * All writes to metadata.json happen internally via MetadataManager (single-writer principle).
  */
 export function registerMetadataCommands(context: vscode.ExtensionContext): void {
-    // Command for frontier-authentication to update extension versions
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor.updateMetadataExtensionVersions",
-            async (versions: { codexEditor?: string; frontierAuthentication?: string }): Promise<{ success: boolean; error?: string }> => {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (!workspaceFolder) {
-                    return { success: false, error: "No workspace folder open" };
-                }
-
-                return MetadataManager.updateExtensionVersions(workspaceFolder.uri, versions);
-            }
-        )
-    );
-
     // Command for frontier-authentication to read extension versions
     context.subscriptions.push(
         vscode.commands.registerCommand(

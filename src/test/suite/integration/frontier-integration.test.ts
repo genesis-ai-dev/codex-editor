@@ -14,13 +14,12 @@ interface ExtendedFrontierAPI extends FrontierAPI {
         isDead: boolean;
         isStuck: boolean;
         age: number;
+        progressAge: number;
+        pid?: number;
         ownedByUs: boolean;
+        phase?: string;
+        progress?: { current: number; total: number; description?: string; };
         status: 'active' | 'stuck' | 'dead';
-        pid: number;
-        progress?: {
-            phase?: string;
-            description?: string;
-        };
     }>;
     cleanupStaleLock: () => Promise<void>;
     checkWorkingCopyState: (workspacePath: string) => Promise<{
@@ -40,6 +39,7 @@ function createMockFrontierApi(): ExtendedFrontierAPI {
         isDead: false,
         isStuck: false,
         age: 0,
+        progressAge: 0,
         ownedByUs: false,
         status: 'active' as 'active' | 'stuck' | 'dead',
         pid: 0

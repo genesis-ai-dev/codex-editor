@@ -5,8 +5,15 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as os from "os";
 import * as fs from "fs";
+import { getFFmpegPath } from "../utils/ffmpegManager";
 
 const execAsync = promisify(exec);
+
+let extensionContext: vscode.ExtensionContext | undefined;
+
+export const initializeAudioExporter = (context: vscode.ExtensionContext): void => {
+    extensionContext = context;
+};
 
 // Debug logging for audio export diagnostics
 const DEBUG = false;
@@ -26,11 +33,6 @@ function sanitizeFileComponent(input: string): string {
         .replace(/\s+/g, "_")
         .replace(/[^a-zA-Z0-9._-]/g, "-")
         .replace(/_+/g, "_");
-}
-
-function formatDateForFolder(d: Date): string {
-    const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
 // REMOVE: This doesn't seem to be used anywhere
@@ -351,34 +353,33 @@ function embedM4ATimecodes(original: Uint8Array, start?: number, end?: number): 
     }
 }
 
-// Convert audio to WAV format using ffmpeg (for WebM, M4A, etc.)
+// Convert audio to WAV format using the extension-owned FFmpeg binary.
 async function convertToWav(
     inputBytes: Uint8Array,
     originalExt: string,
     sampleRate: number = 48000
 ): Promise<Uint8Array> {
+    const ffmpegBinaryPath = await getFFmpegPath(extensionContext);
+    if (!ffmpegBinaryPath) {
+        throw new Error("FFmpeg not available");
+    }
     const tempDir = os.tmpdir();
     const tempInputPath = `${tempDir}/codex-audio-input-${Date.now()}${originalExt}`;
     const tempOutputPath = `${tempDir}/codex-audio-output-${Date.now()}.wav`;
 
     try {
-        // Write input file
         fs.writeFileSync(tempInputPath, Buffer.from(inputBytes));
 
-        // Convert using ffmpeg with high-quality settings
-        // -ar: sample rate, -ac: mono, -sample_fmt: 16-bit PCM
         await execAsync(
-            `ffmpeg -i "${tempInputPath}" -ar ${sampleRate} -ac 1 -sample_fmt s16 "${tempOutputPath}"`
+            `"${ffmpegBinaryPath}" -i "${tempInputPath}" -ar ${sampleRate} -ac 1 -sample_fmt s16 "${tempOutputPath}"`
         );
 
-        // Read converted WAV file
         const wavBytes = fs.readFileSync(tempOutputPath);
         return new Uint8Array(wavBytes);
     } catch (error) {
         console.error("Error converting audio to WAV:", error);
         throw error;
     } finally {
-        // Cleanup temp files
         try {
             if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
             if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
@@ -476,22 +477,13 @@ export async function exportAudioAttachments(
 ): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
         return;
     }
     const workspaceFolder = workspaceFolders[0];
 
-    // Resolve project name
-    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-    let projectName = projectConfig.get<string>("projectName", "");
-    if (!projectName) {
-        projectName = basename(workspaceFolder.uri.fsPath);
-    }
-
-    const dateStamp = formatDateForFolder(new Date());
-    const exportRoot = vscode.Uri.file(userSelectedPath);
-    const finalExportDir = vscode.Uri.joinPath(exportRoot, "export", `${sanitizeFileComponent(projectName)}-${dateStamp}`);
-    await vscode.workspace.fs.createDirectory(finalExportDir);
+    const exportDir = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportDir);
 
     const includeTimestamps = !!options?.includeTimestamps;
     const selectedFiles = filesToExport.map((p) => vscode.Uri.file(p));
@@ -516,7 +508,7 @@ export async function exportAudioAttachments(
                 progress.report({ message: `Processing ${basename(file.fsPath)} (${index + 1}/${selectedFiles.length})`, increment });
 
                 const bookCode = basename(file.fsPath).split(".")[0] || "BOOK";
-                const bookFolder = vscode.Uri.joinPath(finalExportDir, sanitizeFileComponent(bookCode));
+                const bookFolder = vscode.Uri.joinPath(exportDir, sanitizeFileComponent(bookCode));
                 await vscode.workspace.fs.createDirectory(bookFolder);
 
                 let notebook: CodexNotebookAsJSONData;
@@ -629,7 +621,7 @@ export async function exportAudioAttachments(
             }
 
             debug(`Export summary: ${copiedCount} files copied, ${missingCount} skipped`);
-            vscode.window.showInformationMessage(`Audio export completed: ${copiedCount} files copied${missingCount ? `, ${missingCount} skipped` : ""}. Output: ${finalExportDir.fsPath}`);
+            vscode.window.showInformationMessage(`Audio export completed: ${copiedCount} files copied${missingCount ? `, ${missingCount} skipped` : ""}. Output: ${exportDir.fsPath}`);
         }
     );
 }

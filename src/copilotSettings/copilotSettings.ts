@@ -284,7 +284,7 @@ export async function openSystemMessageEditor() {
                                 throw new Error("Failed to generate instructions");
                             }
 
-                            progress.report({ message: "Updating configuration..." });
+                            progress.report({ message: "Updating settings..." });
 
                             // Update the message and re-render the view for HTML version
                             await MetadataManager.setChatSystemMessage(response);
