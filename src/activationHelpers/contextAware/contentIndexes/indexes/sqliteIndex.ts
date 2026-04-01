@@ -2027,16 +2027,7 @@ export class SQLiteIndexManager {
                     WHEN cells_fts.content_type = 'source' THEN s_file.file_type
                     WHEN cells_fts.content_type = 'target' THEN t_file.file_type
                 END as file_type,
-                cells_fts.content_type as cell_type,
-                bm25(cells_fts) as score
-            FROM cells_fts
-            JOIN cells c ON cells_fts.cell_id = c.cell_id
-            LEFT JOIN files s_file ON c.s_file_id = s_file.id
-            LEFT JOIN files t_file ON c.t_file_id = t_file.id
-            WHERE cells_fts MATCH ?
-                AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                AND c.is_deleted = 0
-                AND c.is_merged = 0
+                cells_fts.content_type as cell_type
         `;
 
         const likeContentColumn = cellType === 'target' ? 'c.t_content' : 'c.s_content';
@@ -2063,6 +2054,8 @@ export class SQLiteIndexManager {
                 WHERE cells_fts MATCH ?
                     AND ${contentTypeFilter}
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
 
                 UNION
 
@@ -2082,6 +2075,8 @@ export class SQLiteIndexManager {
                 LEFT JOIN files t_file ON c.t_file_id = t_file.id
                 WHERE ${likeCondition}
                     AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
             )
             ORDER BY score ASC
             LIMIT ?
