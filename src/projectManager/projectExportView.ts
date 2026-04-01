@@ -44,12 +44,12 @@ async function checkHtmlStructureMismatches(
         try {
             const fileUri = vscode.Uri.file(filePath);
             const codexNotebook = await readCodexNotebookFromUri(fileUri);
-            const metadata = codexNotebook.metadata as any;
+            const { metadata } = codexNotebook;
 
             if (!metadata?.enforceHtmlStructure) continue;
 
             // Use sourceFsPath from metadata (source and codex live in different directories)
-            const sourcePath = metadata.sourceFsPath as string | undefined;
+            const sourcePath = metadata.sourceFsPath;
             if (!sourcePath) continue;
             const sourceUri = vscode.Uri.file(sourcePath);
 
