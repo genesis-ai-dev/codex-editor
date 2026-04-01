@@ -168,6 +168,77 @@ function finishRealtimeStep(): number {
     return globalThis.performance.now();
 }
 
+/**
+ * Checks version pins (admin intent → remote → local) and returns true if the
+ * extension should yield to the Conductor for a profile switch (version mismatch).
+ * Returns false when pins match or no pins exist — caller should continue activation.
+ */
+async function checkVersionPinsAndYield(
+    projectUri: vscode.Uri,
+    activationStart: number
+): Promise<boolean> {
+    const EXTENSION_ID = "project-accelerate.codex-editor-extension";
+
+    // 1. Admin Intent (highest precedence) — allows admin to bypass the
+    // splash-screen halt when they just applied a pin change locally.
+    try {
+        const remoteState: any = await vscode.commands.executeCommand(
+            "frontier.getRemotePinnedExtensionsState"
+        );
+        const adminIntent = remoteState?.adminPinnedExtensions;
+        if (adminIntent) {
+            const myPin = adminIntent[EXTENSION_ID];
+            if (myPin) {
+                const myVersion = MetadataManager.getCurrentExtensionVersion(EXTENSION_ID);
+                if (myVersion && myVersion === myPin.version) {
+                    console.log(`[Extension] Admin intent matched (${myVersion}). Proceeding.`);
+                    return false;
+                }
+                // Intent exists but doesn't match — fall through to remote/local checks
+            }
+        }
+    } catch { /* Frontier may not be active */ }
+
+    // 2. Remote Pins (authoritative for users)
+    try {
+        const remotePins: Record<string, { version: string; url: string }> | undefined =
+            await vscode.commands.executeCommand("frontier.getRemotePinnedExtensions");
+        if (remotePins) {
+            const myPin = remotePins[EXTENSION_ID];
+            if (myPin) {
+                const myVersion = MetadataManager.getCurrentExtensionVersion(EXTENSION_ID);
+                if (myVersion && myVersion !== myPin.version) {
+                    console.log(`[Extension] Remote mismatch: ${myVersion} != ${myPin.version}. Yielding.`);
+                    trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
+                    updateSplashScreenSync(0, "Applying extension version pins...");
+                    return true;
+                }
+                console.log(`[Extension] Remote version matched (${myVersion}). Proceeding.`);
+                return false;
+            }
+        }
+    } catch { /* Frontier may not be active */ }
+
+    // 3. Local metadata.json (fallback)
+    try {
+        const result = await MetadataManager.safeReadMetadata(projectUri);
+        if (result.success && result.metadata?.meta?.pinnedExtensions) {
+            const myPin = result.metadata.meta.pinnedExtensions[EXTENSION_ID];
+            if (myPin) {
+                const myVersion = MetadataManager.getCurrentExtensionVersion(EXTENSION_ID);
+                if (myVersion && myVersion !== myPin.version) {
+                    console.log(`[Extension] Local mismatch: ${myVersion} != ${myPin.version}. Yielding.`);
+                    trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
+                    updateSplashScreenSync(0, "Applying extension version pins...");
+                    return true;
+                }
+            }
+        }
+    } catch { /* ignore */ }
+
+    return false;
+}
+
 declare global {
     // eslint-disable-next-line
     var db: Database | undefined;
@@ -340,101 +411,13 @@ export async function activate(context: vscode.ExtensionContext) {
         // Continue with activation even if splash screen fails
     }
 
-    // Check for version pins before heavy initialization
+    // Check for version pins before heavy initialization.
+    // If there's a mismatch, yield to the Conductor for profile switch.
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders && workspaceFolders.length > 0) {
-        try {
-            const projectUri = workspaceFolders[0].uri;
-
-            // 1. Check for Admin Intent (highest precedence)
-            // This allows an admin to bypass the splash-screen halt when they just applied a pin change locally.
-            let adminIntent: Record<string, { version: string; url: string }> | undefined;
-            try {
-                // adminPinnedExtensions is stored in workspaceState, which we query via Frontier's command
-                const remoteState: any = await vscode.commands.executeCommand(
-                    "frontier.getRemotePinnedExtensionsState"
-                );
-                adminIntent = remoteState?.adminPinnedExtensions;
-            } catch (e) { /* ignore */ }
-
-            if (adminIntent) {
-                const myPin = adminIntent["project-accelerate.codex-editor-extension"];
-                if (myPin) {
-                    const myVersion = MetadataManager.getCurrentExtensionVersion(
-                        "project-accelerate.codex-editor-extension"
-                    );
-                    if (myVersion && myVersion === myPin.version) {
-                        console.log(
-                            `[Extension] Admin intent matched (${myVersion}). Proceeding to activation.`
-                        );
-                        // Matched intent — bypass further checks
-                        return;
-                    }
-                    // If intent exists but doesn't match, we fall through to remote/local checks
-                    // (the admin might not have reloaded yet).
-                }
-            }
-
-            // 2. Check for Remote Pins (authoritative for users)
-            let remotePins: Record<string, { version: string; url: string }> | undefined;
-            try {
-                remotePins = await vscode.commands.executeCommand(
-                    "frontier.getRemotePinnedExtensions"
-                );
-            } catch (e) {
-                // Command might not exist if Frontier isn't active/installed
-            }
-
-            if (remotePins) {
-                const myPin = remotePins["project-accelerate.codex-editor-extension"];
-                if (myPin) {
-                    const myVersion = MetadataManager.getCurrentExtensionVersion(
-                        "project-accelerate.codex-editor-extension"
-                    );
-                    if (myVersion && myVersion !== myPin.version) {
-                        console.log(
-                            `[Extension] Remote version mismatch: ${myVersion} != ${myPin.version}. Suspending for Conductor.`
-                        );
-                        trackTiming(
-                            "Starting Project Synchronization (Version Pin Enforcement)",
-                            activationStart
-                        );
-                        updateSplashScreenSync(0, "Applying extension version pins...");
-                        return;
-                    } else {
-                        // We match the remote authority — proceed even if metadata.json is different (to allow merge)
-                        console.log(
-                            `[Extension] Remote version matched (${myVersion}). Proceeding to activation.`
-                        );
-                        return;
-                    }
-                }
-            }
-
-            // 3. Fall back to local metadata.json
-            const result = await MetadataManager.safeReadMetadata(projectUri);
-            if (result.success && result.metadata?.meta?.pinnedExtensions) {
-                const pins = result.metadata.meta.pinnedExtensions;
-                const myPin = pins["project-accelerate.codex-editor-extension"];
-                if (myPin) {
-                    const myVersion = MetadataManager.getCurrentExtensionVersion(
-                        "project-accelerate.codex-editor-extension"
-                    );
-                    if (myVersion && myVersion !== myPin.version) {
-                        console.log(
-                            `[Extension] Local version mismatch: ${myVersion} != ${myPin.version}. Suspending for Conductor.`
-                        );
-                        trackTiming(
-                            "Starting Project Synchronization (Version Pin Enforcement)",
-                            activationStart
-                        );
-                        updateSplashScreenSync(0, "Applying extension version pins...");
-                        return;
-                    }
-                }
-            }
-        } catch (err) {
-            console.error("[Extension] Error checking for version pins:", err);
+        const shouldYield = await checkVersionPinsAndYield(workspaceFolders[0].uri, activationStart);
+        if (shouldYield) {
+            return;
         }
     }
 
