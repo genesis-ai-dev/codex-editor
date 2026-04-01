@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Button } from '../../../components/ui/button';
+import EnforceStructureCheckbox from '../../components/EnforceStructureCheckbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Alert, AlertDescription } from '../../../components/ui/alert';
 import { Progress } from '../../../components/ui/progress';
@@ -46,6 +47,8 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
         error: null,
     });
 
+    const [enforceHtmlStructure, setEnforceHtmlStructure] = useState(true);
+
     // Determine if this is a target import
     const isTargetImport = wizardContext?.intent === "target";
     const selectedSource = wizardContext?.selectedSource;
@@ -91,6 +94,11 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
             }));
 
             if (result.success) {
+                if (result.notebookPair) {
+                    result.notebookPair.source.metadata = { ...result.notebookPair.source.metadata, enforceHtmlStructure };
+                    result.notebookPair.codex.metadata = { ...result.notebookPair.codex.metadata, enforceHtmlStructure };
+                }
+
                 if (isTargetImport && onTranslationComplete && alignContent) {
                     // Handle target import - convert to ImportedContent and align
                     const notebookPair = result.notebookPair;
@@ -330,6 +338,11 @@ export const TmxImporterForm: React.FC<ImporterComponentProps> = ({
                             )}
                         </div>
                     )}
+
+                    <EnforceStructureCheckbox
+                        checked={enforceHtmlStructure}
+                        onCheckedChange={setEnforceHtmlStructure}
+                    />
 
                     <div className="flex gap-2">
                         <Button
