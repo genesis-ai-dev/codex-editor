@@ -1444,7 +1444,7 @@ export class SQLiteIndexManager {
         }
 
         // Always search using the sanitized content column for better matching
-        const ftsSearchQuery = `content: ${ftsQuery}`;
+        const ftsSearchQuery = `content: (${ftsQuery})`;
         const rows = await this.db!.all<{
             cell_id: string;
             content: string;
@@ -1967,8 +1967,6 @@ export class SQLiteIndexManager {
             return [];
         }
 
-        // Tokenize and build prefix-wildcard terms (same approach as searchCompleteTranslationPairs)
-        // This also strips out double quotes.
         const words = trimmedQuery
             .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
             .replace(/\s+/g, ' ')
@@ -1982,25 +1980,27 @@ export class SQLiteIndexManager {
 
         const searchTerms: string[] = [];
         for (const word of words) {
-            searchTerms.push(word);
+            const escaped = word.replace(/"/g, '""');
+            searchTerms.push(`"${escaped}"`);
             if (word.length >= 2) {
-                searchTerms.push(word + '*');
+                searchTerms.push(`"${escaped}"*`);
             }
         }
 
         const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : `"${words[0]}"`;
 
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
         const contentTypeFilter = cellType
-            ? `cells_fts.content_type = '${cellType}'`
+            ? `cells_fts.content_type = ?`
             : "1=1";
 
-        const likeColumn = cellType === 'target' ? 't' : 's';
-        const likeCondition = `(c.${likeColumn}_content LIKE ? OR c.${likeColumn}_raw_content LIKE ?)`;
+        const likeCondition = cellType
+            ? `(c.${cellType === 'target' ? 't' : 's'}_content LIKE ? ESCAPE '\\' OR c.${cellType === 'target' ? 't' : 's'}_raw_content LIKE ? ESCAPE '\\')`
+            : "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
 
         const caseColumns = `
                 CASE 
@@ -2030,10 +2030,10 @@ export class SQLiteIndexManager {
                 cells_fts.content_type as cell_type
         `;
 
-        const likeContentColumn = cellType === 'target' ? 'c.t_content' : 'c.s_content';
-        const likeRawColumn = cellType === 'target' ? 'c.t_raw_content' : 'c.s_raw_content';
-        const likeWordCountColumn = cellType === 'target' ? 'c.t_word_count' : 'c.s_word_count';
-        const likeLineColumn = cellType === 'target' ? 'c.t_line_number' : 'c.s_line_number';
+        const likeContentColumn = cellType === 'target' ? 'c.t_content' : cellType === 'source' ? 'c.s_content' : 'COALESCE(c.s_content, c.t_content)';
+        const likeRawColumn = cellType === 'target' ? 'c.t_raw_content' : cellType === 'source' ? 'c.s_raw_content' : 'COALESCE(c.s_raw_content, c.t_raw_content)';
+        const likeWordCountColumn = cellType === 'target' ? 'c.t_word_count' : cellType === 'source' ? 'c.s_word_count' : 'COALESCE(c.s_word_count, c.t_word_count)';
+        const likeLineColumn = cellType === 'target' ? 'c.t_line_number' : cellType === 'source' ? 'c.s_line_number' : 'COALESCE(c.s_line_number, c.t_line_number)';
         const likeFileJoin = cellType === 'target' ? 't_file' : 's_file';
         const likeCellType = cellType || 'source';
 
@@ -2082,12 +2082,13 @@ export class SQLiteIndexManager {
             LIMIT ?
         `;
 
-        const params: (string | number)[] = [
-            `content: ${cleanQuery}`,
-            likePattern,
-            likePattern,
-            limit,
-        ];
+        const ftsParams: (string | number)[] = cellType
+            ? [`content: (${cleanQuery})`, cellType]
+            : [`content: (${cleanQuery})`];
+        const likeParams: (string | number)[] = cellType
+            ? [likePattern, likePattern]
+            : [likePattern, likePattern, likePattern, likePattern];
+        const params: (string | number)[] = [...ftsParams, ...likeParams, limit];
 
         const rows = await this.db!.all<{
             cell_id: string;
@@ -2265,7 +2266,7 @@ export class SQLiteIndexManager {
                     AND c.is_merged = 0
             `;
 
-            params = [`content: ${ftsQuery}`];
+            params = [`content: (${ftsQuery})`];
 
             if (cellType) {
                 sql += ` AND cells_fts.content_type = ?`;
@@ -3929,37 +3930,29 @@ export class SQLiteIndexManager {
             return [];
         }
 
-        // Generate search terms for FTS5
+        // Generate search terms for FTS5 — quote each term to prevent
+        // FTS5 reserved words (AND, OR, NOT, NEAR) from being parsed as operators.
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word
-            searchTerms.push(word);
-
-            // For words 2+ chars, add prefix wildcard for partial matching
+            const escaped = word.replace(/"/g, '""');
+            searchTerms.push(`"${escaped}"`);
             if (word.length >= 2) {
-                searchTerms.push(word + '*');
+                searchTerms.push(`"${escaped}"*`);
             }
         }
 
-        // Build FTS5 query - use OR matching, limit terms for performance
         const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : `"${words[0]}"`;
 
-        // Simple substring match for the original query - ensures "ccc" matches "cccb"
-        // Escape % and _ for LIKE (SQL wildcards)
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        // Enhanced FTS5 query - search source (and optionally target) content for complete pairs
-        // Use UNION to combine FTS5 MATCH results with LIKE substring matching
-        // (FTS5 MATCH can't be combined with OR in WHERE clause)
         const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
-        // Build LIKE conditions - search source always, target only if searchSourceOnly is false
         const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
-            : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
+            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+            : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
 
         const sql = `
             SELECT DISTINCT
@@ -4047,9 +4040,9 @@ export class SQLiteIndexManager {
             };
             let rows: SearchRow[];
             if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             } else {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {
@@ -4180,37 +4173,30 @@ export class SQLiteIndexManager {
             return [];
         }
 
-        // Generate search terms for FTS5
+        // Generate search terms for FTS5 — quote each term to prevent
+        // FTS5 reserved words (AND, OR, NOT, NEAR) from being parsed as operators.
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word
-            searchTerms.push(word);
-
-            // For words 2+ chars, add prefix wildcard for partial matching
+            const escaped = word.replace(/"/g, '""');
+            searchTerms.push(`"${escaped}"`);
             if (word.length >= 2) {
-                searchTerms.push(word + '*');
+                searchTerms.push(`"${escaped}"*`);
             }
         }
 
-        // Build FTS5 query - use OR matching, limit terms for performance
         const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : `"${words[0]}"`;
 
-        // Simple substring match for the original query - ensures "ccc" matches "cccb"
-        // Escape % and _ for LIKE (SQL wildcards)
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        // Enhanced FTS5 query - search source (and optionally target) content for complete pairs
-        // Use UNION to combine FTS5 MATCH results with LIKE substring matching
-        // (FTS5 MATCH can't be combined with OR in WHERE clause)
         const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
         // Build LIKE conditions - search source always, target only if searchSourceOnly is false
         const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
-            : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
+            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+            : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
 
         // FTS5 query with validation filtering
         // Use UNION to combine FTS5 MATCH results with LIKE substring matching
@@ -4304,9 +4290,9 @@ export class SQLiteIndexManager {
             };
             let rows: SearchRow[];
             if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             } else {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {
