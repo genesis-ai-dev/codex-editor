@@ -328,7 +328,7 @@ export class MetadataManager {
                 }
 
                 const pinnedExtensions: Record<string, { version: string; url: string }> =
-                    (metadata.meta as any).pinnedExtensions ?? {};
+                    metadata.meta.pinnedExtensions ?? {};
 
                 // Only update codexEditor if new version is greater or missing,
                 // AND no codex-editor pin is active (the Conductor owns the floor while active).
