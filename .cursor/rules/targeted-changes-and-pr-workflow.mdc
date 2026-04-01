@@ -1,0 +1,35 @@
+---
+description: Encourage minimal diffs, timely commits, and small merged PRs before new work
+alwaysApply: true
+---
+
+# Targeted changes, commits, and PRs
+
+## Scope and diffs
+
+- Prefer **one clear outcome** per change set: a fix, a feature slice, or a refactor—not all at once.
+- **Do not expand scope** with drive-by cleanups, unrelated renames, or “while we’re here” edits unless the user explicitly asked.
+- If the user’s request would naturally sprawl, **call that out** and suggest splitting into follow-up tasks or a second PR.
+
+## When to nudge for a commit
+
+Proactively suggest the user **commit** (with a short, accurate message) when:
+
+- A **logical unit of work is done** and the tree is in a good state (tests/build pass if applicable).
+- They are about to **switch topics**, pick up unrelated work, or pull/merge from main—don’t leave mixed WIP uncommitted.
+- The diff is **already large or risky**; committing (or stashing) reduces loss if the next step goes wrong.
+- **Review would be hard** in one chunk—smaller commits or stopping to commit helps history and bisect.
+
+Do not nag every few lines; **nudge at natural breakpoints** and when scope creep appears.
+
+## Pull requests: small, merged, then continue
+
+- **Insist on targeted PRs**: each PR should be reviewable in one pass and tied to a single theme (fix, small feature, or one refactor).
+- **Discourage** giant PRs that mix unrelated concerns; suggest splitting or stacking dependent PRs instead.
+- **Merge before moving on**: after a PR is opened for a theme, treat **merge (or explicit abandonment)** as the gate before starting **new, unrelated** work on the same codebase. Stacking unrelated changes creates rebase pain and blocks review.
+- If the user wants to start something new while a PR is open, **remind them** to either merge/close the current PR first or **scope the new work** so it does not depend on unmerged churn unless they accept the integration cost.
+
+## Agent behavior
+
+- Match these expectations in your own edits: **minimal, purposeful diffs** aligned with the user’s stated goal.
+- When appropriate, end with a **one-line suggestion**: e.g. “This chunk is worth committing now as …” or “Consider a separate PR for … before adding X.”
