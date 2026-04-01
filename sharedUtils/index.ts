@@ -286,5 +286,16 @@ export const computeProgressPercents = (
     };
 };
 
+/**
+ * Derives the target .codex file path from a .source file path.
+ * Normalizes path separators so the replacement works on both Windows and POSIX.
+ */
+export const deriveTargetPathFromSource = (sourcePath: string): string => {
+    const normalized = sourcePath.replace(/\\/g, "/");
+    return normalized
+        .replace(/\.source$/, ".codex")
+        .replace(/\/\.project\/sourceTexts\//, "/files/target/");
+};
+
 // Re-export corpus utilities
 export * from "./corpusUtils";
