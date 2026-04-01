@@ -965,11 +965,7 @@ function NavigationView() {
             <div className="flex-1 overflow-auto flex flex-col gap-1.5">
                 {(() => {
                     if (filteredCodexItems.length > 0) {
-                        return (
-                            <>
-                                {filteredCodexItems.map(renderItem)}
-                            </>
-                        );
+                        return <>{filteredCodexItems.map(renderItem)}</>;
                     }
 
                     if (!state.hasReceivedInitialData) {
@@ -1001,7 +997,7 @@ function NavigationView() {
                 <Button
                     onClick={handleImportTargetFile}
                     title="Import a translation file into an existing source"
-                    className="w-full py-2.5 px-3 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white"
+                    className="w-full py-2.5 px-3 text-sm font-semibold shadow-sm border-0 hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white"
                 >
                     <i className="codicon codicon-add" />
                     Import Target File
