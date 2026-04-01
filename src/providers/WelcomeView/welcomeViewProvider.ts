@@ -328,8 +328,7 @@ export class WelcomeViewProvider {
                     const answer = await vscode.window.showWarningMessage(
                         "Are you sure you want to close this project?",
                         { modal: true },
-                        "Yes",
-                        "No"
+                        "Yes"
                     );
                     if (answer === "Yes") {
                         await vscode.commands.executeCommand("workbench.action.closeFolder");
