@@ -624,12 +624,18 @@ const CodexCellEditor: React.FC = () => {
         [vscode]
     );
 
-    // Handle navigation to cell from search
+    // Handle navigation to cell from search — also tell the extension
+    // so the other editor panel scrolls to the same cell.
     const handleSearchNavigateToCell = useCallback(
         (cellId: string) => {
-            setContentToScrollTo(cellId);
+            setContentToScrollTo(null);
+            setTimeout(() => setContentToScrollTo(cellId), 0);
+            vscode.postMessage({
+                command: "searchNavigateToCell",
+                content: cellId,
+            } as EditorPostMessages);
         },
-        [setContentToScrollTo]
+        [setContentToScrollTo, vscode]
     );
 
     // Handle replace in cell from search
@@ -798,6 +804,11 @@ const CodexCellEditor: React.FC = () => {
                     setLastHighlightedChapter(null);
                     setChapterWhenHighlighted(null);
                 }
+            }
+
+            if (message.type === "scrollToCell") {
+                setContentToScrollTo(null);
+                setTimeout(() => setContentToScrollTo(message.cellId), 0);
             }
 
             // Add handler for pending validations updates
@@ -1273,7 +1284,9 @@ const CodexCellEditor: React.FC = () => {
             let targetMilestoneIdx = 0;
             if (milestoneIndex && milestoneIndex.milestones.length > 0) {
                 const foundIdx = milestoneIndex.milestones.findIndex((milestone) => {
-                    const milestoneChapter = extractChapterNumberFromMilestoneValue(milestone.value);
+                    const milestoneChapter = extractChapterNumberFromMilestoneValue(
+                        milestone.value
+                    );
                     return milestoneChapter === newChapterNumber;
                 });
                 if (foundIdx >= 0) {
@@ -1296,7 +1309,9 @@ const CodexCellEditor: React.FC = () => {
                         const verseNumber = parseInt(verseMatch[1], 10);
                         // Verse numbers are 1-based, calculate 0-based cell index within milestone
                         const cellIndexInMilestone = Math.max(0, verseNumber - 1);
-                        targetSubsectionIdx = Math.floor(cellIndexInMilestone / effectiveCellsPerPage);
+                        targetSubsectionIdx = Math.floor(
+                            cellIndexInMilestone / effectiveCellsPerPage
+                        );
                     }
                 }
             }
@@ -1874,7 +1889,9 @@ const CodexCellEditor: React.FC = () => {
             // Validate milestone index to prevent invalid requests
             const milestoneCount = milestoneIndex?.milestones.length ?? 0;
             if (milestoneIdx < 0 || (milestoneCount > 0 && milestoneIdx >= milestoneCount)) {
-                console.warn(`[requestCellsForMilestone] Invalid milestone index: ${milestoneIdx}, total: ${milestoneCount}`);
+                console.warn(
+                    `[requestCellsForMilestone] Invalid milestone index: ${milestoneIdx}, total: ${milestoneCount}`
+                );
                 return;
             }
 

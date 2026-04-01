@@ -604,8 +604,9 @@ export type EditorPostMessages =
     }
     | {
         command: "refreshWebviewAfterMilestoneEdits";
-        content?: Record<string, never>; // Empty content
-    };
+        content?: Record<string, never>;
+    }
+    | { command: "searchNavigateToCell"; content: string; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
 
@@ -997,6 +998,11 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        /** Pin specific extension versions for this project */
+        pinnedExtensions?: Record<string, {
+            version: string;
+            url: string;
+        }>;
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
@@ -1357,6 +1363,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "openSourceUpload"; }
     | { command: "openExportView"; }
     | { command: "openAISettings"; }
+    | { command: "openInterfaceSettings"; }
     | { command: "openLicenseSettings"; }
     | { command: "openExportView"; }
     | { command: "closeProject"; }
@@ -2117,6 +2124,10 @@ type EditorReceiveMessages =
     | {
         type: "highlightCell";
         cellId?: string;
+    }
+    | {
+        type: "scrollToCell";
+        cellId: string;
     }
     | {
         type: "updateCellsPerPage";
