@@ -4,8 +4,8 @@ import { toPosixPath, normalizeAttachmentUrl } from "./pathUtils";
 import type { CodexCellDocument } from "../providers/codexCellEditorProvider/codexDocument";
 import type { AttachmentAvailability } from "../../types";
 import {
+    computeCellAudioState,
     determineAttachmentAvailability,
-    applyFrontierVersionGate,
     type AudioAvailabilityState,
 } from "./audioAvailabilityUtils";
 
@@ -325,9 +325,8 @@ export async function revalidateCellAttachmentAvailability(
 }
 
 /**
- * Revalidates audioAvailability on all audio attachments in a document by checking
- * the filesystem. Intended to run once after document open so that subsequent
- * metadata reads (e.g. deriveAudioAvailability in the webview) return correct values.
+ * Revalidates audioAvailability for every audio cell in a document by checking the
+ * filesystem and persisting the results via patchAttachmentAvailability.
  *
  * Returns true if any attachment was updated (caller should save the document).
  */
@@ -348,12 +347,9 @@ export async function revalidateDocumentAttachmentAvailability(
             );
             if (!hasAudio) continue;
 
-            const cellChanged = await revalidateCellAttachmentAvailability(
-                document,
-                workspaceFolder,
-                cellId,
-            );
-            if (cellChanged) changed = true;
+            if (await revalidateCellAttachmentAvailability(document, workspaceFolder, cellId)) {
+                changed = true;
+            }
         }
 
         return changed;
@@ -362,3 +358,38 @@ export async function revalidateDocumentAttachmentAvailability(
         return false;
     }
 }
+
+/**
+ * Compute audio availability for ALL cells in a document using only persisted
+ * metadata (audioAvailability field). No filesystem I/O. Applies the Frontier
+ * version gate once for all cells.
+ *
+ * Use this after revalidateDocumentAttachmentAvailability has persisted the
+ * disk state, to build the webview-facing availability map cheaply.
+ */
+export async function computeDocumentAudioAvailabilityFromMetadata(
+    document: CodexCellDocument,
+): Promise<Record<string, AudioAvailabilityState>> {
+    const result: Record<string, AudioAvailabilityState> = {};
+    try {
+        const cells = (document as any)._documentData?.cells || [];
+        const gate = await resolveVersionGate();
+
+        for (const cell of cells) {
+            const cellId = cell?.metadata?.id;
+            if (!cellId || !cell?.metadata?.attachments) continue;
+
+            const state = computeCellAudioState(
+                cell.metadata.attachments,
+                cell.metadata?.selectedAudioId,
+            );
+            if (state !== "none") {
+                result[cellId] = gate(state);
+            }
+        }
+    } catch (err) {
+        console.error("Failed to compute document audio availability from metadata", err);
+    }
+    return result;
+}
+

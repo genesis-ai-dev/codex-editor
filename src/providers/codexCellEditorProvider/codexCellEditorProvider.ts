@@ -33,7 +33,7 @@ import path from "path";
 import * as fs from "fs";
 import { getAuthApi } from "@/extension";
 import { computeCellAudioStateWithVersionGate, type AudioAvailabilityState } from "../../utils/audioAvailabilityUtils";
-import { computeCellIdsAudioAvailability, computeDocumentAudioAvailability, revalidateDocumentAttachmentAvailability } from "../../utils/audioMissingUtils";
+import { computeCellIdsAudioAvailability, computeDocumentAudioAvailability, revalidateDocumentAttachmentAvailability, computeDocumentAudioAvailabilityFromMetadata } from "../../utils/audioMissingUtils";
 import {
     getCachedChapter as getCachedChapterUtil,
     updateCachedChapter as updateCachedChapterUtil,
@@ -967,14 +967,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     attachments: visibleAvailability as any,
                                 });
                             }
-                        }
-
-                        // Revalidate attachment metadata in the document from disk
-                        // so that subsequent metadata reads (webview deriveAudioAvailability,
-                        // AudioHistoryViewer, etc.) return correct values.
-                        const metadataChanged = await revalidateDocumentAttachmentAvailability(document, ws);
-                        if (metadataChanged) {
-                            await document.save(new vscode.CancellationTokenSource().token);
                         }
 
                         const allAvailability = await computeDocumentAudioAvailability(document, ws);
@@ -4289,9 +4281,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      * Refreshes audio attachments for all open webviews after sync operations.
      * This ensures that audio availability is updated even if file watchers didn't trigger during sync.
      *
-     * Uses filesystem-based checks (not metadata) because the sync merge can lose
-     * the legacy `isMissing` flag when the remote version of an attachment is newer,
-     * causing the webview to incorrectly treat missing audio as available.
+     * Revalidates from disk and persists the audioAvailability field on each
+     * attachment so that subsequent reads are pure metadata lookups.
      */
     public async refreshAudioAttachmentsAfterSync(): Promise<void> {
         debug("Refreshing audio attachments after sync for all webviews");
@@ -4313,7 +4304,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     }
                 }
 
-                const availability = await computeDocumentAudioAvailability(document, ws);
+                // Disk scan → persist audioAvailability on each attachment
+                const metadataChanged = await revalidateDocumentAttachmentAvailability(document, ws);
+                if (metadataChanged) {
+                    await document.save(new vscode.CancellationTokenSource().token);
+                }
+
+                // Build webview availability map from the now-up-to-date metadata (no disk I/O)
+                const availability = await computeDocumentAudioAvailabilityFromMetadata(document);
                 if (Object.keys(availability).length > 0) {
                     safePostMessageToPanel(webviewPanel, {
                         type: "providerSendsAudioAttachments",
@@ -4434,16 +4432,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
-                        // Revalidate attachment availability after revert so metadata matches disk
-                        try {
-                            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                            if (ws) {
-                                const changed = await revalidateDocumentAttachmentAvailability(document, ws);
-                                if (changed) {
-                                    await document.save(new vscode.CancellationTokenSource().token);
-                                }
-                            }
-                        } catch (e) { debug("Failed to revalidate availability after sync", e); }
                         // Send full milestone index and cells so webview has correct structure after migration/sync
                         await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
@@ -4481,16 +4469,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
-                        // Revalidate attachment availability after revert so metadata matches disk
-                        try {
-                            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                            if (ws) {
-                                const changed = await revalidateDocumentAttachmentAvailability(document, ws);
-                                if (changed) {
-                                    await document.save(new vscode.CancellationTokenSource().token);
-                                }
-                            }
-                        } catch (e) { debug("Failed to revalidate availability after sync", e); }
                         // Send full milestone index and cells so webview has correct structure after migration/sync
                         await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
