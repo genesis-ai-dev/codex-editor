@@ -33,7 +33,7 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
 import * as path from "path";
 import * as fs from "fs";
-import git from "isomorphic-git";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { resolveConflictFiles } from "../../projectManager/utils/merge/resolvers";
 import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/directoryConflicts";
 import {
@@ -253,9 +253,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             const isVisible = e.webviewPanel.visible;
             StartupFlowGlobalState.instance.setOpen(isVisible);
 
-            // When becoming visible again, refresh the list
             if (isVisible) {
                 this.sendList(webviewPanel);
+                // Re-check metadata every time the panel becomes visible so
+                // that a stale "Restore Project Configuration" screen is
+                // dismissed if the project has since been fully set up
+                // (e.g. after the New Source Uploader tab closes).
+                this.refreshProjectState();
             }
         });
         this.disposables.push(visibilityDisposable);
@@ -598,6 +602,50 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
     }
 
+    /**
+     * Re-stat metadata.json to get a fresh isProjectInitialized value,
+     * avoiding stale preflight state that can cause the initialize form to flash.
+     */
+    private async getFreshProjectInitialized(): Promise<boolean> {
+        try {
+            const ws = vscode.workspace.workspaceFolders;
+            if (!ws?.length) {
+                return this.preflightState.workspaceState.isProjectSetup;
+            }
+            const metadataUri = vscode.Uri.joinPath(ws[0].uri, "metadata.json");
+            const content = await vscode.workspace.fs.readFile(metadataUri);
+            const metadata = JSON.parse(content.toString());
+            const hasSource = metadata.languages?.some(
+                (l: { projectStatus?: string; }) => l.projectStatus === "source"
+            );
+            const hasTarget = metadata.languages?.some(
+                (l: { projectStatus?: string; }) => l.projectStatus === "target"
+            );
+            return !!metadata.projectName && !!hasSource && !!hasTarget;
+        } catch {
+            return this.preflightState.workspaceState.isProjectSetup;
+        }
+    }
+
+    /**
+     * Re-read metadata.json and transition the state machine if the project
+     * is now fully set up.  This closes the Startup Flow panel when the
+     * project has a name, source language, and target language — regardless
+     * of whether the cached preflight state is stale.
+     *
+     * Safe to call at any time; silently no-ops when metadata is still
+     * incomplete or the state machine is already in ALREADY_WORKING.
+     */
+    public async refreshProjectState(): Promise<void> {
+        const isReady = await this.getFreshProjectInitialized();
+        if (isReady) {
+            debugLog("refreshProjectState: project is fully set up, transitioning to ALREADY_WORKING");
+            this.stateMachine.send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+        } else {
+            debugLog("refreshProjectState: project metadata still incomplete");
+        }
+    }
+
     private async initializeFrontierApi() {
         try {
             this.frontierApi = getAuthApi();
@@ -605,7 +653,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Clear cached preflight check to ensure we get fresh auth state
                 this._preflightPromise = undefined;
 
-                // Get initial auth status
+                const isProjectInitialized = await this.getFreshProjectInitialized();
+
                 const initialStatus = this.frontierApi?.getAuthStatus();
                 this.updateAuthState({
                     isAuthExtensionInstalled: true,
@@ -613,7 +662,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isLoading: false,
                     workspaceState: {
                         isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
+                        isProjectInitialized,
                     },
                 });
 
@@ -630,7 +679,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                 });
                 disposable && this.disposables.push(disposable);
-                // Remove expensive sendList call from initialization - defer until needed
             } else {
                 this.updateAuthState({
                     isAuthExtensionInstalled: false,
@@ -1103,6 +1151,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             this.stateMachine.send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
         } catch {
             this.stateMachine.send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+            const folderName = vscode.workspace.workspaceFolders?.[0]?.name ?? "";
+            this.safeSendMessage({
+                command: "provideWorkspaceContext",
+                workspaceFolderName: folderName,
+            });
         }
     }
 
@@ -1191,14 +1244,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog("Failed to normalize backup path for open", e);
                 }
 
-                // If this project has been deprecated (old side of a swap), prompt twice before proceeding
+                // If this project has been deprecated (old side of an update (swap)), prompt twice before proceeding
                 try {
                     const projectUri = vscode.Uri.file(projectPath);
                     const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
                     const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
                     const { readLocalProjectSwapFile } = await import("../../utils/localProjectSettings");
 
-                    // Gather swap info from all sources and MERGE by swapUUID
+                    // Gather update (swap) info from all sources and MERGE by swapUUID
                     const metadataSwapInfo = metaResult.success
                         ? (metaResult.metadata?.meta?.projectSwap as ProjectSwapInfo | undefined)
                         : undefined;
@@ -1268,7 +1321,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             return;
                         }
                     } else if (!activeEntry && swapInfo?.swapEntries?.length) {
-                        // No active swap, but has cancelled swap entries - check if new projects have had swap activity
+                        // No active update (swap), but has cancelled entries - check if new projects have had update (swap) activity
                         // This indicates work may have continued in the new projects
                         const cancelledOldProjectEntries = swapInfo.swapEntries.filter(
                             (e: ProjectSwapEntry) => e.isOldProject && e.swapStatus === "cancelled"
@@ -1309,7 +1362,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                             }
 
-                            // Check if any of the new projects have swap entries (indicating work continued)
+                            // Check if any of the new projects have update (swap) entries (indicating work continued)
                             // Check locally first, then remote if not available locally
                             let workContinuedInNewProjects = false;
                             const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
@@ -1321,7 +1374,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                                     if (localNewProject) {
                                         // New project exists locally - check its local metadata
-                                        debugLog("Checking local new project for swap activity:", localNewProject.path);
+                                        debugLog("Checking local new project for update (swap) activity:", localNewProject.path);
                                         try {
                                             const metadataPath = vscode.Uri.file(path.join(localNewProject.path, "metadata.json"));
                                             const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
@@ -1329,7 +1382,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                             const newSwapInfo = metadata?.meta?.projectSwap;
                                             if (newSwapInfo?.swapEntries?.length) {
                                                 workContinuedInNewProjects = true;
-                                                debugLog("Local new project has swap entries - work continued");
+                                                debugLog("Local new project has update (swap) entries - work continued");
                                                 break;
                                             }
                                         } catch {
@@ -1341,12 +1394,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     if (!workContinuedInNewProjects) {
                                         const newProjectId = extractProjectIdFromUrl(newUrl);
                                         if (newProjectId) {
-                                            debugLog("Checking remote new project for swap activity:", newUrl);
+                                            debugLog("Checking remote new project for update (swap) activity:", newUrl);
                                             const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false);
                                             const newSwapInfo = newProjectMetadata?.meta?.projectSwap;
                                             if (newSwapInfo?.swapEntries?.length) {
                                                 workContinuedInNewProjects = true;
-                                                debugLog("Remote new project has swap entries - work continued");
+                                                debugLog("Remote new project has update (swap) entries - work continued");
                                                 break;
                                             }
                                         }
@@ -1499,9 +1552,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     const projectName = projectPath.split(/[\\/]/).pop() || "project";
 
                                     // Get git origin URL
-                                    const git = await import("isomorphic-git");
-                                    const fs = await import("fs");
-                                    const remotes = await git.listRemotes({ fs, dir: projectPath });
+                                    const dugiteGitModule = await import("../../utils/dugiteGit");
+                                    const remotes = await dugiteGitModule.listRemotes(projectPath);
                                     const origin = remotes.find((r) => r.remote === "origin");
 
                                     if (!origin) {
@@ -1580,11 +1632,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
                     }
 
-                    // Check if project swap is required before opening
+                    // Check if project update (swap) is required before opening
                     let swapWasPerformed = false;
                     let swappedProjectPath: string | undefined;
                     try {
-                        debugLog("Checking project swap requirement for project:", projectPath);
+                        debugLog("Checking project update (swap) requirement for project:", projectPath);
                         if (!remoteProjectRequirements) {
                             const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
                             remoteProjectRequirements = await checkRemoteProjectRequirements(projectPath, undefined, true);
@@ -1638,7 +1690,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             const swapTargetLabel =
                                 activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                             const alreadySwappedChoice = await vscode.window.showWarningMessage(
-                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                `You have already updated to ${swapTargetLabel}.\n\n` +
                                 "You can open this deprecated project, delete the local copy, or cancel.",
                                 { modal: true },
                                 "Open Project",
@@ -1726,7 +1778,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 swapCheck.activeEntry.newProjectUrl ||
                                                 "the new project";
                                             const alreadySwappedChoice = await vscode.window.showWarningMessage(
-                                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                                `You have already updated to ${swapTargetLabel}.\n\n` +
                                                 "You can open this deprecated project, delete the local copy, or cancel.",
                                                 { modal: true },
                                                 "Open Project",
@@ -1755,17 +1807,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
 
                         if (swapCheck.required && swapCheck.activeEntry && !skipSwapPrompt) {
-                            debugLog("Project swap required for project");
+                            debugLog("Project update (swap) required for project");
 
-                            // If the remote server is unreachable, we can't perform the swap.
+                            // If the remote server is unreachable, we can't perform the update (swap).
                             // Show a modal and let the user open the project offline.
                             if (localSwapCheck.remoteUnreachable) {
                                 const activeEntry = swapCheck.activeEntry;
                                 const newProjectName = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                                 const offlineChoice = await vscode.window.showWarningMessage(
                                     `Server Unreachable\n\n` +
-                                    `A project swap to "${newProjectName}" has been requested, but the server cannot be reached at this time.\n\n` +
-                                    `You can open this project and work offline, but the swap cannot be performed until the server is available again. ` +
+                                    `A project update to "${newProjectName}" has been requested, but the server cannot be reached at this time.\n\n` +
+                                    `You can open this project and work offline, but the update cannot be performed until the server is available again. ` +
                                     `It may be best to wait for the server to come back up or for your internet connection to be restored.`,
                                     { modal: true },
                                     "Open Project Offline",
@@ -1789,9 +1841,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         return;
                                     }
                                     if (swapDecision === "openDeprecated") {
-                                        // Continue opening without swapping
+                                        // Continue opening without updating (swap)
                                     } else {
-                                        // Re-validate swap is still active before executing
+                                        // Re-validate update (swap) is still active before executing
                                         // (it could have been cancelled by another user since we checked)
                                         try {
                                             const recheck = await checkProjectSwapRequired(projectPath, remoteProjectRequirements?.currentUsername || undefined, true);
@@ -1799,9 +1851,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 debugLog("Server unreachable during re-validation - cannot perform swap");
                                                 await vscode.window.showWarningMessage(
                                                     "Server Unreachable\n\n" +
-                                                    "The swap cannot be performed because the server is not reachable. " +
+                                                    "The update cannot be performed because the server is not reachable. " +
                                                     "Please check your internet connection or try again later.\n\n" +
-                                                    "Opening project without swapping.",
+                                                    "Opening project without updating.",
                                                     { modal: true },
                                                     "OK"
                                                 );
@@ -1833,8 +1885,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 } catch { /* non-fatal */ }
 
                                                 await vscode.window.showWarningMessage(
-                                                    "Swap Cancelled\n\n" +
-                                                    "The project swap has been cancelled or is no longer required.\n\n" +
+                                                    "Update Cancelled\n\n" +
+                                                    "The project update has been cancelled or is no longer required.\n\n" +
                                                     "Opening the project normally.",
                                                     { modal: true },
                                                     "OK"
@@ -1852,11 +1904,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         await vscode.window.withProgress(
                                             {
                                                 location: vscode.ProgressLocation.Notification,
-                                                title: `Swapping to ${newProjectName}`,
+                                                title: `Updating to ${newProjectName}`,
                                                 cancellable: false,
                                             },
                                             async (progress) => {
-                                                progress.report({ message: "Starting swap..." });
+                                                progress.report({ message: "Starting update..." });
 
                                                 const projectName = projectPath.split(/[\\/]/).pop() || "project";
 
@@ -1874,14 +1926,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                     activeEntry.swapReason
                                                 );
 
-                                                debugLog("Project swap completed successfully");
-                                                progress.report({ message: "Swap complete!" });
+                                                debugLog("Project update (swap) completed successfully");
+                                                progress.report({ message: "Update complete!" });
                                             }
                                         );
 
                                         // Show success message
                                         vscode.window.showInformationMessage(
-                                            `✅ Project swapped to ${newProjectName}\n\nOpening new project...`
+                                            `✅ Project updated to ${newProjectName}\n\nOpening new project...`
                                         );
                                         if (swappedProjectPath) {
                                             await vscode.commands.executeCommand(
@@ -1895,14 +1947,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             } // end else (server reachable)
                         }
                     } catch (swapErr) {
-                        debugLog("Project swap check/execution failed:", swapErr);
-                        console.error("Project swap error:", swapErr);
+                        debugLog("Project update (swap) check/execution failed:", swapErr);
+                        console.error("Project update (swap) error:", swapErr);
 
                         if (swapWasPerformed) {
                             // Tell the user and abort opening
                             const msg = swapErr instanceof Error ? swapErr.message : String(swapErr);
                             vscode.window.showErrorMessage(
-                                `Project swap failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
+                                `Project update failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
                                 `Please contact your project administrator for assistance.\n\nError: ${msg}`,
                                 { modal: true }
                             );
@@ -2057,30 +2109,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
-    private setupMetadataWatcher(webviewPanel: vscode.WebviewPanel) {
-        // Dispose of any existing watcher
+    private setupMetadataWatcher(_webviewPanel: vscode.WebviewPanel) {
         this.metadataWatcher?.dispose();
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) return;
 
-        // Create a new watcher for metadata.json
         this.metadataWatcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(workspaceFolders[0], "metadata.json")
         );
 
-        // When metadata.json is created
-        // FIXME: this logic isn't right - metadata.json doesn't get created with the complete project data initially.
-        // part of the reason behind this is wanting to init git, create a project id, etc.
-        // We *could* refactor the project creation logic to be more concise, but currently we can't say the project is initialized until the metadata.json is created AND populated (in the initialization function).
-        // this.metadataWatcher.onDidCreate(() => {
-        //     safePostMessageToPanel(webviewPanel, {
-        //         command: "project.initializationStatus",
-        //         isInitialized: true,
-        //     });
-        // });
+        // Unlike a simple "file exists?" check, refreshProjectState reads
+        // and validates the full metadata (projectName + source + target
+        // language).  This avoids the old FIXME where creation was detected
+        // before the file was fully populated: if the file is still
+        // incomplete the method silently no-ops.
+        const onMetadataChanged = () => this.refreshProjectState();
+        this.metadataWatcher.onDidCreate(onMetadataChanged);
+        this.metadataWatcher.onDidChange(onMetadataChanged);
 
-        // Add watcher to disposables
         this.disposables.push(this.metadataWatcher);
     }
 
@@ -2341,22 +2388,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         activeEntry: ProjectSwapEntry
     ): Promise<"swap" | "openDeprecated" | "cancel"> {
         const confirm = await vscode.window.showWarningMessage(
-            `Swap project to "${activeEntry.newProjectName}"?\n\n` +
+            `Update project to "${activeEntry.newProjectName}"?\n\n` +
             `This will:\n` +
-            `1. Backup your current project to archives\n` +
-            `2. Clone the new repository\n` +
-            `3. Merge your local work (.codex, .source, etc.)\n\n` +
+            `1. Back up your current project\n` +
+            `2. Download the new version\n` +
+            `3. Restore your local work\n\n` +
             `This process may take a few minutes.`,
             { modal: true },
-            "Swap Project",
-            "Open Without Swapping"
+            "Update Project",
+            "Open Without Updating"
         );
 
-        if (confirm === "Swap Project") {
+        if (confirm === "Update Project") {
             return "swap";
         }
 
-        if (confirm === "Open Without Swapping") {
+        if (confirm === "Open Without Updating") {
             const deprecatedChoice = await vscode.window.showWarningMessage(
                 [
                     "This project has been deprecated.",
@@ -2366,7 +2413,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             ? `Recommended project: ${activeEntry.newProjectUrl}`
                             : undefined,
                     "",
-                    "Opening without swapping will keep you on the deprecated project.",
+                    "Opening without updating will keep you on the deprecated project.",
                     "Do you still want to open it?",
                 ]
                     .filter(Boolean)
@@ -2494,6 +2541,69 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "project.initializeWithLanguages": {
+                debugLog("Initializing project with languages");
+
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                let projectId: string | undefined;
+
+                if (workspaceFolders && workspaceFolders[0]) {
+                    projectId = extractProjectIdFromFolderName(workspaceFolders[0].name);
+                }
+
+                const { sourceLanguage, targetLanguage } = message as {
+                    sourceLanguage: import("codex-types").LanguageMetadata;
+                    targetLanguage: import("codex-types").LanguageMetadata;
+                };
+
+                await createNewProject({ projectId, sourceLanguage, targetLanguage });
+
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        await vscode.workspace.fs.stat(metadataUri);
+
+                        // Generate copilot system message in the background
+                        const srcRef = sourceLanguage?.refName;
+                        const tgtRef = targetLanguage?.refName;
+                        if (srcRef && tgtRef) {
+                            const workspaceUri = workspaceFolders[0].uri;
+                            import("../../copilotSettings/copilotSettings").then(({ generateChatSystemMessage }) =>
+                                generateChatSystemMessage({ refName: srcRef }, { refName: tgtRef }, workspaceUri).then(async (msg) => {
+                                    if (msg) {
+                                        const { MetadataManager: MM } = await import("../../utils/metadataManager");
+                                        await MM.setChatSystemMessage(msg, workspaceUri);
+                                        console.debug("[StartupFlow] Generated copilot system message after metadata recovery");
+                                    }
+                                })
+                            ).catch((err) => {
+                                console.debug("[StartupFlow] Background system message generation failed (non-critical):", err);
+                            });
+                        }
+
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.showProjectOverview"
+                        );
+
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: true,
+                        });
+
+                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                    } catch (error) {
+                        console.error("Error checking metadata.json:", error);
+                        this.safeSendMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: false,
+                        });
+                    }
+                }
+                break;
+            }
             case "webview.ready": {
                 // Try to initialize Frontier API if it's missing (e.g. extension just installed)
                 if (!this.frontierApi) {
@@ -2523,20 +2633,29 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
-                // Check if metadata exists and project is set up
-                if (preflightState.workspaceState.hasMetadata) {
-                    if (preflightState.workspaceState.isProjectSetup) {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
-                        });
-                    } else {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
-                        });
-                    }
+                // The cached preflight may have been computed before metadata.json
+                // was written (e.g. pending project creation runs after preflight).
+                // Always do a fresh disk check so we don't show "Restore Project
+                // Configuration" for an already-initialized project.
+                const freshProjectReady = await this.getFreshProjectInitialized();
+
+                if (freshProjectReady) {
+                    debugLog("webview.ready: fresh metadata check shows project is set up");
+                    this.stateMachine.send({
+                        type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
+                    });
+                } else if (preflightState.workspaceState.hasMetadata) {
+                    this.stateMachine.send({
+                        type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
+                    });
                 } else {
                     this.stateMachine.send({
                         type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT,
+                    });
+                    const folderName = vscode.workspace.workspaceFolders?.[0]?.name ?? "";
+                    this.safeSendMessage({
+                        command: "provideWorkspaceContext",
+                        workspaceFolderName: folderName,
                     });
                 }
                 break;
@@ -3439,12 +3558,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     try {
                         await vscode.workspace.fs.stat(gitPath);
                     } catch {
-                        vscode.window.showErrorMessage("No .git folder found to restore from.");
+                        vscode.window.showErrorMessage("This project's sync data is missing and can't be restored.");
                         return;
                     }
 
                     const confirm = await vscode.window.showWarningMessage(
-                        "This project appears to be missing its remote counterpart. Do you want to fix it as a new local project?\n\nThis will create a full backup of your project (including git history) and re-initialize it.",
+                        "This project isn't connected to an online source. Would you like to fix it as a new local project?\n\nA full backup of your project will be created before making any changes.",
                         { modal: true },
                         "Fix & Open"
                     );
@@ -3472,7 +3591,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         title: "Fixing project...",
                         cancellable: false
                     }, async (progress) => {
-                        progress.report({ message: "Backing up entire project to archive..." });
+                        progress.report({ message: "Creating a backup of your project..." });
 
                         // Use streaming archiver for memory efficiency
                         // Create a root folder in the zip with the folder name to preserve structure
@@ -3482,11 +3601,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             { excludeGit: false, rootFolderName: folderName }
                         );
 
-                        progress.report({ message: "Removing old git configuration..." });
+                        progress.report({ message: "Cleaning up old settings..." });
                         // 3. Delete .git folder
                         await vscode.workspace.fs.delete(gitPath, { recursive: true, useTrash: false });
 
-                        progress.report({ message: "Updating project identity..." });
+                        progress.report({ message: "Updating project info..." });
                         // 4. Update metadata with UUID
                         // 5. Rename folder logic
                         const parentDir = path.dirname(projectPath);
@@ -3561,40 +3680,42 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             console.error("Failed to ensure attachments structure:", e);
                         }
 
-                        // Remove indexes.sqlite so it can be rebuilt
-                        try {
+                        // Remove indexes.sqlite (and WAL/SHM) so it can be rebuilt
+                        {
                             const indexDbPath = vscode.Uri.joinPath(newProjectUri, ".project", "indexes.sqlite");
-                            await vscode.workspace.fs.delete(indexDbPath, { recursive: false, useTrash: false });
-                        } catch {
-                            // Missing index file is fine
+                            for (const suffix of ["", "-wal", "-shm"]) {
+                                try {
+                                    await vscode.workspace.fs.delete(
+                                        vscode.Uri.file(`${indexDbPath.fsPath}${suffix}`),
+                                        { recursive: false, useTrash: false }
+                                    );
+                                } catch {
+                                    // Missing file is fine
+                                }
+                            }
                         }
 
                         // 7. Initialize git repository (fresh .git)
-                        progress.report({ message: "Initializing git repository..." });
+                        progress.report({ message: "Setting up project..." });
                         try {
-                            const git = await import("isomorphic-git");
-                            const fs = await import("fs");
+                            const dugiteGitSwap = await import("../../utils/dugiteGit");
                             const { ensureGitConfigsAreUpToDate, ensureGitDisabledInSettings } = await import("../../projectManager/utils/projectUtils");
 
-                            await git.init({
-                                fs,
-                                dir: newProjectPath,
-                                defaultBranch: "main",
-                            });
+                            await dugiteGitSwap.init(newProjectPath);
 
                             await ensureGitConfigsAreUpToDate();
                             await ensureGitDisabledInSettings();
 
-                            await git.add({ fs, dir: newProjectPath, filepath: "metadata.json" });
+                            await dugiteGitSwap.add(newProjectPath, "metadata.json");
 
                             const gitignorePath = path.join(newProjectPath, ".gitignore");
                             if (fs.existsSync(gitignorePath)) {
-                                await git.add({ fs, dir: newProjectPath, filepath: ".gitignore" });
+                                await dugiteGitSwap.add(newProjectPath, ".gitignore");
                             }
 
                             const gitattributesPath = path.join(newProjectPath, ".gitattributes");
                             if (fs.existsSync(gitattributesPath)) {
-                                await git.add({ fs, dir: newProjectPath, filepath: ".gitattributes" });
+                                await dugiteGitSwap.add(newProjectPath, ".gitattributes");
                             }
 
                             let authorName = "Codex User";
@@ -3608,15 +3729,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // Best effort
                             }
 
-                            await git.commit({
-                                fs,
-                                dir: newProjectPath,
-                                message: "Initial commit",
-                                author: {
-                                    name: authorName,
-                                    email: authorEmail,
-                                },
-                            });
+                            await dugiteGitSwap.commit(
+                                newProjectPath,
+                                "Initial commit",
+                                { name: authorName, email: authorEmail },
+                            );
                         } catch (e) {
                             console.error("Failed to initialize git during fix & open:", e);
                         }
@@ -3642,11 +3759,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "project.performSwap": {
                 const { projectPath } = message;
                 if (!projectPath) {
-                    vscode.window.showErrorMessage("No project path provided for swap.");
+                    vscode.window.showErrorMessage("No project path provided for update.");
                     return;
                 }
 
-                // Notify webview that swap operation is in progress (locks UI)
+                // Notify webview that update (swap) operation is in progress (locks UI)
                 this.safeSendMessage({
                     command: "project.swappingInProgress",
                     projectPath,
@@ -3654,7 +3771,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } as any);
 
                 try {
-                    // ── Version gate: block swap if extensions are outdated ──
+                    // ── Version gate: block update (swap) if extensions are outdated ──
                     // Checks old project's local + remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
                     try {
                         const { ensureExtensionVersionsForSwapOrUpdate } = await import("../../utils/versionGate");
@@ -3663,9 +3780,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         let oldProjectRemoteMetadata: ProjectMetadata | undefined;
                         try {
                             const { extractProjectIdFromUrl, fetchRemoteMetadata } = await import("../../utils/remoteUpdatingManager");
-                            const gitModule = await import("isomorphic-git");
-                            const fsModule = await import("fs");
-                            const remotes = await gitModule.listRemotes({ fs: fsModule, dir: projectPath });
+                            const dugiteGitVer = await import("../../utils/dugiteGit");
+                            const remotes = await dugiteGitVer.listRemotes(projectPath);
                             const origin = remotes.find((r) => r.remote === "origin");
                             if (origin?.url) {
                                 const projId = extractProjectIdFromUrl(origin.url);
@@ -3706,11 +3822,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const swapResult = await checkProjectSwapRequired(projectPath, undefined, true);
 
                     if (swapResult.remoteUnreachable && swapResult.required) {
-                        // Server unreachable - can't perform swap, but let user open offline.
+                        // Server unreachable - can't perform update (swap), but let user open offline.
                         const offlineChoice = await vscode.window.showWarningMessage(
                             "Server Unreachable\n\n" +
-                            "A project swap has been requested, but the swap requires an internet connection.\n\n" +
-                            "You can open this project and work offline. The swap will be available when connectivity is restored.",
+                            "A project update has been requested, but the update requires an internet connection.\n\n" +
+                            "You can open this project and work offline. The update will be available when connectivity is restored.",
                             { modal: true },
                             "Open Project Offline"
                         );
@@ -3721,13 +3837,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     if (swapResult.userAlreadySwapped && swapResult.activeEntry) {
-                        // User has already completed this swap (detected from NEW project's remote).
+                        // User has already completed this update (swap) (detected from NEW project's remote).
                         // writeUserSwapCompletionToOldProject was already called inside checkProjectSwapRequired.
                         const swapTargetLabel =
                             swapResult.activeEntry.newProjectName || swapResult.activeEntry.newProjectUrl || "the new project";
                         const alreadySwappedChoice = await vscode.window.showWarningMessage(
-                            `Already Swapped\n\n` +
-                            `You have already swapped to ${swapTargetLabel}.\n\n` +
+                            `Already Updated\n\n` +
+                            `You have already updated to ${swapTargetLabel}.\n\n` +
                             "You can open this deprecated project, delete the local copy, or cancel.",
                             { modal: true },
                             "Open Project",
@@ -3789,8 +3905,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         // Show modal so user can open the project
                         const choice = await vscode.window.showWarningMessage(
-                            "Swap Cancelled\n\n" +
-                            "The project swap has been cancelled or is no longer required.\n\n" +
+                            "Update Cancelled\n\n" +
+                            "The project update has been cancelled or is no longer required.\n\n" +
                             "You can open this project normally.",
                             { modal: true },
                             "Open Project"
@@ -3807,7 +3923,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const projectName = metadataResult.metadata?.projectName || path.basename(projectPath);
 
                     if (!activeEntry.newProjectUrl) {
-                        vscode.window.showErrorMessage("Cannot perform swap: No target project URL found.");
+                        vscode.window.showErrorMessage("Cannot perform update: No target project URL found.");
                         return;
                     }
 
@@ -3894,7 +4010,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     const swapTargetLabel =
                                         activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                                     const alreadySwappedChoice = await vscode.window.showWarningMessage(
-                                        `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                        `You have already updated to ${swapTargetLabel}.\n\n` +
                                         "You can open this deprecated project, delete the local copy, or cancel.",
                                         { modal: true },
                                         "Open Project",
@@ -3936,7 +4052,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const newProjectName = activeEntry.newProjectName || "new project";
                     const swapUUID = activeEntry.swapUUID || "unknown";
 
-                    // Check if there are files that need to be downloaded before swap
+                    // Check if there are files that need to be downloaded before update (swap)
                     const { checkSwapPrerequisites, downloadPendingSwapFiles, saveSwapPendingState, clearSwapPendingState } = await import("./performProjectSwap");
                     const prereqResult = await checkSwapPrerequisites(projectPath, newProjectUrl);
 
@@ -3947,12 +4063,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         // Show modal asking if user wants to proceed with download
                         const action = await vscode.window.showInformationMessage(
-                            `Before completing the project swap, ${fileCount} media file(s) (${sizeStr}) need to be downloaded from the old project.`,
+                            `Before completing the project update, ${fileCount} media file(s) (${sizeStr}) need to be downloaded from the old project.`,
                             { modal: true },
-                            "Download & Swap"
+                            "Download & Update"
                         );
 
-                        if (action !== "Download & Swap") {
+                        if (action !== "Download & Update") {
                             return; // User cancelled
                         }
 
@@ -3973,7 +4089,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                         await vscode.window.withProgress({
                             location: vscode.ProgressLocation.Notification,
-                            title: "Downloading media for swap...",
+                            title: "Downloading media for project update...",
                             cancellable: true
                         }, async (progress, token) => {
                             let cancelled = false;
@@ -3997,12 +4113,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         // Check if downloads succeeded
                         if (downloadResult.failed.length > 0) {
                             const continueAnyway = await vscode.window.showWarningMessage(
-                                `Downloaded ${downloadResult.downloaded}/${downloadResult.total} files. ${downloadResult.failed.length} file(s) failed to download. Continue with swap anyway?`,
+                                `Downloaded ${downloadResult.downloaded}/${downloadResult.total} files. ${downloadResult.failed.length} file(s) failed to download. Continue with update anyway?`,
                                 { modal: true },
-                                "Continue Swap"
+                                "Continue Update"
                             );
 
-                            if (continueAnyway !== "Continue Swap") {
+                            if (continueAnyway !== "Continue Update") {
                                 await clearSwapPendingState(projectPath);
                                 return;
                             }
@@ -4019,20 +4135,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         const { checkProjectSwapRequired: recheckSwap } = await import("../../utils/projectSwapManager");
                         const recheck = await recheckSwap(projectPath, undefined, true);
                         if (recheck.remoteUnreachable) {
-                            debugLog("Server unreachable during re-validation - cannot perform swap");
+                            debugLog("Server unreachable during re-validation - cannot perform update (swap)");
                             vscode.window.showWarningMessage(
-                                "The swap cannot be performed because the server is not reachable. " +
+                                "The update cannot be performed because the server is not reachable. " +
                                 "Please check your internet connection or try again later."
                             );
                             return;
                         }
                         if (recheck.userAlreadySwapped && recheck.activeEntry) {
-                            debugLog("User already completed this swap during re-validation");
+                            debugLog("User already completed this update (swap) during re-validation");
                             const swapTargetLabel =
                                 recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
                             await vscode.window.showWarningMessage(
-                                `Already Swapped\n\n` +
-                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                `Already Updated\n\n` +
+                                `You have already updated to ${swapTargetLabel}.\n\n` +
                                 `This project is deprecated but can still be opened.`,
                                 { modal: true },
                                 "Open Project"
@@ -4069,8 +4185,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             } catch { /* non-fatal */ }
 
                             await vscode.window.showWarningMessage(
-                                "Swap Cancelled\n\n" +
-                                "The project swap has been cancelled or is no longer required.",
+                                "Update Cancelled\n\n" +
+                                "The project update has been cancelled or is no longer required.",
                                 { modal: true },
                                 "Open Project"
                             );
@@ -4083,7 +4199,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // No downloads needed or prerequisites met - proceed with swap
                     await vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
-                        title: `Swapping project to "${newProjectName}"...`,
+                        title: `Updating project to "${newProjectName}"...`,
                         cancellable: false
                     }, async (progress) => {
                         const newPath = await performProjectSwap(
@@ -4097,7 +4213,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             activeEntry.swapReason
                         );
 
-                        progress.report({ message: "Opening swapped project..." });
+                        progress.report({ message: "Opening updated project..." });
                         // Use safe folder opening to ensure writes complete and metadata integrity
                         const { MetadataManager } = await import("../../utils/metadataManager");
                         await MetadataManager.safeOpenFolder(
@@ -4107,9 +4223,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
 
                 } catch (error) {
-                    console.error("Error performing project swap:", error);
+                    console.error("Error performing project update (swap):", error);
                     vscode.window.showErrorMessage(
-                        `Project swap failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
+                        `Project update failed.\n\nThe old project has been backed up to the "archived_projects" folder. ` +
                         `Please contact your project administrator for assistance.\n\nError: ${error instanceof Error ? error.message : String(error)}`
                     );
                 } finally {
@@ -4131,22 +4247,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 if (!gitOriginUrl) {
                     vscode.window.showErrorMessage(
-                        "Cannot update project: No remote repository URL found. This project may not be connected to a remote repository."
+                        "Cannot update project: This project isn't connected to an online source. Please check your project settings."
                     );
                     return;
                 }
 
                 // Show notification first so user knows the process is starting
-                vscode.window.showInformationMessage("Update process starting - check for confirmation dialog");
+                vscode.window.showInformationMessage("Starting project update — please confirm in the dialog.");
 
                 const yesConfirm = "Yes, Update Project";
 
                 const confirm = await vscode.window.showWarningMessage(
                     `This will update the project "${projectName}" by:\n\n` +
-                    "1. Creating a backup ZIP\n" +
-                    "2. Saving your local changes temporarily\n" +
-                    "3. Re-cloning from the remote repository\n" +
-                    "4. Merging your local changes back\n\n" +
+                    "1. Creating a backup of your project\n" +
+                    "2. Saving your local changes\n" +
+                    "3. Downloading the latest version\n" +
+                    "4. Restoring your local changes\n\n" +
                     "This process may take several minutes. Continue?",
                     { modal: true },
                     yesConfirm
@@ -4226,6 +4342,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
      * Perform project deletion
      */
     private async performProjectDeletion(projectPath: string, projectName: string): Promise<void> {
+        // Close the SQLite index database before deleting the project folder to prevent
+        // writing to an orphaned file descriptor (same guard as swap and update).
+        try {
+            const { clearSQLiteIndexManager } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+            );
+            await clearSQLiteIndexManager();
+            debugLog("SQLite index manager closed before project deletion");
+        } catch (e) {
+            debugLog("Warning: could not close SQLite index manager before deletion:", e);
+        }
+
         try {
             // Use vscode.workspace.fs.delete with the recursive flag
             const projectUri = vscode.Uri.file(projectPath);
@@ -4279,11 +4407,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             // Find and restore LFS pointer files
             // This will replace the actual files with their pointer versions
-            const gitDir = vscode.Uri.joinPath(projectUri, ".git").fsPath;
             const workDir = projectUri.fsPath;
 
-            // Use isomorphic-git to list all files in the repository
-            const files = await git.listFiles({ fs, dir: workDir, gitdir: gitDir });
+            // Use dugiteGit to list all files in the repository
+            const files = await dugiteGit.listFiles(workDir);
 
             for (const filepath of files) {
                 const fileUri = vscode.Uri.joinPath(projectUri, filepath);
@@ -4303,7 +4430,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         if (ext && mediaExtensions.includes(ext)) {
                             // Try to get the LFS pointer from git
                             try {
-                                const { blob } = await git.readBlob({ fs, dir: workDir, gitdir: gitDir, oid: 'HEAD', filepath });
+                                const blob = await dugiteGit.readBlobAtRef(workDir, 'HEAD', filepath);
                                 const pointerContent = Buffer.from(blob).toString('utf-8');
 
                                 // If the blob in git is an LFS pointer, restore it
@@ -4340,6 +4467,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         showSuccessMessage: boolean = true,
         currentUsername?: string
     ): Promise<void> {
+        // Close the SQLite index database before any file operations to prevent
+        // writing to an orphaned file descriptor after the project folder is moved/deleted.
+        try {
+            const { clearSQLiteIndexManager } = await import(
+                "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+            );
+            await clearSQLiteIndexManager();
+            debugLog("SQLite index manager closed before project update");
+        } catch (e) {
+            debugLog("Warning: could not close SQLite index manager before update:", e);
+        }
+
         const cleanedPath = await this.cleanupStaleUpdateState(projectPath, projectName);
         if (cleanedPath && cleanedPath !== projectPath) {
             projectPath = cleanedPath;
@@ -4348,7 +4487,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         // CRITICAL: Ensure internet connectivity before starting update
         // If offline, this will block with a modal until connectivity is restored
-        progress.report({ message: "Checking internet connectivity..." });
+        progress.report({ message: "Checking your connection..." });
         await ensureConnectivity("project update");
         debugLog("✅ Internet connectivity confirmed");
 
@@ -4395,8 +4534,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         let backupUri: vscode.Uri;
         let backupStat: vscode.FileStat | undefined;
 
-        progress.report({ increment: 2, message: "Preparing backup (scanning project)..." });
-        progress.report({ increment: 8, message: "Creating full backup (includes .git)..." });
+        progress.report({ increment: 2, message: "Preparing backup..." });
+        progress.report({ increment: 8, message: "Creating backup of your project..." });
 
         try {
             backupUri = await this.createProjectBackup(projectPath, projectName, true);
@@ -4426,7 +4565,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         const backupFileName = path.basename(backupUri.fsPath);
-        progress.report({ increment: 0, message: "Backup ready; preparing temp copy..." });
+        progress.report({ increment: 0, message: "Backup complete. Preparing update..." });
         await this.persistUpdateState(projectPath, {
             projectPath,
             projectName,
@@ -4438,7 +4577,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
 
         // Step 2: Create or reuse temporary snapshot
-        progress.report({ increment: 20, message: "Saving local changes..." });
+        progress.report({ increment: 20, message: "Saving your work..." });
         let tempFolderUri: vscode.Uri;
         let reuseTemp = false;
         if (priorState?.tempFolderPath) {
@@ -4483,7 +4622,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
         } else {
-            progress.report({ increment: 0, message: "Reusing existing temp snapshot..." });
+            progress.report({ increment: 0, message: "Resuming from where we left off..." });
         }
 
         await this.persistUpdateState(projectPath, {
@@ -4502,7 +4641,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         // Step 3: Prepare cloning target (canonical_cloning) and delete if stale
-        progress.report({ increment: 10, message: "Preparing cloning target..." });
+        progress.report({ increment: 10, message: "Preparing download..." });
         const parentDir = vscode.Uri.file(path.dirname(projectPath));
         const cloningFolderName = `${projectName}_cloning`;
         const toDeleteFolderName = `${projectName}_toDelete`;
@@ -4524,7 +4663,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Step 4: Re-clone the project into cloning target
             // CRITICAL: This operation requires internet connectivity
             // Errors are handled organically - network errors trigger wait/retry, server errors prompt user
-            progress.report({ increment: 20, message: "Re-cloning from remote..." });
+            progress.report({ increment: 20, message: "Downloading latest version..." });
 
             const attemptClone = async (): Promise<void> => {
                 try {
@@ -4535,7 +4674,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         updateMediaStrategy
                     );
                     if (!result) {
-                        throw new Error("Failed to clone repository");
+                        throw new Error("Failed to download project");
                     }
                 } catch (cloneError) {
                     // Handle clone errors organically
@@ -4554,7 +4693,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             await this.sleep(3000);
 
             // Step 5: Merge temporary files back into cloning target
-            progress.report({ increment: 20, message: "Merging local changes..." });
+            progress.report({ increment: 20, message: "Restoring your changes..." });
 
             // Verify the cloned project exists
             await vscode.workspace.fs.stat(cloningProjectUri);
@@ -4626,7 +4765,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             });
 
             // Step 6: Swap canonical with cloning target
-            progress.report({ increment: 10, message: "Swapping updated project into place..." });
+            progress.report({ increment: 10, message: "Finalizing update..." });
             const canonicalUri = vscode.Uri.file(projectPath);
             // Move canonical aside
             try {
@@ -5230,19 +5369,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             };
 
             // Stage all changes
-            await git.add({
-                fs,
-                dir: projectPath,
-                filepath: "."
-            });
+            await dugiteGit.add(projectPath, ".");
 
             // Commit the updated changes
-            await git.commit({
-                fs,
-                dir: projectPath,
-                message: "Updated project: merged local changes after re-clone",
-                author
-            });
+            await dugiteGit.commit(
+                projectPath,
+                "Updated project: merged local changes after re-clone",
+                { name: author.name, email: author.email },
+            );
 
             debugLog("Committed updated project changes");
         } catch (error) {
@@ -5458,7 +5592,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             // Fire-and-forget: persist displayedProjectName updates to metadata.json
             if (displayNameWritePromises.length > 0) {
-                Promise.allSettled(displayNameWritePromises).catch(() => {});
+                Promise.allSettled(displayNameWritePromises).catch(() => { });
             }
 
             // ============================================================
@@ -5745,8 +5879,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // User already swapped - show informational modal
                             const swapTargetLabel = activeEntry.newProjectName || activeEntry.newProjectUrl || "the new project";
                             const alreadySwappedChoice = await vscode.window.showWarningMessage(
-                                `Already Swapped\n\n` +
-                                `You have already swapped to ${swapTargetLabel}.\n\n` +
+                                `Already Updated\n\n` +
+                                `You have already updated to ${swapTargetLabel}.\n\n` +
                                 `This project is deprecated. You can still clone it if needed.`,
                                 { modal: true },
                                 "Clone Anyway"
@@ -5785,7 +5919,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             return;
                         }
                     } else if (!activeEntry && normalizedSwapInfo?.swapEntries?.length) {
-                        // No active swap, but has cancelled swap entries - check if new projects have had swap activity
+                        // No active update (swap), but has cancelled entries - check if new projects have had update (swap) activity
                         // This indicates work may have continued in the new projects
                         const cancelledOldProjectEntries = normalizedSwapInfo.swapEntries.filter(
                             e => e.isOldProject && e.swapStatus === "cancelled"
@@ -5820,7 +5954,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                             }
 
-                            // Check if any of the new projects have swap entries (indicating work continued)
+                            // Check if any of the new projects have update (swap) entries (indicating work continued)
                             // Check locally first, then remote if not available locally
                             let workContinuedInNewProjects = false;
                             for (const newUrl of newProjectUrls) {
@@ -5830,16 +5964,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                                     if (localNewProject) {
                                         // New project exists locally - check its local metadata
-                                        debugLog("Checking local new project for swap activity:", localNewProject.path);
+                                        debugLog("Checking local new project for update (swap) activity:", localNewProject.path);
                                         try {
                                             const metadataPath = vscode.Uri.file(path.join(localNewProject.path, "metadata.json"));
                                             const metadataBuffer = await vscode.workspace.fs.readFile(metadataPath);
                                             const metadata = JSON.parse(Buffer.from(metadataBuffer).toString("utf-8"));
                                             const newSwapInfo = metadata?.meta?.projectSwap;
                                             if (newSwapInfo?.swapEntries?.length) {
-                                                // New project has swap entries - work/swaps happened there
+                                                // New project has update (swap) entries - work continued there
                                                 workContinuedInNewProjects = true;
-                                                debugLog("Local new project has swap entries - work continued");
+                                                debugLog("Local new project has update (swap) entries - work continued");
                                                 break;
                                             }
                                         } catch {
@@ -5852,13 +5986,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     if (!workContinuedInNewProjects) {
                                         const newProjectId = extractProjectIdFromUrl(newUrl);
                                         if (newProjectId) {
-                                            debugLog("Checking remote new project for swap activity:", newUrl);
+                                            debugLog("Checking remote new project for update (swap) activity:", newUrl);
                                             const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false);
                                             const newSwapInfo = newProjectMetadata?.meta?.projectSwap;
                                             if (newSwapInfo?.swapEntries?.length) {
-                                                // New project has swap entries - work/swaps happened there
+                                                // New project has update (swap) entries - work continued there
                                                 workContinuedInNewProjects = true;
-                                                debugLog("Remote new project has swap entries - work continued");
+                                                debugLog("Remote new project has update (swap) entries - work continued");
                                                 break;
                                             }
                                         }
@@ -5871,13 +6005,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             if (workContinuedInNewProjects) {
                                 // Show informational warning but DON'T block clone
                                 const warningAction = await vscode.window.showWarningMessage(
-                                    "This project was previously deprecated. Work may have continued in the newer project(s). " +
-                                    "Cloning this project may result in working with outdated content.",
+                                    "This project has been replaced by a newer version. Downloading it may give you outdated content.",
                                     { modal: true },
-                                    "Clone Anyway"
+                                    "Download Anyway"
                                 );
 
-                                if (warningAction !== "Clone Anyway") {
+                                if (warningAction !== "Download Anyway") {
                                     debugLog("User cancelled clone of previously deprecated project");
                                     this.safeSendMessage({
                                         command: "project.cloningInProgress",

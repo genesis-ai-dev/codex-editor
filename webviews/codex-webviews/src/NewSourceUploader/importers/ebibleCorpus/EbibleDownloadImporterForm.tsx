@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
     ImporterComponentProps,
     AlignedCell,
@@ -112,6 +112,8 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
     const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
     const [targetCells, setTargetCells] = useState<any[]>([]);
 
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
     const isTranslationImport = wizardContext?.intent === "target";
     const selectedSource = wizardContext?.selectedSource;
 
@@ -142,6 +144,11 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
         });
         return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
     }, [filteredTranslations]);
+
+    useEffect(() => {
+        window.scrollTo(0, 0);
+        searchInputRef.current?.focus();
+    }, []);
 
     const handleSelectTranslation = useCallback((translation: EbibleTranslation) => {
         setSelectedTranslation(translation);
@@ -456,6 +463,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                         <Input
+                            ref={searchInputRef}
                             placeholder="Search by language, code, or translation name..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}

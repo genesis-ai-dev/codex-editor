@@ -9,6 +9,8 @@ interface LanguagePickerProps {
     initialLanguage?: LanguageMetadata;
     projectStatus: "source" | "target";
     label?: string;
+    isActive?: boolean;
+    onActivate?: () => void;
 }
 
 export const LanguagePicker: React.FC<LanguagePickerProps> = ({
@@ -16,6 +18,8 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     initialLanguage,
     projectStatus,
     label = "Select Language",
+    isActive,
+    onActivate,
 }) => {
     const [languageFilter, setLanguageFilter] = useState<string>(() => {
         if (initialLanguage?.refName) {
@@ -30,6 +34,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
 
     const dropdownRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     const availableLanguages = useMemo(() => LanguageCodes, []);
 
@@ -101,6 +106,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                 !dropdownRef.current.contains(event.target as Node)
             ) {
                 setIsDropdownOpen(false);
+                inputRef.current?.blur();
                 if (isEditing && !languageFilter && previousLanguage) {
                     setLanguageFilter(previousLanguage.refName || "");
                 }
@@ -111,6 +117,17 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [isEditing, previousLanguage, languageFilter]);
+
+    useEffect(() => {
+        if (isActive === false) {
+            setIsDropdownOpen(false);
+            inputRef.current?.blur();
+            if (isEditing && !languageFilter && previousLanguage) {
+                setLanguageFilter(previousLanguage.refName || "");
+            }
+            setIsEditing(false);
+        }
+    }, [isActive]);
 
     const handleLanguageSelect = (code: string, name: string) => {
         const language: LanguageMetadata = {
@@ -185,6 +202,22 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         }
                     }
                     break;
+                case "Tab": {
+                    const tabCustomAtTop = languageFilter && !hasHighQualityMatches;
+                    const tabCustomAtBottom = languageFilter && hasHighQualityMatches;
+                    if (tabCustomAtTop && highlightedIndex === 0) {
+                        handleCustomLanguageSelect(languageFilter);
+                    } else if (tabCustomAtBottom && highlightedIndex === filteredLanguages.length) {
+                        handleCustomLanguageSelect(languageFilter);
+                    } else {
+                        const langIdx = tabCustomAtTop ? highlightedIndex - 1 : highlightedIndex;
+                        if (langIdx >= 0 && langIdx < filteredLanguages.length) {
+                            const lang = filteredLanguages[langIdx];
+                            handleLanguageSelect(lang.tag || '', lang.refName || '');
+                        }
+                    }
+                    break;
+                }
                 case "Escape":
                     e.preventDefault();
                     setIsDropdownOpen(false);
@@ -210,16 +243,13 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
 
     return (
         <div className="language-picker" ref={dropdownRef}>
-            <label
-                htmlFor="language-select"
-                className="language-picker__label"
-            >
+            <span className="language-picker__label">
                 {label}
-            </label>
+            </span>
             <div className="language-picker__container">
                 <input
+                    ref={inputRef}
                     type="text"
-                    id="language-select"
                     className="vscode-input"
                     value={languageFilter}
                     placeholder="Search for a language..."
@@ -227,13 +257,22 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         setLanguageFilter(e.target.value);
                         setIsDropdownOpen(true);
                     }}
-                    onFocus={(e) => {
+                    onFocus={() => {
+                        onActivate?.();
                         setIsEditing(true);
-                        if (languageFilter) {
-                            setLanguageFilter("");
-                        }
                         setIsDropdownOpen(true);
                         setHighlightedIndex(0);
+                    }}
+                    onBlur={() => {
+                        setTimeout(() => {
+                            if (!dropdownRef.current?.contains(document.activeElement)) {
+                                setIsDropdownOpen(false);
+                                if (isEditing && !languageFilter && previousLanguage) {
+                                    setLanguageFilter(previousLanguage.refName || "");
+                                }
+                                setIsEditing(false);
+                            }
+                        }, 150);
                     }}
                     onKeyDown={handleKeyDown}
                 />

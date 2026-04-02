@@ -10,6 +10,7 @@
 import React, { useState, useCallback } from "react";
 import { ImporterComponentProps } from "../../types/plugin";
 import { Button } from "../../../components/ui/button";
+import EnforceStructureCheckbox from "../../components/EnforceStructureCheckbox";
 import {
     Card,
     CardContent,
@@ -95,6 +96,7 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
     const [debugLogs, setDebugLogs] = useState<string[]>([]);
     const [importResult, setImportResult] = useState<any[] | null>(null);
     const [showCompleteButton, setShowCompleteButton] = useState(false);
+    const [enforceHtmlStructure, setEnforceHtmlStructure] = useState(true);
 
     const addDebugLog = useCallback((message: string) => {
         const timestamp = new Date().toLocaleTimeString();
@@ -768,7 +770,8 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                     originalHash: document.originalHash,
                                     totalCells: simplifiedNoteCells.length,
                                     fileType: 'biblica',
-                                    contentType: 'notes' // Mark as notes content
+                                    contentType: 'notes',
+                                    enforceHtmlStructure,
                                 }
                             },
                             codex: { 
@@ -803,7 +806,8 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                                     totalCells: simplifiedNoteCells.length,
                                     fileType: 'biblica',
                                     isCodex: true,
-                                    contentType: 'notes' // Mark as notes content
+                                    contentType: 'notes',
+                                    enforceHtmlStructure,
                                 }
                             }
                         });
@@ -995,6 +999,11 @@ export const BiblicaImporterForm: React.FC<BiblicaImporterFormProps> = ({
                     </CardContent>
                 </Card>
             )}
+
+            <EnforceStructureCheckbox
+                checked={enforceHtmlStructure}
+                onCheckedChange={setEnforceHtmlStructure}
+            />
 
             <div className="flex justify-end gap-3">
                 <Button onClick={onCancelImport} disabled={isProcessing}>

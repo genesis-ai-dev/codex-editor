@@ -26,7 +26,7 @@ import { cn } from "../../lib/utils";
 interface SourceFileSelectionProps {
     sourceFiles: BasicFileInfo[];
     onSelectSource: (source: BasicFileInfo) => void;
-    onBack: () => void;
+    onBack?: () => void;
 }
 
 export const SourceFileSelection: React.FC<SourceFileSelectionProps> = ({
@@ -75,12 +75,14 @@ export const SourceFileSelection: React.FC<SourceFileSelectionProps> = ({
     return (
         <div className="container mx-auto p-6 max-w-5xl">
             {/* Header */}
-            <div className="flex items-center gap-4 mb-6">
-                <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                </Button>
-            </div>
+            {onBack && (
+                <div className="flex items-center gap-4 mb-6">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+                        <ArrowLeft className="h-4 w-4" />
+                        Back
+                    </Button>
+                </div>
+            )}
 
             <div className="text-center space-y-4 mb-8">
                 <h1 className="text-3xl font-bold">Select Source File</h1>
