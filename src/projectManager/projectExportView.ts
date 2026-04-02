@@ -263,7 +263,7 @@ function getWebviewContent(
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    margin-bottom: 12px;
+                    flex: 1;
                 }
                 .progress-circle {
                     width: 32px;
@@ -283,22 +283,22 @@ function getWebviewContent(
                 .progress-circle .codicon { font-size: 14px; }
                 .progress-circle.active {
                     border-color: var(--vscode-focusBorder);
+                    background: transparent;
+                    color: var(--vscode-focusBorder);
+                }
+                .progress-circle.completed {
+                    border-color: var(--vscode-focusBorder);
                     background: var(--vscode-focusBorder);
                     color: var(--vscode-button-foreground);
                 }
-                .progress-circle.completed {
-                    border-color: var(--vscode-charts-green, #16a34a);
-                    background: var(--vscode-charts-green, #16a34a);
-                    color: #fff;
-                }
                 .progress-line {
-                    width: 80px;
+                    width: 120px;
                     height: 2px;
                     background: var(--vscode-input-border);
                     transition: background 0.2s ease;
                 }
                 .progress-line.completed {
-                    background: var(--vscode-charts-green, #16a34a);
+                    background: var(--vscode-focusBorder);
                 }
                 .file-group {
                     border: 1px solid var(--vscode-input-border);
@@ -356,32 +356,33 @@ function getWebviewContent(
                 }
                 .bottom-bar {
                     flex-shrink: 0;
-                    padding-top: 16px;
+                    padding: 16px 0 0;
                     border-top: 1px solid var(--vscode-input-border);
-                }
-                .button-container {
                     display: flex;
-                    justify-content: flex-end;
+                    align-items: center;
+                    gap: 16px;
+                }
+                .bottom-bar-left, .bottom-bar-right {
+                    display: flex;
                     gap: 8px;
+                    min-width: 120px;
                 }
-                .button-container .step-btn { display: none; }
-                .button-container .step-btn.visible { display: flex; }
-                .export-btn {
-                    padding: 10px 24px !important;
-                    font-size: 1.05em;
-                    font-weight: 600;
-                }
+                .bottom-bar-right { justify-content: flex-end; }
+                .step-btn { display: none; }
+                .step-btn.visible { display: flex; }
                 button {
                     padding: 8px 16px;
                     background-color: var(--vscode-button-background);
                     color: var(--vscode-button-foreground);
                     border: 1px solid transparent;
-                    border-radius: 2px;
+                    border-radius: 4px;
                     cursor: pointer;
                     display: flex;
                     align-items: center;
+                    justify-content: center;
                     gap: 8px;
                 }
+                .step-btn { min-width: 120px; }
                 button:hover { background-color: var(--vscode-button-hoverBackground); }
                 button:disabled { opacity: 0.5; cursor: not-allowed; }
                 button.secondary { background-color: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
@@ -720,6 +721,10 @@ function getWebviewContent(
                 </div>
 
                 <div class="bottom-bar">
+                    <div class="bottom-bar-left">
+                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()"><i class="codicon codicon-close"></i> Cancel</button>
+                        <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left"></i> Back</button>
+                    </div>
                     <div class="progress-bar">
                         <div class="progress-circle active" id="progressCircle1">1</div>
                         <div class="progress-line" id="progressLine1"></div>
@@ -727,12 +732,10 @@ function getWebviewContent(
                         <div class="progress-line" id="progressLine2"></div>
                         <div class="progress-circle" id="progressCircle3">3</div>
                     </div>
-                    <div class="button-container">
-                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()"><i class="codicon codicon-arrow-left"></i> Cancel</button>
-                        <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left"></i> Back</button>
+                    <div class="bottom-bar-right">
                         <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()">Next Step <i class="codicon codicon-arrow-right"></i></button>
                         <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()">Next Step <i class="codicon codicon-arrow-right"></i></button>
-                        <button class="step-btn export-btn" id="exportButton" disabled onclick="exportProject()">
+                        <button class="step-btn" id="exportButton" disabled onclick="exportProject()">
                             <i class="codicon codicon-arrow-down"></i>
                             Export
                         </button>
@@ -904,7 +907,7 @@ function getWebviewContent(
                 }
 
                 function updateButtonVisibility() {
-                    document.querySelectorAll('.button-container .step-btn').forEach(btn => btn.classList.remove('visible'));
+                    document.querySelectorAll('.step-btn').forEach(btn => btn.classList.remove('visible'));
                     const cancel = document.getElementById('btnCancel');
                     const back = document.getElementById('btnBack');
                     const next1 = document.getElementById('nextStep1');
