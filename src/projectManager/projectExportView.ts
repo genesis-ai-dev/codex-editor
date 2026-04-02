@@ -246,6 +246,7 @@ function getWebviewContent(
                     flex-direction: column;
                     height: 100vh;
                     box-sizing: border-box;
+                    overflow: hidden;
                     background-color: var(--vscode-editor-background);
                     color: var(--vscode-editor-foreground);
                 }
@@ -254,19 +255,51 @@ function getWebviewContent(
                     display: flex;
                     flex-direction: column;
                     gap: 16px;
+                    min-height: 0;
                 }
                 .step-panel { display: none; }
                 .step-panel.active { display: flex; flex-direction: column; flex: 1; gap: 16px; }
-                .step-indicator {
+                .progress-bar {
                     display: flex;
-                    gap: 8px;
                     align-items: center;
-                    font-size: 0.85em;
-                    color: var(--vscode-descriptionForeground);
+                    justify-content: center;
+                    margin-bottom: 12px;
                 }
-                .step-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-input-border); }
-                .step-dot.active { background: var(--vscode-focusBorder); }
-                .step-dot.completed { background: var(--vscode-charts-green, #16a34a); }
+                .progress-circle {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 0.8em;
+                    font-weight: 600;
+                    border: 2px solid var(--vscode-input-border);
+                    color: var(--vscode-descriptionForeground);
+                    background: transparent;
+                    flex-shrink: 0;
+                    transition: all 0.2s ease;
+                }
+                .progress-circle .codicon { font-size: 14px; }
+                .progress-circle.active {
+                    border-color: var(--vscode-focusBorder);
+                    background: var(--vscode-focusBorder);
+                    color: var(--vscode-button-foreground);
+                }
+                .progress-circle.completed {
+                    border-color: var(--vscode-charts-green, #16a34a);
+                    background: var(--vscode-charts-green, #16a34a);
+                    color: #fff;
+                }
+                .progress-line {
+                    width: 80px;
+                    height: 2px;
+                    background: var(--vscode-input-border);
+                    transition: background 0.2s ease;
+                }
+                .progress-line.completed {
+                    background: var(--vscode-charts-green, #16a34a);
+                }
                 .file-group {
                     border: 1px solid var(--vscode-input-border);
                     border-radius: 4px;
@@ -314,12 +347,17 @@ function getWebviewContent(
                     border-color: var(--vscode-focusBorder);
                     background-color: var(--vscode-list-activeSelectionBackground);
                 }
-                .top-bar {
+                .step-content-area {
+                    flex: 1;
                     display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 16px;
+                    flex-direction: column;
+                    overflow-y: auto;
+                    min-height: 0;
+                }
+                .bottom-bar {
                     flex-shrink: 0;
+                    padding-top: 16px;
+                    border-top: 1px solid var(--vscode-input-border);
                 }
                 .button-container {
                     display: flex;
@@ -328,6 +366,11 @@ function getWebviewContent(
                 }
                 .button-container .step-btn { display: none; }
                 .button-container .step-btn.visible { display: flex; }
+                .export-btn {
+                    padding: 10px 24px !important;
+                    font-size: 1.05em;
+                    font-weight: 600;
+                }
                 button {
                     padding: 8px 16px;
                     background-color: var(--vscode-button-background);
@@ -487,24 +530,7 @@ function getWebviewContent(
             <div class="container">
                 ${hasLanguages
             ? `
-                <div class="top-bar">
-                    <div class="step-indicator">
-                        <span class="step-dot" id="stepDot1"></span>
-                        <span class="step-dot" id="stepDot2"></span>
-                        <span class="step-dot" id="stepDot3"></span>
-                    </div>
-                    <div class="button-container">
-                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()">Cancel</button>
-                        <button class="secondary step-btn" id="btnBack" onclick="goBack()">Back</button>
-                        <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()">Next Step</button>
-                        <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()">Next Step</button>
-                        <button class="step-btn" id="exportButton" disabled onclick="exportProject()">
-                            <i class="codicon codicon-arrow-down"></i>
-                            Export
-                        </button>
-                    </div>
-                </div>
-
+                <div class="step-content-area">
                 <!-- STEP 1: File Selection -->
                 <div id="step1" class="step-panel active">
                     <div class="step-content">
@@ -689,6 +715,27 @@ function getWebviewContent(
                             </button>
                         </div>
                         
+                    </div>
+                </div>
+                </div>
+
+                <div class="bottom-bar">
+                    <div class="progress-bar">
+                        <div class="progress-circle active" id="progressCircle1">1</div>
+                        <div class="progress-line" id="progressLine1"></div>
+                        <div class="progress-circle" id="progressCircle2">2</div>
+                        <div class="progress-line" id="progressLine2"></div>
+                        <div class="progress-circle" id="progressCircle3">3</div>
+                    </div>
+                    <div class="button-container">
+                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()"><i class="codicon codicon-arrow-left"></i> Cancel</button>
+                        <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left"></i> Back</button>
+                        <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()">Next Step <i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()">Next Step <i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn export-btn" id="exportButton" disabled onclick="exportProject()">
+                            <i class="codicon codicon-arrow-down"></i>
+                            Export
+                        </button>
                     </div>
                 </div>
                 `
@@ -883,10 +930,19 @@ function getWebviewContent(
                     const prevStep = currentStep;
                     document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
                     document.getElementById('step' + n).classList.add('active');
-                    document.querySelectorAll('.step-dot').forEach((dot, i) => {
-                        dot.classList.remove('active', 'completed');
-                        if (i + 1 < n) dot.classList.add('completed');
-                        else if (i + 1 === n) dot.classList.add('active');
+                    document.querySelectorAll('[id^="progressCircle"]').forEach((circle, i) => {
+                        circle.classList.remove('active', 'completed');
+                        if (i + 1 < n) {
+                            circle.classList.add('completed');
+                            circle.innerHTML = '<i class="codicon codicon-check"></i>';
+                        } else {
+                            circle.textContent = String(i + 1);
+                            if (i + 1 === n) circle.classList.add('active');
+                        }
+                    });
+                    document.querySelectorAll('[id^="progressLine"]').forEach((line, i) => {
+                        line.classList.remove('completed');
+                        if (i + 1 < n) line.classList.add('completed');
                     });
                     currentStep = n;
                     updateButtonVisibility();
