@@ -1368,6 +1368,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     });
 
+    const handleTranscribeAll = () => {
+        // Trigger batch transcription for all untranscribed cells via the extension
+        window.vscodeApi.postMessage({
+            command: "requestBatchTranscription",
+            content: { count: 0 }, // 0 = all untranscribed cells
+        });
+    };
+
     const handleTranscribeAudio = async () => {
         // Check connectivity first
         if (!navigator.onLine) {
@@ -1415,8 +1423,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionStatus(`Error: ${error}`);
             };
 
-            // Perform transcription
-            const result = await client.transcribe(audioBlob);
+            // Perform transcription with language hint
+            const result = await client.transcribe(audioBlob, 60000, asrConfig?.language);
 
             // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
@@ -1435,7 +1443,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         content: {
                             cellId: cellMarkers[0],
                             transcribedText: transcribedText,
-                            language: "unknown",
+                            language: asrConfig?.language || "unknown",
                         },
                     };
                     window.vscodeApi.postMessage(messageContent);
@@ -2911,6 +2919,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             isTranscribing={isTranscribing}
                                             transcriptionProgress={transcriptionProgress}
                                             onTranscribe={handleTranscribeAudio}
+                                            onTranscribeAll={handleTranscribeAll}
                                             onInsertTranscription={handleInsertTranscription}
                                             onRequestRemove={() => setConfirmingDiscard(true)}
                                             onShowHistory={() => setShowAudioHistory(true)}
