@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="${1:-}"
+
+# Ensure we're in a directory with a package.json
+if [[ ! -f package.json ]]; then
+  echo "Error: no package.json in current directory" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve VERSION
+# ---------------------------------------------------------------------------
+if [[ -z "$VERSION" ]]; then
+  # No version argument — check for an open PR and suggest one
+  if ! command -v gh &>/dev/null; then
+    echo "Error: 'gh' CLI is required when no version argument is provided." >&2
+    exit 1
+  fi
+
+  PR_NUMBER="$(gh pr view --json number -q .number 2>/dev/null || true)"
+
+  if [[ -z "$PR_NUMBER" ]]; then
+    echo "Usage: ext-release-create <version>" >&2
+    echo "  version: x.y.z | x.y.z-prNNN | x.y.z-prNNN-shorthash" >&2
+    echo "" >&2
+    echo "No open PR detected for the current branch, so cannot auto-suggest a version." >&2
+    exit 1
+  fi
+
+  BASE_VERSION="$(jq -r .version package.json)"
+  SHORT_HASH="$(git rev-parse --short HEAD)"
+  VERSION="${BASE_VERSION}-pr${PR_NUMBER}-${SHORT_HASH}"
+
+  echo "Open PR #${PR_NUMBER} detected."
+  echo "Generated version: $VERSION"
+  echo "Releasing in 5s, ctrl-c to cancel..."
+  sleep 5
+fi
+
+# ---------------------------------------------------------------------------
+# Validate VERSION — allowed forms:
+#   x.y.z
+#   x.y.z-pr123
+#   x.y.z-pr123-shorthash
+# Explicitly forbid x.y.z.prNNN (dot before pr)
+# ---------------------------------------------------------------------------
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-zA-Z][-0-9a-zA-Z]*)*$ ]]; then
+  echo "Error: version must match x.y.z, x.y.z-prNNN, or x.y.z-prNNN-shorthash" >&2
+  echo "  (dot-separated pre-release like x.y.z.prNNN is NOT allowed)" >&2
+  exit 1
+fi
+
+NAME="$(jq -r .name package.json)"
+ORIGINAL_VERSION="$(jq -r .version package.json)"
+VSIX_FILE="${NAME}-${VERSION}.vsix"
+
+restore_version() {
+  echo "Restoring package.json version to $ORIGINAL_VERSION"
+  jq --arg v "$ORIGINAL_VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+}
+trap restore_version EXIT
+
+echo "==> Bumping version: $ORIGINAL_VERSION -> $VERSION"
+jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+echo "==> Installing dependencies"
+pnpm install
+
+# Conditionally build webviews if the script exists
+if jq -e '.scripts["build:webviews"]' package.json &>/dev/null; then
+  echo "==> Installing webview dependencies"
+  (cd webviews/codex-webviews && pnpm install)
+  echo "==> Building webviews"
+  pnpm run build:webviews
+fi
+
+echo "==> Building extension (production)"
+pnpm run package
+
+echo "==> Packaging VSIX"
+# No dependencies results in errors like can't find codicon.css. We should probably bundle depens explicitly.
+pnpm dlx @vscode/vsce package --no-dependencies
+#pnpm dlx @vscode/vsce package
+
+echo "==> Restoring version before release"
+restore_version
+trap - EXIT
+
+echo "==> Creating GitHub prerelease: $VERSION"
+gh release create "$VERSION" \
+  --prerelease \
+  --title "$VERSION" \
+  --generate-notes \
+  "./$VSIX_FILE"
+
+REPO_URL="$(gh repo view --json url -q .url)"
+echo "Done! Prerelease $VERSION created with $VSIX_FILE"
+open "$REPO_URL/releases"
