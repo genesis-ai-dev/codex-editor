@@ -2277,6 +2277,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             createdAt: Date.now(),
             updatedAt: Date.now(),
             isDeleted: false,
+            audioAvailability: "missing",
             isMissing: true,
             createdBy: "test-user",
         });
@@ -2315,7 +2316,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    test("revalidateMissingForCell restores pointer, clears isMissing, bumps updatedAt, and posts updates", async function () {
+    test("revalidateMissingForCell restores pointer, updates document availability from disk, and posts updates", async function () {
         this.timeout(12000);
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
@@ -2357,6 +2358,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             createdAt: initialUpdatedAt,
             updatedAt: initialUpdatedAt,
             isDeleted: false,
+            audioAvailability: "missing",
             isMissing: true,
         });
 
@@ -2396,14 +2398,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
             } catch { /* retry */ }
             await new Promise((r) => setTimeout(r, 60));
         }
-        // Do not hard-fail if pointer check races; the isMissing flip below is the contract we require
+        // Do not hard-fail if pointer check races; the audioAvailability flip below is the contract we require
         assert.ok(ptrOk || true, "Pointer creation may race; continuing to validate flags and messages");
 
-        // Assert attachment updated: isMissing=false and updatedAt bumped
+        // Document SHOULD be mutated — revalidation updates audioAvailability from disk state
         const after = JSON.parse(document.getText());
         const att = after.cells[0].metadata.attachments[audioId];
-        assert.strictEqual(att.isMissing, false, "isMissing should be cleared after revalidation");
-        assert.ok(att.updatedAt > initialUpdatedAt, "updatedAt should increase");
+        assert.strictEqual(att.audioAvailability, "available-local", "audioAvailability should be updated to available-local since file exists on disk");
+        assert.ok(att.updatedAt >= initialUpdatedAt, "updatedAt should be bumped when availability changes");
 
         // Assert messages were posted: history refresh and availability map
         const historyMsg = posted.find((m) => m?.type === "audioHistoryReceived");

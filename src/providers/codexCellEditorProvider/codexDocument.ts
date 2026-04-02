@@ -23,7 +23,7 @@ import { randomUUID } from "crypto";
 import { CodexContentSerializer } from "../../serializer";
 import { debounce } from "lodash";
 import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
-import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
+import { getCellValueData, cellHasAudioUsingAttachments, cellHasMissingAudio, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
@@ -1643,6 +1643,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         percentFullyValidatedTranslations: number;
         percentAudioValidatedTranslations: number;
         percentTextValidatedTranslations: number;
+        cellsWithMissingAudio?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1650,6 +1651,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             percentFullyValidatedTranslations: number;
             percentAudioValidatedTranslations: number;
             percentTextValidatedTranslations: number;
+            cellsWithMissingAudio?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1709,6 +1711,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 )
             ).length;
 
+            const missingAudioCount = progressCells.filter((cell) =>
+                cellHasMissingAudio(
+                    cell.attachments,
+                    cell.metadata?.selectedAudioId
+                )
+            ).length;
+
             // Calculate validation data (only from root content cells)
             const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
 
@@ -1730,7 +1739,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             );
 
             // Milestone number is 1-based (i + 1)
-            progress[i + 1] = progressPercentages;
+            progress[i + 1] = {
+                ...progressPercentages,
+                cellsWithMissingAudio: missingAudioCount,
+            };
         }
 
         return progress;
@@ -1761,6 +1773,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        cellsWithMissingAudio?: number;
     }> {
         const progress: Record<number, {
             percentTranslationsCompleted: number;
@@ -1772,6 +1785,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             audioValidationLevels?: number[];
             requiredTextValidations?: number;
             requiredAudioValidations?: number;
+            cellsWithMissingAudio?: number;
         }> = {};
 
         const cells = this._documentData.cells || [];
@@ -1875,6 +1889,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 )
             ).length;
 
+            const missingAudioCount = progressCells.filter((cell) =>
+                cellHasMissingAudio(
+                    cell.attachments,
+                    cell.metadata?.selectedAudioId
+                )
+            ).length;
+
             // Calculate validation data (only from root content cells)
             const cellWithValidatedData = progressCells.map((cell) => getCellValueData(cell));
 
@@ -1922,6 +1943,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 audioValidationLevels,
                 requiredTextValidations: minimumValidationsRequired,
                 requiredAudioValidations: minimumAudioValidationsRequired,
+                cellsWithMissingAudio: missingAudioCount,
             };
         }
 
@@ -2966,7 +2988,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public updateCellAttachment(
         cellId: string,
         attachmentId: string,
-        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; metadata?: Record<string, any>; createdBy?: string; }
+        attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; audioAvailability?: import("../../../types").AttachmentAvailability; metadata?: Record<string, any>; createdBy?: string; }
     ): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
@@ -3022,6 +3044,29 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+    }
+
+    /**
+     * Updates only the audioAvailability (and deprecated isMissing) fields on an
+     * existing attachment without triggering auto-selection or edit history entries.
+     * Marks the document as dirty so the change is persisted on the next save.
+     */
+    public patchAttachmentAvailability(
+        cellId: string,
+        attachmentId: string,
+        availability: import("../../../types").AttachmentAvailability,
+    ): boolean {
+        const cell = this._documentData.cells.find((c) => c.metadata?.id === cellId);
+        const att = cell?.metadata?.attachments?.[attachmentId];
+        if (!att || typeof att !== "object") return false;
+
+        const prev = (att as any).audioAvailability;
+        if (prev === availability) return false;
+
+        (att as any).audioAvailability = availability;
+        (att as any).isMissing = availability === "missing";
+        this._isDirty = true;
+        return true;
     }
 
     /**
@@ -3089,15 +3134,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return null;
         }
 
+        const isAttachmentMissing = (att: any): boolean =>
+            att.audioAvailability === "missing" ||
+            (att.audioAvailability === undefined && att.isMissing === true);
+
         // STEP 1: Check for explicit selection first
         if (cell.metadata?.selectedAudioId && attachmentType === "audio") {
             const selectedAttachment = cell.metadata.attachments?.[cell.metadata.selectedAudioId];
 
-            // Validate selection is still valid and the file isn't missing
             if (selectedAttachment &&
                 selectedAttachment.type === attachmentType &&
                 !selectedAttachment.isDeleted &&
-                !selectedAttachment.isMissing) {
+                !isAttachmentMissing(selectedAttachment)) {
                 return {
                     attachmentId: cell.metadata.selectedAudioId,
                     attachment: selectedAttachment
@@ -3107,7 +3155,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Selection is invalid or missing — fall through to automatic resolution
         }
 
-        // STEP 2: Fall back to latest non-deleted, non-missing attachment (prefer available files)
+        // STEP 2: Fall back to latest non-deleted attachment (prefer non-missing files)
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3115,8 +3163,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 !attachment.isDeleted
             )
             .sort(([_, a]: [string, any], [__, b]: [string, any]) => {
-                const aMissing = a.isMissing ? 1 : 0;
-                const bMissing = b.isMissing ? 1 : 0;
+                const aMissing = isAttachmentMissing(a) ? 1 : 0;
+                const bMissing = isAttachmentMissing(b) ? 1 : 0;
                 if (aMissing !== bMissing) return aMissing - bMissing;
                 return (b.updatedAt || 0) - (a.updatedAt || 0);
             });
@@ -3326,13 +3374,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     selectedAttachment.type !== "audio" ||
                     selectedAttachment.isDeleted;
 
-                const isMissing = !isInvalid && selectedAttachment.isMissing === true;
+                const isAttMissing = (att: any): boolean =>
+                    att.audioAvailability === "missing" ||
+                    (att.audioAvailability === undefined && att.isMissing === true);
 
-                if (isInvalid || isMissing) {
-                    // Look for a valid non-missing audio attachment to auto-select
+                const isMissingAudio = !isInvalid && isAttMissing(selectedAttachment);
+
+                if (isInvalid || isMissingAudio) {
                     const validAlternative = Object.entries(cell.metadata.attachments)
                         .filter(([_, att]: [string, any]) =>
-                            att?.type === "audio" && !att.isDeleted && !att.isMissing
+                            att?.type === "audio" && !att.isDeleted && !isAttMissing(att)
                         )
                         .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
                             (b.updatedAt || 0) - (a.updatedAt || 0)
