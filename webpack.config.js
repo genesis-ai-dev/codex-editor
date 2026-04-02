@@ -6,6 +6,7 @@
 
 const path = require("path");
 const webpack = require("webpack");
+const CopyWebpackPlugin = require("copy-webpack-plugin");
 
 
 //@ts-check
@@ -27,6 +28,7 @@ const extensionConfig = {
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file
+        "fts5-sql-bundle": "commonjs fts5-sql-bundle", // WASM-based SQLite fallback — must remain external so locateFile can resolve the .wasm at runtime
         vm: "commonjs vm",
         encoding: "commonjs encoding",
         dugite: "commonjs dugite", // Must be external so its embedded binary resolution works (needs real __dirname and process.platform)
@@ -96,6 +98,26 @@ const extensionConfig = {
         }),
         new webpack.DefinePlugin({
             "process.env.NODE_ENV": JSON.stringify("production"),
+        }),
+        new CopyWebpackPlugin({
+            patterns: [
+                {
+                    from: "node_modules/fts5-sql-bundle/dist/sql-wasm.wasm",
+                    to: "node_modules/fts5-sql-bundle/dist/sql-wasm.wasm",
+                },
+                {
+                    from: "node_modules/fts5-sql-bundle/dist/sql-wasm.js",
+                    to: "node_modules/fts5-sql-bundle/dist/sql-wasm.js",
+                },
+                {
+                    from: "node_modules/fts5-sql-bundle/dist/index.js",
+                    to: "node_modules/fts5-sql-bundle/dist/index.js",
+                },
+                {
+                    from: "node_modules/fts5-sql-bundle/package.json",
+                    to: "node_modules/fts5-sql-bundle/package.json",
+                },
+            ],
         }),
     ],
     optimization: {

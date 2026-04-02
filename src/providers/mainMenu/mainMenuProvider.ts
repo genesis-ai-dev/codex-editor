@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfProjectIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
+import { openInterfaceSettings } from "../../interfaceSettings/interfaceSettings";
+import { applyTextDisplaySettings } from "../../utils/textDisplaySettingsUtils";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { MetadataManager } from "../../utils/metadataManager";
@@ -19,6 +21,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
+import { shouldUseNativeGit } from "../../utils/toolPreferences";
 
 class ProjectManagerStore {
     private preflightState: ProjectManagerState = {
@@ -250,7 +253,7 @@ class ProjectManagerStore {
             this.isRefreshing = true;
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
-            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
+            const hasMetadata = hasWorkspace ? await checkIfProjectIsInitialized() : false;
 
             const canInitializeProject = hasWorkspace && !hasMetadata;
             const workspaceIsOpen = hasWorkspace;
@@ -487,19 +490,30 @@ export class MainMenuProvider extends BaseWebviewProvider {
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
 
-        // Check authentication and git binary status
+        // Check authentication and git binary status independently so a
+        // failure in one doesn't zero out the other.
         let isAuthenticated = false;
-        let isGitAvailable = false;
-        try {
-            const frontierApi = getAuthApi();
-            if (frontierApi) {
+        let frontierReportsSyncCapable = false;
+        const frontierApi = getAuthApi();
+        if (frontierApi) {
+            try {
                 const authStatus = frontierApi.getAuthStatus();
                 isAuthenticated = authStatus?.isAuthenticated ?? false;
-                isGitAvailable = frontierApi.isGitBinaryAvailable?.() ?? false;
+            } catch (error) {
+                console.debug("Could not get authentication status:", error);
             }
-        } catch (error) {
-            console.debug("Could not get authentication status:", error);
+            try {
+                const general = frontierApi.isGitAvailable?.();
+                const binary = frontierApi.isGitBinaryAvailable?.() ?? false;
+                // Do not use ?? between these: false from isGitAvailable must not skip the binary check.
+                frontierReportsSyncCapable = general === true || binary;
+            } catch (error) {
+                console.debug("Could not get git availability:", error);
+            }
         }
+        // Main menu "sync available" matches the actual git backend: isomorphic-git when
+        // shouldUseNativeGit() is false, otherwise we need Frontier's dugite binary.
+        const isGitAvailable = !shouldUseNativeGit() || frontierReportsSyncCapable;
 
         if (this._view) {
             safePostMessageToView(this._view, {
@@ -514,6 +528,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             } as ProjectManagerMessageToWebview, "MainMenu");
         }
     }
+
 
     protected async handleMessage(message: any): Promise<void> {
         // Handle main menu messages
@@ -602,6 +617,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "openSourceUpload":
             case "openExportView":
             case "openLicenseSettings":
+            case "openInterfaceSettings":
                 await this.executeCommandAndNotify(message.command);
                 break;
             case "openLoginFlow":
@@ -843,6 +859,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 const syncManager = SyncManager.getInstance();
                 await syncManager.updateFromConfiguration();
 
+                await this.sendSyncSettings();
                 break;
             }
             case "triggerSync": {
@@ -854,9 +871,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 const frontierApi = getAuthApi();
                 if (frontierApi?.retryGitBinaryDownload) {
                     const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    const { setNativeGitAvailable } = await import("../../utils/toolPreferences");
                     resetGitBinaryPath();
                     const success = await frontierApi.retryGitBinaryDownload();
                     if (success) {
+                        setNativeGitAvailable(true);
                         vscode.window.showInformationMessage("Sync setup completed successfully.");
                     }
                     await this.sendSyncSettings();
@@ -910,6 +929,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "openAISettings":
                 await openSystemMessageEditor();
                 break;
+            case "openInterfaceSettings":
+                await openInterfaceSettings();
+                break;
             case "openExportView":
                 await openProjectExportView(this._context);
                 break;
@@ -924,6 +946,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openCodexMigrationTool":
                 await vscode.commands.executeCommand("codex-editor.openCodexMigrationTool");
+                break;
+            case "openToolsStatus":
+                await vscode.commands.executeCommand("codex-editor.openToolsStatus");
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();
@@ -950,8 +975,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             const answer = await vscode.window.showWarningMessage(
                 "Are you sure you want to close this project?",
                 { modal: true },
-                "Yes",
-                "No"
+                "Yes"
             );
 
             if (answer === "Yes") {
@@ -1853,162 +1877,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 
     private async handleApplyTextDisplaySettings(settings: any): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            throw new Error("No workspace folder found");
-        }
+        await applyTextDisplaySettings(settings);
 
-        // Show progress
-        await vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Applying Text Display Settings",
-                cancellable: false
-            },
-            async (progress) => {
-                try {
-                    // Find files based on scope
-                    const filesToUpdate: vscode.Uri[] = [];
-
-                    if (settings.fileScope === "source" || settings.fileScope === "both") {
-                        const sourceFiles = await vscode.workspace.findFiles(
-                            new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source")
-                        );
-                        filesToUpdate.push(...sourceFiles);
-                    }
-
-                    if (settings.fileScope === "target" || settings.fileScope === "both") {
-                        const targetFiles = await vscode.workspace.findFiles(
-                            new vscode.RelativePattern(workspaceFolder, "files/target/*.codex")
-                        );
-                        filesToUpdate.push(...targetFiles);
-                    }
-
-                    progress.report({ message: `Found ${filesToUpdate.length} files to process` });
-
-                    let updatedCount = 0;
-                    let skippedCount = 0;
-                    const appliedSettings: string[] = [];
-
-                    if (settings.fontSize !== undefined) appliedSettings.push(`font size to ${settings.fontSize}px`);
-                    if (settings.enableLineNumbers !== undefined) appliedSettings.push(`line numbers ${settings.enableLineNumbers ? 'enabled' : 'disabled'}`);
-                    if (settings.textDirection !== undefined) appliedSettings.push(`text direction to ${settings.textDirection.toUpperCase()}`);
-
-                    for (let i = 0; i < filesToUpdate.length; i++) {
-                        const file = filesToUpdate[i];
-                        progress.report({
-                            message: `Processing ${path.basename(file.fsPath)} (${i + 1}/${filesToUpdate.length})`,
-                            increment: (100 / filesToUpdate.length)
-                        });
-
-                        try {
-                            const updated = await this.updateFileTextDisplaySettings(file, settings);
-                            if (updated) {
-                                updatedCount++;
-                            } else {
-                                skippedCount++;
-                            }
-                        } catch (error) {
-                            console.error(`Error updating text display settings for ${file.fsPath}:`, error);
-                        }
-                    }
-
-                    // Show completion message
-                    const settingsText = appliedSettings.join(', ');
-                    const message = `Text display settings applied (${settingsText}): ${updatedCount} files updated, ${skippedCount} files skipped`;
-                    vscode.window.showInformationMessage(message);
-
-                    // Refresh webviews to show the updated settings immediately
-                    await this.refreshWebviewsAfterTextDisplayUpdate();
-
-                } catch (error) {
-                    console.error("Error during text display settings update:", error);
-                    throw error;
-                }
-            }
-        );
-    }
-
-    private async updateFileTextDisplaySettings(fileUri: vscode.Uri, settings: any): Promise<boolean> {
-        try {
-            // Read the file content
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
-            const fileData = JSON.parse(fileContent.toString());
-
-            // Check existing settings to determine if we should skip
-            let shouldSkip = false;
-
-            if (settings.updateBehavior === "skip") {
-                // Check each setting individually
-                if (settings.fontSize !== undefined &&
-                    fileData.metadata?.fontSize !== undefined &&
-                    fileData.metadata?.fontSizeSource === "local") {
-                    shouldSkip = true;
-                }
-                if (settings.enableLineNumbers !== undefined &&
-                    fileData.metadata?.lineNumbersEnabled !== undefined &&
-                    fileData.metadata?.lineNumbersEnabledSource === "local") {
-                    shouldSkip = true;
-                }
-                if (settings.textDirection !== undefined &&
-                    fileData.metadata?.textDirection !== undefined &&
-                    fileData.metadata?.textDirectionSource === "local") {
-                    shouldSkip = true;
-                }
-            }
-
-            if (shouldSkip) {
-                return false; // Skip this file
-            }
-
-            // Ensure metadata object exists
-            if (!fileData.metadata) {
-                fileData.metadata = {};
-            }
-
-            // Apply the settings
-            if (settings.fontSize !== undefined) {
-                fileData.metadata.fontSize = settings.fontSize;
-                fileData.metadata.fontSizeSource = "global";
-            }
-            if (settings.enableLineNumbers !== undefined) {
-                fileData.metadata.lineNumbersEnabled = settings.enableLineNumbers;
-                fileData.metadata.lineNumbersEnabledSource = "global";
-            }
-            if (settings.textDirection !== undefined) {
-                fileData.metadata.textDirection = settings.textDirection;
-                fileData.metadata.textDirectionSource = "global";
-            }
-
-            // Write the updated content back to the file
-            const updatedContent = JSON.stringify(fileData, null, 2);
-            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(updatedContent, 'utf8'));
-
-            return true; // File was updated
-
-        } catch (error) {
-            console.error(`Error updating text display settings for ${fileUri.fsPath}:`, error);
-            return false;
-        }
-    }
-
-    private async refreshWebviewsAfterTextDisplayUpdate() {
-        try {
-            // Refresh the main menu webview
-            if (this._view) {
-                await this.store.refreshState();
-                this.sendProjectStateToWebview();
-            }
-
-            // Notify other webviews that display settings have changed
-            vscode.commands.executeCommand("codex-editor.refreshAllWebviews");
-
-            // Also refresh the metadata manager to ensure all webviews get updated data
-            const metadataManager = getNotebookMetadataManager();
-            await metadataManager.loadMetadata();
-
-        } catch (error) {
-            console.error("Error refreshing webviews after text display settings update:", error);
+        if (this._view) {
+            await this.store.refreshState();
+            this.sendProjectStateToWebview();
         }
     }
 

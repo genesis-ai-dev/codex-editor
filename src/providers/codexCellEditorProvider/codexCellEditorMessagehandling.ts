@@ -30,6 +30,19 @@ function debug(...args: any[]): void {
     }
 }
 
+const AUDIO_MIME_MAP: Record<string, string> = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".webm": "audio/webm",
+    ".flac": "audio/flac",
+};
+
+const audioExtensionToMime = (ext: string): string =>
+    AUDIO_MIME_MAP[ext.toLowerCase()] ?? "application/octet-stream";
+
 // Track pending attention checks - keyed by testId
 interface PendingAttentionCheck {
     cellId: string;
@@ -87,6 +100,14 @@ async function withErrorHandling<T>(
         }
         return undefined;
     }
+}
+
+async function safeExecuteCommand<T>(commandId: string, ...args: unknown[]): Promise<T | null> {
+    const allCommands = await vscode.commands.getCommands(true);
+    if (!allCommands.includes(commandId)) {
+        return null;
+    }
+    return vscode.commands.executeCommand<T>(commandId, ...args);
 }
 
 // Message handler context type
@@ -253,7 +274,7 @@ async function getAudioFilePathForCell(
         // Fallback to parsing cell ID (legacy)
         basename = toBookChapterVerseBasename(cellId);
     }
-    const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+    const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
 
     const attachmentsFilesPath = path.join(
         workspaceFolder.uri.fsPath,
@@ -981,6 +1002,82 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
+    resolveHtmlStructure: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "resolveHtmlStructure"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        try {
+            const sourceCell = (await vscode.commands.executeCommand(
+                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                cellId
+            )) as { cellId: string; content: string; } | null;
+
+            if (!sourceCell?.content) {
+                vscode.window.showWarningMessage("Could not find source cell content to resolve structure.");
+                return;
+            }
+
+            const targetCell = document.getCellContent(cellId);
+            if (!targetCell) {
+                vscode.window.showWarningMessage("Could not find target cell.");
+                return;
+            }
+
+            const { callLLM, fetchCompletionConfig } = await import("../../utils/llmUtils");
+            const config = await fetchCompletionConfig();
+            const prompt = [
+                {
+                    role: "system" as const,
+                    content:
+                        "You fix structural mismatches between a source text and its translation. " +
+                        "The translation is missing some non-translatable elements that exist in the source. These can be:\n" +
+                        "1. USFM markers in angle brackets: <\\f + \\fr 1:7. \\ft>, <\\xt>, <11:44\\xt*>, <\\f*>\n" +
+                        "2. Line breaks: <br/>, <br>\n" +
+                        "3. Formatting tags: <strong>, </strong>, <em>, </em>, <b>, </b>, <i>, </i>, " +
+                        "<sup>, </sup>, <sub>, </sub>\n" +
+                        "4. Semantic spans: <span data-tag=\"...\"> and </span> (for bold, italic, small-caps, etc.)\n" +
+                        "5. Headings: <h1>–<h4> and their closing tags\n" +
+                        "6. Paragraph tags: <p>, </p>\n" +
+                        "Copy ALL missing elements EXACTLY from the source and place them at the corresponding position in the translation. " +
+                        "Keep ALL translated text unchanged. Do NOT revert any translated words back to the source language. " +
+                        "Return ONLY the corrected translation, no explanation.",
+                },
+                {
+                    role: "user" as const,
+                    content: `Source (with structural elements):\n${sourceCell.content}\n\nTranslation (missing elements):\n${targetCell.cellContent}\n\nReturn the translation with ALL missing structural elements inserted:`,
+                },
+            ];
+
+            let resolved = await callLLM(prompt, config);
+
+            // Strip markdown code fences that LLMs often wrap around HTML output
+            resolved = resolved.trim();
+            const fenceMatch = resolved.match(/^```(?:html)?\s*\n?([\s\S]*?)\n?\s*```$/);
+            if (fenceMatch) {
+                resolved = fenceMatch[1].trim();
+            }
+
+            // Persist the resolved content to the document so it survives reload
+            await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsResolvedHtmlStructure",
+                content: { cellId, resolvedContent: resolved },
+            });
+        } catch (error) {
+            console.error("[resolveHtmlStructure] Error:", error);
+            vscode.window.showErrorMessage(
+                `Failed to resolve HTML structure: ${error instanceof Error ? error.message : String(error)}`
+            );
+            // Signal failure so the webview can reset the loading state
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsResolvedHtmlStructure",
+                content: { cellId, resolvedContent: "" },
+            });
+        }
+    },
+
     openSourceText: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "openSourceText"; }>;
         const workspaceFolderUri = getWorkSpaceUri();
@@ -1235,7 +1332,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     generateBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "generateBacktranslation"; }>;
-        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+        const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.generateBacktranslation",
             typedEvent.content.text,
             typedEvent.content.cellId,
@@ -1249,7 +1346,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     editBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "editBacktranslation"; }>;
-        const updatedBacktranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+        const updatedBacktranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.editBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.newText,
@@ -1264,7 +1361,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     getBacktranslation: async ({ event, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getBacktranslation"; }>;
-        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+        const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.getBacktranslation",
             typedEvent.content.cellId
         );
@@ -1278,10 +1375,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "getBatchBacktranslations"; }>;
         const cellIds = typedEvent.content.cellIds;
 
-        // Fetch backtranslations for all cell IDs
         const backtranslations: { [cellId: string]: SavedBacktranslation | null; } = {};
         for (const cellId of cellIds) {
-            const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+            const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
                 "codex-smart-edits.getBacktranslation",
                 cellId
             );
@@ -1296,7 +1392,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     setBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setBacktranslation"; }>;
-        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+        const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.setBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.originalText,
@@ -1729,10 +1825,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 if (fileExists && fileStats) {
                     const ext = path.extname(fullPath).toLowerCase();
-                    const mimeType = ext === ".webm" ? "audio/webm" :
-                        ext === ".mp3" ? "audio/mp3" :
-                            ext === ".m4a" ? "audio/mp4" :
-                                ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                    const mimeType = audioExtensionToMime(ext);
 
                     let fileData: Uint8Array;
 
@@ -1956,10 +2049,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                             // Send to webview
                             const ext = path.extname(fullPath).toLowerCase();
-                            const mimeType = ext === ".webm" ? "audio/webm" :
-                                ext === ".mp3" ? "audio/mp3" :
-                                    ext === ".m4a" ? "audio/mp4" :
-                                        ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                            const mimeType = audioExtensionToMime(ext);
                             const base64Data = `data:${mimeType};base64,${Buffer.from(lfsData).toString('base64')}`;
 
                             safePostMessageToPanel(webviewPanel, {
@@ -2018,7 +2108,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         for (const attachmentsPath of tryPaths) {
             if (!(await pathExists(attachmentsPath))) continue;
             const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
-            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+            const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
 
             for (const [entryName, entryType] of files) {
                 if (entryType !== vscode.FileType.File) continue;
@@ -2029,11 +2119,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         const fullPath = path.join(attachmentsPath, audioFile);
 
                         const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
-                        const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
-                            audioFile.endsWith('.mp3') ? 'audio/mp3' :
-                                audioFile.endsWith('.m4a') ? 'audio/mp4' :
-                                    audioFile.endsWith('.ogg') ? 'audio/ogg' :
-                                        'audio/wav';
+                        const mimeType = audioExtensionToMime(path.extname(audioFile));
                         const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                         safePostMessageToPanel(webviewPanel, {
@@ -2304,10 +2390,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             {
                 const absPath = path.isAbsolute(filesPath) ? filesPath : path.join(workspaceFolder.uri.fsPath, filesPath);
                 const extNow = path.extname(absPath).toLowerCase();
-                const mimeNow = extNow === ".webm" ? "audio/webm" :
-                    extNow === ".mp3" ? "audio/mp3" :
-                        extNow === ".m4a" ? "audio/mp4" :
-                            extNow === ".ogg" ? "audio/ogg" : "audio/wav";
+                const mimeNow = audioExtensionToMime(extNow);
 
                 let base64Now: string | null = null;
                 try {
@@ -3392,6 +3475,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    searchNavigateToCell: async ({ event, webviewPanel, provider }) => {
+        const cellId = (event as any).content;
+        if (cellId) {
+            provider.scrollOtherPanelsToCell(cellId, webviewPanel);
+        }
+    },
+
     // Handler for expanding in-tab search to Parallel Passages (all files)
     expandSearchToAllFiles: async ({ event }) => {
         const typed = event as any;
@@ -3657,7 +3747,7 @@ export async function scanForAudioAttachments(
                             const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
 
                             // Look for any audio files that might match this cell
-                            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+                            const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
                             const audioFiles = files
                                 .filter(([name, type]) => type === vscode.FileType.File)
                                 .map(([name]) => name)

@@ -142,11 +142,24 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                 {!isGitAvailable && (
                     <Alert variant="destructive">
                         <AlertDescription>
-                            <div className="flex">
-                                <i className="codicon codicon-cloud-download h-4 w-4" />
-                                <span className="ml-2">
-                                    Sync is not set up yet. Click the button above to download and
-                                    enable syncing.
+                            <div className="flex flex-col gap-2">
+                                <div className="flex">
+                                    <i className="codicon codicon-cloud-download h-4 w-4" />
+                                    <span className="ml-2">
+                                        Sync tools are not available. You can still work offline, but
+                                        syncing and collaboration features are unavailable.
+                                    </span>
+                                </div>
+                                <span className="text-xs ml-6" style={{ color: "var(--muted-foreground)" }}>
+                                    Download the{" "}
+                                    <button
+                                        onClick={onDownloadSyncRuntime}
+                                        className="underline font-semibold cursor-pointer bg-transparent border-none p-0"
+                                        style={{ color: "inherit", fontSize: "inherit" }}
+                                    >
+                                        Codex application
+                                    </button>{" "}
+                                    from codexeditor.app for full sync support.
                                 </span>
                             </div>
                         </AlertDescription>
