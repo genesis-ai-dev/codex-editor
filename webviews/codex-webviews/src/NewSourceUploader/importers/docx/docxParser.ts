@@ -4,7 +4,7 @@
  */
 
 import JSZip from 'jszip';
-import { XMLParser, XMLBuilder, type JPathOrMatcher } from 'fast-xml-parser';
+import { XMLParser, XMLBuilder } from 'fast-xml-parser';
 import {
     DocxDocument,
     DocxParagraph,
@@ -32,7 +32,7 @@ const XML_PARSER_OPTIONS = {
     processEntities: true,
     ignoreDeclaration: false,
     ignorePiTags: false,
-    isArray: (name: string, _jpath: JPathOrMatcher, _isLeaf: boolean, _isAttr: boolean) => {
+    isArray: (name: string, _jpath: string | object, _isLeaf?: boolean, _isAttr?: boolean) => {
         // Treat these elements as arrays even if there's only one
         return ['w:p', 'w:r', 'w:t', 'w:tab', 'w:br', 'w:drawing'].includes(name);
     },
