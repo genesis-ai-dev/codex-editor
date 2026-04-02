@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { randomUUID } from "crypto";
 import { CellLabelData, CellMetadata, FileData } from "./types";
 import { CodexContentSerializer } from "../serializer";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
@@ -131,6 +132,7 @@ async function saveNotebookFileWithLabels(
 
                 // Create edit history entry for the label change
                 cell.metadata.edits.push({
+                    id: randomUUID(),
                     editMap: EditMapUtils.cellLabel(),
                     value: newLabel,
                     timestamp: currentTimestamp,
