@@ -36,8 +36,8 @@ function getLastExportFolderUri(context: vscode.ExtensionContext): vscode.Uri | 
  */
 async function checkHtmlStructureMismatches(
     filesToExport: string[]
-): Promise<{ totalMismatches: number; fileDetails: { file: string; count: number }[] }> {
-    const fileDetails: { file: string; count: number }[] = [];
+): Promise<{ totalMismatches: number; fileDetails: { file: string; count: number; }[]; }> {
+    const fileDetails: { file: string; count: number; }[] = [];
     let totalMismatches = 0;
 
     for (const filePath of filesToExport) {
@@ -385,16 +385,12 @@ function getWebviewContent(
                 }
                 .step-btn {
                     min-width: 120px;
-                    position: relative;
-                    padding: 8px 32px;
+                    padding: 8px;
                 }
-                .step-btn .codicon {
-                    position: absolute;
-                    top: 50%;
-                    transform: translateY(-50%);
+                .step-btn .btn-text {
+                    flex: 1;
+                    text-align: center;
                 }
-                .step-btn .btn-icon-left { left: 8px; }
-                .step-btn .btn-icon-right { right: 8px; }
                 button:hover { background-color: var(--vscode-button-hoverBackground); }
                 button:disabled { opacity: 0.5; cursor: not-allowed; }
                 button.secondary { background-color: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
@@ -734,8 +730,8 @@ function getWebviewContent(
 
                 <div class="bottom-bar">
                     <div class="bottom-bar-left">
-                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()"><i class="codicon codicon-close btn-icon-left"></i> Cancel</button>
-                        <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left btn-icon-left"></i> Back</button>
+                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()"><i class="codicon codicon-close"></i><span class="btn-text">Cancel</span></button>
+                        <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left"></i><span class="btn-text">Back</span></button>
                     </div>
                     <div class="progress-bar">
                         <div class="progress-circle active" id="progressCircle1">1</div>
@@ -745,12 +741,9 @@ function getWebviewContent(
                         <div class="progress-circle" id="progressCircle3">3</div>
                     </div>
                     <div class="bottom-bar-right">
-                        <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()">Next Step <i class="codicon codicon-arrow-right btn-icon-right"></i></button>
-                        <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()">Next Step <i class="codicon codicon-arrow-right btn-icon-right"></i></button>
-                        <button class="step-btn" id="exportButton" disabled onclick="exportProject()">
-                            Export
-                            <i class="codicon codicon-arrow-down btn-icon-right"></i>
-                        </button>
+                        <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()"><span class="btn-text">Next Step</span><i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn" id="exportButton" disabled onclick="exportProject()"><span class="btn-text">Export</span><i class="codicon codicon-arrow-down"></i></button>
                     </div>
                 </div>
                 `
