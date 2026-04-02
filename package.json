@@ -415,6 +415,11 @@
                 "category": "Codex Project Management"
             },
             {
+                "command": "codex-project-manager.openInterfaceSettings",
+                "title": "Open Interface Settings",
+                "category": "Codex Project Management"
+            },
+            {
                 "command": "codex-project-manager.openLicenseSettings",
                 "title": "Open License Settings",
                 "category": "Codex Project Management"
@@ -708,6 +713,16 @@
                         ],
                         "default": "auto",
                         "description": "Git backend: 'auto' uses the native dugite binary when available, 'builtin' always uses the bundled isomorphic-git."
+                    }
+                }
+            },
+            {
+                "title": "Codex Extension: Interface",
+                "properties": {
+                    "codex-editor-extension.highlightSearchResults": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Highlight matching text in search results within the parallel passages panel"
                     }
                 }
             },

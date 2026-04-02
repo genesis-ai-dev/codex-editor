@@ -38,6 +38,13 @@
     min-width: fit-content;
 }
 
+.floating-search-bar-match-count-lines {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    gap: 0;
+}
+
 .floating-search-bar-navigation {
     display: flex;
     align-items: center;

@@ -37,10 +37,11 @@ export function registerProviders(context: vscode.ExtensionContext) {
     );
 
     disposables.push(
-        vscode.commands.registerCommand("codex-project-manager.openSourceUpload", () => {
+        vscode.commands.registerCommand("codex-project-manager.openSourceUpload", (intent?: string) => {
             const workspaceFolder = getWorkSpaceFolder();
             if (workspaceFolder) {
-                const uri = vscode.Uri.parse(`newSourceUploaderProvider-scheme:New Source Upload`);
+                const query = intent ? `?intent=${intent}` : "";
+                const uri = vscode.Uri.parse(`newSourceUploaderProvider-scheme:New Source Upload${query}`);
                 vscode.commands.executeCommand(
                     "vscode.openWith",
                     uri,

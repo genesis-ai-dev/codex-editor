@@ -984,8 +984,9 @@ function MainMenu() {
                                             },
                                             {
                                                 icon: "codicon-text-size",
-                                                label: "Text Display",
-                                                action: () => setIsTextDisplaySettingsOpen(true),
+                                                label: "Interface Settings",
+                                                action: () =>
+                                                    handleProjectAction("openInterfaceSettings"),
                                             },
                                             {
                                                 icon: "codicon-symbol-array",

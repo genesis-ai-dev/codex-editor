@@ -2,15 +2,17 @@ import { ImporterPlugin } from "../../types/plugin";
 import { FileText } from "lucide-react";
 import { DocxImporterForm } from "./DocxImporterForm";
 
-// Re-export the parsing functions from the existing index.ts
-export { validateFile, parseFile } from "./index";
+// Re-export for convenience
+export { validateFile, parseFile, docxImporter } from "./index";
 
-export const docxImporterPlugin: ImporterPlugin = {
+export const docxRoundtripImporterPlugin: ImporterPlugin = {
     id: "docx",
-    name: "DOCX Documents",
-    description: "Import Microsoft Word DOCX files with rich formatting and images",
+    name: "Word Documents",
+    description: "Import Microsoft Word DOCX files with complete structure preservation for export",
     icon: FileText,
     component: DocxImporterForm,
     supportedExtensions: ["docx"],
+    supportedMimeTypes: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
     enabled: true,
 };
+

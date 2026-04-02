@@ -1122,7 +1122,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             debug("Jump to cell event received:", value);
-            navigateToSection(value);
+            // Pre-populate the target position so that updateWebview() — which runs before
+            // navigateToSection in the pending queue — sends a refreshCurrentPage at the
+            // correct milestone instead of resetting to chapter 1 for newly-opened files.
+            const position = document.findMilestoneAndSubsectionForCell(value, this.CELLS_PER_PAGE);
+            if (position) {
+                this.currentMilestoneSubsectionMap.set(document.uri.toString(), position);
+            }
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                navigateToSection(value);
+            });
         });
 
         // Set up document change listeners
@@ -2417,6 +2426,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             safePostMessageToPanel(webviewPanel, message);
         } catch (error) {
             console.error("Failed to post message to webview:", error);
+        }
+    }
+
+    public scrollOtherPanelsToCell(cellId: string, senderPanel: vscode.WebviewPanel) {
+        for (const [, panel] of this.webviewPanels.entries()) {
+            if (panel !== senderPanel) {
+                safePostMessageToPanel(panel, {
+                    type: "scrollToCell",
+                    cellId,
+                } as any);
+            }
         }
     }
 
