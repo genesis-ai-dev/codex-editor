@@ -1458,9 +1458,6 @@ function standardizeImporterType(importerType: string | undefined): string | und
     const normalized = importerType.toLowerCase().trim();
 
     // Standardization rules
-    if (normalized === "ebiblecorpus") {
-        return "ebible";
-    }
     if (normalized === "macula-bible") {
         return "macula";
     }
@@ -1482,6 +1479,7 @@ function standardizeImporterType(importerType: string | undefined): string | und
         "usfm",
         "paratext",
         "ebible",
+        "ebibleCorpus",
         "macula",
         "biblica",
         "obs",
@@ -1519,7 +1517,7 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
         "usfm": "usfm",
         "paratext": "paratext",
         "ebible": "ebible",
-        "ebiblecorpus": "ebible", // Special case
+        "ebiblecorpus": "ebibleCorpus",
         "macula": "macula",
         "macula-bible": "macula", // Special case
         "biblica": "biblica",
@@ -1604,7 +1602,7 @@ export async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<b
  * Migration: Add importerType to notebook metadata by inferring from corpusMarker
  * and standardizing old values to match current FileImporterType definition.
  * - Idempotent
- * - Standardizes old values: "ebibleCorpus" → "ebible", "macula-bible" → "macula", "obs-story" → "obs"
+ * - Standardizes old values: "macula-bible" → "macula", "obs-story" → "obs"; preserves "ebibleCorpus" as its own FileImporterType
  * - Infers importerType from corpusMarker when missing
  */
 export const migration_addImporterTypeToMetadata = async (context?: vscode.ExtensionContext) => {
