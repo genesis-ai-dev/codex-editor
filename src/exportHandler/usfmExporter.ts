@@ -144,6 +144,9 @@ function convertHtmlToUsfm(html: string): string {
             .join("\n");
     });
 
+    // Strip bracket-format footnotes (literal angle brackets) before HTML tag cleanup
+    content = content.replace(/<([^>]*\\[^>]*)>/g, "$1");
+
     content = content.replace(/<[^>]*>/g, "");
     content = content.replace(/&nbsp;/g, " ");
     content = content.replace(/&lt;/g, "<");
@@ -151,6 +154,9 @@ function convertHtmlToUsfm(html: string): string {
     content = content.replace(/&amp;/g, "&");
     content = content.replace(/&quot;/g, '"');
     content = content.replace(/&apos;/g, "'");
+
+    // Strip entity-encoded bracket-format footnotes too
+    content = content.replace(/<([^>]*\\[^>]*)>/g, "$1");
 
     return content;
 }

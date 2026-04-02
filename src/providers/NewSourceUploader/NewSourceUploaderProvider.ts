@@ -24,6 +24,7 @@ import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplay
 import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
+import { deriveTargetPathFromSource } from "../../../sharedUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { processNewlyImportedFiles } from "../../projectManager/utils/migrationUtils";
@@ -119,12 +120,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         webviewPanel.webview.onDidReceiveMessage(async (message: any) => {
             try {
                 if (message.command === "webviewReady") {
-                    // Webview is ready, send current project inventory
                     const inventory = await this.fetchProjectInventory();
+
+                    // Extract initial intent from URI query params (e.g. ?intent=source or ?intent=target)
+                    const uriQuery = document.uri.query || "";
+                    const intentMatch = uriQuery.match(/intent=(source|target)/);
+                    const initialIntent = intentMatch ? intentMatch[1] : undefined;
 
                     webviewPanel.webview.postMessage({
                         command: "projectInventory",
                         inventory: inventory,
+                        initialIntent,
                     });
                 } else if (message.command === "metadata.check") {
                     // Handle metadata check request
@@ -675,14 +681,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "fetchTargetFile") {
-                    // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
 
                     try {
-                        const targetFilePath = sourceFilePath
-                            .replace(/\.source$/, ".codex")
-                            .replace(/\/\.project\/sourceTexts\//, "/files/target/");
-
+                        const targetFilePath = deriveTargetPathFromSource(sourceFilePath);
                         const targetUri = vscode.Uri.file(targetFilePath);
                         const targetContent = await vscode.workspace.fs.readFile(targetUri);
                         const targetNotebook = JSON.parse(new TextDecoder().decode(targetContent));
@@ -1015,6 +1017,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Preserve USFM round-trip structure metadata (original content + line mappings)
             ...('structureMetadata' in processedNotebook.metadata && processedNotebook.metadata.structureMetadata
                 ? { structureMetadata: processedNotebook.metadata.structureMetadata as CustomNotebookMetadata['structureMetadata'] }
+                : {}),
+            // Preserve HTML structure enforcement flag for round-trip importers
+            ...('enforceHtmlStructure' in processedNotebook.metadata &&
+                processedNotebook.metadata.enforceHtmlStructure !== undefined
+                ? { enforceHtmlStructure: processedNotebook.metadata.enforceHtmlStructure as boolean }
                 : {}),
         };
 
@@ -1634,41 +1641,27 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken
     ): Promise<void> {
         try {
-            // The aligned content is already provided by the plugin's custom alignment algorithm
-            // We just need to merge it into the existing target notebook
-
-            // Load the existing target notebook
             const targetFileUri = vscode.Uri.file(message.targetFilePath);
             const existingContent = await vscode.workspace.fs.readFile(targetFileUri);
             const existingNotebook = JSON.parse(new TextDecoder().decode(existingContent));
 
-            // Create a map of existing cells for quick lookup
-            const existingCellsMap = new Map<string, any>();
-            existingNotebook.cells.forEach((cell: any) => {
-                if (cell.metadata?.id) {
-                    existingCellsMap.set(cell.metadata.id, cell);
-                }
-            });
+            // Build a map of aligned updates keyed by the TARGET cell's ID (not the imported content's ID)
+            const updatesMap = new Map<string, { alignedCell: any; updatedCell: any }>();
+            const paratextCells: Array<{ cell: any; parentId?: string }> = [];
 
-            // Track statistics
             let insertedCount = 0;
             let skippedCount = 0;
             let paratextCount = 0;
             let childCellCount = 0;
 
-            // Process aligned cells and update the notebook
-            const processedCells = new Map<string, any>();
-            const processedSourceCells = new Set<string>();
-
             for (const alignedCell of message.alignedContent) {
                 if (alignedCell.isParatext) {
-                    // Add paratext cells
                     const paratextId = alignedCell.importedContent.id;
                     const importedData = alignedCell.importedContent.data;
                     const paratextData =
                         typeof importedData === "object" && importedData !== null ? importedData : {};
                     const paratextCell = {
-                        kind: 1, // vscode.NotebookCellKind.Code
+                        kind: 1,
                         languageId: "html",
                         value: alignedCell.importedContent.content,
                         metadata: {
@@ -1682,35 +1675,54 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             parentId: alignedCell.importedContent.parentId,
                         },
                     };
-                    processedCells.set(paratextId, paratextCell);
+                    paratextCells.push({
+                        cell: paratextCell,
+                        parentId: alignedCell.importedContent.parentId,
+                    });
                     paratextCount++;
                 } else if (alignedCell.notebookCell) {
-                    const targetId = alignedCell.importedContent.id;
-                    const existingCell = existingCellsMap.get(targetId);
+                    const targetId =
+                        alignedCell.notebookCell?.metadata?.id ?? alignedCell.importedContent.id;
+
+                    const existingCell = existingNotebook.cells.find(
+                        (c: any) => c.metadata?.id === targetId
+                    );
+
+                    // Never overwrite milestone cells — they are structural markers
+                    const isMilestone =
+                        existingCell?.metadata?.type === CodexCellTypes.MILESTONE ||
+                        alignedCell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE;
+                    if (isMilestone) {
+                        skippedCount++;
+                        continue;
+                    }
+
                     const existingValue = existingCell?.value ?? alignedCell.notebookCell.value ?? "";
 
                     if (existingValue && existingValue.trim() !== "") {
-                        // Keep existing content if cell already has content
-                        processedCells.set(targetId, existingCell || alignedCell.notebookCell);
+                        updatesMap.set(targetId, {
+                            alignedCell,
+                            updatedCell: existingCell || alignedCell.notebookCell,
+                        });
                         skippedCount++;
                     } else {
-                        // Update empty cell with new content
                         const updatedCell = {
-                            kind: 1, // vscode.NotebookCellKind.Code
+                            kind: 1,
                             languageId: "html",
                             value: alignedCell.importedContent.content,
                             metadata: {
-                                ...alignedCell.notebookCell.metadata,
+                                ...(existingCell?.metadata ?? alignedCell.notebookCell.metadata),
                                 type: CodexCellTypes.TEXT,
                                 id: targetId,
                                 data: {
-                                    ...alignedCell.notebookCell.metadata.data,
+                                    ...(existingCell?.metadata?.data ??
+                                        alignedCell.notebookCell.metadata?.data),
                                     startTime: alignedCell.importedContent.startTime,
                                     endTime: alignedCell.importedContent.endTime,
                                 },
                             },
                         };
-                        processedCells.set(targetId, updatedCell);
+                        updatesMap.set(targetId, { alignedCell, updatedCell });
 
                         if (alignedCell.isAdditionalOverlap) {
                             childCellCount++;
@@ -1721,53 +1733,64 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 }
             }
 
-            // Build the final cell array, preserving the temporal order from alignedContent
+            // Preserve original notebook cell order: iterate existing cells, apply updates in-place
             const newCells: any[] = [];
-            const usedExistingCellIds = new Set<string>();
+            const usedCellIds = new Set<string>();
 
-            // Process cells in the order they appear in alignedContent (temporal order)
-            for (const alignedCell of message.alignedContent) {
-                if (alignedCell.isParatext) {
-                    // Add paratext cell
-                    const paratextId = alignedCell.importedContent.id;
-                    const paratextCell = processedCells.get(paratextId);
-                    if (paratextCell) {
-                        newCells.push(paratextCell);
-                    }
-                } else if (alignedCell.notebookCell) {
-                    const targetId = alignedCell.importedContent.id;
-                    const processedCell = processedCells.get(targetId);
-
-                    if (processedCell) {
-                        newCells.push(processedCell);
-                        usedExistingCellIds.add(targetId);
-                    }
-                }
-            }
-
-            // Add any existing cells that weren't in the aligned content (shouldn't happen normally)
             for (const cell of existingNotebook.cells) {
                 const cellId = cell.metadata?.id;
-                if (!cellId || usedExistingCellIds.has(cellId)) {
-                    continue;
+                if (cellId && updatesMap.has(cellId)) {
+                    newCells.push(updatesMap.get(cellId)!.updatedCell);
+                    usedCellIds.add(cellId);
+                } else {
+                    newCells.push(cell);
+                    if (cellId) {
+                        usedCellIds.add(cellId);
+                    }
                 }
-                console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
-                newCells.push(cell);
+
+                // Insert paratext cells that reference this cell as their parent
+                if (cellId) {
+                    const childParatexts = paratextCells.filter((p) => p.parentId === cellId);
+                    for (const pt of childParatexts) {
+                        newCells.push(pt.cell);
+                    }
+                }
             }
 
-            // Update the notebook
+            // Append paratext cells without a parent (or whose parent wasn't found)
+            for (const pt of paratextCells) {
+                const alreadyInserted =
+                    pt.parentId && newCells.some((c) => c.metadata?.id === pt.cell.metadata?.id);
+                if (!alreadyInserted) {
+                    newCells.push(pt.cell);
+                }
+            }
+
             const updatedNotebook = {
                 ...existingNotebook,
                 cells: newCells,
+                metadata: {
+                    ...existingNotebook.metadata,
+                    importerType: message.importerType || existingNotebook.metadata?.importerType,
+                    importTimestamp: new Date().toISOString(),
+                    importContext: {
+                        ...(existingNotebook.metadata?.importContext ?? {}),
+                        lastTranslationImport: {
+                            importerType: message.importerType,
+                            timestamp: new Date().toISOString(),
+                            sourceFilePath: message.sourceFilePath,
+                            stats: { insertedCount, skippedCount, paratextCount, childCellCount },
+                        },
+                    },
+                },
             };
 
-            // Write the updated notebook back to disk
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
                 Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
-            // Show success message with statistics
             vscode.window.showInformationMessage(
                 `Translation imported: ${insertedCount} translations, ${paratextCount} paratext cells, ${childCellCount} child cells, ${skippedCount} skipped.`
             );
