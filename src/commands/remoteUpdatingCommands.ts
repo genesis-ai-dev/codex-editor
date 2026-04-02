@@ -38,7 +38,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
         // Check if we're in a workspace
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder open. Please open a project first.");
+            vscode.window.showErrorMessage("No project is open. Please open a project first.");
             return;
         }
 
@@ -51,7 +51,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
             await vscode.workspace.fs.stat(metadataUri);
         } catch {
             vscode.window.showErrorMessage(
-                "This is not a Codex project. No metadata.json found."
+                "This doesn't appear to be a Codex project."
             );
             return;
         }
@@ -59,14 +59,13 @@ export async function initiateRemoteUpdating(): Promise<void> {
         // Get git origin URL
         let gitOriginUrl: string;
         try {
-            const git = await import("isomorphic-git");
-            const fs = await import("fs");
-            const remotes = await git.listRemotes({ fs, dir: workspacePath });
+            const dugiteGitModule = await import("../utils/dugiteGit");
+            const remotes = await dugiteGitModule.listRemotes(workspacePath);
             const origin = remotes.find((r) => r.remote === "origin");
 
             if (!origin) {
                 vscode.window.showErrorMessage(
-                    "No git remote origin found. This project is not connected to a remote repository."
+                    "This project is not connected to an online source."
                 );
                 return;
             }
@@ -75,7 +74,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
             debug("Git origin URL:", gitOriginUrl);
         } catch (error) {
             vscode.window.showErrorMessage(
-                `Failed to get git remote: ${error instanceof Error ? error.message : String(error)}`
+                `Couldn't check the project's online connection. Please try again.`
             );
             return;
         }
@@ -84,7 +83,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
         const projectId = extractProjectIdFromUrl(gitOriginUrl);
         if (!projectId) {
             vscode.window.showErrorMessage(
-                "Could not extract project ID from git URL. Make sure the project is hosted on GitLab."
+                "Could not identify this project's online source. Please make sure the project is properly published."
             );
             return;
         }
@@ -95,7 +94,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
         const authApi = (await import("../extension")).getAuthApi();
         if (!authApi) {
             vscode.window.showErrorMessage(
-                "Authentication not available. Please make sure you're logged in."
+                "Please log in first to manage updates."
             );
             return;
         }
@@ -103,7 +102,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
         const currentUserInfo = await authApi.getUserInfo();
         if (!currentUserInfo || !currentUserInfo.username) {
             vscode.window.showErrorMessage(
-                "Could not determine current user. Please make sure you're authenticated."
+                "Could not determine your account. Please log in and try again."
             );
             return;
         }
@@ -112,7 +111,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
         const memberList = await fetchProjectMembers(projectId);
         if (!memberList) {
             vscode.window.showErrorMessage(
-                "Could not fetch project members. Please make sure you're authenticated with Frontier."
+                "Could not check project permissions. Please make sure you're logged in."
             );
             return;
         }
@@ -170,7 +169,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
         const metadataResult = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
         if (!metadataResult.success) {
             vscode.window.showErrorMessage(
-                `Failed to read metadata: ${metadataResult.error}`
+                `Could not read project information. The project may be corrupted.`
             );
             return;
         }
@@ -316,9 +315,8 @@ export async function initiateRemoteUpdating(): Promise<void> {
         }
 
         // Check for other uncommitted changes
-        const git = await import("isomorphic-git");
-        const fs = await import("fs");
-        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
+        const dugiteGitCmd = await import("../utils/dugiteGit");
+        const statusMatrix = await dugiteGitCmd.statusMatrix(workspacePath);
 
         // Filter out metadata.json and count other changes
         // statusMatrix format: [filepath, HEADStatus, WorkdirStatus, StageStatus]
@@ -533,14 +531,14 @@ export async function viewRemoteUpdatingList(): Promise<void> {
     try {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder open.");
+            vscode.window.showErrorMessage("No project is open. Please open a project first.");
             return;
         }
 
         const metadataResult = await MetadataManager.safeReadMetadata(workspaceFolder.uri);
         if (!metadataResult.success) {
             vscode.window.showErrorMessage(
-                `Failed to read metadata: ${metadataResult.error}`
+                `Could not read project information. The project may be corrupted.`
             );
             return;
         }
@@ -549,9 +547,8 @@ export async function viewRemoteUpdatingList(): Promise<void> {
 
         // Try to fetch the remote list from remote head; fallback to local on failure/offline
         try {
-            const git = await import("isomorphic-git");
-            const fs = await import("fs");
-            const remotes = await git.listRemotes({ fs, dir: workspaceFolder.uri.fsPath });
+            const dugiteGitView = await import("../utils/dugiteGit");
+            const remotes = await dugiteGitView.listRemotes(workspaceFolder.uri.fsPath);
             const origin = remotes.find((r) => r.remote === "origin");
             if (origin?.url) {
                 const projectId = extractProjectIdFromUrl(origin.url);
@@ -755,7 +752,7 @@ export async function viewRemoteUpdatingList(): Promise<void> {
                     // Update metadata to mark entry for clearing
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                     if (!workspaceFolder) {
-                        vscode.window.showErrorMessage("No workspace open");
+                        vscode.window.showErrorMessage("No project is open.");
                         return;
                     }
 

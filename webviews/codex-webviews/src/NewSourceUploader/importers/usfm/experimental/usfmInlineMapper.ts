@@ -80,79 +80,129 @@ function convertUsfmInlineMarkersInText(usfmText: string): string {
     return out;
 }
 
+/**
+ * Convert a USFM footnote to inline bracket format.
+ * USFM markers and references go inside <> brackets, translatable text stays outside.
+ * On export, stripping the brackets recovers valid USFM.
+ *
+ * Example: caller="+", body="\\fr 1:16. \\ft Quoting \\xt Leviticus 11:44-45\\xt*"
+ * Result:  "<\\f + \\fr 1:16. \\ft> Quoting <\\xt> Leviticus <11:44-45\\xt*\\f*>"
+ */
+function footnoteToInlineBrackets(caller: string, footnoteBody: string): string {
+    let result = '';
+    let remaining = footnoteBody.trim();
+
+    let bracket = `\\f ${caller}`;
+
+    const frMatch = remaining.match(/^\\fr\s+([^\\]+?)(?=\\|$)/);
+    if (frMatch) {
+        bracket += ` \\fr ${frMatch[1].trim()}`;
+        remaining = remaining.substring(frMatch[0].length).trimStart();
+    }
+
+    if (/^\\ft\b/.test(remaining)) {
+        bracket += ' \\ft';
+        remaining = remaining.replace(/^\\ft\s*/, '');
+    }
+
+    result += `<${bracket}>`;
+
+    while (remaining.length > 0) {
+        remaining = remaining.trimStart();
+        if (remaining.length === 0) break;
+
+        const xtOpenMatch = remaining.match(/^(\\[+]?xt)\s*/);
+        if (xtOpenMatch) {
+            remaining = remaining.substring(xtOpenMatch[0].length);
+            const closerTag = xtOpenMatch[1] + '*';
+            const closerIdx = remaining.indexOf(closerTag);
+
+            if (closerIdx !== -1) {
+                const xtContent = remaining.substring(0, closerIdx);
+                remaining = remaining.substring(closerIdx + closerTag.length);
+
+                const splitMatch = xtContent.match(/^(.*?)\s*(\d[\d:,\-\u2013.]*)$/);
+                if (splitMatch && splitMatch[1].trim()) {
+                    result += ` <${xtOpenMatch[1]}> ${splitMatch[1].trim()} <${splitMatch[2].trim()}${closerTag}>`;
+                } else if (splitMatch && !splitMatch[1].trim()) {
+                    result += ` <${xtOpenMatch[1]} ${xtContent.trim()}${closerTag}>`;
+                } else {
+                    result += ` <${xtOpenMatch[1]}> ${xtContent.trim()} <${closerTag}>`;
+                }
+            } else {
+                result += ` <${xtOpenMatch[1]}>`;
+            }
+            continue;
+        }
+
+        const otherMarkerMatch = remaining.match(/^(\\[+]?[a-zA-Z]+\*?)\s*/);
+        if (otherMarkerMatch) {
+            result += ` <${otherMarkerMatch[1]}>`;
+            remaining = remaining.substring(otherMarkerMatch[0].length);
+            continue;
+        }
+
+        const textMatch = remaining.match(/^([^\\]+)/);
+        if (textMatch) {
+            const textContent = textMatch[1].trim();
+            if (textContent) {
+                if (/^[.,;:!?)}\]]/.test(textContent)) {
+                    result += textContent;
+                } else {
+                    result += ` ${textContent}`;
+                }
+            }
+            remaining = remaining.substring(textMatch[0].length);
+            continue;
+        }
+
+        result += remaining[0];
+        remaining = remaining.substring(1);
+    }
+
+    result = result.trimEnd();
+    if (result.endsWith('>')) {
+        result = result.slice(0, -1) + '\\f*>';
+    } else {
+        result += '<\\f*>';
+    }
+
+    return result.trim();
+}
+
 // Converts USFM inline markers (character-level styling) to HTML
 export const convertUsfmInlineMarkersToHtml = (usfmText: string): string => {
-    // First, handle footnotes (\f...\f*)
-    // USFM footnote format: \f + \fr reference \ft footnote text\f*
-    // or simpler: \f + \ft footnote text\f*
     let processedText = usfmText;
-    let footnoteCounter = 0;
-    
-    // Match footnote pattern: \f + \fr? ... \ft ... \f*
+
     const footnoteRegex = /\\f\s+([+\-*]|\w+)\s*(.*?)\\f\*/gs;
-    const footnotes: Array<{ caller: string; content: string; position: number }> = [];
-    
+    const footnoteReplacements: Map<string, string> = new Map();
+    const PLACEHOLDER = '\uFFFD';
+
+    const footnotes: Array<{ caller: string; body: string; position: number; length: number }> = [];
     let match;
     while ((match = footnoteRegex.exec(usfmText)) !== null) {
-        footnoteCounter++;
-        const [fullMatch, caller, footnoteContent] = match;
-        const position = match.index;
-        
-        // Parse footnote content
-        let reference = '';
-        let footnoteText = '';
-        
-        // Extract \fr reference if present
-        const frMatch = footnoteContent.match(/\\fr\s+([^\\]+)/);
-        if (frMatch) {
-            reference = frMatch[1].trim();
-        }
-        
-        // Extract \ft text (everything after \fr or the main content)
-        const ftMatch = footnoteContent.match(/\\ft\s+(.*)/s);
-        if (ftMatch) {
-            footnoteText = ftMatch[1].trim();
-        } else {
-            // No \ft marker, use content directly (after removing \fr if present)
-            footnoteText = footnoteContent.replace(/\\fr\s+[^\\]+/g, '').trim();
-        }
-        
-        // Convert footnote text to HTML (handle inline markers within footnote)
-        // Use a helper function to avoid recursion
-        const footnoteHtml = convertUsfmInlineMarkersInText(footnoteText);
-        
-        // Build footnote HTML in the format: <p><em>reference: </em>text</p>
-        let footnoteContentHtml = '';
-        if (reference) {
-            footnoteContentHtml = `<p><em>${reference}: </em>&nbsp;${footnoteHtml}</p>`;
-        } else {
-            footnoteContentHtml = `<p>${footnoteHtml}</p>`;
-        }
-        
-        // Escape HTML for use in data attribute
-        const escapedFootnote = footnoteContentHtml
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-        
         footnotes.push({
-            caller: caller || '+',
-            content: escapedFootnote,
-            position,
+            caller: match[1] || '+',
+            body: match[2] || '',
+            position: match.index,
+            length: match[0].length,
         });
     }
-    
-    // Replace footnotes in reverse order to preserve positions
+
     for (let i = footnotes.length - 1; i >= 0; i--) {
-        const footnote = footnotes[i];
-        const footnoteRegex2 = /\\f\s+([+\-*]|\w+)\s*(.*?)\\f\*/s;
-        const footnoteMatch = processedText.substring(footnote.position).match(footnoteRegex2);
-        if (footnoteMatch) {
-            const footnoteNumber = i + 1; // Use 1-based numbering
-            const replacement = `<sup data-footnote="${footnote.content}" class="footnote-marker">${footnoteNumber}</sup>`;
-            processedText = processedText.substring(0, footnote.position) + 
-                          replacement + 
-                          processedText.substring(footnote.position + footnoteMatch[0].length);
-        }
+        const fn = footnotes[i];
+        const bracketText = footnoteToInlineBrackets(fn.caller, fn.body);
+        const htmlBracketText = bracketText
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        const placeholder = `${PLACEHOLDER}${i}${PLACEHOLDER}`;
+        footnoteReplacements.set(placeholder, htmlBracketText);
+
+        processedText = processedText.substring(0, fn.position) +
+                      placeholder +
+                      processedText.substring(fn.position + fn.length);
     }
     
     // Now process other inline markers
@@ -225,8 +275,161 @@ export const convertUsfmInlineMarkersToHtml = (usfmText: string): string => {
         const entry = stack.pop()!;
         for (const closer of entry.closers) out += closer;
     }
+
+    for (const [placeholder, replacement] of footnoteReplacements) {
+        out = out.replace(placeholder, replacement);
+    }
+
     return out;
 };
+
+/**
+ * Unescape all HTML entities in a footnote attribute value.
+ * Handles both properly-escaped (new) and partially-escaped (legacy) content.
+ */
+function unescapeFootnoteHtml(raw: string): string {
+    return raw
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&');
+}
+
+/**
+ * Convert footnote inner HTML to USFM markers.
+ * Handles both new format (data-tag spans) and legacy format (<em> based).
+ */
+function footnoteHtmlToUsfm(footnoteHtml: string): string {
+    let usfm = '\\f +';
+
+    // New format: <span data-tag="fr">ref</span> <span data-tag="ft">text</span>
+    const frMatch = footnoteHtml.match(/<span[^>]*data-tag="fr"[^>]*>(.*?)<\/span>/);
+    const ftMatch = footnoteHtml.match(/<span[^>]*data-tag="ft"[^>]*>([\s\S]*?)<\/span>/);
+
+    if (frMatch || ftMatch) {
+        console.log('[USFM Export] Footnote format: data-tag spans');
+        if (frMatch) {
+            usfm += ` \\fr ${frMatch[1].trim()}`;
+        }
+        if (ftMatch) {
+            usfm += ` \\ft ${htmlInlineToUsfm(ftMatch[1])}`;
+        }
+    } else {
+        // Legacy format: <p><em>reference: </em> text</p> or just <p>text</p>
+        const emRefMatch = footnoteHtml.match(/<em[^>]*>([^<]+?):\s*<\/em>/);
+        if (emRefMatch) {
+            console.log('[USFM Export] Footnote format: legacy <em>, ref:', emRefMatch[1]);
+            usfm += ` \\fr ${emRefMatch[1].trim()}`;
+            const afterRef = footnoteHtml
+                .replace(/<\/?p>/g, '')
+                .replace(/<em[^>]*>[^<]*<\/em>/, '')
+                .replace(/^\s*&?\s*(?:nbsp;)?\s*/, '')
+                .trim();
+            if (afterRef) {
+                usfm += ` \\ft ${htmlInlineToUsfm(afterRef)}`;
+            }
+        } else {
+            console.log('[USFM Export] Footnote format: no structured match, raw:', footnoteHtml.substring(0, 100));
+            const innerText = footnoteHtml.replace(/<\/?p>/g, '').trim();
+            if (innerText) {
+                usfm += ` \\ft ${htmlInlineToUsfm(innerText)}`;
+            }
+        }
+    }
+
+    usfm += '\\f*';
+    return usfm;
+}
+
+/**
+ * Pre-process footnote <sup> elements by scanning the string character-by-character.
+ * This avoids regex issues with > characters inside data-footnote attribute values.
+ */
+function processFootnoteSupElements(html: string): string {
+    const SUP_OPEN = '<sup ';
+    const SUP_CLOSE = '</sup>';
+    let result = '';
+    let pos = 0;
+
+    while (pos < html.length) {
+        const supStart = html.toLowerCase().indexOf(SUP_OPEN, pos);
+        if (supStart === -1) {
+            result += html.substring(pos);
+            break;
+        }
+
+        result += html.substring(pos, supStart);
+
+        // Find the closing > of the opening tag by tracking quoted attributes
+        let tagEnd = -1;
+        let inQuote: string | null = null;
+        for (let i = supStart + SUP_OPEN.length; i < html.length; i++) {
+            const ch = html[i];
+            if (inQuote) {
+                if (ch === inQuote) inQuote = null;
+            } else if (ch === '"' || ch === "'") {
+                inQuote = ch;
+            } else if (ch === '>') {
+                tagEnd = i;
+                break;
+            }
+        }
+
+        if (tagEnd === -1) {
+            result += html.substring(supStart);
+            break;
+        }
+
+        const openTag = html.substring(supStart, tagEnd + 1);
+
+        // Find the matching </sup>
+        const closeStart = html.toLowerCase().indexOf(SUP_CLOSE, tagEnd + 1);
+        if (closeStart === -1) {
+            result += html.substring(supStart);
+            break;
+        }
+
+        const fullElement = html.substring(supStart, closeStart + SUP_CLOSE.length);
+        pos = closeStart + SUP_CLOSE.length;
+
+        // Check if this is a footnote marker
+        if (!openTag.includes('footnote-marker') || !openTag.includes('data-footnote')) {
+            result += fullElement;
+            continue;
+        }
+
+        // Extract the data-footnote attribute value by finding the matching quotes
+        // We can't use a simple regex because the value may contain > or other tricky chars.
+        // Instead, locate the attribute start and walk through to find the closing quote.
+        const attrPrefix = 'data-footnote="';
+        const attrStart = openTag.indexOf(attrPrefix);
+        if (attrStart === -1) {
+            result += fullElement;
+            continue;
+        }
+        const valueStart = attrStart + attrPrefix.length;
+        const valueEnd = openTag.indexOf('"', valueStart);
+        if (valueEnd === -1) {
+            result += fullElement;
+            continue;
+        }
+        const rawAttrValue = openTag.substring(valueStart, valueEnd);
+
+        console.log('[USFM Export] Footnote raw attr value:', rawAttrValue.substring(0, 120));
+
+        const footnoteHtml = unescapeFootnoteHtml(rawAttrValue);
+        console.log('[USFM Export] Footnote unescaped HTML:', footnoteHtml.substring(0, 120));
+
+        const usfmResult = footnoteHtmlToUsfm(footnoteHtml);
+        console.log('[USFM Export] Footnote USFM result:', usfmResult);
+
+        result += usfmResult;
+    }
+
+    return result;
+}
 
 // Convert HTML back to USFM inline markers
 export const htmlInlineToUsfm = (html: string): string => {
@@ -258,64 +461,9 @@ export const htmlInlineToUsfm = (html: string): string => {
                     if (el.tagName.toLowerCase() === 'sup' && 
                         el.hasAttribute('data-footnote') && 
                         el.classList.contains('footnote-marker')) {
-                        const footnoteContent = el.getAttribute('data-footnote') || '';
-                        // Unescape HTML entities
-                        const unescaped = footnoteContent
-                            .replace(/&quot;/g, '"')
-                            .replace(/&#39;/g, "'")
-                            .replace(/&nbsp;/g, ' ');
-                        
-                        // Parse footnote HTML back to USFM
-                        // Format: <p><em>reference: </em>text</p> or <p>text</p>
-                        const parser = new DOMParser();
-                        const footnoteDoc = parser.parseFromString(unescaped, 'text/html');
-                        const footnotePara = footnoteDoc.body.querySelector('p');
-                        
-                        if (footnotePara) {
-                            let reference = '';
-                            let footnoteText = '';
-                            
-                            // Check for <em> tag (reference)
-                            const emTag = footnotePara.querySelector('em');
-                            if (emTag) {
-                                reference = emTag.textContent?.trim() || '';
-                                // Remove the reference from the paragraph
-                                const textNodes = Array.from(footnotePara.childNodes)
-                                    .filter(n => {
-                                        if (n.nodeType === Node.TEXT_NODE) return true;
-                                        if (n.nodeType === Node.ELEMENT_NODE) {
-                                            const el = n as Element;
-                                            return el.tagName.toLowerCase() !== 'em';
-                                        }
-                                        return false;
-                                    })
-                                    .map(n => {
-                                        if (n.nodeType === Node.TEXT_NODE) return n.textContent || '';
-                                        if (n.nodeType === Node.ELEMENT_NODE) {
-                                            return htmlInlineToUsfm((n as HTMLElement).outerHTML);
-                                        }
-                                        return '';
-                                    })
-                                    .join('')
-                                    .trim();
-                                footnoteText = textNodes.replace(/^:?\s*/, '');
-                            } else {
-                                // No reference, just text
-                                footnoteText = htmlInlineToUsfm(footnotePara.innerHTML);
-                            }
-                            
-                            // Build USFM footnote: \f + \fr reference \ft text\f*
-                            let usfmFootnote = '\\f +';
-                            if (reference) {
-                                usfmFootnote += ` \\fr ${reference}`;
-                            }
-                            if (footnoteText) {
-                                usfmFootnote += ` \\ft ${footnoteText}`;
-                            }
-                            usfmFootnote += '\\f*';
-                            
-                            return usfmFootnote;
-                        }
+                        const rawAttr = el.getAttribute('data-footnote') || '';
+                        const footnoteHtml = unescapeFootnoteHtml(rawAttr);
+                        return footnoteHtmlToUsfm(footnoteHtml);
                     }
                     
                     const tag = inferMarkerFromElement(el);
@@ -328,14 +476,20 @@ export const htmlInlineToUsfm = (html: string): string => {
                 return '';
             };
             
-            return Array.from(container.childNodes).map(walk).join('');
+            let domResult = Array.from(container.childNodes).map(walk).join('');
+            domResult = domResult.replace(/<([^>]*\\[^>]*)>/g, '$1');
+            return domResult;
         } catch (error) {
             console.warn('DOMParser failed, using regex fallback:', error);
         }
     }
 
     // Fallback: Regex-based approach for Node.js context
-    let result = html;
+    // First, extract footnote <sup> elements before any other processing.
+    // We can't use [^>]* inside these elements because the data-footnote attribute
+    // may contain literal < and > characters (legacy imports didn't escape them).
+    let result = processFootnoteSupElements(html);
+
     let changed = true;
     let iterations = 0;
     const maxIterations = 20;
@@ -346,90 +500,53 @@ export const htmlInlineToUsfm = (html: string): string => {
         const before = result;
 
         // Match innermost tags with data-tag first
-        result = result.replace(/<(\w+)[^>]*data-tag="([^"]+)"[^>]*>([^<]*)<\/\1>/gi, (match, tagName, dataTag, content) => {
+        result = result.replace(/<(\w+)[^>]*data-tag="([^"]+)"[^>]*>([^<]*)<\/\1>/gi, (_match, _tagName, dataTag, content) => {
             changed = true;
             const innerUsfm = content.trim();
             return innerUsfm ? `\\${dataTag} ${innerUsfm}\\${dataTag}*` : '';
         });
 
         // Handle semantic tags without data-tag
-        result = result.replace(/<strong[^>]*>([^<]*)<\/strong>/gi, (match, content) => {
+        result = result.replace(/<strong[^>]*>([^<]*)<\/strong>/gi, (_match, content) => {
             changed = true;
             const innerUsfm = content.trim();
             return innerUsfm ? `\\bd ${innerUsfm}\\bd*` : '';
         });
-        result = result.replace(/<b[^>]*>([^<]*)<\/b>/gi, (match, content) => {
+        result = result.replace(/<b[^>]*>([^<]*)<\/b>/gi, (_match, content) => {
             changed = true;
             const innerUsfm = content.trim();
             return innerUsfm ? `\\bd ${innerUsfm}\\bd*` : '';
         });
-        result = result.replace(/<em[^>]*>([^<]*)<\/em>/gi, (match, content) => {
+        result = result.replace(/<em[^>]*>([^<]*)<\/em>/gi, (_match, content) => {
             changed = true;
             const innerUsfm = content.trim();
             return innerUsfm ? `\\it ${innerUsfm}\\it*` : '';
         });
-        result = result.replace(/<i[^>]*>([^<]*)<\/i>/gi, (match, content) => {
+        result = result.replace(/<i[^>]*>([^<]*)<\/i>/gi, (_match, content) => {
             changed = true;
             const innerUsfm = content.trim();
             return innerUsfm ? `\\it ${innerUsfm}\\it*` : '';
         });
-        // Handle footnotes BEFORE regular sup tags
-        result = result.replace(/<sup[^>]*data-footnote="([^"]+)"[^>]*class="footnote-marker"[^>]*>(\d+)<\/sup>/gi, (match, footnoteContent, footnoteNum) => {
-            changed = true;
-            // Unescape HTML entities
-            const unescaped = footnoteContent
-                .replace(/&quot;/g, '"')
-                .replace(/&#39;/g, "'")
-                .replace(/&nbsp;/g, ' ');
-            
-            // Parse footnote HTML: <p><em>reference: </em>text</p> or <p>text</p>
-            // Use regex to extract reference and text
-            const refMatch = unescaped.match(/<p><em>([^<]+):\s*<\/em>&nbsp;(.*?)<\/p>/);
-            let usfmFootnote = '\\f +';
-            
-            if (refMatch) {
-                const [, reference, text] = refMatch;
-                usfmFootnote += ` \\fr ${reference.trim()}`;
-                // Convert HTML in text back to USFM
-                const textUsfm = htmlInlineToUsfm(text);
-                if (textUsfm) {
-                    usfmFootnote += ` \\ft ${textUsfm}`;
-                }
-            } else {
-                // No reference, just text
-                const textMatch = unescaped.match(/<p>(.*?)<\/p>/);
-                if (textMatch) {
-                    const textUsfm = htmlInlineToUsfm(textMatch[1]);
-                    if (textUsfm) {
-                        usfmFootnote += ` \\ft ${textUsfm}`;
-                    }
-                }
-            }
-            usfmFootnote += '\\f*';
-            return usfmFootnote;
-        });
-        
-        result = result.replace(/<sup[^>]*>([^<]*)<\/sup>/gi, (match, content) => {
-            // Skip if this was already processed as a footnote
-            if (match.includes('data-footnote')) return match;
+
+        result = result.replace(/<sup[^>]*>([^<]*)<\/sup>/gi, (_match, content) => {
             changed = true;
             const innerUsfm = content.trim();
             return innerUsfm ? `\\sup ${innerUsfm}\\sup*` : '';
         });
-        result = result.replace(/<span[^>]*style="[^"]*small-caps[^"]*"[^>]*>([^<]*)<\/span>/gi, (match, content) => {
+        result = result.replace(/<span[^>]*style="[^"]*small-caps[^"]*"[^>]*>([^<]*)<\/span>/gi, (_match, content) => {
             changed = true;
             const innerUsfm = content.trim();
             return innerUsfm ? `\\sc ${innerUsfm}\\sc*` : '';
         });
 
         // Handle nested tags with data-tag (process recursively)
-        result = result.replace(/<(\w+)[^>]*data-tag="([^"]+)"[^>]*>(.*?)<\/\1>/gi, (match, tagName, dataTag, content) => {
+        result = result.replace(/<(\w+)[^>]*data-tag="([^"]+)"[^>]*>(.*?)<\/\1>/gi, (_match, _tagName, dataTag, content) => {
             if (content.includes('<')) {
                 const innerUsfm = htmlInlineToUsfm(content);
                 changed = true;
                 return innerUsfm ? `\\${dataTag} ${innerUsfm}\\${dataTag}*` : '';
             }
-            return match;
+            return _match;
         });
 
         if (result === before) {
@@ -437,8 +554,21 @@ export const htmlInlineToUsfm = (html: string): string => {
         }
     }
 
+    // Strip bracket-format footnotes (literal angle brackets) before HTML tag cleanup
+    result = result.replace(/<([^>]*\\[^>]*)>/g, '$1');
+
     // Clean up any remaining HTML tags
     result = result.replace(/<[^>]+>/g, '');
+
+    // Decode entity-encoded bracket-format footnotes, then strip those too
+    result = result
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&');
+    result = result.replace(/<([^>]*\\[^>]*)>/g, '$1');
 
     return result.trim();
 };

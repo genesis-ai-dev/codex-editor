@@ -20,7 +20,7 @@ export async function exportCodexContentAsPlaintext(
         debug("Starting exportCodexContentAsPlaintext");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
         debug("Workspace folders found:", workspaceFolders);

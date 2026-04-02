@@ -14,10 +14,6 @@ export const removeHtmlTags = (content: string) => {
             const footnotes = tempDiv.querySelectorAll('sup.footnote-marker, sup[data-footnote], sup');
             footnotes.forEach(footnote => footnote.remove());
 
-            // Remove spell check markup
-            const spellCheckElements = tempDiv.querySelectorAll('.spell-check-error, .spell-check-suggestion, [class*="spell-check"]');
-            spellCheckElements.forEach(el => el.remove());
-
             // Replace paragraph end tags with spaces to preserve word boundaries
             tempDiv.innerHTML = tempDiv.innerHTML.replace(/<\/p>/gi, ' ');
 
@@ -314,6 +310,17 @@ export const computeProgressPercents = (
         percentAudioValidatedTranslations: safeDiv(audioValidatedCells),
         percentTextValidatedTranslations: safeDiv(validatedCells),
     };
+};
+
+/**
+ * Derives the target .codex file path from a .source file path.
+ * Normalizes path separators so the replacement works on both Windows and POSIX.
+ */
+export const deriveTargetPathFromSource = (sourcePath: string): string => {
+    const normalized = sourcePath.replace(/\\/g, "/");
+    return normalized
+        .replace(/\.source$/, ".codex")
+        .replace(/\/\.project\/sourceTexts\//, "/files/target/");
 };
 
 // Re-export corpus utilities

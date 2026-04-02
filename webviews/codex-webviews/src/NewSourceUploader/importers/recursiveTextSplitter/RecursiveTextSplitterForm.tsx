@@ -391,7 +391,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
             if (isJsonFile) {
                 onProgress({
                     stage: "Processing",
-                    message: "Parsing JSON structure...",
+                    message: "Reading file structure...",
                     progress: 30,
                 });
 
@@ -403,7 +403,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
                     onProgress({
                         stage: "Creating",
-                        message: `Creating ${jsonCells.length} sections from JSON...`,
+                        message: `Creating ${jsonCells.length} sections...`,
                         progress: 70,
                     });
 
@@ -420,7 +420,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     // Failed to parse as JSON, fall back to text splitting
                     onProgress({
                         stage: "Processing",
-                        message: "Invalid JSON, using smart text analysis...",
+                        message: "Analyzing text structure...",
                         progress: 30,
                     });
 

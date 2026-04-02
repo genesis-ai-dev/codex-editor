@@ -27,7 +27,7 @@ import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getNonce } from "../../utils/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";
@@ -898,9 +898,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                         if (ws) {
                             const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteUpdatingManager");
-                            const git = await import("isomorphic-git");
-                            const fs = await import("fs");
-                            const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
+                            const dugiteGitModule = await import("../../utils/dugiteGit");
+                            const remotes = await dugiteGitModule.listRemotes(ws.uri.fsPath);
                             const origin = remotes.find((r) => r.remote === "origin");
 
                             if (origin?.url) {
@@ -1087,7 +1086,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             debug("Jump to cell event received:", value);
-            navigateToSection(value);
+            // Pre-populate the target position so that updateWebview() — which runs before
+            // navigateToSection in the pending queue — sends a refreshCurrentPage at the
+            // correct milestone instead of resetting to chapter 1 for newly-opened files.
+            const position = document.findMilestoneAndSubsectionForCell(value, this.CELLS_PER_PAGE);
+            if (position) {
+                this.currentMilestoneSubsectionMap.set(document.uri.toString(), position);
+            }
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                navigateToSection(value);
+            });
         });
 
         // Set up document change listeners
@@ -2381,6 +2389,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             safePostMessageToPanel(webviewPanel, message);
         } catch (error) {
             console.error("Failed to post message to webview:", error);
+        }
+    }
+
+    public scrollOtherPanelsToCell(cellId: string, senderPanel: vscode.WebviewPanel) {
+        for (const [, panel] of this.webviewPanels.entries()) {
+            if (panel !== senderPanel) {
+                safePostMessageToPanel(panel, {
+                    type: "scrollToCell",
+                    cellId,
+                } as any);
+            }
         }
     }
 

@@ -5,6 +5,7 @@
 {
     "version": "0.2.0",
     "configurations": [
+        
         {
             "name": "Run Extension",
             "type": "extensionHost",
@@ -20,7 +21,6 @@
             "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
             "outFiles": ["${workspaceFolder}/out/**/*.js"],
             "debugWebviews": true,
-            "trace": true,
             "preLaunchTask": "npm: watch"
         },
         {

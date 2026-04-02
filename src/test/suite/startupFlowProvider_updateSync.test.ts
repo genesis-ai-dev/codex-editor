@@ -50,7 +50,7 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
             textConflicts: [],
             binaryCopies: [],
         });
-        const resolveConflictFilesStub = sinon.stub(mergeResolvers, "resolveConflictFiles").resolves([]);
+        const resolveConflictFilesStub = sinon.stub(mergeResolvers, "resolveConflictFiles").resolves({ resolved: [], failed: [] });
 
         // Try to stub vscode.workspace.fs operations (may fail if non-configurable)
         let fsStatStub: sinon.SinonStub | undefined;

@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import * as git from "isomorphic-git";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { ProjectMetadata, ProjectSwapEntry, ProjectSwapInfo, ProjectSwapUserEntry } from "../../../types";
 import {
     normalizeProjectSwapInfo,
@@ -49,6 +49,10 @@ import { buildConflictsFromDirectories } from "../../projectManager/utils/merge/
  */
 suite("Project Swap Tests", () => {
     let tempDir: string;
+
+    suiteSetup(() => {
+        dugiteGit.useEmbeddedGitBinary();
+    });
 
     setup(() => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-swap-"));
@@ -498,15 +502,15 @@ suite("Project Swap Tests", () => {
             test("returns null for repo without origin remote", async () => {
                 const repoDir = path.join(tempDir, "no-origin");
                 fs.mkdirSync(repoDir, { recursive: true });
-                await git.init({ fs, dir: repoDir, defaultBranch: "main" });
+                await dugiteGit.init(repoDir);
                 assert.strictEqual(await getGitOriginUrl(repoDir), null);
             });
 
             test("returns origin URL when set", async () => {
                 const repoDir = path.join(tempDir, "with-origin");
                 fs.mkdirSync(repoDir, { recursive: true });
-                await git.init({ fs, dir: repoDir, defaultBranch: "main" });
-                await git.addRemote({ fs, dir: repoDir, remote: "origin", url: "https://gitlab.com/test.git" });
+                await dugiteGit.init(repoDir);
+                await dugiteGit.addRemote(repoDir, "origin", "https://gitlab.com/test.git");
                 assert.strictEqual(await getGitOriginUrl(repoDir), "https://gitlab.com/test.git");
             });
 
@@ -952,8 +956,8 @@ suite("Project Swap Tests", () => {
         test("handles missing git remote", async () => {
             const projectPath = path.join(tempDir, "no-remote");
             fs.mkdirSync(projectPath, { recursive: true });
-            await git.init({ fs, dir: projectPath, defaultBranch: "main" });
-            const remotes = await git.listRemotes({ fs, dir: projectPath });
+            await dugiteGit.init(projectPath);
+            const remotes = await dugiteGit.listRemotes(projectPath);
             assert.strictEqual(remotes.length, 0);
         });
     });

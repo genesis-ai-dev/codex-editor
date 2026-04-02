@@ -3,6 +3,20 @@ import type { CustomNotebookCellData } from 'types';
 import { WizardContext } from './wizard';
 
 /**
+ * Generate a stable, deterministic ID for paratext cells based on content.
+ * Re-importing the same content will produce the same ID, preventing duplicates.
+ */
+export const stableParatextId = (content: string, index: number): string => {
+    let hash = 0;
+    const str = content.trim();
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+    }
+    const hex = (hash >>> 0).toString(16).padStart(8, '0');
+    return `paratext-${hex}-${index}`;
+};
+
+/**
  * Information about existing source files in the project
  */
 export interface ExistingFile {
@@ -34,7 +48,7 @@ export interface ImportedContent {
  * Aligned cell for translation import
  */
 export interface AlignedCell {
-    notebookCell: any | null; // Target cell from existing notebook
+    notebookCell: CustomNotebookCellData | null;
     importedContent: ImportedContent;
     isParatext?: boolean;
     isAdditionalOverlap?: boolean;
@@ -80,22 +94,27 @@ export const sequentialCellAligner: CellAligner = async (
     targetCells.forEach((targetCell, targetIndex) => {
         const existingContent = targetCell.value || "";
         const hasContent = existingContent.trim() !== "";
+        const targetId = targetCell.metadata?.id || `target-${targetIndex}`;
+        const isMilestone = targetCell.metadata?.type === "milestone";
 
-        if (!hasContent) {
+        // Never write imported content into milestone cells — they are structural markers
+        if (!hasContent && !isMilestone) {
             const importedItem = nextImportedItem();
             if (importedItem) {
                 alignedCells.push({
                     notebookCell: targetCell,
-                    importedContent: importedItem,
+                    importedContent: {
+                        ...importedItem,
+                        id: targetId,
+                    },
                     alignmentMethod: 'sequential',
-                    confidence: 0.8 // Medium confidence for sequential insertion
+                    confidence: 0.8,
                 });
                 insertedCount++;
                 return;
             }
         }
 
-        const targetId = targetCell.metadata?.id || `target-${targetIndex}`;
         alignedCells.push({
             notebookCell: targetCell,
             importedContent: {
@@ -115,17 +134,17 @@ export const sequentialCellAligner: CellAligner = async (
     for (let i = importIndex; i < importedContent.length; i++) {
         const importedItem = importedContent[i];
         if (!importedItem.content.trim()) {
-            continue; // Skip empty content
+            continue;
         }
         alignedCells.push({
             notebookCell: null,
             importedContent: {
                 ...importedItem,
-                id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                id: stableParatextId(importedItem.content, paratextCount),
             },
             isParatext: true,
             alignmentMethod: 'sequential',
-            confidence: 0.3 // Low confidence for paratext
+            confidence: 0.3,
         });
         paratextCount++;
     }
@@ -140,8 +159,8 @@ export const sequentialCellAligner: CellAligner = async (
  * This is used when plugins don't define their own custom alignment algorithm
  */
 export const defaultCellAligner: CellAligner = async (
-    targetCells: any[],
-    sourceCells: any[],
+    targetCells: CustomNotebookCellData[],
+    sourceCells: CustomNotebookCellData[],
     importedContent: ImportedContent[]
 ): Promise<AlignedCell[]> => {
     const alignedCells: AlignedCell[] = [];
@@ -181,7 +200,7 @@ export const defaultCellAligner: CellAligner = async (
                 notebookCell: targetCell,
                 importedContent: {
                     id: targetId,
-                    content: targetCell.value || targetCell.content || "",
+                    content: targetCell.value || "",
                     edits: targetCell.metadata?.edits,
                     cellLabel: targetCell.metadata?.cellLabel,
                     metadata: targetCell.metadata || {},
@@ -194,6 +213,7 @@ export const defaultCellAligner: CellAligner = async (
         }
     });
 
+    let paratextIdx = 0;
     importedContent.forEach((importedItem, index) => {
         if (!importedItem.content.trim() || usedImportedIndexes.has(index)) {
             return;
@@ -203,11 +223,11 @@ export const defaultCellAligner: CellAligner = async (
             notebookCell: null,
             importedContent: {
                 ...importedItem,
-                id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                id: stableParatextId(importedItem.content, paratextIdx++),
             },
             isParatext: true,
             alignmentMethod: 'exact-id',
-            confidence: 0.0 // No confidence for unmatched content
+            confidence: 0.0,
         });
     });
 
@@ -355,6 +375,12 @@ export interface ImporterPlugin {
     enabled?: boolean;
 
     /**
+     * Whether this plugin supports target/translation imports.
+     * When false or undefined, the plugin will be hidden in the target import wizard.
+     */
+    supportsTargetImport?: boolean;
+
+    /**
      * Optional: Tags for categorizing plugins
      */
     tags?: string[];
@@ -495,6 +521,8 @@ export interface AudioFileSelectedMessage {
     segments: Array<{ id: string; startSec: number; endSec: number; }>;
     waveformPeaks: number[];
     fullAudioUri?: string;
+    /** Original file extension without dot (e.g. "mp3", "m4a"). Present when FFmpeg is used. */
+    sourceExtension?: string;
     thresholdDb?: number;
     minDuration?: number;
     error?: string;
@@ -509,10 +537,39 @@ export interface AudioFilesSelectedMessage {
         segments: Array<{ id: string; startSec: number; endSec: number; }>;
         waveformPeaks: number[];
         fullAudioUri?: string;
+        /** Original file extension without dot (e.g. "mp3", "m4a"). Present when FFmpeg is used. */
+        sourceExtension?: string;
     }>;
     thresholdDb?: number;
     minDuration?: number;
     error?: string;
+}
+
+/** Extension host -> webview: audio file ready for Web Audio API processing (fallback path) */
+export interface AudioFileForProcessingMessage {
+    command: 'audioFileForProcessing';
+    sessionId: string;
+    fileName: string;
+    fullAudioUri: string;
+    sizeBytes: number;
+    thresholdDb: number;
+    minDuration: number;
+}
+
+/** Extension host -> webview: re-run silence detection with new VAD params (fallback path) */
+export interface ReprocessAudioInWebviewMessage {
+    command: 'reprocessAudioInWebview';
+    sessionId: string;
+    thresholdDb: number;
+    minDuration: number;
+}
+
+/** Webview -> extension host: results from Web Audio API processing (fallback path) */
+export interface AudioProcessingCompleteMessage {
+    command: 'audioProcessingComplete';
+    sessionId: string;
+    durationSec: number;
+    segments: Array<{ id: string; startSec: number; endSec: number }>;
 }
 
 export interface RequestAudioSegmentMessage {
@@ -535,7 +592,9 @@ export interface FinalizeAudioImportMessage {
     sessionId: string;
     documentName: string;
     notebookPairs: NotebookPair[];
-    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string; }>;
+    segmentMappings: Array<{ segmentId: string; cellId: string; attachmentId: string; fileName: string }>;
+    /** WAV-encoded segment data produced by the webview (Web Audio API fallback path). */
+    encodedSegments?: Array<{ segmentId: string; wavBase64: string }>;
 }
 
 export interface AudioImportProgressMessage {
@@ -581,4 +640,4 @@ export interface AudioUriResponseMessage {
     error?: string;
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage; 
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | ImportStartedMessage | ImportEndedMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage | StartTranslatingMessage | SaveFileMessage | SelectAudioFileMessage | ReprocessAudioFileMessage | AudioFileSelectedMessage | AudioFileForProcessingMessage | ReprocessAudioInWebviewMessage | AudioProcessingCompleteMessage | RequestAudioSegmentMessage | AudioSegmentResponseMessage | RequestAudioUriMessage | AudioUriResponseMessage | FinalizeAudioImportMessage | AudioImportProgressMessage | AudioImportCompleteMessage | UpdateAudioSegmentsMessage | AudioSegmentsUpdatedMessage;
