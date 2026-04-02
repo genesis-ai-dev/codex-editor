@@ -4699,6 +4699,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             await vscode.workspace.fs.stat(cloningProjectUri);
             debugLog("Cloned project directory exists");
 
+            // Validate that cloned metadata.json is present and parseable before merging.
+            // If this fails, the update aborts and backup restore handles recovery.
+            const clonedMetadataUri = vscode.Uri.joinPath(cloningProjectUri, "metadata.json");
+            const clonedMetadataBytes = await vscode.workspace.fs.readFile(clonedMetadataUri);
+            JSON.parse(Buffer.from(clonedMetadataBytes).toString("utf8"));
+            debugLog("Cloned metadata.json validated successfully");
+
             // Build a full merge set from the saved snapshot (ours) vs the freshly-cloned project (theirs/base)
             // Treat everything as a potential conflict, excluding .git/**. Do not delete files.
             const { textConflicts, binaryCopies } = await buildConflictsFromDirectories({
