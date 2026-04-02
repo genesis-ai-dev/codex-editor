@@ -366,7 +366,8 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             }
             case "openSourceUpload": {
                 try {
-                    await vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+                    const intent = message.intent as string | undefined;
+                    await vscode.commands.executeCommand("codex-project-manager.openSourceUpload", intent);
                 } catch (error) {
                     console.error("Error opening source upload:", error);
                     vscode.window.showErrorMessage(`Failed to open source upload: ${error}`);

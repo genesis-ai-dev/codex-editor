@@ -66,25 +66,28 @@ export const importerPlugins: ImporterPlugin[] = [
         ...markdownImporterPlugin,
         name: "Markdown",
         description: "GitHub-style markdown files with round-trip export support",
+        supportsTargetImport: true,
         tags: ["Essential", "Documentation", "GitHub", "Round-trip"],
     },
     {
         ...subtitlesImporterPlugin,
         name: "Subtitles",
         description: "Video captions with timestamps",
+        supportsTargetImport: true,
         tags: ["Essential", "Media", "Video"],
     },
     {
         ...tmsImporterPlugin,
         name: "TMS Files",
-        description:
-            "Translation memory and localization files (TMX/XLIFF) with round-trip export support",
+        description: "Translation memory and localization files (TMX/XLIFF) with round-trip export support",
+        supportsTargetImport: true,
         tags: ["Essential", "Translation", "Localization", "Round-trip"],
     },
     {
         ...docxImporterPlugin,
         name: "Word Documents",
         description: "Microsoft Word files with round-trip export support",
+        supportsTargetImport: true,
         tags: ["Essential", "Documents", "Microsoft", "Round-trip"],
     },
     {
@@ -112,32 +115,36 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...usfmExperimentalImporterPlugin,
         name: "USFM New",
-        description:
-            "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
+        description: "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "USFM", "Round-trip"],
     },
     {
         ...paratextImporterPlugin,
         name: "Paratext Projects",
         description: "Translation projects with settings",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Paratext"],
     },
     {
         ...ebibleDownloadImporterPlugin,
         name: "eBible Download",
         description: "Download directly from eBible.org",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Download"],
     },
     {
         ...maculaBibleImporterPlugin,
         name: "Macula Bible",
         description: "Hebrew and Greek with annotations",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Original Languages"],
     },
     {
         ...obsImporterPlugin,
         name: "Bible Stories",
         description: "Open Bible Stories format with round-trip export support",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Stories", "Round-trip"],
     },
     {
@@ -156,6 +163,7 @@ export const importerPlugins: ImporterPlugin[] = [
         ...spreadsheetImporterPlugin,
         name: "Bible Spreadsheet with Audio data",
         description: "CSV and TSV files with audio URLs",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Spreadsheet", "CSV", "TSV", "Round-trip"],
     },
 ];
@@ -200,15 +208,23 @@ export const getSupportedExtensions = (): string[] => {
 /**
  * Get Essential importers (general-purpose, broad appeal)
  */
-export const getEssentialImporters = (): ImporterPlugin[] => {
-    return importerPlugins.filter((plugin) => plugin.tags?.includes("Essential"));
+export const getEssentialImporters = (targetOnly?: boolean): ImporterPlugin[] => {
+    return importerPlugins.filter(
+        (plugin) =>
+            plugin.tags?.includes("Essential") &&
+            (!targetOnly || plugin.supportsTargetImport)
+    );
 };
 
 /**
  * Get Specialized importers (domain-specific tools)
  */
-export const getSpecializedImporters = (): ImporterPlugin[] => {
-    return importerPlugins.filter((plugin) => plugin.tags?.includes("Specialized"));
+export const getSpecializedImporters = (targetOnly?: boolean): ImporterPlugin[] => {
+    return importerPlugins.filter(
+        (plugin) =>
+            plugin.tags?.includes("Specialized") &&
+            (!targetOnly || plugin.supportsTargetImport)
+    );
 };
 
 /**

@@ -27,7 +27,7 @@ interface PluginSelectionProps {
     selectedSource?: ExistingFile;
     existingSourceCount: number;
     onSelectPlugin: (pluginId: string) => void;
-    onBack: () => void;
+    onBack?: () => void;
 }
 
 const PluginCard: React.FC<{
@@ -121,8 +121,8 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
     const [searchQuery, setSearchQuery] = useState("");
     const isTargetImport = intent === "target";
 
-    const essentialPlugins = useMemo(() => getEssentialImporters(), []);
-    const specializedPlugins = useMemo(() => getSpecializedImporters(), []);
+    const essentialPlugins = useMemo(() => getEssentialImporters(isTargetImport), [isTargetImport]);
+    const specializedPlugins = useMemo(() => getSpecializedImporters(isTargetImport), [isTargetImport]);
 
     const filteredSpecializedPlugins = useMemo(() => {
         return searchQuery ? searchPlugins(searchQuery, specializedPlugins) : specializedPlugins;
@@ -131,12 +131,14 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
     return (
         <div className="container mx-auto p-6 max-w-7xl space-y-8">
             {/* Header */}
-            <div className="flex items-center gap-4">
-                <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                </Button>
-            </div>
+            {onBack && (
+                <div className="flex items-center gap-4">
+                    <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+                        <ArrowLeft className="h-4 w-4" />
+                        Back
+                    </Button>
+                </div>
+            )}
 
             {/* Title Section */}
             <div className="text-center space-y-3">

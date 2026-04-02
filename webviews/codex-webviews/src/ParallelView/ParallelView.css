@@ -1,12 +1,26 @@
+/* Ensure the webview fills exactly the available space */
+html,
+body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+#root {
+    height: 100%;
+}
+
 /* Base */
 .parallel-view {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100%;
     background: var(--vscode-editor-background);
     color: var(--vscode-editor-foreground);
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
+    overflow: hidden;
 }
 
 /* VSCode codicon integration */
