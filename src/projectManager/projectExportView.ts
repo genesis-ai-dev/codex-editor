@@ -241,7 +241,7 @@ function getWebviewContent(
             <link href="${codiconsUri}" rel="stylesheet" />
             <style>
                 body {
-                    padding: 16px;
+                    padding: 0 16px;
                     display: flex;
                     flex-direction: column;
                     height: 100vh;
@@ -254,7 +254,6 @@ function getWebviewContent(
                     flex: 1;
                     display: flex;
                     flex-direction: column;
-                    gap: 16px;
                     min-height: 0;
                 }
                 .step-panel { display: none; }
@@ -353,10 +352,12 @@ function getWebviewContent(
                     flex-direction: column;
                     overflow-y: auto;
                     min-height: 0;
+                    padding-top: 16px;
                 }
                 .bottom-bar {
                     flex-shrink: 0;
-                    padding: 16px 0 0;
+                    margin: 0 -16px;
+                    padding: 16px;
                     border-top: 1px solid var(--vscode-input-border);
                     display: flex;
                     align-items: center;
@@ -382,7 +383,18 @@ function getWebviewContent(
                     justify-content: center;
                     gap: 8px;
                 }
-                .step-btn { min-width: 120px; }
+                .step-btn {
+                    min-width: 120px;
+                    position: relative;
+                    padding: 8px 32px;
+                }
+                .step-btn .codicon {
+                    position: absolute;
+                    top: 50%;
+                    transform: translateY(-50%);
+                }
+                .step-btn .btn-icon-left { left: 8px; }
+                .step-btn .btn-icon-right { right: 8px; }
                 button:hover { background-color: var(--vscode-button-hoverBackground); }
                 button:disabled { opacity: 0.5; cursor: not-allowed; }
                 button.secondary { background-color: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
@@ -722,8 +734,8 @@ function getWebviewContent(
 
                 <div class="bottom-bar">
                     <div class="bottom-bar-left">
-                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()"><i class="codicon codicon-close"></i> Cancel</button>
-                        <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left"></i> Back</button>
+                        <button class="secondary step-btn visible" id="btnCancel" onclick="cancel()"><i class="codicon codicon-close btn-icon-left"></i> Cancel</button>
+                        <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left btn-icon-left"></i> Back</button>
                     </div>
                     <div class="progress-bar">
                         <div class="progress-circle active" id="progressCircle1">1</div>
@@ -733,11 +745,11 @@ function getWebviewContent(
                         <div class="progress-circle" id="progressCircle3">3</div>
                     </div>
                     <div class="bottom-bar-right">
-                        <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()">Next Step <i class="codicon codicon-arrow-right"></i></button>
-                        <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()">Next Step <i class="codicon codicon-arrow-right"></i></button>
+                        <button class="step-btn visible" id="nextStep1" disabled onclick="goToStep2()">Next Step <i class="codicon codicon-arrow-right btn-icon-right"></i></button>
+                        <button class="step-btn" id="nextStep2" disabled onclick="goToStep3()">Next Step <i class="codicon codicon-arrow-right btn-icon-right"></i></button>
                         <button class="step-btn" id="exportButton" disabled onclick="exportProject()">
-                            <i class="codicon codicon-arrow-down"></i>
                             Export
+                            <i class="codicon codicon-arrow-down btn-icon-right"></i>
                         </button>
                     </div>
                 </div>
