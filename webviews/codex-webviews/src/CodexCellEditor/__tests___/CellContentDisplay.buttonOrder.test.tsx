@@ -122,7 +122,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: false, // .codex file
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "1",
@@ -192,7 +191,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: false, // .codex file
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "2",
@@ -255,7 +253,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: true, // .source file
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "1",
@@ -300,7 +297,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: true, // .source file
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "2",
@@ -351,7 +347,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: true, // .source file
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "2",
@@ -390,7 +385,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: true,
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "2",
@@ -428,7 +422,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: true,
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "1",
@@ -469,7 +462,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: true,
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "2",
@@ -510,7 +502,6 @@ describe("CellContentDisplay - Button Order Tests", () => {
                 textDirection: "ltr" as const,
                 isSourceText: false,
                 hasDuplicateId: false,
-                alertColorCode: undefined,
                 highlightedCellId: null,
                 scrollSyncEnabled: true,
                 lineNumber: "1",

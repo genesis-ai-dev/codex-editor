@@ -6,6 +6,7 @@ import {
     ImportedContent,
     sequentialCellAligner,
 } from "../../../types/plugin";
+import EnforceStructureCheckbox from "../../../components/EnforceStructureCheckbox";
 import { usfmCellAligner } from "./usfmCellAligner";
 import { NotebookPair, ImportProgress } from "../../../types/common";
 import { Button } from "../../../../components/ui/button";
@@ -42,6 +43,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
     const [targetCells, setTargetCells] = useState<any[]>([]);
     const [previewFiles, setPreviewFiles] = useState<Array<{ name: string; preview: string }>>([]);
+    const [enforceHtmlStructure, setEnforceHtmlStructure] = useState(true);
 
     const isTranslationImport = wizardContext?.intent === "target";
     const selectedSource = wizardContext?.selectedSource;
@@ -124,6 +126,11 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
             if (notebookPairs.length === 0) {
                 throw new Error("No valid USFM files could be processed");
+            }
+
+            for (const pair of notebookPairs) {
+                pair.source.metadata = { ...pair.source.metadata, enforceHtmlStructure };
+                pair.codex.metadata = { ...pair.codex.metadata, enforceHtmlStructure };
             }
 
             setResults(notebookPairs);
@@ -379,6 +386,11 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
                             )}
                         </div>
                     )}
+
+                    <EnforceStructureCheckbox
+                        checked={enforceHtmlStructure}
+                        onCheckedChange={setEnforceHtmlStructure}
+                    />
 
                     {progress.length > 0 && (
                         <div className="space-y-3">

@@ -32,7 +32,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
         const initialMetadata = {
             projectName: "Original Project Name",
             languages: ["en", "fr"],
-            spellcheckIsEnabled: false,
             meta: {
                 version: "0.0.0",
                 generator: {
@@ -104,7 +103,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     if (key === "sourceLanguage") return "en";
                     if (key === "targetLanguage") return "fr";
                     if (key === "abbreviation") return "ORIG";
-                    if (key === "spellcheckIsEnabled") return false;
                     if (key === "validationCount") return 1;
                     if (key === "validationCountAudio") return 1;
                     return undefined;
@@ -165,7 +163,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     if (key === "sourceLanguage") return "en";
                     if (key === "targetLanguage") return "fr";
                     if (key === "abbreviation") return "ORIG";
-                    if (key === "spellcheckIsEnabled") return false;
                     if (key === "validationCount") return 1;
                     if (key === "validationCountAudio") return 1;
                     return undefined;
@@ -222,7 +219,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     if (key === "sourceLanguage") return "en";
                     if (key === "targetLanguage") return "fr";
                     if (key === "abbreviation") return "NEW";
-                    if (key === "spellcheckIsEnabled") return false;
                     if (key === "validationCount") return 5;
                     if (key === "validationCountAudio") return 3;
                     return undefined;
@@ -290,7 +286,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     if (key === "sourceLanguage") return "es";
                     if (key === "targetLanguage") return "pt";
                     if (key === "abbreviation") return "ORIG";
-                    if (key === "spellcheckIsEnabled") return false;
                     if (key === "validationCount") return 1;
                     if (key === "validationCountAudio") return 1;
                     return undefined;
@@ -332,61 +327,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
             assert.strictEqual(languagesEdit!.author, "test-author", "Edit should have correct author");
         });
 
-        test("updateMetadataFile creates edit entry for spellcheckIsEnabled changes", async () => {
-            // Mock configuration
-            const mockConfig: MockWorkspaceConfiguration = {
-                update: sandbox.stub().resolves(),
-                get: sandbox.stub().callsFake((key: string) => {
-                    if (key === "projectName") return "Original Project Name";
-                    if (key === "userName") return "Original User";
-                    if (key === "userEmail") return "original@example.com";
-                    if (key === "sourceLanguage") return "en";
-                    if (key === "targetLanguage") return "fr";
-                    if (key === "abbreviation") return "ORIG";
-                    if (key === "spellcheckIsEnabled") return true;
-                    if (key === "validationCount") return 1;
-                    if (key === "validationCountAudio") return 1;
-                    return undefined;
-                }),
-            };
-            // Mock auth API for getCurrentUserName
-            const mockAuthApi = {
-                getUserInfo: sandbox.stub().resolves({ username: "test-author", email: "test@example.com" }),
-                getAuthStatus: sandbox.stub().returns({ isAuthenticated: true }),
-                // ... other methods as needed
-            };
-
-            // Stub getAuthApi to return mock auth API
-            const extensionModule = await import("../../extension");
-            sandbox.stub(extensionModule, "getAuthApi").returns(mockAuthApi as any);
-
-            // Stub getConfiguration to return different configs based on section
-            sandbox.stub(vscode.workspace, "getConfiguration").callsFake((section?: string) => {
-                if (section === "codex-project-manager") {
-                    return mockConfig as vscode.WorkspaceConfiguration;
-                }
-                return mockConfig as vscode.WorkspaceConfiguration;
-            });
-
-            // Call updateMetadataFile
-            await updateMetadataFile();
-
-            // Read updated metadata
-            const afterContent = await vscode.workspace.fs.readFile(metadataPath);
-            const afterMetadata = JSON.parse(new TextDecoder().decode(afterContent));
-            const edits: ProjectEditHistory[] = afterMetadata.edits || [];
-
-            const spellcheckEdit = edits.find((e) =>
-                EditMapUtils.equals(e.editMap, EditMapUtils.spellcheckIsEnabled())
-            );
-
-            assert.ok(spellcheckEdit, "Should have spellcheckIsEnabled edit entry");
-            assert.strictEqual(spellcheckEdit!.value, true, "SpellcheckIsEnabled edit should have correct value");
-            assert.strictEqual(spellcheckEdit!.type, EditType.USER_EDIT, "Edit should be USER_EDIT type");
-            assert.ok(typeof spellcheckEdit!.timestamp === "number", "Edit should have timestamp");
-            assert.strictEqual(spellcheckEdit!.author, "test-author", "Edit should have correct author");
-        });
-
         test("updateMetadataFile creates edit entries for all changed fields", async () => {
             // Mock configuration with multiple changes
             const mockConfig: MockWorkspaceConfiguration = {
@@ -398,7 +338,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     if (key === "sourceLanguage") return "de";
                     if (key === "targetLanguage") return "it";
                     if (key === "abbreviation") return "UPD";
-                    if (key === "spellcheckIsEnabled") return true;
                     if (key === "validationCount") return 10;
                     if (key === "validationCountAudio") return 7;
                     return undefined;
@@ -440,10 +379,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metaField("validationCountAudio"))), "Should have meta.validationCountAudio edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.metaField("abbreviation"))), "Should have meta.abbreviation edit");
             assert.ok(edits.some((e) => isEditPath(e, EditMapUtils.languages())), "Should have languages edit");
-            assert.ok(
-                edits.some((e) => isEditPath(e, EditMapUtils.spellcheckIsEnabled())),
-                "Should have spellcheckIsEnabled edit"
-            );
 
             // Verify values match
             const projectNameEdit = edits.find((e) => isEditPath(e, EditMapUtils.projectName()));
@@ -468,8 +403,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
             const languagesEdit = edits.find((e) => isEditPath(e, EditMapUtils.languages()));
             assert.deepStrictEqual(languagesEdit!.value, ["de", "it"], "Languages edit should have correct value");
 
-            const spellcheckEdit = edits.find((e) => isEditPath(e, EditMapUtils.spellcheckIsEnabled()));
-            assert.strictEqual(spellcheckEdit!.value, true, "SpellcheckIsEnabled edit should have correct value");
         });
 
         test("updateMetadataFile does not create edit if field unchanged", async () => {
@@ -483,7 +416,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     if (key === "sourceLanguage") return "en";
                     if (key === "targetLanguage") return "fr";
                     if (key === "abbreviation") return "ORIG";
-                    if (key === "spellcheckIsEnabled") return false;
                     if (key === "validationCount") return 1;
                     if (key === "validationCountAudio") return 1;
                     return undefined;
@@ -540,7 +472,6 @@ suite("ProjectUtils - updateMetadataFile Tests", () => {
                     if (key === "sourceLanguage") return "en";
                     if (key === "targetLanguage") return "fr";
                     if (key === "abbreviation") return "ORIG";
-                    if (key === "spellcheckIsEnabled") return false;
                     if (key === "validationCount") return 1;
                     if (key === "validationCountAudio") return 1;
                     return undefined;

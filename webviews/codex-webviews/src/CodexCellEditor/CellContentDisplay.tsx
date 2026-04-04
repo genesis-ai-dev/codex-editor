@@ -9,6 +9,7 @@ import {
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
 import AudioValidationButton from "./AudioValidationButton";
@@ -41,7 +42,6 @@ interface CellContentDisplayProps {
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
     hasDuplicateId: boolean;
-    alertColorCode: number | undefined;
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
     lineNumber: string;
@@ -74,6 +74,7 @@ interface CellContentDisplayProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
+    htmlStructureError?: string;
 }
 
 const DEBUG_ENABLED = false;
@@ -112,7 +113,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         textDirection,
         isSourceText,
         hasDuplicateId,
-        alertColorCode,
         highlightedCellId,
         scrollSyncEnabled,
         lineNumber,
@@ -136,6 +136,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         isAudioOnly = false,
         showInlineBacktranslations = false,
         backtranslation,
+        htmlStructureError,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -147,9 +148,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const [showOfflineModal, setShowOfflineModal] = useState(false);
         const [isLockButtonGlowing, setIsLockButtonGlowing] = useState(false);
         const [isLockButtonFlashing, setIsLockButtonFlashing] = useState(false);
+        const [isResolvingStructure, setIsResolvingStructure] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
 
         const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+        const { contentToScrollTo, setContentToScrollTo } = useContext(ScrollToContentContext);
 
         const cellRef = useRef<HTMLDivElement>(null);
         const contentRef = useRef<HTMLDivElement>(null);
@@ -205,6 +208,23 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             setFadingOut(false);
         }, [allTranslationsComplete, translationState, isInTranslationProcess]);
 
+        useEffect(() => {
+            if (!htmlStructureError) {
+                setIsResolvingStructure(false);
+            }
+        }, [htmlStructureError]);
+
+        useEffect(() => {
+            const handler = (e: Event) => {
+                const detail = (e as CustomEvent).detail;
+                if (detail?.cellId === cellIds[0]) {
+                    setIsResolvingStructure(false);
+                }
+            };
+            window.addEventListener("htmlStructureResolved", handler);
+            return () => window.removeEventListener("htmlStructureResolved", handler);
+        }, [cellIds]);
+
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
         // Helper function to check if this cell should be highlighted
@@ -236,6 +256,33 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
         }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
+
+        const [isScrollHighlighted, setIsScrollHighlighted] = useState(false);
+        const scrollHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+        useEffect(() => {
+            if (contentToScrollTo && cellIds?.includes(contentToScrollTo) && cellRef.current) {
+                cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+                setContentToScrollTo(null);
+
+                if (scrollHighlightTimerRef.current) {
+                    clearTimeout(scrollHighlightTimerRef.current);
+                }
+                setIsScrollHighlighted(true);
+                scrollHighlightTimerRef.current = setTimeout(() => {
+                    setIsScrollHighlighted(false);
+                    scrollHighlightTimerRef.current = null;
+                }, 1500);
+            }
+        }, [contentToScrollTo, cellIds, setContentToScrollTo]);
+
+        useEffect(() => {
+            return () => {
+                if (scrollHighlightTimerRef.current) {
+                    clearTimeout(scrollHighlightTimerRef.current);
+                }
+            };
+        }, []);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {
@@ -368,39 +415,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         // Line numbers are always generated and shown at the beginning of each line
         // Labels are optional and shown after line numbers when present
 
-        // TODO: This was used for spell checking primarily. Will leave in for now but
-        // will not render it when it is undefined.
-        const AlertDot = ({ color }: { color: string }) => (
-            <span
-                style={{
-                    display: "inline-block",
-                    width: "5px",
-                    height: "5px",
-                    borderRadius: "50%",
-                    backgroundColor: color,
-                    marginLeft: "1px",
-                }}
-            />
-        );
-
-        const getAlertDot = () => {
-            if (alertColorCode === -1 || alertColorCode === undefined) return null;
-
-            const colors = {
-                "0": "transparent",
-                "1": "#FF6B6B",
-                "2": "purple",
-                "3": "white",
-            } as const;
-            return (
-                <AlertDot
-                    color={
-                        colors[alertColorCode?.toString() as keyof typeof colors] || "transparent"
-                    }
-                />
-            );
-        };
-
         const getBackgroundColor = () => {
             if (checkShouldHighlight() && scrollSyncEnabled) {
                 return "var(--vscode-editor-selectionBackground)";
@@ -419,6 +433,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         const getBorderStyle = () => {
             if (hasDuplicateId) {
                 return { borderColor: "red" };
+            }
+            if (htmlStructureError) {
+                return { borderColor: "var(--vscode-charts-yellow, #ca8a04)" };
             }
 
             // Explicitly reset border properties when no translation state
@@ -619,7 +636,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             <div
                 ref={cellRef}
                 data-cell-id={cellIds[0]}
-                className={`cell-content-display my-4 group ${getAnimationClassName()}`}
+                className={`cell-content-display my-4 group ${getAnimationClassName()} ${
+                    isScrollHighlighted ? "cell-scroll-highlight" : ""
+                }`}
                 style={{
                     backgroundColor: getBackgroundColor(),
                     direction: textDirection,
@@ -650,10 +669,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             }}
                             className="invisible"
                         >
-                            <CellLabelText
-                                label={lineNumber}
-                                forceLabelTopRow={forceLabelTopRow}
-                            />
+                            <CellLabelText label={lineNumber} forceLabelTopRow={forceLabelTopRow} />
                         </div>
                     ) : null}
                     <div className="cell-header flex justify-start items-start shrink-0 gap-[1px]">
@@ -940,7 +956,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         </div>
                                     )}
                                 </div>
-                                {getAlertDot()}
                             </div>
                         )}
                     </div>
@@ -954,12 +969,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     onClick={handleCellContentClick}
                 >
                     {/* Cell label - shown after line number when present */}
-                    {label && (
-                        <CellLabelText
-                            label={label}
-                            forceLabelTopRow={forceLabelTopRow}
-                        />
-                    )}
+                    {label && <CellLabelText label={label} forceLabelTopRow={forceLabelTopRow} />}
                     <div
                         tabIndex={0}
                         className={`flex-1 min-w-0 min-h-[1rem] ${
@@ -997,6 +1007,46 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 >
                                     {backtranslation.backtranslation}
                                 </ReactMarkdown>
+                            </div>
+                        )}
+
+                        {htmlStructureError && (
+                            <div
+                                style={{
+                                    marginTop: "0.25rem",
+                                    padding: "0.25rem 0.5rem",
+                                    fontSize: "0.8em",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "0.5rem",
+                                    color: "var(--vscode-charts-yellow, #ca8a04)",
+                                    backgroundColor: "rgba(202, 138, 4, 0.08)",
+                                    borderRadius: "4px",
+                                    border: "1px solid rgba(202, 138, 4, 0.25)",
+                                }}
+                            >
+                                <i className={`codicon ${isResolvingStructure ? "codicon-loading codicon-modifier-spin" : "codicon-warning"}`} />
+                                <span style={{ flex: 1 }}>
+                                    {isResolvingStructure
+                                        ? "Resolving structure..."
+                                        : `Structure mismatch: ${htmlStructureError}`}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isResolvingStructure}
+                                    style={{ height: "1.4rem", fontSize: "0.75rem", padding: "0 0.4rem" }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsResolvingStructure(true);
+                                        vscode.postMessage({
+                                            command: "resolveHtmlStructure",
+                                            content: { cellId: cellIds[0] },
+                                        } as EditorPostMessages);
+                                    }}
+                                >
+                                    {isResolvingStructure ? "Resolving…" : "Resolve"}
+                                </Button>
                             </div>
                         )}
                     </div>

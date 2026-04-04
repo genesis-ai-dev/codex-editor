@@ -145,7 +145,7 @@ suite("Connectivity Checker - Behavioral Documentation", () => {
          *    - User can manually sync (Cmd+Shift+P → Sync)
          *    - Sync pushes merged changes to remote
          *    - Marks user as executed in metadata.json
-         *    - Clears pendingUpdate flag
+         *    - checkUpdating (runs before sync) sees executed entry and clears pendingUpdate
          *    - Badge removed from projects list
          * 
          * LOCATION: extension.ts → executeCommandsAfter()

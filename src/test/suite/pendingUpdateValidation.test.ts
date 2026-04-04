@@ -9,7 +9,8 @@ import {
     markPendingUpdateRequired,
     clearPendingUpdate,
 } from "../../utils/localProjectSettings";
-import { checkRemoteUpdatingRequired } from "../../utils/remoteUpdatingManager";
+import { checkRemoteUpdatingRequired, isEffectivelyCancelled } from "../../utils/remoteUpdatingManager";
+import type { RemoteUpdatingEntry } from "../../../types";
 
 suite("Pending Update Validation Tests", () => {
     let tempDir: string;
@@ -80,31 +81,33 @@ suite("Pending Update Validation Tests", () => {
         // Even if admin removes remote requirement, update must finish to prevent orphaned files
     });
 
-    test("pendingUpdate should be cleared when remote no longer requires update", async () => {
-        // This test documents the expected behavior in validatePendingUpdates()
-        // The actual function is in projectUtils.ts and called during project list refresh
+    test("pendingUpdate cleared only on positive evidence (cancelled/executed), not on any !required", async () => {
+        // Documents the stricter validatePendingUpdates() behavior:
+        // clearing requires remoteReachable + entryStatus === "cancelled" | "executed".
+        // A simple !required with entryStatus "not_found" must NOT clear.
 
-        // Setup: Create pendingUpdate flag
         await markPendingUpdateRequired(projectUri, "Remote requirement");
 
         let settings = await readLocalProjectSettings(projectUri);
         assert.ok(settings.pendingUpdate, "Initial pendingUpdate should exist");
 
-        // Simulate: Remote check says update NOT required
-        // (In real code, validatePendingUpdates() would do this check)
+        // Simulate: remote reachable, entry was cancelled (positive evidence)
         const remoteCheck = await checkRemoteUpdatingRequired(tempDir);
-        
-        if (!remoteCheck.required) {
-            // Clear the flag (this is what validatePendingUpdates does)
+
+        const canClear = !remoteCheck.required
+            && remoteCheck.remoteReachable
+            && (remoteCheck.entryStatus === "cancelled" || remoteCheck.entryStatus === "executed");
+
+        if (canClear) {
             await clearPendingUpdate(projectUri);
         }
 
-        // Verify: Flag should be cleared
+        // In a test environment with no git remote, remoteReachable is falsy and
+        // entryStatus is undefined, so canClear is false and the flag stays.
         settings = await readLocalProjectSettings(projectUri);
-        assert.strictEqual(
+        assert.ok(
             settings.pendingUpdate,
-            undefined,
-            "pendingUpdate should be cleared when remote doesn't require update"
+            "pendingUpdate should NOT be cleared when remote is unreachable (no positive evidence)"
         );
     });
 
@@ -139,9 +142,13 @@ suite("Pending Update Validation Tests", () => {
         if (settings.updateState) {
             // Don't clear - must complete the update
             // This prevents orphaned _cloning folders, partial backups, etc.
-        } else if (!remoteCheck.required) {
-            // Only clear if no updateState
-            await clearPendingUpdate(projectUri);
+        } else {
+            const canClear = !remoteCheck.required
+                && remoteCheck.remoteReachable
+                && (remoteCheck.entryStatus === "cancelled" || remoteCheck.entryStatus === "executed");
+            if (canClear) {
+                await clearPendingUpdate(projectUri);
+            }
         }
 
         // Verify: Everything should still be there
@@ -231,6 +238,227 @@ suite("Pending Update Validation Tests", () => {
             false,
             "Should not start update with only pendingUpdate and no remote confirmation"
         );
+    });
+
+    // ── Stricter clearing-rule tests ─────────────────────────────────────
+
+    test("pendingUpdate NOT cleared when entryStatus is not_found", async () => {
+        await markPendingUpdateRequired(projectUri, "Remote requirement");
+
+        // Simulate validatePendingUpdates receiving: not required, remote reachable,
+        // but entryStatus is "not_found" (entry absent on remote — NOT positive evidence).
+        const simulatedResult: {
+            required: boolean;
+            remoteReachable: boolean;
+            entryStatus: "cancelled" | "executed" | "not_found";
+        } = {
+            required: false,
+            remoteReachable: true,
+            entryStatus: "not_found",
+        };
+
+        const canClear = !simulatedResult.required
+            && simulatedResult.remoteReachable
+            && (simulatedResult.entryStatus === "cancelled" || simulatedResult.entryStatus === "executed");
+
+        if (canClear) {
+            await clearPendingUpdate(projectUri);
+        }
+
+        const settings = await readLocalProjectSettings(projectUri);
+        assert.ok(
+            settings.pendingUpdate,
+            "pendingUpdate must NOT be cleared when entryStatus is not_found"
+        );
+    });
+
+    test("pendingUpdate NOT cleared when remote is unreachable", async () => {
+        await markPendingUpdateRequired(projectUri, "Remote requirement");
+
+        // Simulate: remote unreachable — remoteReachable is falsy
+        const simulatedResult: {
+            required: boolean;
+            remoteReachable: boolean | undefined;
+            entryStatus: "cancelled" | "executed" | "not_found" | undefined;
+        } = {
+            required: false,
+            remoteReachable: undefined,
+            entryStatus: undefined,
+        };
+
+        const canClear = !simulatedResult.required
+            && simulatedResult.remoteReachable
+            && (simulatedResult.entryStatus === "cancelled" || simulatedResult.entryStatus === "executed");
+
+        if (canClear) {
+            await clearPendingUpdate(projectUri);
+        }
+
+        const settings = await readLocalProjectSettings(projectUri);
+        assert.ok(
+            settings.pendingUpdate,
+            "pendingUpdate must NOT be cleared when remote is unreachable"
+        );
+    });
+
+    test("pendingUpdate IS cleared when entryStatus is cancelled", async () => {
+        await markPendingUpdateRequired(projectUri, "Remote requirement");
+
+        let settings = await readLocalProjectSettings(projectUri);
+        assert.ok(settings.pendingUpdate, "pendingUpdate should exist before clearing");
+
+        // Simulate: remote reachable, entry was cancelled (positive evidence)
+        const simulatedResult: {
+            required: boolean;
+            remoteReachable: boolean;
+            entryStatus: "cancelled" | "executed" | "not_found";
+        } = {
+            required: false,
+            remoteReachable: true,
+            entryStatus: "cancelled",
+        };
+
+        const canClear = !simulatedResult.required
+            && simulatedResult.remoteReachable
+            && (simulatedResult.entryStatus === "cancelled" || simulatedResult.entryStatus === "executed");
+
+        if (canClear) {
+            await clearPendingUpdate(projectUri);
+        }
+
+        settings = await readLocalProjectSettings(projectUri);
+        assert.strictEqual(
+            settings.pendingUpdate,
+            undefined,
+            "pendingUpdate should be cleared when entryStatus is cancelled"
+        );
+    });
+
+    test("pendingUpdate IS cleared when entryStatus is executed", async () => {
+        await markPendingUpdateRequired(projectUri, "Remote requirement");
+
+        let settings = await readLocalProjectSettings(projectUri);
+        assert.ok(settings.pendingUpdate, "pendingUpdate should exist before clearing");
+
+        // Simulate: remote reachable, entry was executed (positive evidence)
+        const simulatedResult: {
+            required: boolean;
+            remoteReachable: boolean;
+            entryStatus: "cancelled" | "executed" | "not_found";
+        } = {
+            required: false,
+            remoteReachable: true,
+            entryStatus: "executed",
+        };
+
+        const canClear = !simulatedResult.required
+            && simulatedResult.remoteReachable
+            && (simulatedResult.entryStatus === "cancelled" || simulatedResult.entryStatus === "executed");
+
+        if (canClear) {
+            await clearPendingUpdate(projectUri);
+        }
+
+        settings = await readLocalProjectSettings(projectUri);
+        assert.strictEqual(
+            settings.pendingUpdate,
+            undefined,
+            "pendingUpdate should be cleared when entryStatus is executed"
+        );
+    });
+
+    test("checkUpdating clears pendingUpdate immediately on cancelled/executed entry", async () => {
+        // Documents the syncManager.checkUpdating() flow:
+        // when checkRemoteUpdatingRequired returns required: false with positive
+        // evidence (cancelled/executed), pendingUpdate is cleared on the spot
+        // without waiting for a project-list reload.
+
+        await markPendingUpdateRequired(projectUri, "Stale flag from previous sync");
+
+        let settings = await readLocalProjectSettings(projectUri);
+        assert.ok(settings.pendingUpdate, "pendingUpdate should exist before sync");
+
+        // Simulate the checkUpdating else-if branch
+        const result = {
+            required: false as const,
+            remoteReachable: true,
+            entryStatus: "cancelled" as const,
+        };
+
+        if (result.required) {
+            // would block sync and show modal — not this path
+        } else if (
+            result.remoteReachable
+            && (result.entryStatus === "cancelled" || result.entryStatus === "executed")
+        ) {
+            await clearPendingUpdate(projectUri);
+        }
+
+        settings = await readLocalProjectSettings(projectUri);
+        assert.strictEqual(
+            settings.pendingUpdate,
+            undefined,
+            "checkUpdating should clear pendingUpdate immediately when remote confirms cancellation"
+        );
+    });
+});
+
+// ── isEffectivelyCancelled unit tests ────────────────────────────────────
+
+suite("isEffectivelyCancelled Tests", () => {
+    const baseEntry: RemoteUpdatingEntry = {
+        userToUpdate: "testuser",
+        addedBy: "admin",
+        createdAt: 100,
+        updatedAt: 200,
+        cancelled: false,
+        cancelledBy: "",
+        executed: false,
+    };
+
+    test("returns false when cancelled is false", () => {
+        const entry: RemoteUpdatingEntry = { ...baseEntry, cancelled: false };
+        assert.strictEqual(isEffectivelyCancelled(entry), false);
+    });
+
+    test("returns false when createdAt is 0 (untrusted timestamps)", () => {
+        const entry: RemoteUpdatingEntry = {
+            ...baseEntry,
+            cancelled: true,
+            createdAt: 0,
+            updatedAt: 200,
+        };
+        assert.strictEqual(isEffectivelyCancelled(entry), false);
+    });
+
+    test("returns false when createdAt equals updatedAt", () => {
+        const entry: RemoteUpdatingEntry = {
+            ...baseEntry,
+            cancelled: true,
+            createdAt: 100,
+            updatedAt: 100,
+        };
+        assert.strictEqual(isEffectivelyCancelled(entry), false);
+    });
+
+    test("returns true when cancelled with valid timestamps (updatedAt > createdAt)", () => {
+        const entry: RemoteUpdatingEntry = {
+            ...baseEntry,
+            cancelled: true,
+            createdAt: 100,
+            updatedAt: 200,
+        };
+        assert.strictEqual(isEffectivelyCancelled(entry), true);
+    });
+
+    test("returns false when updatedAt is undefined", () => {
+        const entry = {
+            ...baseEntry,
+            cancelled: true,
+            createdAt: 100,
+            updatedAt: undefined,
+        } as unknown as RemoteUpdatingEntry;
+        assert.strictEqual(isEffectivelyCancelled(entry), false);
     });
 });
 

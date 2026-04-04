@@ -37,6 +37,10 @@ function ParallelView() {
     );
     const [forceReplaceExpanded, setForceReplaceExpanded] = useState(false);
     const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+    const [highlightSearchResults, setHighlightSearchResults] = useState<boolean>(() => {
+        const saved = localStorage.getItem("highlightSearchResults");
+        return saved !== null ? saved === "true" : true;
+    });
 
     // Auto-reset pin filter when all pins are removed
     useEffect(() => {
@@ -128,21 +132,21 @@ function ParallelView() {
         prevSearchScopeRef.current = searchScope;
     }, [searchScope, lastQuery, verses.length, replaceText]);
 
-    // Re-search when selectedFiles changes (if we already have search results)
+    // Re-search when selectedFiles changes and there is an active query
     const prevSelectedFilesRef = useRef<string[]>([]);
     useEffect(() => {
         const filesChanged =
             JSON.stringify(prevSelectedFilesRef.current) !== JSON.stringify(selectedFiles);
         const hasQuery = lastQuery.trim().length > 0;
-        const hasResults = verses.length > 0;
 
-        // Auto-search if files changed and we have an active search
-        if (filesChanged && hasQuery && hasResults) {
+        // Auto-search if files changed and there is an active query.
+        // Do not depend on existing results, so toggling files can restore matches.
+        if (filesChanged && hasQuery) {
             searchBoth(lastQuery, replaceText);
         }
 
         prevSelectedFilesRef.current = selectedFiles;
-    }, [selectedFiles, lastQuery, verses.length, replaceText]);
+    }, [selectedFiles, lastQuery, replaceText]);
 
     // Request project files on mount and clear replace text
     useEffect(() => {
@@ -299,6 +303,12 @@ function ParallelView() {
                     }
                     break;
                 }
+                case "setHighlightSearchResults": {
+                    const value = message.value as boolean;
+                    setHighlightSearchResults(value);
+                    localStorage.setItem("highlightSearchResults", String(value));
+                    break;
+                }
             }
         };
 
@@ -413,6 +423,10 @@ function ParallelView() {
         setPinnedVerses((prev) => dedupeByCellId([...prev, ...unpinnedVerses]));
     };
 
+    const handleUnpinAll = () => {
+        setPinnedVerses([]);
+    };
+
     return (
         <div className="parallel-view">
             <WebviewHeader title="Parallel View" vscode={vscode} />
@@ -432,6 +446,7 @@ function ParallelView() {
                 selectedFiles={selectedFiles}
                 onSelectedFilesChange={setSelectedFiles}
                 onPinAll={handlePinAll}
+                onUnpinAll={handleUnpinAll}
                 onReplaceAll={handleReplaceAll}
                 replaceText={replaceText}
                 onReplaceTextChange={setReplaceText}
@@ -443,6 +458,7 @@ function ParallelView() {
                 forceReplaceExpanded={forceReplaceExpanded}
                 showPinnedOnly={showPinnedOnly}
                 onTogglePinnedFilter={() => setShowPinnedOnly((prev) => !prev)}
+                highlightSearchResults={highlightSearchResults}
             />
         </div>
     );
