@@ -607,7 +607,7 @@ export function MilestoneAccordion({
     return (
         <div
             ref={accordionRef}
-            className="milestone-accordion-dropdown focus-visible:outline-none"
+            className="ph-mask milestone-accordion-dropdown focus-visible:outline-none"
             tabIndex={-1}
             style={{
                 position: "absolute",
@@ -628,7 +628,7 @@ export function MilestoneAccordion({
                 transformOrigin: arrowPosition === "top" ? "top center" : "bottom center",
             }}
         >
-            <div className="flex items-center justify-between px-4 pt-4 pb-2 mb-2 border-b border-[var(--vscode-widget-border)] flex-shrink-0">
+            <div className="ph-no-capture flex items-center justify-between px-4 pt-4 pb-2 mb-2 border-b border-[var(--vscode-widget-border)] flex-shrink-0">
                 {isEditingMilestone ? (
                     <input
                         ref={inputRef}

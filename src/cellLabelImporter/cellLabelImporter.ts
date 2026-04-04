@@ -12,6 +12,7 @@ import { matchCellLabels } from "./matcher";
 import { copyToTempStorage, getColumnHeaders } from "./utils";
 import { updateCellLabels } from "./updater";
 import { getNonce } from "../utils/getNonce";
+import { getPostHogWebviewScript } from "../utils/telemetry";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 
 const DEBUG_CELL_LABEL_IMPORTER = false;
@@ -122,7 +123,8 @@ async function getHtmlForCellLabelImporterView(
                 img-src ${webview.cspSource} https: data:;
                 style-src ${webview.cspSource} 'unsafe-inline'; 
                 script-src 'nonce-${nonce}';
-                font-src ${webview.cspSource};">
+                font-src ${webview.cspSource};
+                connect-src https://*.posthog.com https://*.i.posthog.com;">
             <link href="${styleResetUri}" rel="stylesheet">
             <link href="${codiconsUri}" rel="stylesheet">
             
@@ -136,6 +138,7 @@ async function getHtmlForCellLabelImporterView(
         </head>
         <body>
             <div id="root"></div>
+            ${getPostHogWebviewScript(nonce, "CellLabelImporter")}
             <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
         </html>`;

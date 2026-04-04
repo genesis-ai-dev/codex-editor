@@ -364,5 +364,25 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         testProjectLoadingPerformanceCommand,
         migrateAudioFilesCommand,
 
+        vscode.commands.registerCommand(
+            "codex-editor-extension.toggleTelemetry",
+            async () => {
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const current = config.get<boolean>("telemetryEnabled", true);
+                const next = !current;
+
+                await config.update("telemetryEnabled", next, vscode.ConfigurationTarget.Global);
+
+                const label = next ? "enabled" : "disabled";
+                const action = await vscode.window.showInformationMessage(
+                    `Telemetry has been ${label}. Reload the window to apply the change.`,
+                    "Reload Window"
+                );
+
+                if (action === "Reload Window") {
+                    await vscode.commands.executeCommand("workbench.action.reloadWindow");
+                }
+            }
+        ),
     );
 }

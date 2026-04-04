@@ -104,6 +104,10 @@ suite('SyncManager VS Code Version Warning Tests', () => {
         syncManager = SyncManager.getInstance();
     });
 
+    let connectivityModule: any;
+    let isOnlineStub: sinon.SinonStub;
+    let dugiteModule: any;
+
     setup(async () => {
         // Restore any existing stubs first to avoid double-wrapping errors
         sinon.restore();
@@ -130,8 +134,8 @@ suite('SyncManager VS Code Version Warning Tests', () => {
         versionChecksModule = await import('../../projectManager/utils/versionChecks');
         getFrontierVersionStatusStub = sinon.stub(versionChecksModule, 'getFrontierVersionStatus').resolves({
             ok: true,
-            installedVersion: '0.4.18',
-            requiredVersion: '0.4.18'
+            installedVersion: '0.4.24',
+            requiredVersion: '0.4.24'
         });
 
         // Stub dugiteGit.listRemotes so the "not published" guard doesn't fire

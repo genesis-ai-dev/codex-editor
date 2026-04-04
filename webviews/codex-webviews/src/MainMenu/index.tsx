@@ -1,9 +1,19 @@
+import "../shared/posthog";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../components/ui/dialog";
 import { SyncSettings } from "../components/SyncSettings";
 import {
     TextDisplaySettingsModal,
@@ -147,6 +157,7 @@ interface State {
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
     isGitAvailable: boolean;
+    sessionRecordingEnabled: boolean;
 }
 
 function MainMenu() {
@@ -177,31 +188,32 @@ function MainMenu() {
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
         isGitAvailable: true,
+        sessionRecordingEnabled: false,
     });
 
     const network = useNetworkState();
     const isOnline = network?.online ?? true;
 
+    const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
+    const [isSessionRecordingDialogOpen, setIsSessionRecordingDialogOpen] = useState(false);
+    const [pendingSessionRecordingEnabled, setPendingSessionRecordingEnabled] = useState<
+        boolean | null
+    >(null);
+
     // Optimistic local state for validation counters so rapid clicks work correctly.
     // Without this, each click reads from the stale server-confirmed state (which
     // hasn't round-tripped yet), causing lost increments and UI bouncing.
     const [localValidationCount, setLocalValidationCount] = useState<number | null>(null);
-    const [localValidationCountAudio, setLocalValidationCountAudio] = useState<number | null>(
-        null
-    );
+    const [localValidationCountAudio, setLocalValidationCountAudio] = useState<number | null>(null);
     const validationCountDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const validationCountAudioDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const localCountFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const localCountAudioFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const displayValidationCount =
-        localValidationCount ??
-        state.projectState.projectOverview?.validationCount ??
-        1;
+        localValidationCount ?? state.projectState.projectOverview?.validationCount ?? 1;
     const displayValidationCountAudio =
-        localValidationCountAudio ??
-        state.projectState.projectOverview?.validationCountAudio ??
-        1;
+        localValidationCountAudio ?? state.projectState.projectOverview?.validationCountAudio ?? 1;
 
     // Clear optimistic override once the server has caught up to the local value
     useEffect(() => {
@@ -221,7 +233,8 @@ function MainMenu() {
     // Clean up debounce timers on unmount
     useEffect(() => {
         return () => {
-            if (validationCountDebounceRef.current) clearTimeout(validationCountDebounceRef.current);
+            if (validationCountDebounceRef.current)
+                clearTimeout(validationCountDebounceRef.current);
             if (validationCountAudioDebounceRef.current)
                 clearTimeout(validationCountAudioDebounceRef.current);
             if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
@@ -230,59 +243,51 @@ function MainMenu() {
         };
     }, []);
 
-    const handleValidationCountChange = useCallback(
-        (newCount: number) => {
-            setLocalValidationCount(newCount);
+    const handleValidationCountChange = useCallback((newCount: number) => {
+        setLocalValidationCount(newCount);
 
-            if (validationCountDebounceRef.current)
-                clearTimeout(validationCountDebounceRef.current);
-            if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
+        if (validationCountDebounceRef.current) clearTimeout(validationCountDebounceRef.current);
+        if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
 
-            validationCountDebounceRef.current = setTimeout(() => {
-                try {
-                    vscode.postMessage({
-                        command: "setValidationCountDirect",
-                        data: { count: newCount },
-                    });
-                } catch (error) {
-                    console.error("Could not send validation count:", error);
-                }
-            }, 150);
+        validationCountDebounceRef.current = setTimeout(() => {
+            try {
+                vscode.postMessage({
+                    command: "setValidationCountDirect",
+                    data: { count: newCount },
+                });
+            } catch (error) {
+                console.error("Could not send validation count:", error);
+            }
+        }, 150);
 
-            // Safety net: clear optimistic state after 5s in case server never confirms
-            localCountFallbackRef.current = setTimeout(() => {
-                setLocalValidationCount(null);
-            }, 5000);
-        },
-        []
-    );
+        // Safety net: clear optimistic state after 5s in case server never confirms
+        localCountFallbackRef.current = setTimeout(() => {
+            setLocalValidationCount(null);
+        }, 5000);
+    }, []);
 
-    const handleValidationCountAudioChange = useCallback(
-        (newCount: number) => {
-            setLocalValidationCountAudio(newCount);
+    const handleValidationCountAudioChange = useCallback((newCount: number) => {
+        setLocalValidationCountAudio(newCount);
 
-            if (validationCountAudioDebounceRef.current)
-                clearTimeout(validationCountAudioDebounceRef.current);
-            if (localCountAudioFallbackRef.current)
-                clearTimeout(localCountAudioFallbackRef.current);
+        if (validationCountAudioDebounceRef.current)
+            clearTimeout(validationCountAudioDebounceRef.current);
+        if (localCountAudioFallbackRef.current) clearTimeout(localCountAudioFallbackRef.current);
 
-            validationCountAudioDebounceRef.current = setTimeout(() => {
-                try {
-                    vscode.postMessage({
-                        command: "setValidationCountAudioDirect",
-                        data: { count: newCount },
-                    });
-                } catch (error) {
-                    console.error("Could not send audio validation count:", error);
-                }
-            }, 150);
+        validationCountAudioDebounceRef.current = setTimeout(() => {
+            try {
+                vscode.postMessage({
+                    command: "setValidationCountAudioDirect",
+                    data: { count: newCount },
+                });
+            } catch (error) {
+                console.error("Could not send audio validation count:", error);
+            }
+        }, 150);
 
-            localCountAudioFallbackRef.current = setTimeout(() => {
-                setLocalValidationCountAudio(null);
-            }, 5000);
-        },
-        []
-    );
+        localCountAudioFallbackRef.current = setTimeout(() => {
+            setLocalValidationCountAudio(null);
+        }, 5000);
+    }, []);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -354,6 +359,14 @@ function MainMenu() {
                         },
                     }));
                     break;
+                case "sessionRecordingUpdate":
+                    setState((prevState) => ({
+                        ...prevState,
+                        sessionRecordingEnabled:
+                            message.data.enabled ?? prevState.sessionRecordingEnabled,
+                    }));
+                    break;
+                // Speech-to-text settings moved to Copilot Settings panel
             }
         };
 
@@ -364,6 +377,7 @@ function MainMenu() {
             vscode.postMessage({ command: "webviewReady" });
             // Request sync settings
             vscode.postMessage({ command: "getSyncSettings" });
+            vscode.postMessage({ command: "getSessionRecordingSetting" });
         } catch (error) {
             console.error("Could not send webviewReady message:", error);
         }
@@ -444,6 +458,34 @@ function MainMenu() {
     };
 
     // Speech-to-text settings controls moved to Copilot Settings panel
+
+    const handleApplyTextDisplaySettings = (settings: TextDisplaySettings) => {
+        try {
+            vscode.postMessage({
+                command: "applyTextDisplaySettings",
+                data: settings,
+            });
+        } catch (error) {
+            console.error("Could not apply text display settings:", error);
+        }
+    };
+
+    const handleSessionRecordingToggleClick = () => {
+        setPendingSessionRecordingEnabled(!state.sessionRecordingEnabled);
+        setIsSessionRecordingDialogOpen(true);
+    };
+
+    const handleProceedSessionRecordingToggle = () => {
+        setIsSessionRecordingDialogOpen(false);
+        handleProjectAction("toggleSessionRecording");
+    };
+
+    const handleCancelSessionRecordingToggle = () => {
+        setIsSessionRecordingDialogOpen(false);
+        setPendingSessionRecordingEnabled(null);
+    };
+
+    const isEnablingSessionRecording = pendingSessionRecordingEnabled === true;
 
     const getLanguageDisplay = (languageObj: any): string => {
         if (!languageObj) return "Missing";
@@ -733,7 +775,8 @@ function MainMenu() {
                                                                 onClick={() => {
                                                                     if (displayValidationCount > 1)
                                                                         handleValidationCountChange(
-                                                                            displayValidationCount - 1
+                                                                            displayValidationCount -
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Decrease"
@@ -748,7 +791,8 @@ function MainMenu() {
                                                                 onClick={() => {
                                                                     if (displayValidationCount < 15)
                                                                         handleValidationCountChange(
-                                                                            displayValidationCount + 1
+                                                                            displayValidationCount +
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Increase"
@@ -967,6 +1011,15 @@ function MainMenu() {
                                                 spinning: projectState.isCheckingForUpdates,
                                             },
                                             {
+                                                icon: state.sessionRecordingEnabled
+                                                    ? "codicon-eye"
+                                                    : "codicon-eye-closed",
+                                                label: state.sessionRecordingEnabled
+                                                    ? "Disable Session Recording"
+                                                    : "Enable Session Recording",
+                                                action: handleSessionRecordingToggleClick,
+                                            },
+                                            {
                                                 icon: "codicon-close",
                                                 label: "Close Project",
                                                 action: () => executeCommand("closeProject"),
@@ -1083,9 +1136,69 @@ function MainMenu() {
                 Codex Editor {projectState.appVersion ? `v${projectState.appVersion}` : ""}
             </div>
 
+            {/* Text Display Settings Modal */}
+            <TextDisplaySettingsModal
+                isOpen={isTextDisplaySettingsOpen}
+                onClose={() => setIsTextDisplaySettingsOpen(false)}
+                onApply={handleApplyTextDisplaySettings}
+            />
+
+            <Dialog
+                open={isSessionRecordingDialogOpen}
+                onOpenChange={(open) => {
+                    setIsSessionRecordingDialogOpen(open);
+                    if (!open) {
+                        setPendingSessionRecordingEnabled(null);
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>
+                            {isEnablingSessionRecording
+                                ? "Enable Session Recording"
+                                : "Disable Session Recording"}
+                        </DialogTitle>
+                        <DialogDescription asChild>
+                            <div className="space-y-3">
+                                {isEnablingSessionRecording ? (
+                                    <>
+                                        <p>
+                                            Enabling session recording is a debugging tool that will
+                                            take snapshots of your screen and load them locally
+                                            while you work. In the event that an error is triggered
+                                            the most current snapshot will be sent to the dev team
+                                            to support you better. While sensitive information such
+                                            as project name, cell text and labels, and filenames
+                                            will be blurred out, we can't guarantee this for all
+                                            data on your screen.
+                                        </p>
+                                        <p>The project will reload upon proceeding.</p>
+                                    </>
+                                ) : (
+                                    <p>
+                                        The project will reload in order to disable session
+                                        recording.
+                                    </p>
+                                )}
+                            </div>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleCancelSessionRecordingToggle}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleProceedSessionRecordingToggle}>Proceed</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
 
 const root = createRoot(document.getElementById("root")!);
-root.render(<MainMenu />);
+root.render(
+    <ErrorBoundary>
+        <MainMenu />
+    </ErrorBoundary>
+);

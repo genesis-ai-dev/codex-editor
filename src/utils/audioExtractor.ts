@@ -6,8 +6,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { shouldUseNativeAudio } from './toolPreferences';
+import { shouldUseNativeAudio, getAudioToolMode } from './toolPreferences';
 import { getFFmpegPath } from './ffmpegManager';
+import { captureEvent } from './telemetry';
 
 function getSpawn(): ((command: string, args?: readonly string[]) => any) | null {
     try {
@@ -140,6 +141,11 @@ export async function extractAudioFromVideo(
             return await extractAudioWithFFmpeg(videoData, startTime, endTime);
         } catch (error) {
             console.error('FFmpeg extraction failed, using fallback:', error);
+            captureEvent("tool_fallback_used", {
+                tool: "audio",
+                reason: "ffmpeg_extraction_failed",
+                mode: getAudioToolMode(),
+            });
             return fallbackCopyVideo(videoData);
         }
     } else {

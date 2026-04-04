@@ -3,6 +3,7 @@ import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/cod
 import { CustomWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { GlobalContentType, GlobalMessage } from "../types";
 import { getNonce } from "./utils/getNonce";
+import { getPostHogWebviewScript } from "./utils/telemetry";
 import { safePostMessageToView } from "./utils/webviewUtils";
 
 
@@ -137,6 +138,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
         </head>
         <body>
             <div id="root"></div>
+            ${getPostHogWebviewScript(nonce, this.getScriptPath()[0])}
             <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
         </html>`;

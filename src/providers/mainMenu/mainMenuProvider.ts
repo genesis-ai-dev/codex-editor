@@ -482,6 +482,28 @@ export class MainMenuProvider extends BaseWebviewProvider {
         safePostMessageToView(this._view, { command: "actionCompleted" }, "MainMenu");
     }
 
+    private sendSessionRecordingSetting() {
+        const enabled = vscode.workspace
+            .getConfiguration("codex-editor-extension")
+            .get<boolean>("sessionRecordingEnabled", false);
+
+        if (this._view) {
+            safePostMessageToView(
+                this._view,
+                { command: "sessionRecordingUpdate", data: { enabled } },
+                "MainMenu",
+            );
+        }
+    }
+
+    private async toggleSessionRecording() {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        const current = config.get<boolean>("sessionRecordingEnabled", false);
+        await config.update("sessionRecordingEnabled", !current, vscode.ConfigurationTarget.Global);
+        this.sendSessionRecordingSetting();
+        await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    }
+
     private async sendSyncSettings() {
         const { getSyncSettings } = await import("../../utils/localProjectSettings");
         const { autoSyncEnabled, syncDelayMinutes } = await getSyncSettings();
@@ -592,6 +614,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "webviewReady":
                 await this.updateProjectOverview();
                 await this.updateWebviewState();
+                this.sendSessionRecordingSetting();
                 break;
             case "openProject":
                 if (message.data?.path) {
@@ -637,6 +660,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openEditAnalysis":
                 await vscode.commands.executeCommand("codex-editor-extension.analyzeEdits");
+                break;
+            case "getSessionRecordingSetting":
+                this.sendSessionRecordingSetting();
+                break;
+            case "toggleSessionRecording":
+                await this.toggleSessionRecording();
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();
