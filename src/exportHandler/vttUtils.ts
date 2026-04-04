@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { CodexNotebookAsJSONData, QuillCellContent } from "@types";
+import { CodexCellTypes } from "../../types/enums";
 import { removeHtmlTags } from "./subtitleUtils";
 import { ExportOptions } from "./exportHandler";
 import * as vscode from "vscode";
@@ -69,7 +70,11 @@ export const generateVttData = (
         // Filter out merged cells before processing
         .filter((unit) => {
             const metadata = unit.metadata;
-            return !metadata?.data?.merged && !!unit.metadata?.data?.startTime;
+            return (
+                !metadata?.data?.merged &&
+                metadata?.type !== CodexCellTypes.MILESTONE &&
+                metadata?.data?.startTime != null
+            );
         })
         .map((unit, index) => {
             const startTime = unit.metadata?.data?.startTime ?? index;
