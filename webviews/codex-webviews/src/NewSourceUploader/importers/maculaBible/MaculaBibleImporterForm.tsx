@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { v4 as uuidv4 } from 'uuid';
+import React, { useState, useCallback } from "react";
+import { v4 as uuidv4 } from "uuid";
 import {
     ImporterComponentProps,
     AlignedCell,
@@ -23,11 +23,11 @@ import {
     ExternalLink,
     CheckCircle,
     XCircle,
-    ArrowLeft,
     BookOpen,
     Loader2,
     Info,
     Languages,
+    BarChart3,
 } from "lucide-react";
 
 import { notebookToImportedContent } from "../common/translationHelper";
@@ -36,11 +36,7 @@ import { addMilestoneCellsToNotebookPair } from "../../utils/workflowHelpers";
 import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { createMaculaVerseCellMetadata } from "./cellMetadata";
 
-/**
- * Maps book codes to their full names
- */
 const bookCodeToName: Record<string, string> = {
-    // Old Testament
     GEN: "Genesis",
     EXO: "Exodus",
     LEV: "Leviticus",
@@ -80,7 +76,6 @@ const bookCodeToName: Record<string, string> = {
     HAG: "Haggai",
     ZEC: "Zechariah",
     MAL: "Malachi",
-    // New Testament
     MAT: "Matthew",
     MRK: "Mark",
     LUK: "Luke",
@@ -110,45 +105,39 @@ const bookCodeToName: Record<string, string> = {
     REV: "Revelation",
 };
 
-/**
- * Gets the full book name from a book code
- */
 function getFullBookName(bookCode: string): string {
     if (!bookCode) return bookCode;
-    
+
     const upperCode = bookCode.toUpperCase().trim();
-    
-    // Check exact match first
+
     if (bookCodeToName[upperCode]) {
         return bookCodeToName[upperCode];
     }
-    
-    // Handle common variations/misspellings
+
     const variations: Record<string, string> = {
-        'RIM': 'ROM', // Romans variation
-        'ROM': 'ROM',
-        'PHL': 'PHP', // Philippians variation
-        'PHP': 'PHP',
+        RIM: "ROM",
+        ROM: "ROM",
+        PHL: "PHP",
+        PHP: "PHP",
     };
-    
+
     const normalizedCode = variations[upperCode] || upperCode;
     if (bookCodeToName[normalizedCode]) {
         return bookCodeToName[normalizedCode];
     }
-    
-    // Try matching by first 2-3 characters for partial matches
-    const cleanCode = normalizedCode.replace(/[^A-Z0-9]/g, '');
-    
-    // Check all mappings for partial matches (e.g., "1CO" matches "1CO")
+
+    const cleanCode = normalizedCode.replace(/[^A-Z0-9]/g, "");
+
     for (const [code, name] of Object.entries(bookCodeToName)) {
-        if (code === cleanCode || 
+        if (
+            code === cleanCode ||
             (cleanCode.length >= 2 && code.startsWith(cleanCode.substring(0, 2))) ||
-            (cleanCode.length >= 2 && cleanCode.startsWith(code.substring(0, 2)))) {
+            (cleanCode.length >= 2 && cleanCode.startsWith(code.substring(0, 2)))
+        ) {
             return name;
         }
     }
-    
-    // Fallback: return the code as-is if no match found
+
     console.warn(`[Macula Bible] Unknown book code: "${bookCode}", using as-is`);
     return bookCode;
 }
@@ -164,7 +153,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
         downloadResource,
     } = props;
 
-    // State management
     const [isDownloading, setIsDownloading] = useState(false);
     const [progress, setProgress] = useState<ImportProgress>({
         stage: "idle",
@@ -176,7 +164,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
     const [notebooks, setNotebooks] = useState<NotebookPair[]>([]);
     const [alignedContent, setAlignedContent] = useState<AlignedCell[] | null>(null);
 
-    // Check for existing Macula Bible
     const existingMaculaBible = existingFiles.find(
         (file) =>
             file.metadata?.id === "macula-greek-hebrew" ||
@@ -184,7 +171,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
             file.name.toLowerCase().includes("hebrew-greek")
     );
 
-    // Determine if this is a translation import
     const isTranslationImport =
         wizardContext?.intent === "target" &&
         wizardContext?.selectedSource &&
@@ -196,7 +182,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
             try {
                 setProgress({ stage: "creating", message: "Creating notebooks...", progress: 60 });
 
-                // Group verses by book
                 const bookGroups = new Map<string, typeof verses>();
                 for (const verse of verses) {
                     const bookCode = verse.vref.split(" ")[0];
@@ -206,30 +191,29 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                     bookGroups.get(bookCode)!.push(verse);
                 }
 
-                // Create notebook pairs for each book
                 const notebookPairs: NotebookPair[] = [];
                 let bookCount = 0;
                 const totalBooks = bookGroups.size;
 
                 for (const [bookCode, bookVerses] of bookGroups.entries()) {
-                    // Convert book code to full name (e.g., "1CO" -> "1 Corinthians")
                     const fullBookName = getFullBookName(bookCode);
-                    
-                    // Determine corpus marker: Use language-specific format for Macula
+
                     const baseCorpusMarker = getCorpusMarkerForBook(bookCode);
                     const isNT = isNewTestamentBook(bookCode);
-                    const corpusMarker = baseCorpusMarker 
-                        ? (baseCorpusMarker === "NT" ? "Greek Bible" : "Hebrew Bible")
-                        : (isNT ? "Greek Bible" : "Hebrew Bible");
+                    const corpusMarker = baseCorpusMarker
+                        ? baseCorpusMarker === "NT"
+                            ? "Greek Bible"
+                            : "Hebrew Bible"
+                        : isNT
+                          ? "Greek Bible"
+                          : "Hebrew Bible";
 
-                    // Name notebooks with language prefix: "Hebrew Genesis", "Greek Matthew", etc.
                     const languagePrefix = isNT ? "Greek" : "Hebrew";
                     const notebookName = `${languagePrefix} ${fullBookName}`;
 
                     const sourceNotebook: ProcessedNotebook = {
                         name: bookCode,
                         cells: bookVerses.map((verse) => {
-                            // Create cell metadata with UUID, globalReferences, and chapterNumber
                             const { cellId, metadata } = createMaculaVerseCellMetadata({
                                 vref: verse.vref,
                                 text: verse.text,
@@ -237,18 +221,17 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                             });
                             return {
                                 id: cellId,
-                            content: verse.text,
-                            images: [],
-                            metadata: {
+                                content: verse.text,
+                                images: [],
+                                metadata: {
                                     ...metadata,
-                                    // Keep vref for backward compatibility
                                     vref: verse.vref,
-                            },
+                                },
                             };
                         }),
                         metadata: {
                             id: uuidv4(),
-                            originalFileName: `${fullBookName}.macula`, // Use full name instead of code
+                            originalFileName: `${fullBookName}.macula`,
                             sourceFile: `${fullBookName}.macula`,
                             importerType: "macula",
                             createdAt: new Date().toISOString(),
@@ -258,8 +241,8 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                                 originalFileName: `${fullBookName}.macula`,
                                 importTimestamp: new Date().toISOString(),
                             },
-                            corpusMarker: corpusMarker,
-                            fileDisplayName: notebookName, // Use full name for display (e.g., "1 Corinthians Macula")
+                            corpusMarker,
+                            fileDisplayName: notebookName,
                         },
                     };
 
@@ -268,7 +251,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                         name: bookCode,
                         cells: sourceNotebook.cells.map((cell) => ({
                             ...cell,
-                            content: "", // Empty for codex
+                            content: "",
                         })),
                         metadata: {
                             ...sourceNotebook.metadata,
@@ -280,10 +263,8 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                         source: sourceNotebook,
                         codex: codexNotebook,
                     };
-                    
-                    // Add milestone cells to the notebook pair
+
                     const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
-                    
                     notebookPairs.push(notebookPairWithMilestones);
 
                     bookCount++;
@@ -299,7 +280,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                 setDownloadComplete(true);
                 setIsDownloading(false);
 
-                // If this is a translation import, handle alignment
                 if (isTranslationImport) {
                     await handleTranslationAlignment(notebookPairs);
                 }
@@ -324,16 +304,11 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
         setProgress({ stage: "downloading", message: "Initializing download...", progress: 0 });
 
         try {
-            // Request download from provider using the generic download system
-            const result = await downloadResource(
-                "macula-bible", // Plugin ID
-                (progress) => {
-                    setProgress(progress);
-                }
-            );
+            const result = await downloadResource("macula-bible", (p) => {
+                setProgress(p);
+            });
 
-            // Process the downloaded verses
-            if (result && result.verses) {
+            if (result?.verses) {
                 await processVersesToNotebooks(result.verses);
             } else {
                 throw new Error("Invalid response from download");
@@ -344,7 +319,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
             setIsDownloading(false);
             notifyImportEnded();
         }
-    }, [downloadResource]);
+    }, [downloadResource, processVersesToNotebooks]);
 
     const handleTranslationAlignment = async (notebookPairs: NotebookPair[]) => {
         if (!alignContent || !wizardContext?.selectedSource) return;
@@ -356,7 +331,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                 progress: 0,
             });
 
-            // Convert all notebooks to imported content
             const allImportedContent: ImportedContent[] = [];
             for (const pair of notebookPairs) {
                 const content = notebookToImportedContent(pair);
@@ -369,7 +343,6 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                 progress: 50,
             });
 
-            // Request alignment
             const aligned = await alignContent(
                 allImportedContent,
                 wizardContext.selectedSource.path,
@@ -390,245 +363,192 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
         }
     };
 
-    const handleRetryAlignment = async (aligner: CellAligner) => {
-        if (!alignContent || !wizardContext?.selectedSource) return;
-
-        try {
-            const allImportedContent: ImportedContent[] = [];
-            for (const pair of notebooks) {
-                const content = notebookToImportedContent(pair);
-                allImportedContent.push(...content);
-            }
-
-            const aligned = await alignContent(
-                allImportedContent,
-                wizardContext.selectedSource.path,
-                aligner
-            );
-
-            setAlignedContent(aligned);
-        } catch (err) {
-            console.error("Retry alignment failed:", err);
-            setError(
-                `Alignment retry failed: ${err instanceof Error ? err.message : "Unknown error"}`
-            );
-        }
-    };
-
     const handleComplete = () => {
         if (notebooks.length > 0 && onComplete) {
             onComplete(notebooks);
         }
     };
 
-    // Show alignment preview for translation imports
+    // Translation alignment review
     if (isTranslationImport && alignedContent) {
         return (
-            <div className="container mx-auto p-6 max-w-4xl">
-                <Card>
-                    <CardHeader>
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <Languages className="h-6 w-6 text-primary" />
-                                <div>
-                                    <CardTitle>Translation Ready</CardTitle>
-                                    <CardDescription>
-                                        Macula Bible content aligned with{" "}
-                                        {wizardContext?.selectedSource?.name}
-                                    </CardDescription>
-                                </div>
-                            </div>
-                            <Button variant="ghost" onClick={onCancel}>
-                                <ArrowLeft className="h-4 w-4 mr-2" />
-                                Back
-                            </Button>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                        <Alert>
-                            <CheckCircle className="h-4 w-4" />
-                            <div>
-                            <AlertTitle>Alignment Complete</AlertTitle>
-                            <AlertDescription>
-                                Successfully aligned {alignedContent.length} items from the Macula
-                                Bible. Ready to import translations.
-                            </AlertDescription>
-                            </div>
-                        </Alert>
+            <div className="container mx-auto p-6 max-w-4xl space-y-6">
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                    <Languages className="h-6 w-6" />
+                    Translation Ready
+                </h1>
 
-                        <div className="flex justify-between">
-                            <Button variant="outline" onClick={onCancel}>
-                                Cancel
-                            </Button>
-                            <Button onClick={handleConfirmAlignment}>
-                                <BookOpen className="h-4 w-4 mr-2" />
-                                Import Translation
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
+                <Alert>
+                    <CheckCircle className="h-4 w-4" />
+                    <div>
+                        <AlertTitle>Alignment Complete</AlertTitle>
+                        <AlertDescription>
+                            Successfully aligned {alignedContent.length} items from the Macula Bible
+                            with {wizardContext?.selectedSource?.name}.
+                        </AlertDescription>
+                    </div>
+                </Alert>
+
+                <Button onClick={handleConfirmAlignment} className="w-full h-12 text-base">
+                    Finish Import
+                </Button>
             </div>
         );
     }
 
+    const totalCells = notebooks.reduce((sum, pair) => sum + pair.source.cells.length, 0);
+
     return (
-        <div className="container mx-auto p-6 max-w-4xl">
+        <div className="container mx-auto p-6 max-w-4xl space-y-6">
+            {/* Header */}
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Languages className="h-6 w-6" />
+                Macula Hebrew and Greek Bible
+            </h1>
+
+            {isTranslationImport && wizardContext?.selectedSource && (
+                <Alert>
+                    <Languages className="h-4 w-4" />
+                    <AlertDescription>
+                        Importing translation for: <strong>{wizardContext.selectedSource.name}</strong>
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {/* About / Info Card */}
             <Card>
                 <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <Languages className="h-6 w-6 text-primary" />
-                            <div>
-                                <CardTitle>Macula Hebrew and Greek Bible</CardTitle>
-                                <CardDescription>
-                                    {isTranslationImport
-                                        ? `Import translation for: ${wizardContext?.selectedSource?.name}`
-                                        : "Download the original language Bible with morphological annotations"}
-                                </CardDescription>
-                            </div>
-                        </div>
-                        <Button variant="ghost" onClick={onCancel}>
-                            <ArrowLeft className="h-4 w-4 mr-2" />
-                            Back
-                        </Button>
-                    </div>
+                    <CardTitle>About the Macula Bible</CardTitle>
+                    <CardDescription>
+                        Download the original language Bible with morphological annotations.
+                    </CardDescription>
                 </CardHeader>
-
-                <CardContent className="space-y-6">
-                    {/* Bible Information */}
-                    <div className="bg-muted/50 p-4 rounded-lg">
-                        <div className="flex items-start gap-3">
-                            <Info className="h-5 w-5 text-blue-500 mt-0.5" />
-                            <div>
-                                <h4 className="font-medium mb-2">About the Macula Bible</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-muted-foreground">
-                                    <div>
-                                        <span className="font-medium">Languages:</span> Hebrew (OT)
-                                        and Greek (NT)
-                                    </div>
-                                    <div>
-                                        <span className="font-medium">Content:</span> Both Old and
-                                        New Testament
-                                    </div>
-                                    <div>
-                                        <span className="font-medium">Features:</span> Morphological
-                                        annotations
-                                    </div>
-                                    <div>
-                                        <span className="font-medium">Source:</span> Genesis AI
-                                        Development
-                                    </div>
-                                </div>
-                                <div className="mt-3">
-                                    <a
-                                        href="https://github.com/genesis-ai-dev/hebrew-greek-bible"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm"
-                                    >
-                                        View repository
-                                        <ExternalLink className="h-3 w-3" />
-                                    </a>
-                                </div>
-                            </div>
+                <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                            <span className="font-medium text-muted-foreground">Languages</span>
+                            <p>Hebrew (OT) and Greek (NT)</p>
                         </div>
-                    </div>
-
-                    {/* Existing Bible Check */}
-                    {existingMaculaBible && (
-                        <Alert>
-                            <Info className="h-4 w-4" />
-                            <div>
-                            <AlertTitle>Existing Macula Bible Found</AlertTitle>
-                            <AlertDescription>
-                                You already have a Macula Bible in your project:{" "}
-                                <strong>{existingMaculaBible.name}</strong>
-                                {isTranslationImport
-                                    ? " This import will add translations to your existing target files."
-                                    : " Importing again will create duplicate files."}
-                            </AlertDescription>
-                            </div>
-                        </Alert>
-                    )}
-
-                    {/* Error Display */}
-                    {error && (
-                        <Alert variant="destructive">
-                            <XCircle className="h-4 w-4" />
-                            <div>
-                            <AlertTitle>Download Failed</AlertTitle>
-                            <AlertDescription>{error}</AlertDescription>
-                            </div>
-                        </Alert>
-                    )}
-
-                    {/* Progress Display */}
-                    {isDownloading && (
-                        <div className="space-y-3">
-                            <div className="flex items-center gap-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span className="text-sm font-medium">
-                                    {progress.message || "Processing..."}
-                                </span>
-                            </div>
-                            <Progress value={progress.progress || 0} className="w-full" />
-                            <p className="text-xs text-muted-foreground">
-                                {Math.round(progress.progress || 0)}% complete
+                        <div>
+                            <span className="font-medium text-muted-foreground">Content</span>
+                            <p>Both Old and New Testament</p>
+                        </div>
+                        <div>
+                            <span className="font-medium text-muted-foreground">Features</span>
+                            <p>Morphological annotations</p>
+                        </div>
+                        <div>
+                            <span className="font-medium text-muted-foreground">Source</span>
+                            <p>
+                                <a
+                                    href="https://github.com/genesis-ai-dev/hebrew-greek-bible"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800"
+                                >
+                                    Genesis AI Development
+                                    <ExternalLink className="h-3 w-3" />
+                                </a>
                             </p>
                         </div>
-                    )}
-
-                    {/* Success Display */}
-                    {downloadComplete && !isTranslationImport && (
-                        <Alert>
-                            <CheckCircle className="h-4 w-4" />
-                            <div>
-                            <AlertTitle>Download Complete</AlertTitle>
-                            <AlertDescription>
-                                Successfully downloaded {notebooks.length} books from the Macula
-                                Bible. Ready to import into your project.
-                            </AlertDescription>
-                            </div>
-                        </Alert>
-                    )}
-
-                    {/* Action Buttons */}
-                    <div className="flex justify-between">
-                        <Button variant="outline" onClick={onCancel}>
-                            Cancel
-                        </Button>
-
-                        <div className="flex gap-2">
-                            {!downloadComplete && (
-                                <Button
-                                    onClick={handleDownload}
-                                    disabled={isDownloading}
-                                    className="min-w-[120px]"
-                                >
-                                    {isDownloading ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                            Downloading
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Download className="h-4 w-4 mr-2" />
-                                            Download
-                                        </>
-                                    )}
-                                </Button>
-                            )}
-
-                            {downloadComplete && !isTranslationImport && (
-                                <Button onClick={handleComplete}>
-                                    <BookOpen className="h-4 w-4 mr-2" />
-                                    Import to Project
-                                </Button>
-                            )}
-                        </div>
                     </div>
+
+                    {/* Download Button */}
+                    <Button
+                        onClick={handleDownload}
+                        disabled={isDownloading || downloadComplete}
+                        variant="outline"
+                        className="gap-2"
+                    >
+                        {isDownloading ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Downloading...
+                            </>
+                        ) : downloadComplete ? (
+                            <>
+                                <CheckCircle className="h-4 w-4" />
+                                Downloaded
+                            </>
+                        ) : (
+                            <>
+                                <Download className="h-4 w-4" />
+                                Download
+                            </>
+                        )}
+                    </Button>
                 </CardContent>
             </Card>
+
+            {/* Existing Bible Warning */}
+            {existingMaculaBible && (
+                <Alert>
+                    <Info className="h-4 w-4" />
+                    <div>
+                        <AlertTitle>Existing Macula Bible Found</AlertTitle>
+                        <AlertDescription>
+                            You already have a Macula Bible in your project:{" "}
+                            <strong>{existingMaculaBible.name}</strong>.{" "}
+                            {isTranslationImport
+                                ? "This import will add translations to your existing target files."
+                                : "Importing again will create duplicate files."}
+                        </AlertDescription>
+                    </div>
+                </Alert>
+            )}
+
+            {/* Progress */}
+            {isDownloading && (
+                <div className="space-y-3">
+                    <Progress value={progress.progress || 0} className="w-full" />
+                    <div className="text-sm text-muted-foreground">
+                        {progress.message || "Processing..."}{" "}
+                        <span className="text-xs">({Math.round(progress.progress || 0)}%)</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Error */}
+            {error && (
+                <Alert variant="destructive">
+                    <XCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
+            )}
+
+            {/* File Analysis (after download) */}
+            {downloadComplete && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-sm flex items-center gap-2">
+                            <BarChart3 className="h-4 w-4" />
+                            File Analysis
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                                <span className="font-medium text-muted-foreground">Books</span>
+                                <p>{notebooks.length}</p>
+                            </div>
+                            <div>
+                                <span className="font-medium text-muted-foreground">Total Cells</span>
+                                <p>{totalCells.toLocaleString()}</p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Finish Import */}
+            <Button
+                onClick={handleComplete}
+                disabled={!downloadComplete}
+                className="w-full h-12 text-base"
+                variant={downloadComplete ? "default" : "secondary"}
+            >
+                Finish Import
+            </Button>
         </div>
     );
 };
