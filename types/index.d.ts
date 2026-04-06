@@ -655,6 +655,8 @@ type EditHistoryBase = {
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
+    /** OpenRouter generation ID for LLM-generated edits */
+    generationId?: string;
 };
 
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
