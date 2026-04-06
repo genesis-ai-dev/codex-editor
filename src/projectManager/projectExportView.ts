@@ -9,6 +9,7 @@ import {
 } from "./utils/exportViewUtils";
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
+import { getMediaFilesStrategy } from "../utils/localProjectSettings";
 
 const LAST_EXPORT_FOLDER_KEY = "projectExport.lastFolder";
 
@@ -118,13 +119,17 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
     const codexFiles = await vscode.workspace.findFiles("**/*.codex");
     const fileGroups = await groupCodexFilesByImporterType(codexFiles);
 
+    const mediaStrategy = await getMediaFilesStrategy();
+    const isStreamOnly = mediaStrategy === "stream-only";
+
     const initialExportFolder = getLastExportFolderUri(context)?.fsPath ?? null;
     panel.webview.html = getWebviewContent(
         sourceLanguage,
         targetLanguage,
         codiconsUri,
         fileGroups,
-        initialExportFolder
+        initialExportFolder,
+        isStreamOnly
     );
 
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -227,7 +232,8 @@ function getWebviewContent(
     targetLanguage: unknown,
     codiconsUri: vscode.Uri,
     fileGroups: FileGroup[],
-    initialExportFolder: string | null
+    initialExportFolder: string | null,
+    isStreamOnly: boolean
 ) {
     const hasLanguages = sourceLanguage && targetLanguage;
 
@@ -429,6 +435,12 @@ function getWebviewContent(
                     border: 1px solid rgba(202, 138, 4, 0.35);
                     border-radius: 4px;
                 }
+                .format-option-row.disabled-stream-only {
+                    opacity: 0.45;
+                    cursor: not-allowed;
+                    pointer-events: none;
+                }
+                .roundtrip-wrapper[data-option].hidden { display: none !important; }
                 .step-content { flex: 1; overflow-y: auto; }
                 .popup-overlay {
                     display: none;
@@ -593,29 +605,31 @@ function getWebviewContent(
                                 </div>
                             </div>
                             <!-- Round-trip: only for supported file types -->
-                            <div class="format-option-row" data-option="roundTrip">
-                                <div class="format-option" data-format="rebuild-export" style="flex: 1;">
-                                    <i class="codicon codicon-refresh"></i>
-                                    <div>
-                                        <strong>Round-trip Export</strong>
-                                        <p>Intelligently detects file type and exports back the original file you imported with applied translations</p>
-                                        <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
-                                            <span class="format-tag format-tag-roundtrip">USFM</span>
-                                            <span class="format-tag format-tag-roundtrip">DOCX</span>
-                                            <span class="format-tag format-tag-roundtrip">OBS</span>
-                                            <span class="format-tag format-tag-roundtrip">TMS</span>
-                                            <span class="format-tag format-tag-roundtrip">Markdown</span>
-                                            <span class="format-tag format-tag-roundtrip">CSV/TSV</span>
-                                            <span class="format-tag format-tag-roundtrip">IDML</span>
-                                            <span class="format-tag format-tag-roundtrip">Biblica Study Notes</span>
-                                            <!--<span class="format-tag format-tag-roundtrip">Reach4Life</span>-->
-                                        </div>
-                                        <div class="format-warning">
-                                            <i class="codicon codicon-warning"></i>
-                                            <span>This option will not work if you are in "Stream Only" mode.</span>
+                            <div class="roundtrip-wrapper" data-option="roundTrip">
+                                <div class="format-option-row${isStreamOnly ? " disabled-stream-only" : ""}">
+                                    <div class="format-option" data-format="rebuild-export" style="flex: 1;">
+                                        <i class="codicon codicon-refresh"></i>
+                                        <div>
+                                            <strong>Round-trip Export</strong>
+                                            <p>Intelligently detects file type and exports back the original file you imported with applied translations</p>
+                                            <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap;">
+                                                <span class="format-tag format-tag-roundtrip">USFM</span>
+                                                <span class="format-tag format-tag-roundtrip">DOCX</span>
+                                                <span class="format-tag format-tag-roundtrip">OBS</span>
+                                                <span class="format-tag format-tag-roundtrip">TMS</span>
+                                                <span class="format-tag format-tag-roundtrip">Markdown</span>
+                                                <span class="format-tag format-tag-roundtrip">CSV/TSV</span>
+                                                <span class="format-tag format-tag-roundtrip">IDML</span>
+                                                <span class="format-tag format-tag-roundtrip">Biblica Study Notes</span>
+                                                <!--<span class="format-tag format-tag-roundtrip">Reach4Life</span>-->
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
+                                ${isStreamOnly ? `<div class="format-warning" style="margin-top: 6px;">
+                                    <i class="codicon codicon-warning"></i>
+                                    <span>Round-trip export is unavailable in "Stream Only" mode. Source files are not stored locally, so the original format cannot be reconstructed. Switch to "Auto Download" or "Stream and Save" to enable this option.</span>
+                                </div>` : ""}
                             </div>
                             <!-- Data Export: all, always open -->
                             <div class="format-section" data-option="dataExport">
@@ -726,6 +740,7 @@ function getWebviewContent(
                 const vscode = acquireVsCodeApi();
                 const fileGroups = ${groupsJson};
                 const exportOptionsConfig = ${exportOptionsConfigJson};
+                const isStreamOnly = ${JSON.stringify(isStreamOnly)};
                 let currentStep = 1;
                 let selectedFormat = null;
                 let selectedAudioMode = null; // null | 'audio' | 'audio-timestamps'
@@ -975,6 +990,7 @@ function getWebviewContent(
                     document.querySelectorAll('#step2 .format-option:not(.audio-option)').forEach(option => {
                         option.addEventListener('click', (e) => {
                             if (e.target.closest('.format-section-header')) return;
+                            if (option.classList.contains('disabled-stream-only')) return;
 
                             // If clicking the already-selected format, deselect it
                             if (option.classList.contains('selected')) {
