@@ -27,12 +27,12 @@ import {
     TargetFileResponseMessage,
     TargetFileErrorMessage,
 } from "./types/wizard";
-import { IntentSelection } from "./components/IntentSelection";
 import { SourceFileSelection } from "./components/SourceFileSelection";
 import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
 import { ImportProgressView } from "./components/ImportProgressView";
 import { SystemMessageStep } from "../StartupFlow/components/SystemMessageStep";
+import { deriveTargetPathFromSource } from "../../../../sharedUtils";
 import { createDownloadHelper } from "./utils/downloadHelper";
 import { notifyImportEnded } from "./utils/importProgress";
 import "./App.css";
@@ -44,8 +44,8 @@ const vscode: { postMessage: (message: any) => void } = (window as any).vscodeAp
 const NewSourceUploader: React.FC = () => {
     // Wizard state
     const [wizardState, setWizardState] = useState<WizardState>({
-        currentStep: "intent-selection",
-        selectedIntent: null,
+        currentStep: "source-import",
+        selectedIntent: "source",
         selectedSourceForTarget: undefined,
         selectedSourceDetails: undefined,
         selectedPlugin: undefined,
@@ -73,6 +73,7 @@ const NewSourceUploader: React.FC = () => {
                 reject: (error: Error) => void;
                 importedContent: ImportedContent[];
                 customAligner?: CellAligner;
+                sourceFilePath: string;
             }
         >
     >(new Map());
@@ -85,7 +86,6 @@ const NewSourceUploader: React.FC = () => {
             customAligner?: CellAligner
         ): Promise<AlignedCell[]> => {
             return new Promise((resolve, reject) => {
-                // Store the request with a unique key
                 const requestKey = `${sourceFilePath}-${Date.now()}`;
                 setAlignmentRequests(
                     (prev) =>
@@ -95,18 +95,17 @@ const NewSourceUploader: React.FC = () => {
                                 reject,
                                 importedContent,
                                 customAligner,
+                                sourceFilePath,
                             })
                         )
                 );
 
-                // Request target file content from provider
                 const message: FetchTargetFileMessage = {
                     command: "fetchTargetFile",
                     sourceFilePath,
                 };
                 vscode.postMessage(message);
 
-                // Set up timeout to avoid hanging requests
                 setTimeout(() => {
                     setAlignmentRequests((prev) => {
                         const newMap = new Map(prev);
@@ -116,7 +115,7 @@ const NewSourceUploader: React.FC = () => {
                         }
                         return newMap;
                     });
-                }, 30000); // 30 second timeout
+                }, 30000);
             });
         },
         []
@@ -155,8 +154,7 @@ const NewSourceUploader: React.FC = () => {
                 setImportComplete(false);
                 setWizardState((prev) => ({
                     ...prev,
-                    currentStep: "intent-selection",
-                    selectedIntent: null,
+                    currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
                     selectedSourceForTarget: undefined,
                     selectedSourceDetails: undefined,
                     selectedPlugin: undefined,
@@ -199,19 +197,17 @@ const NewSourceUploader: React.FC = () => {
                 const response = message as TargetFileResponseMessage;
                 console.log("Received target file content:", response);
 
-                // Find and complete pending alignment requests for this source file
                 setAlignmentRequests((prev) => {
                     const newMap = new Map(prev);
                     const completedRequests: string[] = [];
 
                     for (const [requestKey, request] of newMap.entries()) {
-                        if (requestKey.startsWith(response.sourceFilePath)) {
-                            // Run the alignment algorithm
+                        if (request.sourceFilePath === response.sourceFilePath) {
                             const aligner = request.customAligner || defaultCellAligner;
 
                             aligner(
                                 response.targetCells,
-                                [], // Source cells not currently used
+                                [],
                                 request.importedContent
                             )
                                 .then((alignedCells) => {
@@ -225,7 +221,6 @@ const NewSourceUploader: React.FC = () => {
                         }
                     }
 
-                    // Remove completed requests
                     completedRequests.forEach((key) => newMap.delete(key));
                     return newMap;
                 });
@@ -287,13 +282,38 @@ const NewSourceUploader: React.FC = () => {
                     translationPairs: [],
                 };
 
-                console.log("Received project inventory:", inventory);
+                const initialIntent: ImportIntent | undefined = message.initialIntent;
 
-                setWizardState((prev) => ({
-                    ...prev,
-                    projectInventory: inventory,
-                    isLoadingInventory: false,
-                }));
+                console.log("Received project inventory:", inventory, "initialIntent:", initialIntent);
+
+                setWizardState((prev) => {
+                    const base = {
+                        ...prev,
+                        projectInventory: inventory,
+                        isLoadingInventory: false,
+                    };
+
+                    // Auto-navigate based on initial intent from provider
+                    if (initialIntent === "source") {
+                        return {
+                            ...base,
+                            selectedIntent: "source" as ImportIntent,
+                            currentStep: "source-import" as WizardStep,
+                        };
+                    }
+                    if (initialIntent === "target") {
+                        const hasSourceFiles = inventory.sourceFiles.length > 0;
+                        return {
+                            ...base,
+                            selectedIntent: "target" as ImportIntent,
+                            currentStep: hasSourceFiles
+                                ? ("target-selection" as WizardStep)
+                                : ("target-selection" as WizardStep),
+                        };
+                    }
+
+                    return base;
+                });
             }
         };
 
@@ -411,10 +431,7 @@ const NewSourceUploader: React.FC = () => {
                 return;
             }
 
-            // Derive target file path from source file path
-            const targetFilePath = sourceFilePath
-                .replace(/\.source$/, ".codex")
-                .replace(/\/\.project\/sourceTexts\//, "/files/target/");
+            const targetFilePath = deriveTargetPathFromSource(sourceFilePath);
 
             // Send translation to provider for writing
             const message: WriteTranslationMessage = {
@@ -438,8 +455,7 @@ const NewSourceUploader: React.FC = () => {
             // Reset wizard
             setWizardState((prev) => ({
                 ...prev,
-                currentStep: "intent-selection",
-                selectedIntent: null,
+                currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
                 selectedSourceForTarget: undefined,
                 selectedSourceDetails: undefined,
                 selectedPlugin: undefined,
@@ -450,27 +466,23 @@ const NewSourceUploader: React.FC = () => {
     );
 
     const handleCancel = useCallback(() => {
-        // Note: VS Code webviews don't support window.confirm() due to sandboxing
-        // Skip confirmation dialog - user action is explicit enough
         setWizardState((prev) => ({
             ...prev,
             currentStep:
                 prev.selectedIntent === "target" && prev.selectedSourceForTarget
                     ? "target-selection"
-                    : "intent-selection",
+                    : prev.selectedIntent === "target"
+                        ? "target-selection"
+                        : "source-import",
             selectedPlugin: undefined,
         }));
         setIsDirty(false);
     }, [isDirty]);
 
     const handleCancelImport = useCallback(() => {
-        // Reset entire wizard state to beginning
-        // Note: VS Code webviews don't support window.confirm() due to sandboxing
-        // The "Cancel Import" button text makes the action clear enough
         setWizardState((prev) => ({
             ...prev,
-            currentStep: "intent-selection",
-            selectedIntent: null,
+            currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
             selectedSourceForTarget: undefined,
             selectedSourceDetails: undefined,
             selectedPlugin: undefined,
@@ -508,9 +520,6 @@ const NewSourceUploader: React.FC = () => {
     const handleBack = useCallback(() => {
         setWizardState((prev) => {
             switch (prev.currentStep) {
-                case "source-import":
-                case "target-selection":
-                    return { ...prev, currentStep: "intent-selection", selectedIntent: null };
                 case "target-import":
                     return {
                         ...prev,
@@ -620,17 +629,6 @@ const NewSourceUploader: React.FC = () => {
 
     // Render wizard steps
     switch (wizardState.currentStep) {
-        case "intent-selection":
-            return (
-                <IntentSelection
-                    onSelectIntent={handleSelectIntent}
-                    onStartTranslating={handleStartTranslating}
-                    sourceFileCount={wizardState.projectInventory.sourceFiles.length}
-                    targetFileCount={wizardState.projectInventory.targetFiles.length}
-                    translationPairCount={wizardState.projectInventory.translationPairs.length}
-                />
-            );
-
         case "source-import":
             return (
                 <PluginSelection
@@ -638,7 +636,6 @@ const NewSourceUploader: React.FC = () => {
                     intent="source"
                     existingSourceCount={wizardState.projectInventory.sourceFiles.length}
                     onSelectPlugin={handleSelectPlugin}
-                    onBack={handleBack}
                 />
             );
 
@@ -648,7 +645,6 @@ const NewSourceUploader: React.FC = () => {
                 return (
                     <EmptySourceState
                         onImportSources={() => handleSelectIntent("source")}
-                        onBack={handleBack}
                     />
                 );
             }
@@ -656,7 +652,6 @@ const NewSourceUploader: React.FC = () => {
                 <SourceFileSelection
                     sourceFiles={wizardState.projectInventory.sourceFiles}
                     onSelectSource={handleSelectSource}
-                    onBack={handleBack}
                 />
             );
 
@@ -685,8 +680,7 @@ const NewSourceUploader: React.FC = () => {
                         setImportComplete(false);
                         setWizardState((prev) => ({
                             ...prev,
-                            currentStep: "intent-selection",
-                            selectedIntent: null,
+                            currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
                             selectedSourceForTarget: undefined,
                             selectedSourceDetails: undefined,
                             selectedPlugin: undefined,

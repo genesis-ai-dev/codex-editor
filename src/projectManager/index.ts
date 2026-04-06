@@ -15,12 +15,13 @@ import { setTargetFont } from "./projectInitializers";
 import { migration_changeDraftFolderToFilesFolder } from "./utils/migrationUtils";
 import { importLocalUsfmSourceBible } from "../utils/codexNotebookUtils";
 import {
-    checkIfMetadataAndGitIsInitialized,
+    checkIfProjectIsInitialized,
     createProjectFiles,
     getProjectOverview,
     updateProjectSettings,
 } from "./utils/projectUtils";
 import { openSystemMessageEditor, debugValidationSetting } from "../copilotSettings/copilotSettings";
+import { openInterfaceSettings } from "../interfaceSettings/interfaceSettings";
 import { openProjectExportView } from "./projectExportView";
 import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
 import { MetadataManager } from "../utils/metadataManager";
@@ -83,7 +84,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     const editAbbreviationCommand = vscode.commands.registerCommand(
         "codex-project-manager.editAbbreviation",
         executeWithRedirecting(async () => {
-            const isMetadataInitialized = await checkIfMetadataAndGitIsInitialized();
+            const isMetadataInitialized = await checkIfProjectIsInitialized();
 
             if (!isMetadataInitialized) {
                 await initializeProjectMetadataAndGit({});
@@ -388,7 +389,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     const renameProjectCommand = vscode.commands.registerCommand(
         "codex-project-manager.renameProject",
         executeWithRedirecting(async () => {
-            const isMetadataInitialized = await checkIfMetadataAndGitIsInitialized();
+            const isMetadataInitialized = await checkIfProjectIsInitialized();
 
             if (!isMetadataInitialized) {
                 await initializeProjectMetadataAndGit({});
@@ -421,7 +422,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 return;
             }
-            const isMetadataInitialized = await checkIfMetadataAndGitIsInitialized();
+            const isMetadataInitialized = await checkIfProjectIsInitialized();
             if (!isMetadataInitialized) {
                 await initializeProjectMetadataAndGit({});
             }
@@ -611,6 +612,11 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         debugValidationSetting
     );
 
+    const openInterfaceSettingsCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openInterfaceSettings",
+        openInterfaceSettings
+    );
+
     const openExportViewCommand = vscode.commands.registerCommand(
         "codex-project-manager.openExportView",
         () => openProjectExportView(context)
@@ -715,6 +721,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         reinstallExtensionsCommand,
         showProjectOverviewCommand,
         openAISettingsCommand,
+        openInterfaceSettingsCommand,
         debugValidationSettingCommand,
         openExportViewCommand,
         openLicenseSettingsCommand,

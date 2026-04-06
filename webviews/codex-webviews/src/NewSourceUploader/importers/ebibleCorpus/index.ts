@@ -103,10 +103,10 @@ const parseFile = async (
                 id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
-                importerType: 'ebible',
+                importerType: 'ebibleCorpus',
                 createdAt: new Date().toISOString(),
                 importContext: {
-                    importerType: 'ebible',
+                    importerType: 'ebibleCorpus',
                     fileName: file.name,
                     originalFileName: file.name,
                     fileSize: file.size,

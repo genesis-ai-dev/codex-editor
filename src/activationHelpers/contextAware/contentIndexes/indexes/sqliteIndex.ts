@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { existsSync } from "fs";
-import { AsyncDatabase } from "../../../../utils/nativeSqlite";
+import type { IAsyncDatabase } from "../../../../utils/sqliteTypes";
+import { openDatabase, isUsingNativeBackend } from "../../../../utils/sqliteDatabaseFactory";
 import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
@@ -196,7 +197,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 export class SQLiteIndexManager {
-    private db: AsyncDatabase | null = null;
+    private db: IAsyncDatabase | null = null;
     private dbPath: string | null = null;
     private progressTimings: ActivationTiming[] = [];
     private currentProgressTimer: NodeJS.Timeout | null = null;
@@ -253,7 +254,9 @@ export class SQLiteIndexManager {
 
         // Periodic dbPath existence check (lightweight, sync I/O, throttled).
         // Skip for in-memory databases (":memory:") which have no file on disk.
-        if (this.dbPath && this.dbPath !== ":memory:") {
+        // Skip for the fts5-sql-bundle (WASM) backend — it operates in-memory and
+        // the file may not exist on disk until the first flush()/persistToDisk().
+        if (this.dbPath && this.dbPath !== ":memory:" && isUsingNativeBackend()) {
             const now = Date.now();
             if (forceFileCheck || now - this.lastDbPathCheckMs >= SQLiteIndexManager.DB_PATH_CHECK_INTERVAL_MS) {
                 this.lastDbPathCheckMs = now;
@@ -311,13 +314,14 @@ export class SQLiteIndexManager {
         path: string,
         maxRetries = 3,
         baseDelayMs = 100
-    ): Promise<AsyncDatabase> {
+    ): Promise<IAsyncDatabase> {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                const db = await AsyncDatabase.open(path);
+                const db = await openDatabase(path);
                 // Set busy timeout immediately after open so any subsequent
                 // operation (including PRAGMAs) will wait instead of failing.
-                db.configure("busyTimeout", 5000);
+                // (no-op on the fts5 fallback — single-threaded WASM has no lock contention)
+                try { db.configure("busyTimeout", 5000); } catch { /* safe no-op for fallback */ }
                 return db;
             } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);
@@ -583,6 +587,12 @@ export class SQLiteIndexManager {
                 }
 
                 await this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+
+                // For fts5-sql-bundle: flush the new database to disk immediately
+                // so the file exists on the filesystem for other checks and crash safety.
+                if (!isUsingNativeBackend()) {
+                    await this.db.flush();
+                }
             } catch (error) {
                 // Close the leaked connection before rethrowing
                 if (this.db) {
@@ -604,20 +614,25 @@ export class SQLiteIndexManager {
     private async applyProductionPragmas(): Promise<void> {
         if (this.closed || !this.db) return;
 
+        const useNative = isUsingNativeBackend();
+
         try {
             // Busy timeout MUST be set first — before any SQL PRAGMAs — so that
             // if the database is locked (e.g. by another connection during project
             // creation), SQLite will wait instead of failing immediately with SQLITE_BUSY.
-            this.db.configure("busyTimeout", 5000);
+            // (no-op on the fts5 fallback — single-threaded WASM has no lock contention)
+            try { this.db.configure("busyTimeout", 5000); } catch { /* safe no-op for fallback */ }
 
-            // WAL mode — best for read-heavy workloads with occasional writes.
-            // Persisted in the file, but safe to re-issue (no-op if already WAL).
-            await this.db.exec("PRAGMA journal_mode = WAL");
+            if (useNative) {
+                // WAL mode — best for read-heavy workloads with occasional writes.
+                // Persisted in the file, but safe to re-issue (no-op if already WAL).
+                await this.db.exec("PRAGMA journal_mode = WAL");
 
-            // synchronous=NORMAL is safe with WAL (data survives process crashes;
-            // only an OS crash can lose the most recent transaction).
-            // Default is FULL which doubles fsync overhead for negligible safety gain with WAL.
-            await this.db.exec("PRAGMA synchronous = NORMAL");
+                // synchronous=NORMAL is safe with WAL (data survives process crashes;
+                // only an OS crash can lose the most recent transaction).
+                await this.db.exec("PRAGMA synchronous = NORMAL");
+            }
+            // The following PRAGMAs work on both native and WASM backends:
 
             // 8 MB page cache — covers typical hot working set for 1500+ cell documents
             await this.db.exec("PRAGMA cache_size = -8000");
@@ -628,13 +643,12 @@ export class SQLiteIndexManager {
             // Enable foreign key enforcement
             await this.db.exec("PRAGMA foreign_keys = ON");
 
-            // Auto-checkpoint after 500 WAL pages (~2 MB) instead of the default 1000.
-            // Keeps the WAL file smaller in a VS Code extension where unbounded growth
-            // is undesirable. Manual checkpoints (PASSIVE/TRUNCATE) are still used
-            // after large batch operations and on close.
-            await this.db.exec("PRAGMA wal_autocheckpoint = 500");
+            if (useNative) {
+                // Auto-checkpoint after 500 WAL pages (~2 MB) instead of the default 1000.
+                await this.db.exec("PRAGMA wal_autocheckpoint = 500");
+            }
 
-            debug("[SQLiteIndex] Production PRAGMAs applied (WAL, sync=NORMAL, cache=8MB, busyTimeout=5s, autocheckpoint=500)");
+            debug(`[SQLiteIndex] Production PRAGMAs applied (backend=${useNative ? "native" : "fts5-wasm"})`);
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             throw new Error(`Failed to apply production PRAGMAs: ${msg}`);
@@ -911,12 +925,17 @@ export class SQLiteIndexManager {
 
             // Flush schema to the main file immediately so the .sqlite
             // file reflects the new schema even before the sync populates data.
-            // Without this, all schema DDL lives in the WAL and the main
+            // Native: without this, all schema DDL lives in the WAL and the main
             // file appears as an empty 4KB stub.
+            // Fallback: serializes the in-memory DB to disk.
             try {
-                await this.db!.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+                if (isUsingNativeBackend()) {
+                    await this.db!.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+                } else {
+                    await this.db!.flush();
+                }
             } catch {
-                // Non-critical — data is still accessible via WAL
+                // Non-critical — data is still accessible
             }
         } catch (schemaError) {
             // Clean up the partially-created DB so the next attempt starts fresh
@@ -1343,7 +1362,7 @@ export class SQLiteIndexManager {
      * Throws if the manager has been closed or the database is not initialized,
      * preventing use-after-close bugs.
      */
-    get database(): AsyncDatabase {
+    get database(): IAsyncDatabase {
         this.ensureOpen();
         return this.db!;
     }
@@ -1425,7 +1444,7 @@ export class SQLiteIndexManager {
         }
 
         // Always search using the sanitized content column for better matching
-        const ftsSearchQuery = `content: ${ftsQuery}`;
+        const ftsSearchQuery = `content: (${ftsQuery})`;
         const rows = await this.db!.all<{
             cell_id: string;
             content: string;
@@ -1943,31 +1962,47 @@ export class SQLiteIndexManager {
     ): Promise<CellSearchResult[]> {
         this.ensureOpen();
 
-        // Reuse the same escaping logic from the search method
-        const escapeForFTS5 = (text: string): string => {
-            // First, handle quotes by doubling them
-            const escaped = text.replace(/"/g, '""');
-
-            // Split by whitespace but preserve the original tokens
-            const tokens = escaped.split(/\s+/).filter((token) => token.length > 0);
-
-            // Wrap each token in quotes to make it a phrase query
-            const escapedTokens = tokens.map((token) => `"${token}"`);
-
-            return escapedTokens.join(" ");
-        };
-
-        const ftsQuery = escapeForFTS5(query);
-
-        // If the query is empty after escaping, return empty results
-        if (!ftsQuery.trim()) {
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) {
             return [];
         }
 
-        // Build query for new schema with combined source/target rows
-        let sql = `
-            SELECT 
-                c.cell_id,
+        const words = trimmedQuery
+            .replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .split(/\s+/)
+            .filter(token => token.length > 0);
+
+        if (words.length === 0) {
+            return [];
+        }
+
+        const searchTerms: string[] = [];
+        for (const word of words) {
+            const escaped = word.replace(/"/g, '""');
+            searchTerms.push(`"${escaped}"`);
+            if (word.length >= 2) {
+                searchTerms.push(`"${escaped}"*`);
+            }
+        }
+
+        const maxTerms = 30;
+        const finalTerms = searchTerms.slice(0, maxTerms);
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : `"${words[0]}"`;
+
+        const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
+        const likePattern = `%${escapedQuery}%`;
+
+        const contentTypeFilter = cellType
+            ? `cells_fts.content_type = ?`
+            : "1=1";
+
+        const likeCondition = cellType
+            ? `(c.${cellType === 'target' ? 't' : 's'}_content LIKE ? ESCAPE '\\' OR c.${cellType === 'target' ? 't' : 's'}_raw_content LIKE ? ESCAPE '\\')`
+            : "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
+
+        const caseColumns = `
                 CASE 
                     WHEN cells_fts.content_type = 'source' THEN c.s_content
                     WHEN cells_fts.content_type = 'target' THEN c.t_content
@@ -1992,27 +2027,68 @@ export class SQLiteIndexManager {
                     WHEN cells_fts.content_type = 'source' THEN s_file.file_type
                     WHEN cells_fts.content_type = 'target' THEN t_file.file_type
                 END as file_type,
-                cells_fts.content_type as cell_type,
-                bm25(cells_fts) as score
-            FROM cells_fts
-            JOIN cells c ON cells_fts.cell_id = c.cell_id
-            LEFT JOIN files s_file ON c.s_file_id = s_file.id
-            LEFT JOIN files t_file ON c.t_file_id = t_file.id
-            WHERE cells_fts MATCH ?
-                AND (c.cell_type = 'text' OR c.cell_type IS NULL)
-                AND c.is_deleted = 0
-                AND c.is_merged = 0
+                cells_fts.content_type as cell_type
         `;
 
-        const params: (string | number)[] = [`content: ${ftsQuery}`];
+        const likeContentColumn = cellType === 'target' ? 'c.t_content' : cellType === 'source' ? 'c.s_content' : 'COALESCE(c.s_content, c.t_content)';
+        const likeRawColumn = cellType === 'target' ? 'c.t_raw_content' : cellType === 'source' ? 'c.s_raw_content' : 'COALESCE(c.s_raw_content, c.t_raw_content)';
+        const likeWordCountColumn = cellType === 'target' ? 'c.t_word_count' : cellType === 'source' ? 'c.s_word_count' : 'COALESCE(c.s_word_count, c.t_word_count)';
+        const likeLineColumn = cellType === 'target' ? 'c.t_line_number' : cellType === 'source' ? 'c.s_line_number' : 'COALESCE(c.s_line_number, c.t_line_number)';
+        const likeFileJoin = cellType === 'target' ? 't_file' : 's_file';
+        const likeCellType = cellType || 'source';
 
-        if (cellType) {
-            sql += ` AND cells_fts.content_type = ?`;
-            params.push(cellType);
-        }
+        const sql = `
+            SELECT DISTINCT
+                cell_id, content, raw_content, word_count, line,
+                file_path, file_type, cell_type, score
+            FROM (
+                -- FTS5 search with prefix wildcards
+                SELECT
+                    c.cell_id,
+                    ${caseColumns},
+                    bm25(cells_fts) as score
+                FROM cells_fts
+                JOIN cells c ON cells_fts.cell_id = c.cell_id
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE cells_fts MATCH ?
+                    AND ${contentTypeFilter}
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
 
-        sql += ` ORDER BY score ASC LIMIT ?`;
-        params.push(limit);
+                UNION
+
+                -- LIKE substring fallback
+                SELECT
+                    c.cell_id,
+                    ${likeContentColumn} as content,
+                    ${likeRawColumn} as raw_content,
+                    ${likeWordCountColumn} as word_count,
+                    ${likeLineColumn} as line,
+                    ${likeFileJoin}.file_path as file_path,
+                    ${likeFileJoin}.file_type as file_type,
+                    '${likeCellType}' as cell_type,
+                    0.0 as score
+                FROM cells c
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE ${likeCondition}
+                    AND (c.cell_type = 'text' OR c.cell_type IS NULL)
+                    AND c.is_deleted = 0
+                    AND c.is_merged = 0
+            )
+            ORDER BY score ASC
+            LIMIT ?
+        `;
+
+        const ftsParams: (string | number)[] = cellType
+            ? [`content: (${cleanQuery})`, cellType]
+            : [`content: (${cleanQuery})`];
+        const likeParams: (string | number)[] = cellType
+            ? [likePattern, likePattern]
+            : [likePattern, likePattern, likePattern, likePattern];
+        const params: (string | number)[] = [...ftsParams, ...likeParams, limit];
 
         const rows = await this.db!.all<{
             cell_id: string;
@@ -2190,7 +2266,7 @@ export class SQLiteIndexManager {
                     AND c.is_merged = 0
             `;
 
-            params = [`content: ${ftsQuery}`];
+            params = [`content: (${ftsQuery})`];
 
             if (cellType) {
                 sql += ` AND cells_fts.content_type = ?`;
@@ -2608,6 +2684,90 @@ export class SQLiteIndexManager {
     }
 
     /**
+     * Close the current database connection and reopen it using whichever
+     * backend the current tool preference selects.
+     *
+     * Used for live hot-swapping between native SQLite and the fts5-sql-bundle
+     * WASM fallback without requiring a window reload.
+     *
+     * - When leaving native: checkpoints WAL (TRUNCATE) so the main .sqlite
+     *   file is complete and WAL/SHM files are empty/removable.
+     * - When leaving fts5: flushes the in-memory DB to disk.
+     * - Reopens via the database factory which reads the current preference.
+     * - Re-applies production PRAGMAs (WAL-related ones are backend-gated).
+     * - Verifies the schema; falls back to nuke-and-recreate if mismatched.
+     */
+    async reopenWithCurrentBackend(): Promise<void> {
+        if (this.closed) {
+            throw new Error("Cannot reopen — manager is permanently closed");
+        }
+        if (!this.dbPath) {
+            throw new Error("No database path set");
+        }
+
+        // Acquire the transaction lock so in-flight operations finish first
+        let releaseLock!: () => void;
+        const previousLock = this.transactionLock;
+        this.transactionLock = new Promise<void>((r) => {
+            releaseLock = r;
+        });
+        await previousLock;
+
+        try {
+            if (this.db) {
+                // Persist all data before closing the connection.
+                // The preference was already switched before this method was called,
+                // so isUsingNativeBackend() reflects the NEW target — not the current
+                // connection's backend.  Do both operations: WAL checkpoint (no-op on
+                // fts5) and flush (no-op on native) so data is safe regardless of
+                // which backend we're leaving.
+                try {
+                    await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+                } catch {
+                    // Non-critical — WAL may not exist or already be empty
+                }
+                try {
+                    await this.db.flush();
+                } catch {
+                    // Non-critical — native flush is a no-op
+                }
+
+                try {
+                    await this.db.exec("PRAGMA optimize");
+                } catch {
+                    // Non-critical
+                }
+
+                await this.db.close();
+                this.db = null;
+            }
+        } finally {
+            releaseLock();
+        }
+
+        // Reopen with whichever backend the preference now points to.
+        // openWithRetry calls openDatabase() which reads the preference.
+        this.db = await this.openWithRetry(this.dbPath);
+        await this.applyProductionPragmas();
+
+        // Quick schema sanity check — if the file was opened by a different
+        // backend and something went wrong, a nuke-and-recreate ensures we
+        // recover gracefully.
+        const version = await this.getSchemaVersion();
+        if (version !== CURRENT_SCHEMA_VERSION) {
+            debug(
+                `[SQLiteIndex] Schema mismatch after reopen (got ${version}, expected ${CURRENT_SCHEMA_VERSION}) — recreating`,
+            );
+            await this.nukeDatabaseAndRecreate("schema mismatch after backend switch");
+            return;
+        }
+
+        debug(
+            `[SQLiteIndex] Backend switch complete — now using ${isUsingNativeBackend() ? "native" : "fts5-wasm"}`,
+        );
+    }
+
+    /**
      * Update FTS entries for a specific set of cell IDs.
      *
      * For each cell, removes any existing FTS rows and re-inserts from the
@@ -2816,21 +2976,26 @@ export class SQLiteIndexManager {
         try {
             if (this.db) {
                 // Let SQLite update its query planner statistics based on usage patterns.
-                // PRAGMA optimize is cheap (<1ms typically) and improves query performance
-                // for the next session by persisting better index statistics.
                 try {
                     await this.db.exec("PRAGMA optimize");
                 } catch {
                     // Non-critical — next session will still work fine
                 }
 
-                // Checkpoint WAL to merge it back into the main database file before closing.
-                // TRUNCATE mode resets the WAL file to zero bytes, keeping the directory tidy.
-                try {
-                    await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-                } catch (checkpointError) {
-                    // Non-critical — WAL will be checkpointed on next open
-                    console.warn(`[SQLiteIndex] WAL checkpoint failed during close (non-critical):`, checkpointError);
+                if (isUsingNativeBackend()) {
+                    // Checkpoint WAL to merge it back into the main database file before closing.
+                    try {
+                        await this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+                    } catch (checkpointError) {
+                        console.warn(`[SQLiteIndex] WAL checkpoint failed during close (non-critical):`, checkpointError);
+                    }
+                } else {
+                    // Fallback: flush in-memory DB to disk before closing.
+                    try {
+                        await this.db.flush();
+                    } catch (flushError) {
+                        console.warn(`[SQLiteIndex] Flush failed during close (non-critical):`, flushError);
+                    }
                 }
             }
 
@@ -2857,6 +3022,17 @@ export class SQLiteIndexManager {
      */
     async walCheckpoint(mode: "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE" = "PASSIVE"): Promise<void> {
         this.ensureOpen();
+
+        // On the fts5 fallback there is no WAL — just flush the in-memory DB to disk.
+        if (!isUsingNativeBackend()) {
+            try {
+                await this.db!.flush();
+                debug("Fallback flush completed (no WAL)");
+            } catch (error) {
+                this.logNonCriticalError("walCheckpoint/flush", error);
+            }
+            return;
+        }
 
         // Runtime validation to prevent SQL injection — mode is interpolated into the PRAGMA
         const validModes = ["PASSIVE", "FULL", "RESTART", "TRUNCATE"];
@@ -3754,37 +3930,29 @@ export class SQLiteIndexManager {
             return [];
         }
 
-        // Generate search terms for FTS5
+        // Generate search terms for FTS5 — quote each term to prevent
+        // FTS5 reserved words (AND, OR, NOT, NEAR) from being parsed as operators.
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word
-            searchTerms.push(word);
-
-            // For words 2+ chars, add prefix wildcard for partial matching
+            const escaped = word.replace(/"/g, '""');
+            searchTerms.push(`"${escaped}"`);
             if (word.length >= 2) {
-                searchTerms.push(word + '*');
+                searchTerms.push(`"${escaped}"*`);
             }
         }
 
-        // Build FTS5 query - use OR matching, limit terms for performance
         const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : `"${words[0]}"`;
 
-        // Simple substring match for the original query - ensures "ccc" matches "cccb"
-        // Escape % and _ for LIKE (SQL wildcards)
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        // Enhanced FTS5 query - search source (and optionally target) content for complete pairs
-        // Use UNION to combine FTS5 MATCH results with LIKE substring matching
-        // (FTS5 MATCH can't be combined with OR in WHERE clause)
         const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
-        // Build LIKE conditions - search source always, target only if searchSourceOnly is false
         const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
-            : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
+            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+            : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
 
         const sql = `
             SELECT DISTINCT
@@ -3872,9 +4040,9 @@ export class SQLiteIndexManager {
             };
             let rows: SearchRow[];
             if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             } else {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {
@@ -4005,37 +4173,30 @@ export class SQLiteIndexManager {
             return [];
         }
 
-        // Generate search terms for FTS5
+        // Generate search terms for FTS5 — quote each term to prevent
+        // FTS5 reserved words (AND, OR, NOT, NEAR) from being parsed as operators.
         const searchTerms: string[] = [];
         for (const word of words) {
-            // Always add the full word
-            searchTerms.push(word);
-
-            // For words 2+ chars, add prefix wildcard for partial matching
+            const escaped = word.replace(/"/g, '""');
+            searchTerms.push(`"${escaped}"`);
             if (word.length >= 2) {
-                searchTerms.push(word + '*');
+                searchTerms.push(`"${escaped}"*`);
             }
         }
 
-        // Build FTS5 query - use OR matching, limit terms for performance
         const maxTerms = 30;
         const finalTerms = searchTerms.slice(0, maxTerms);
-        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : words[0];
+        const cleanQuery = finalTerms.length > 0 ? finalTerms.join(' OR ') : `"${words[0]}"`;
 
-        // Simple substring match for the original query - ensures "ccc" matches "cccb"
-        // Escape % and _ for LIKE (SQL wildcards)
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        // Enhanced FTS5 query - search source (and optionally target) content for complete pairs
-        // Use UNION to combine FTS5 MATCH results with LIKE substring matching
-        // (FTS5 MATCH can't be combined with OR in WHERE clause)
         const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
         // Build LIKE conditions - search source always, target only if searchSourceOnly is false
         const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? OR c.s_raw_content LIKE ?)"
-            : "(c.s_content LIKE ? OR c.t_content LIKE ? OR c.s_raw_content LIKE ? OR c.t_raw_content LIKE ?)";
+            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+            : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
 
         // FTS5 query with validation filtering
         // Use UNION to combine FTS5 MATCH results with LIKE substring matching
@@ -4129,9 +4290,9 @@ export class SQLiteIndexManager {
             };
             let rows: SearchRow[];
             if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             } else {
-                rows = await this.db!.all<SearchRow>(sql, [cleanQuery, likePattern, likePattern, likePattern, likePattern, limit]);
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {
@@ -4990,7 +5151,7 @@ export class SQLiteIndexManager {
      *       await db.exec("ALTER TABLE cells ADD COLUMN new_col TEXT");
      *   });
      */
-    private static readonly MIGRATIONS = new Map<number, (db: AsyncDatabase) => Promise<void>>();
+    private static readonly MIGRATIONS = new Map<number, (db: IAsyncDatabase) => Promise<void>>();
 
     /**
      * Attempt to incrementally migrate from `fromVersion` to `toVersion`.

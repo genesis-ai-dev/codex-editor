@@ -3048,9 +3048,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Then, perform search/replace with retainValidations=true (simulating updateCellContentDirect with retainValidations=true)
         await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
 
-        // Persist to disk to assert the stored structure
+        // Persist to disk to assert the stored structure (retry to handle Windows filesystem flush timing)
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
-        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskData = await readJsonFromDiskWithRetry(document.uri);
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
         // Latest value edit should have a NEW validation entry (not copied from old)
@@ -3717,7 +3717,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked LLM response";
+                return { content: "Mocked LLM response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar item
@@ -3859,7 +3859,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ content: "Mocked response", generationId: "gen-test-mock" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -3962,7 +3962,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ content: "Mocked response", generationId: "gen-test-mock" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -4066,7 +4066,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub MetadataManager.getChatSystemMessage to return custom system message
@@ -4211,7 +4211,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar and notebook reader
@@ -4351,7 +4351,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Mock callLLM to capture messages
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar and notebook reader
@@ -4500,7 +4500,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             let capturedMessages: any[] | null = null;
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar and notebook reader

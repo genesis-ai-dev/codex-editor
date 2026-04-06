@@ -237,7 +237,7 @@ function mergeProjectSwap(
  * Merges originalFilesHashes registries from base, ours, and theirs.
  * Union by hash: combine all entries. For same hash, merge referencedBy and originalNames.
  */
-function mergeOriginalFilesHashes(
+export function mergeOriginalFilesHashes(
     base: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
     ours: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined,
     theirs: { version?: number; files?: Record<string, any>; fileNameToHash?: Record<string, string> } | undefined

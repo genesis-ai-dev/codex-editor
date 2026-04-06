@@ -26,6 +26,9 @@ export type ProcessedNotebookMetadataBase = NotebookImportMetadataCore & {
 
     /** Used by round-trip importers/exporters (stored in attachments/originals by the provider). */
     originalFileData?: ArrayBuffer; // Fixme: this needs to be removed it's making files real big
+
+    /** When true, translated cells are validated against the source HTML structure during editing and export. */
+    enforceHtmlStructure?: boolean;
 };
 
 export type MarkdownFeatures = {
