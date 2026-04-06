@@ -72,6 +72,7 @@ export const PlaintextImporterForm: React.FC<ImporterComponentProps> = (props) =
             processFiles={processFiles}
             importerProps={props}
             cellAligner={sequentialCellAligner}
+            showEnforceStructure
         />
     );
 };

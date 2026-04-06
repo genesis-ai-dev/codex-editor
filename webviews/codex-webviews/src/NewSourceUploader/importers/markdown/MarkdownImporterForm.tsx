@@ -133,6 +133,7 @@ export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) =>
             importerProps={props}
             cellAligner={sequentialCellAligner}
             showPreview={true}
+            showEnforceStructure
         />
     );
 };

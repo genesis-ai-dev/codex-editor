@@ -411,6 +411,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         importerProps={props}
                         cellAligner={sequentialCellAligner}
                         showPreview
+                        showEnforceStructure
                     />
                 </TabsContent>
             </Tabs>

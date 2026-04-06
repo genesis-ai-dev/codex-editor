@@ -42,7 +42,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
     const [targetCells, setTargetCells] = useState<any[]>([]);
     const [previewFiles, setPreviewFiles] = useState<Array<{ name: string; preview: string }>>([]);
-    const [enforceStructure, setEnforceStructure] = useState(false);
+    const [enforceStructure, setEnforceStructure] = useState(true);
 
     const isTranslationImport = wizardContext?.intent === "target";
     const selectedSource = wizardContext?.selectedSource;

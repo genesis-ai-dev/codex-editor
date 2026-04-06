@@ -101,7 +101,7 @@ export const UnifiedImporterForm: React.FC<UnifiedImporterFormProps> = ({
     analyzeWarnings,
 }) => {
     const [files, setFiles] = useState<File[]>([]);
-    const [enforceStructure, setEnforceStructure] = useState(false);
+    const [enforceStructure, setEnforceStructure] = useState(showEnforceStructure);
     const [previewContent, setPreviewContent] = useState<string>("");
     const [fileWarnings, setFileWarnings] = useState<string[]>([]);
     const [analysisStats, setAnalysisStats] = useState<FileAnalysisStat[]>([]);
