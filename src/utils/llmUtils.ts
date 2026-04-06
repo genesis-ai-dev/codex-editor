@@ -14,11 +14,16 @@ import { MetadataManager } from "./metadataManager";
  * @returns A Promise that resolves to the LLM's response as a string.
  * @throws Error if the LLM response is unexpected or if there's an error during the API call.
  */
+export interface LLMCallResult {
+    content: string;
+    generationId?: string;
+}
+
 export async function callLLM(
     messages: ChatMessage[],
     config: CompletionConfig,
     cancellationToken?: vscode.CancellationToken
-): Promise<string> {
+): Promise<LLMCallResult> {
     try {
         // Check for cancellation before starting
         if (cancellationToken?.isCancellationRequested) {
@@ -108,7 +113,10 @@ export async function callLLM(
                         completion.choices.length > 0 &&
                         completion.choices[0].message
                     ) {
-                        return completion.choices[0].message.content?.trim() ?? "";
+                        return {
+                            content: completion.choices[0].message.content?.trim() ?? "",
+                            generationId: completion.id || undefined,
+                        };
                     } else {
                         throw new Error(
                             "Unexpected response format from the LLM; callLLM() failed - case 1"
@@ -137,7 +145,10 @@ export async function callLLM(
                     completion.choices.length > 0 &&
                     completion.choices[0].message
                 ) {
-                    return completion.choices[0].message.content?.trim() ?? "";
+                    return {
+                        content: completion.choices[0].message.content?.trim() ?? "",
+                        generationId: completion.id || undefined,
+                    };
                 } else {
                     throw new Error(
                         "Unexpected response format from the LLM; callLLM() failed - case 1"
