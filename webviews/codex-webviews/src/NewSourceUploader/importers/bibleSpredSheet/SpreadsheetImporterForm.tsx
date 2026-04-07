@@ -304,15 +304,15 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                 : "Assign each column a role. Only one Source, Target, and Attachments column is allowed."}
                         </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="grid gap-3">
+                    <CardContent className="min-w-0 space-y-4">
+                        <div className="grid min-w-0 gap-3">
                             {parsedData.columns.map((column) => (
                                 <div
                                     key={column.index}
-                                    className="flex items-center justify-between p-4 border rounded-lg"
+                                    className="flex min-w-0 flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                                 >
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-medium">{column.name}</div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate font-medium">{column.name}</div>
                                         {column.sampleValues.length > 0 && (
                                             <div className="text-sm text-muted-foreground truncate">
                                                 Examples: {column.sampleValues.join(", ")}
@@ -325,7 +325,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                             updateColumnMapping(column.index, value as ColumnType)
                                         }
                                     >
-                                        <SelectTrigger className="w-44 ml-4">
+                                        <SelectTrigger className="w-full shrink-0 sm:w-44">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
