@@ -1,49 +1,74 @@
-import Papa from 'papaparse';
 import { ParsedSpreadsheet, SpreadsheetColumn, SpreadsheetRow } from './types';
 
 /**
- * Split CSV/TSV content into logical rows, respecting quoted newlines.
- * A newline inside double-quoted content is part of the field, not a row break.
- * Exported for use by the spreadsheet exporter when doing round-trip export.
+ * Detect the delimiter used in a CSV/TSV file
  */
-export function splitCSVIntoLogicalRows(content: string): string[] {
-    const rows: string[] = [];
+function detectDelimiter(content: string): string {
+    const lines = content.split('\n').slice(0, 5); // Check first 5 lines
+    const delimiters = [',', '\t', ';', '|'];
+    const counts: { [key: string]: number; } = {};
+
+    for (const delimiter of delimiters) {
+        counts[delimiter] = 0;
+        for (const line of lines) {
+            if (line.trim()) {
+                counts[delimiter] += (line.match(new RegExp(`\\${delimiter}`, 'g')) || []).length;
+            }
+        }
+    }
+
+    // Return the delimiter with the highest average count per line
+    return delimiters.reduce((best, current) =>
+        counts[current] > counts[best] ? current : best
+    );
+}
+
+/**
+ * Parse CSV/TSV content with proper quote handling
+ */
+function parseCSVLine(line: string, delimiter: string): string[] {
+    const result: string[] = [];
     let current = '';
     let inQuotes = false;
     let i = 0;
 
-    while (i < content.length) {
-        const char = content[i];
-        const nextChar = content[i + 1];
+    while (i < line.length) {
+        const char = line[i];
+        const nextChar = line[i + 1];
 
         if (char === '"') {
             if (inQuotes && nextChar === '"') {
+                // Escaped quote
                 current += '"';
                 i += 2;
             } else {
+                // Toggle quote state
                 inQuotes = !inQuotes;
-                current += char;
                 i++;
             }
-        } else if ((char === '\n' || (char === '\r' && nextChar === '\n')) && !inQuotes) {
-            if (current.trim().length > 0) {
-                rows.push(current);
-            }
+        } else if (char === delimiter && !inQuotes) {
+            // Field separator
+            result.push(current.trim());
             current = '';
-            if (char === '\r' && nextChar === '\n') i += 2;
-            else i++;
-        } else if (char !== '\r' || inQuotes) {
-            current += char;
             i++;
         } else {
+            current += char;
             i++;
         }
     }
 
-    if (current.trim().length > 0) {
-        rows.push(current);
-    }
-    return rows;
+    result.push(current.trim());
+    return result;
+}
+
+/**
+ * Clean and validate cell content
+ */
+function cleanCellContent(content: string): string {
+    return content
+        .replace(/^"|"$/g, '') // Remove surrounding quotes
+        .replace(/""/g, '"') // Unescape quotes
+        .trim();
 }
 
 /**
@@ -63,7 +88,7 @@ function getSampleValues(rows: SpreadsheetRow[], columnIndex: number, maxSamples
 }
 
 /**
- * Parse a CSV/TSV file into structured data using PapaParse
+ * Parse a CSV/TSV file into structured data
  */
 export async function parseSpreadsheetFile(file: File): Promise<ParsedSpreadsheet> {
     const content = await file.text();
@@ -72,49 +97,46 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedSpreadshee
         throw new Error('File is empty');
     }
 
-    const result = Papa.parse<string[]>(content, {
-        header: false,
-        skipEmptyLines: true,
-        dynamicTyping: false,
-    });
+    const delimiter = detectDelimiter(content);
+    const allLines = content.split('\n').map(line => line.trim()).filter(line => line);
 
-    if (result.errors.length > 0 && result.data.length === 0) {
-        throw new Error(`CSV parse error: ${result.errors[0].message}`);
-    }
-
-    const allRows = result.data;
-    if (allRows.length === 0) {
+    if (allLines.length === 0) {
         throw new Error('No data found in file');
     }
 
-    const delimiter = result.meta.delimiter;
+    // Parse all lines
+    const parsedLines = allLines.map(line => parseCSVLine(line, delimiter));
 
-    const firstLine = allRows[0];
+    // Determine if first line is header by checking if values look like column names
+    const firstLine = parsedLines[0];
     const hasHeader = firstLine.some(value =>
         isNaN(Number(value)) &&
         value.length > 0 &&
         /^[a-zA-Z][a-zA-Z0-9_\s]*$/.test(value)
     );
 
+    // Extract headers and data rows
     const headers = hasHeader ? firstLine : firstLine.map((_, i) => `Column ${i + 1}`);
-    const dataRows = hasHeader ? allRows.slice(1) : allRows;
+    const dataRows = hasHeader ? parsedLines.slice(1) : parsedLines;
 
     if (dataRows.length === 0) {
         throw new Error('No data rows found');
     }
 
+    // Ensure all rows have the same number of columns
     const expectedColumns = headers.length;
     const normalizedRows: SpreadsheetRow[] = dataRows.map(row => {
         const normalizedRow: SpreadsheetRow = {};
         for (let i = 0; i < expectedColumns; i++) {
-            normalizedRow[i] = (row[i] || '').trim();
+            normalizedRow[i] = cleanCellContent(row[i] || '');
         }
         return normalizedRow;
     });
 
+    // Create column metadata
     const columns: SpreadsheetColumn[] = headers.map((name, index) => ({
         index,
-        name: name.trim(),
+        name: cleanCellContent(name),
         sampleValues: getSampleValues(normalizedRows, index)
     }));
 
@@ -122,7 +144,7 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedSpreadshee
         columns,
         rows: normalizedRows,
         delimiter,
-        filename: file.name.replace(/\.[^/.]+$/, '')
+        filename: file.name.replace(/\.[^/.]+$/, '') // Remove extension
     };
 }
 
