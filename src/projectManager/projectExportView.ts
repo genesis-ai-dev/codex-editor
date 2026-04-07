@@ -269,6 +269,14 @@ function getWebviewContent(
                     align-items: center;
                     justify-content: center;
                     flex: 1;
+                    min-width: 0;
+                }
+                .progress-compact {
+                    display: none;
+                    font-size: 0.85em;
+                    font-weight: 600;
+                    color: var(--vscode-descriptionForeground);
+                    white-space: nowrap;
                 }
                 .progress-circle {
                     width: 32px;
@@ -297,13 +305,19 @@ function getWebviewContent(
                     color: var(--vscode-button-foreground);
                 }
                 .progress-line {
-                    width: 120px;
+                    width: 60px;
+                    max-width: 120px;
+                    flex-shrink: 1;
                     height: 2px;
                     background: var(--vscode-input-border);
                     transition: background 0.2s ease;
                 }
                 .progress-line.completed {
                     background: var(--vscode-focusBorder);
+                }
+                @media (max-width: 340px) {
+                    .progress-circle, .progress-line { display: none; }
+                    .progress-compact { display: block; }
                 }
                 .file-group {
                     border: 1px solid var(--vscode-input-border);
@@ -363,16 +377,16 @@ function getWebviewContent(
                 .bottom-bar {
                     flex-shrink: 0;
                     margin: 0 -16px;
-                    padding: 16px;
+                    padding: 12px 16px;
                     border-top: 1px solid var(--vscode-input-border);
                     display: flex;
                     align-items: center;
-                    gap: 16px;
+                    gap: 8px;
                 }
                 .bottom-bar-left, .bottom-bar-right {
                     display: flex;
                     gap: 8px;
-                    min-width: 120px;
+                    flex-shrink: 0;
                 }
                 .bottom-bar-right { justify-content: flex-end; }
                 .step-btn { display: none; }
@@ -390,8 +404,9 @@ function getWebviewContent(
                     gap: 8px;
                 }
                 .step-btn {
-                    min-width: 120px;
-                    padding: 8px;
+                    min-width: 0;
+                    padding: 8px 12px;
+                    white-space: nowrap;
                 }
                 .step-btn .btn-text {
                     flex: 1;
@@ -450,7 +465,7 @@ function getWebviewContent(
                 }
                 .format-section-content {
                     display: grid;
-                    grid-template-columns: 1fr 1fr;
+                    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
                     gap: 8px;
                 }
                 .format-section-content .format-option { padding: 12px; }
@@ -748,6 +763,7 @@ function getWebviewContent(
                         <button class="secondary step-btn" id="btnBack" onclick="goBack()"><i class="codicon codicon-arrow-left"></i><span class="btn-text">Back</span></button>
                     </div>
                     <div class="progress-bar">
+                        <span class="progress-compact" id="progressCompact">Step 1 of 3</span>
                         <div class="progress-circle active" id="progressCircle1">1</div>
                         <div class="progress-line" id="progressLine1"></div>
                         <div class="progress-circle" id="progressCircle2">2</div>
@@ -967,6 +983,8 @@ function getWebviewContent(
                         line.classList.remove('completed');
                         if (i + 1 < n) line.classList.add('completed');
                     });
+                    const compact = document.getElementById('progressCompact');
+                    if (compact) compact.textContent = 'Step ' + n + ' of 3';
                     currentStep = n;
                     updateButtonVisibility();
                     if (n === 2) {
