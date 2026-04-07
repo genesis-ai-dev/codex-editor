@@ -969,9 +969,10 @@ interface ProjectOverview extends Project {
     };
 }
 
-/** A snapshot of a single user's Codex editor version, recorded on project open and after sync */
+/** A snapshot of a single user's Codex app (host IDE) version, recorded on project open and after sync */
 type ProjectUserVersionEntry = {
     userName: string;
+    /** Host IDE / app binary version (vscode.version), e.g. "1.108.11148" */
     codexVersion: string;
     /** Epoch milliseconds when this entry was last written */
     updatedAt: number;

@@ -456,9 +456,7 @@ export class MetadataManager {
      */
     static async ensureCurrentUserVersionRecorded(workspaceUri: vscode.Uri): Promise<void> {
         try {
-            const codexVersion = this.getCurrentExtensionVersion(
-                "project-accelerate.codex-editor-extension"
-            );
+            const codexVersion = vscode.version;
             if (!codexVersion) {
                 return;
             }
