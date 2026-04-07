@@ -270,6 +270,7 @@ function getWebviewContent(
                     justify-content: center;
                     flex: 1;
                     min-width: 0;
+                    overflow: hidden;
                 }
                 .progress-compact {
                     display: none;
