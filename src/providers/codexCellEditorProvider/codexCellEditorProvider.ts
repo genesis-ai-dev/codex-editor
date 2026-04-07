@@ -3493,7 +3493,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     currentCellId,
                                     singleCompletion,
                                     EditType.LLM_GENERATION,
-                                    shouldUpdateValue
+                                    shouldUpdateValue,
+                                    false,
+                                    false,
+                                    completionResult.generationId
                                 );
                                 this.updateSingleCellTranslation(1.0);
                                 debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
@@ -3552,7 +3555,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         currentCellId,
                         singleCompletion,
                         EditType.LLM_GENERATION,
-                        shouldUpdateValue
+                        shouldUpdateValue,
+                        false,
+                        false,
+                        completionResult.generationId
                     );
 
                     // If this was a preview-only update, persist the edit to disk immediately so edit history is saved
