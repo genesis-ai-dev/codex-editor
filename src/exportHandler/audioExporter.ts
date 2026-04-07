@@ -127,7 +127,8 @@ function computeDialogueLineNumbers(
         const isMerged = !!(data && data.merged);
         const isDeleted = !!(data && data.deleted);
         const isParatext = cell?.metadata?.type === "paratext";
-        if (!isValidKind || isMerged || isDeleted || isParatext) continue;
+        const isMilestone = cell?.metadata?.type === "milestone";
+        if (!isValidKind || isMerged || isDeleted || isParatext || isMilestone) continue;
         const id: string | undefined = cell?.metadata?.id;
         if (!id) continue;
         line += 1;
@@ -599,14 +600,13 @@ export async function exportAudioAttachments(
                             outputExt = prepared.ext;
                         }
 
-                        // Always use .wav extension for output (even if original was WebM/M4A)
-                        let destName = `${sanitizeFileComponent(bookCode)}_${langCode}_${label}_${lineNumber}.wav`;
+                        let destName = `${sanitizeFileComponent(bookCode)}_${langCode}_${label}_${lineNumber}${outputExt}`;
                         let destUri = vscode.Uri.joinPath(bookFolder, destName);
 
                         // Avoid collisions by appending incremental suffix
                         let attempt = 1;
                         while (await pathExists(destUri)) {
-                            destName = `${sanitizeFileComponent(bookCode)}_${langCode}_${label}_${lineNumber}_${attempt}.wav`;
+                            destName = `${sanitizeFileComponent(bookCode)}_${langCode}_${label}_${lineNumber}_${attempt}${outputExt}`;
                             destUri = vscode.Uri.joinPath(bookFolder, destName);
                             attempt++;
                         }
