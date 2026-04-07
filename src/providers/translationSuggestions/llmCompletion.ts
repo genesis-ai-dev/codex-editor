@@ -91,6 +91,7 @@ export interface LLMCompletionResult {
     isAttentionCheck?: boolean;
     correctIndex?: number;
     decoyCellId?: string;
+    generationId?: string;
 }
 
 export async function llmCompletion(
@@ -296,7 +297,8 @@ export async function llmCompletion(
             }
 
             // A/B testing not triggered (or failed): call LLM once, return two identical variants
-            const completion = await callLLM(messages, completionConfig, token);
+            const llmResult = await callLLM(messages, completionConfig, token);
+            const completion = llmResult.content;
             const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
 
             // Extract translation from <final_answer> tags, fallback to full response
@@ -318,6 +320,7 @@ export async function llmCompletion(
             return {
                 variants,
                 isABTest: false, // Identical variants – UI should hide A/B controls
+                generationId: llmResult.generationId,
             };
         } catch (error) {
             // Check if this is a cancellation error and re-throw as-is
