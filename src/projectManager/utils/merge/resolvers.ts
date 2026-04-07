@@ -13,7 +13,7 @@ import { NotebookCommentThread, NotebookComment, CustomNotebookCellData, CustomN
 import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
-import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory } from "../../../../types/index.d";
+import { EditHistory, ValidationEntry, FileEditHistory, ProjectEditHistory, ProjectUserVersionEntry } from "../../../../types/index.d";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../../utils/editMapUtils";
 import { normalizeAttachmentUrl } from "@/utils/pathUtils";
 import { formatJsonForNotebookFile } from "../../../utils/notebookFileFormattingUtils";
@@ -281,6 +281,28 @@ export function mergeOriginalFilesHashes(
         files: mergedFiles,
         fileNameToHash: mergedFileNameToHash,
     };
+}
+
+/**
+ * Merges user-version entries from two sides by userName.
+ * When the same userName appears on both sides, the entry with the higher updatedAt wins.
+ */
+export function mergeUserVersionEntries(
+    oursUsers: ProjectUserVersionEntry[] | undefined,
+    theirsUsers: ProjectUserVersionEntry[] | undefined
+): ProjectUserVersionEntry[] | undefined {
+    if (!oursUsers?.length && !theirsUsers?.length) {
+        return undefined;
+    }
+    const map = new Map<string, ProjectUserVersionEntry>();
+    for (const entry of [...(oursUsers ?? []), ...(theirsUsers ?? [])]) {
+        if (!entry?.userName) continue;
+        const existing = map.get(entry.userName);
+        if (!existing || (entry.updatedAt ?? 0) > (existing.updatedAt ?? 0)) {
+            map.set(entry.userName, entry);
+        }
+    }
+    return Array.from(map.values());
 }
 
 /**
@@ -2162,8 +2184,13 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
         // Merge other fields (excluding edits and initiateRemoteUpdatingFor which are already handled)
         const otherFieldsMerged = mergeObjects(base, ours, theirs);
 
+        const mergedUsers = mergeUserVersionEntries(
+            ours.users as ProjectUserVersionEntry[] | undefined,
+            theirs.users as ProjectUserVersionEntry[] | undefined
+        );
+
         // Combine: use edit history result as base, then overlay other merged fields
-        // But preserve edits, initiateRemoteUpdatingFor, projectSwap, and originalFilesHashes from our specialized merges
+        // But preserve edits, initiateRemoteUpdatingFor, projectSwap, users, and originalFilesHashes from our specialized merges
         const otherMeta = (otherFieldsMerged as Record<string, unknown>).meta as Record<string, unknown> | undefined;
         const finalResult: Record<string, unknown> = {
             ...otherFieldsMerged,
@@ -2174,6 +2201,9 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
                 projectSwap: mergedProjectSwap, // From specialized merge
             }
         };
+        if (mergedUsers) {
+            finalResult.users = mergedUsers;
+        }
         if (mergedOriginalFilesHashes) {
             finalResult.originalFilesHashes = mergedOriginalFilesHashes;
         }

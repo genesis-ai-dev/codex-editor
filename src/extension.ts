@@ -755,6 +755,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 } catch (error) {
                     console.warn("[Extension] Error ensuring extension version requirements:", error);
                 }
+
+                try {
+                    await MetadataManager.ensureCurrentUserVersionRecorded(workspaceFolders[0].uri);
+                } catch (error) {
+                    console.warn("[Extension] Error recording user codex version:", error);
+                }
             }
 
             trackTiming("Initializing Workspace", workspaceStart);

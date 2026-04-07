@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { addProjectMetadataEdit } from "./editMapUtils";
+import { ProjectUserVersionEntry } from "@types";
 
 /**
  * Simple metadata manager for reading and writing metadata.json.
@@ -21,6 +22,7 @@ interface ProjectMetadata {
         [key: string]: unknown;
     };
     edits?: any[];
+    users?: ProjectUserVersionEntry[];
     chatSystemMessage?: string;
     [key: string]: unknown;
 }
@@ -444,6 +446,61 @@ export class MetadataManager {
         } catch (error) {
             console.warn("[MetadataManager] Failed to ensure extension versions:", error);
             // Non-fatal - don't block project opening
+        }
+    }
+
+    /**
+     * Record the current user's Codex editor version in the metadata `users` array.
+     * Called on project open and after sync so deploy-compatibility checks can see
+     * which binary each collaborator is running.
+     */
+    static async ensureCurrentUserVersionRecorded(workspaceUri: vscode.Uri): Promise<void> {
+        try {
+            const codexVersion = this.getCurrentExtensionVersion(
+                "project-accelerate.codex-editor-extension"
+            );
+            if (!codexVersion) {
+                return;
+            }
+
+            let userName: string | undefined;
+            try {
+                const { getAuthApi } = await import("../extension");
+                const authApi = getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                userName = userInfo?.username;
+            } catch {
+                // Auth not available — fall through to config
+            }
+            if (!userName) {
+                userName =
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userName") || undefined;
+            }
+            if (!userName) {
+                return;
+            }
+
+            await this.safeUpdateMetadata<ProjectMetadata>(workspaceUri, (metadata) => {
+                const users: ProjectUserVersionEntry[] = metadata.users ?? [];
+                const existing = users.find((u) => u.userName === userName);
+
+                if (existing) {
+                    if (existing.codexVersion === codexVersion) {
+                        return metadata; // nothing changed — skip write
+                    }
+                    existing.codexVersion = codexVersion;
+                    existing.updatedAt = Date.now();
+                } else {
+                    users.push({ userName, codexVersion, updatedAt: Date.now() });
+                }
+
+                metadata.users = users;
+                return metadata;
+            });
+        } catch (error) {
+            console.warn("[MetadataManager] Failed to record user version:", error);
         }
     }
 

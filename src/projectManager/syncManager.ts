@@ -1109,6 +1109,16 @@ export class SyncManager {
                 // Don't fail sync if webview refresh fails
             }
 
+            // Record current user's Codex version after a successful sync
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                try {
+                    const { MetadataManager } = await import("../utils/metadataManager");
+                    await MetadataManager.ensureCurrentUserVersionRecorded(workspaceFolders[0].uri);
+                } catch (error) {
+                    console.warn("[SyncManager] Error recording user codex version after sync:", error);
+                }
+            }
+
         } catch (error) {
             console.error("Error during background sync operation:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);
