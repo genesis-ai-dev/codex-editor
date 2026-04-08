@@ -1,5 +1,5 @@
 /**
- * Cell Metadata Builder for DOCX Importer
+ * Cell Metadata Builder for DOCX Experimental Importer
  * 
  * This file centralizes all cell metadata structure creation for DOCX imports.
  * Makes it easy to find and modify metadata fields in one place.
