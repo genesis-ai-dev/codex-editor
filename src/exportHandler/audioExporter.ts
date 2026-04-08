@@ -600,13 +600,13 @@ export async function exportAudioAttachments(
                             outputExt = prepared.ext;
                         }
 
-                        let destName = `${sanitizeFileComponent(bookCode)}_${langCode}_${label}_${lineNumber}${outputExt}`;
+                        let destName = `${sanitizeFileComponent(bookCode)}_${label}_LN${lineNumber}${outputExt}`;
                         let destUri = vscode.Uri.joinPath(bookFolder, destName);
 
                         // Avoid collisions by appending incremental suffix
                         let attempt = 1;
                         while (await pathExists(destUri)) {
-                            destName = `${sanitizeFileComponent(bookCode)}_${langCode}_${label}_${lineNumber}_${attempt}${outputExt}`;
+                            destName = `${sanitizeFileComponent(bookCode)}_${label}_LN${lineNumber}_${attempt}${outputExt}`;
                             destUri = vscode.Uri.joinPath(bookFolder, destName);
                             attempt++;
                         }
