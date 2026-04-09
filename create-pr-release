@@ -90,6 +90,7 @@ trap - EXIT
 
 echo "==> Creating GitHub prerelease: $VERSION"
 gh release create "$VERSION" \
+  --target "$(git rev-parse HEAD)" \
   --prerelease \
   --title "$VERSION" \
   --generate-notes \
