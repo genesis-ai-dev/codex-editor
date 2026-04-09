@@ -24,6 +24,7 @@ import {
 import { generateProjectId, sanitizeProjectName, extractProjectIdFromFolderName, writeDisplayedProjectName } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { MetadataManager } from "../../utils/metadataManager";
+import { sanitizeGitUrl } from "../../utils/projectSwapManager";
 import { createMachine, assign, createActor } from "xstate";
 import { performProjectSwap } from "./performProjectSwap";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
@@ -1394,8 +1395,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     if (!workContinuedInNewProjects) {
                                         const newProjectId = extractProjectIdFromUrl(newUrl);
                                         if (newProjectId) {
-                                            debugLog("Checking remote new project for update (swap) activity:", newUrl);
-                                            const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false);
+                                            debugLog("Checking remote new project for update (swap) activity:", sanitizeGitUrl(newUrl));
+                                            const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false, newUrl);
                                             const newSwapInfo = newProjectMetadata?.meta?.projectSwap;
                                             if (newSwapInfo?.swapEntries?.length) {
                                                 workContinuedInNewProjects = true;
@@ -1456,6 +1457,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     } as any);
                 }
 
+                const skipUpdateCheck = !!(message as any).skipUpdateCheck;
                 try {
                     // Check if remote update is required before opening or if a local update is in-progress
                     let remoteUpdateWasPerformed = false;
@@ -1474,6 +1476,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // Separate variable to hold the remote metadata for version checks
                     let fetchedRemoteMetadata: { meta?: { requiredExtensions?: { codexEditor?: string; frontierAuthentication?: string; };[key: string]: unknown; };[key: string]: unknown; } | undefined;
                     try {
+                        if (skipUpdateCheck) {
+                            debugLog("Skipping update check (offline open requested)");
+                        }
+                        if (!skipUpdateCheck) {
                         debugLog("Checking remote update requirement for project:", projectPath);
                         const { checkRemoteProjectRequirements } = await import("../../utils/remoteUpdatingManager");
                         // Pass true for bypassCache to ensure we verify connectivity before deciding to update
@@ -1492,20 +1498,75 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             shouldUpdate = true;
                             updatingReason = "Remote requirement";
                         } else {
-                            // If remote no longer requires update, still continue if local state indicates an in-progress update
+                            debugLog("No remote update required:", remoteProjectRequirements?.updateReason);
+                            const projectUri = vscode.Uri.file(projectPath);
+
+                            // 1. Check for an in-progress update (backup/clone state)
                             const hasLocalPending = await this.hasPendingLocalUpdate(projectPath);
                             if (hasLocalPending) {
                                 debugLog("Local update state present; continuing update even though remote no longer requires it");
                                 try {
-                                    await markPendingUpdateRequired(vscode.Uri.file(projectPath), "Local pending update");
+                                    await markPendingUpdateRequired(projectUri, "Local pending update");
                                 } catch (e) {
                                     debugLog("Failed to persist pending update flag for local pending state", e);
                                 }
                                 shouldUpdate = true;
                                 updatingReason = "Local pending update";
                             }
-                        }
 
+                            // 2. Check pendingUpdate sticky flag – does NOT need a username
+                            if (!shouldUpdate) {
+                                try {
+                                    const localSettings = await readLocalProjectSettings(projectUri);
+                                    if (localSettings.pendingUpdate?.required) {
+                                        debugLog("pendingUpdate sticky flag set in localProjectSettings, triggering update");
+                                        shouldUpdate = true;
+                                        updatingReason = "Pending update (local flag)";
+                                    }
+                                } catch (e) {
+                                    debugLog("Error reading localProjectSettings for pendingUpdate check", e);
+                                }
+                            }
+
+                            // 3. Check local metadata.json entries (requires username)
+                            if (!shouldUpdate) {
+                                let currentUsername = remoteProjectRequirements?.currentUsername;
+                                if (!currentUsername) {
+                                    try {
+                                        const { getCurrentUsername } = await import("../../utils/remoteUpdatingManager");
+                                        currentUsername = (await getCurrentUsername()) ?? undefined;
+                                    } catch {
+                                        // non-fatal
+                                    }
+                                }
+
+                                if (currentUsername) {
+                                    try {
+                                        const metaResult = await MetadataManager.safeReadMetadata<ProjectMetadata>(projectUri);
+                                        if (metaResult.success && metaResult.metadata) {
+                                            const { normalizeUpdateEntry, isEffectivelyCancelled } = await import("../../utils/remoteUpdatingManager");
+                                            const entries = (metaResult.metadata.meta?.initiateRemoteUpdatingFor ?? [])
+                                                .map((e: any) => normalizeUpdateEntry(e));
+                                            const hasActiveEntry = entries.some(
+                                                (e) => e.userToUpdate === currentUsername && !e.executed && !isEffectivelyCancelled(e)
+                                            );
+                                            if (hasActiveEntry) {
+                                                debugLog("Active update entry found in local metadata.json for user:", currentUsername);
+                                                try {
+                                                    await markPendingUpdateRequired(projectUri, "Detected from local metadata on open");
+                                                } catch (e) {
+                                                    debugLog("Failed to persist pending update flag from local metadata", e);
+                                                }
+                                                shouldUpdate = true;
+                                                updatingReason = "Local metadata requirement";
+                                            }
+                                        }
+                                    } catch (e) {
+                                        debugLog("Error checking local metadata entries", e);
+                                    }
+                                }
+                            }
+                        }
                         if (shouldUpdate) {
                             // ── Version gate: block update if extensions are outdated ──
                             // Checks both local and remote metadata requiredExtensions + REQUIRED_FRONTIER_VERSION
@@ -1521,6 +1582,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                             } catch (versionErr) {
                                 debugLog("Version check for update failed (non-fatal, allowing update):", versionErr);
+                            }
+
+                            const updateConfirmation = await vscode.window.showWarningMessage(
+                                "Project Update Required\n\n" +
+                                "An administrator has made changes that require updating your project. " +
+                                "The project will be re-downloaded to apply the latest changes.\n\n" +
+                                "Your local changes will be preserved and backed up.",
+                                { modal: true },
+                                "Update Project"
+                            );
+
+                            if (updateConfirmation !== "Update Project") {
+                                debugLog("User declined project update from projects list");
+                                this.safeSendMessage({
+                                    command: "project.openingInProgress",
+                                    projectPath,
+                                    opening: false,
+                                } as any);
+                                return;
                             }
 
                             remoteUpdateWasPerformed = true;
@@ -1605,8 +1685,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         } else {
                             debugLog("No remote updating required:", remoteProjectRequirements?.updateReason);
                         }
+                        } // end if (!skipUpdateCheck)
                     } catch (updatingCheckErr) {
-                        // If updating was attempted and failed/cancelled, DO NOT open the project.
                         debugLog("Remote updating check failed:", updatingCheckErr);
                         console.error("Remote updating check error:", updatingCheckErr);
 
@@ -1721,7 +1801,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 }
                                 const projectId = extractProjectIdFromUrl(newProjectUrl);
                                 if (projectId) {
-                                    const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                                    const remoteMetadata = await fetchRemoteMetadata(projectId, false, newProjectUrl);
                                     const remoteSwap = remoteMetadata?.meta?.projectSwap;
                                     if (remoteSwap) {
                                         // Find matching entry in remote by swapUUID
@@ -3786,7 +3866,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             if (origin?.url) {
                                 const projId = extractProjectIdFromUrl(origin.url);
                                 if (projId) {
-                                    const remoteMeta = await fetchRemoteMetadata(projId, false);
+                                    const remoteMeta = await fetchRemoteMetadata(projId, false, origin.url);
                                     if (remoteMeta) {
                                         oldProjectRemoteMetadata = remoteMeta as ProjectMetadata;
                                     }
@@ -3934,7 +4014,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         const projectId = extractProjectIdFromUrl(newProjectUrl);
                         if (projectId) {
                             const currentUsername = await getCurrentUsername();
-                            const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                            const remoteMetadata = await fetchRemoteMetadata(projectId, false, newProjectUrl);
 
                             // ── Version gate: also check the NEW project's remote requirements ──
                             if (remoteMetadata) {
@@ -4698,6 +4778,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Verify the cloned project exists
             await vscode.workspace.fs.stat(cloningProjectUri);
             debugLog("Cloned project directory exists");
+
+            // Validate that cloned metadata.json is present and parseable before merging.
+            // If this fails, the update aborts and backup restore handles recovery.
+            const clonedMetadataUri = vscode.Uri.joinPath(cloningProjectUri, "metadata.json");
+            const clonedMetadataBytes = await vscode.workspace.fs.readFile(clonedMetadataUri);
+            JSON.parse(Buffer.from(clonedMetadataBytes).toString("utf8"));
+            debugLog("Cloned metadata.json validated successfully");
 
             // Build a full merge set from the saved snapshot (ours) vs the freshly-cloned project (theirs/base)
             // Treat everything as a potential conflict, excluding .git/**. Do not delete files.
@@ -5818,7 +5905,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         mediaStrategy?: MediaFilesStrategy,
         skipDeprecatedPrompt: boolean = false
     ): Promise<void> {
-        debugLog("Cloning repository", repoUrl);
+        debugLog("Cloning repository", sanitizeGitUrl(repoUrl));
 
         // Extract project name from URL for progress tracking
         const urlParts = repoUrl.split("/");
@@ -5840,7 +5927,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 const { getActiveSwapEntry, normalizeProjectSwapInfo } = await import("../../utils/projectSwapManager");
                 const projectId = extractProjectIdFromUrl(repoUrl);
                 if (projectId) {
-                    const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                    const remoteMetadata = await fetchRemoteMetadata(projectId, false, repoUrl);
                     const swapInfo = remoteMetadata?.meta?.projectSwap as ProjectSwapInfo | undefined;
                     const normalizedSwapInfo = swapInfo ? normalizeProjectSwapInfo(swapInfo) : undefined;
                     const activeEntry = normalizedSwapInfo ? getActiveSwapEntry(normalizedSwapInfo) : undefined;
@@ -5857,7 +5944,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 cloneUsername = (await getCurrentUsername()) ?? undefined;
                                 const newProjectId = extractProjectIdFromUrl(activeEntry.newProjectUrl);
                                 if (cloneUsername && newProjectId) {
-                                    const newRemoteMeta = await fetchRemoteMetadata(newProjectId, false);
+                                    const newRemoteMeta = await fetchRemoteMetadata(newProjectId, false, activeEntry.newProjectUrl);
                                     const newRemoteSwap = newRemoteMeta?.meta?.projectSwap;
                                     if (newRemoteSwap) {
                                         const normalizedNew = normalizeProjectSwapInfo(newRemoteSwap);
@@ -5986,8 +6073,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     if (!workContinuedInNewProjects) {
                                         const newProjectId = extractProjectIdFromUrl(newUrl);
                                         if (newProjectId) {
-                                            debugLog("Checking remote new project for update (swap) activity:", newUrl);
-                                            const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false);
+                                            debugLog("Checking remote new project for update (swap) activity:", sanitizeGitUrl(newUrl));
+                                            const newProjectMetadata = await fetchRemoteMetadata(newProjectId, false, newUrl);
                                             const newSwapInfo = newProjectMetadata?.meta?.projectSwap;
                                             if (newSwapInfo?.swapEntries?.length) {
                                                 // New project has update (swap) entries - work continued there
