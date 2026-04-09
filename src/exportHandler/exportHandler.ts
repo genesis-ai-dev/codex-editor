@@ -849,6 +849,81 @@ async function exportCodexContentAsObsRoundtrip(
 }
 
 /**
+ * Generic Markdown round-trip export (Markdown importer: per-cell originalMarkdown + translations).
+ */
+async function exportCodexContentAsMarkdownRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        return;
+    }
+
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting Markdown Round-trip",
+            cancellable: false,
+        },
+        async (progress) => {
+            const { exportMarkdownImporterRoundtrip } = await import(
+                "../../webviews/codex-webviews/src/NewSourceUploader/importers/markdown/markdownExporter"
+            );
+
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+                    const importerType = String((codexNotebook.metadata as any)?.importerType ?? "").trim();
+                    const corpusMarker = String((codexNotebook.metadata as any)?.corpusMarker ?? "").trim();
+
+                    if (importerType !== "markdown" && corpusMarker !== "markdown") {
+                        console.warn(
+                            `[Markdown Export] Skipping ${fileName} - not Markdown importer (importerType: ${importerType}, corpusMarker: ${corpusMarker})`
+                        );
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported with the Markdown importer`);
+                        continue;
+                    }
+
+                    const activeCells = getActiveCells(codexNotebook.cells);
+                    const updatedMarkdown = exportMarkdownImporterRoundtrip(activeCells as any);
+
+                    const originalFileName =
+                        (codexNotebook.metadata as any)?.originalFileName ||
+                        (codexNotebook.metadata as any)?.originalName ||
+                        `${fileName.split(".")[0]}.md`;
+                    const baseFileName = String(originalFileName).replace(/\.(md|markdown)$/i, "");
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0];
+                    const exportedName = `${baseFileName}_${timestamp}_translated.md`;
+                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+
+                    const encoder = new TextEncoder();
+                    await vscode.workspace.fs.writeFile(exportedUri, encoder.encode(updatedMarkdown));
+                    console.log(`[Markdown Export] ✓ Exported ${exportedName}`);
+                } catch (error) {
+                    console.error(`[Markdown Export] Error exporting ${filePath}:`, error);
+                    vscode.window.showErrorMessage(
+                        `Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : "Unknown error"}`
+                    );
+                }
+            }
+
+            vscode.window.showInformationMessage(`Markdown round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
+/**
  * USFM (Unified Standard Format Marker) Round-trip export
  * Rebuilds original USFM file with translated content
  */
@@ -1384,6 +1459,9 @@ async function exportCodexContentAsRebuild(
                         // Fallback: also detect by importerType for older files
                         filesByType['obs'] = filesByType['obs'] || [];
                         filesByType['obs'].push(filePath);
+                    } else if (importerType === 'markdown' || corpusMarker === 'markdown') {
+                        filesByType['markdown'] = filesByType['markdown'] || [];
+                        filesByType['markdown'].push(filePath);
                     } else if (
                         corpusMarker === 'tms' || // New: Unified TMS corpus marker
                         corpusMarker === 'tms-tmx' || // Legacy: Backwards compatibility
@@ -1525,6 +1603,22 @@ async function exportCodexContentAsRebuild(
                 }
             }
 
+            // Export generic Markdown (Markdown importer) files
+            if (filesByType['markdown']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['markdown'].length} Markdown file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['markdown'].length} Markdown file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsMarkdownRoundtrip(userSelectedPath, filesByType['markdown'], options);
+                    processedCount += filesByType['markdown'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] Markdown export failed:', error);
+                    vscode.window.showErrorMessage(`Markdown export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
             // Export TMS files
             if (filesByType['tms']?.length > 0) {
                 console.log(`[Rebuild Export] Exporting ${filesByType['tms'].length} TMS file(s)...`);
@@ -1596,7 +1690,7 @@ async function exportCodexContentAsRebuild(
                     .join('\n');
 
                 vscode.window.showWarningMessage(
-                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, TMS, USFM, CSV/TSV`,
+                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, Markdown, TMS, USFM, CSV/TSV`,
                     { modal: false }
                 );
             }
