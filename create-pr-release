@@ -88,6 +88,10 @@ echo "==> Restoring version before release"
 restore_version
 trap - EXIT
 
+# We need to ensure head is on remote so it's there to attach the release to.
+# Skip verify as we just built and tested successfully.
+git push --no-verify
+
 echo "==> Creating GitHub prerelease: $VERSION"
 gh release create "$VERSION" \
   --target "$(git rev-parse HEAD)" \
