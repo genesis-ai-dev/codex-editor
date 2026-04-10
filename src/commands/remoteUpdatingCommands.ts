@@ -13,6 +13,8 @@ import {
 } from "../utils/remoteUpdatingManager";
 import { checkProjectAdminPermissions } from "../utils/projectAdminPermissionChecker";
 import { isFeatureEnabled } from "../utils/remoteUpdatingManager";
+import { markPendingUpdateRequired, clearPendingUpdate } from "../utils/localProjectSettings";
+import { sanitizeGitUrl } from "../utils/projectSwapManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[RemoteUpdatingCommands]", ...args) : () => { };
@@ -71,7 +73,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
             }
 
             gitOriginUrl = origin.url;
-            debug("Git origin URL:", gitOriginUrl);
+            debug("Git origin URL:", sanitizeGitUrl(gitOriginUrl));
         } catch (error) {
             vscode.window.showErrorMessage(
                 `Couldn't check the project's online connection. Please try again.`
@@ -178,7 +180,7 @@ export async function initiateRemoteUpdating(): Promise<void> {
 
         // Prefer remote list (fresh from remote head) when available
         try {
-            const remoteMeta = await fetchRemoteMetadata(projectId, false); // bypass cache
+            const remoteMeta = await fetchRemoteMetadata(projectId, false, gitOriginUrl); // bypass cache
             const remoteList = remoteMeta?.meta?.initiateRemoteUpdatingFor;
             if (remoteList && Array.isArray(remoteList)) {
                 rawList = remoteList;
@@ -503,6 +505,27 @@ export async function initiateRemoteUpdating(): Promise<void> {
             // Clear the remote metadata cache so next checks get fresh data
             clearRemoteMetadataCache(projectId);
 
+            // Immediately update localProjectSettings.json for the current user
+            // so the pendingUpdate flag is set without waiting for another sync cycle.
+            if (selectedUsernames.includes(currentUserInfo.username)) {
+                try {
+                    await markPendingUpdateRequired(
+                        workspaceFolder.uri,
+                        "Admin initiated update for current user"
+                    );
+                    debug("Set pendingUpdate for current user immediately");
+                } catch (e) {
+                    debug("Failed to set pendingUpdate for current user:", e);
+                }
+            } else if (removedUsers.includes(currentUserInfo.username)) {
+                try {
+                    await clearPendingUpdate(workspaceFolder.uri);
+                    debug("Cleared pendingUpdate for current user (removed from list)");
+                } catch (e) {
+                    debug("Failed to clear pendingUpdate for current user:", e);
+                }
+            }
+
             // Show success message after sync completes
             const successMessage =
                 selectedUsernames.length === 0
@@ -553,7 +576,7 @@ export async function viewRemoteUpdatingList(): Promise<void> {
             if (origin?.url) {
                 const projectId = extractProjectIdFromUrl(origin.url);
                 if (projectId) {
-                    const remoteMeta = await fetchRemoteMetadata(projectId, false); // bypass cache
+                    const remoteMeta = await fetchRemoteMetadata(projectId, false, origin.url); // bypass cache
                     const remoteList = remoteMeta?.meta?.initiateRemoteUpdatingFor;
                     if (remoteList && Array.isArray(remoteList)) {
                         rawList = remoteList;
@@ -572,6 +595,12 @@ export async function viewRemoteUpdatingList(): Promise<void> {
             vscode.window.showInformationMessage("No users are currently marked for remote update.");
             return;
         }
+
+        // Batch-clear state: entries marked for clearing (in-memory until Apply)
+        const pendingClears = new Set<string>();
+        const entryKey = (e: RemoteUpdatingEntry): string =>
+            `${e.userToUpdate}:${e.addedBy}:${e.createdAt}`;
+        let currentFilter: 'all' | 'pending' | 'executed' | 'cancelled' = 'all';
 
         // Helper to generate items based on filter
         const generateItems = (filterType: 'all' | 'pending' | 'executed' | 'cancelled'): vscode.QuickPickItem[] => {
@@ -638,8 +667,6 @@ export async function viewRemoteUpdatingList(): Promise<void> {
                     let icon = "$(clock)";
                     let statusText = "Pending";
 
-                    // Handle status priority: Executed trumps Cancelled
-                    // (If both are true, the user completed the update before admin could cancel it)
                     if (entry.executed) {
                         icon = "$(check)";
                         statusText = "Executed";
@@ -651,28 +678,30 @@ export async function viewRemoteUpdatingList(): Promise<void> {
                     const dateStr = new Date(entry.createdAt).toLocaleString();
                     const cancelledBy = getCancelledBy(entry);
 
-                    // Build detail line with appropriate context
                     let detailLine = `Added by ${entry.addedBy} on ${dateStr}`;
 
-                    // If both cancelled and executed, explain what happened
                     if (isCancelled(entry) && entry.executed && cancelledBy) {
                         detailLine += ` • Update completed before cancellation by ${cancelledBy}`;
                     } else if (isCancelled(entry) && cancelledBy) {
                         detailLine += ` • Cancelled by ${cancelledBy}`;
                     }
 
-                    // Show clear button only if feature is enabled and entry is clearable
                     const canClear = isFeatureEnabled('ENABLE_ENTRY_CLEARING') && (entry.executed || isCancelled(entry));
+                    const isMarked = pendingClears.has(entryKey(entry));
+
+                    let itemButton: vscode.QuickInputButton[] = [];
+                    if (canClear) {
+                        itemButton = isMarked
+                            ? [{ iconPath: new vscode.ThemeIcon("discard"), tooltip: "Undo — keep this entry" }]
+                            : [{ iconPath: new vscode.ThemeIcon("trash"), tooltip: "Mark for clearing" }];
+                    }
 
                     items.push({
-                        label: `${icon} ${entry.userToUpdate}`,
-                        description: statusText,
+                        label: isMarked ? `$(trash) ~${entry.userToUpdate}~` : `${icon} ${entry.userToUpdate}`,
+                        description: isMarked ? `${statusText} — will be cleared` : statusText,
                         detail: detailLine,
-                        entry: entry,  // Store entry for later actions
-                        buttons: canClear ? [{
-                            iconPath: new vscode.ThemeIcon("trash"),
-                            tooltip: "Clear Entry?"
-                        }] : []
+                        entry,
+                        buttons: itemButton,
                     } as any);
                 });
             };
@@ -687,95 +716,113 @@ export async function viewRemoteUpdatingList(): Promise<void> {
         // Create QuickPick
         const quickPick = vscode.window.createQuickPick();
         quickPick.title = "Remote Update History";
-        // Show clear instructions only if feature is enabled
         quickPick.placeholder = isFeatureEnabled('ENABLE_ENTRY_CLEARING')
-            ? "Click trash icon (🗑️) to clear completed/cancelled entries from history"
+            ? "Mark entries with the trash icon, then click Apply to clear them all at once"
             : "Filter by status using the buttons above";
         quickPick.ignoreFocusOut = true;
         quickPick.matchOnDescription = true;
         quickPick.matchOnDetail = true;
 
-        // Define buttons
+        // Filter buttons
         const btnAll = { iconPath: new vscode.ThemeIcon("list-unordered"), tooltip: "Show All" };
         const btnPending = { iconPath: new vscode.ThemeIcon("clock"), tooltip: "Show Pending" };
         const btnExecuted = { iconPath: new vscode.ThemeIcon("check"), tooltip: "Show Executed" };
         const btnCancelled = { iconPath: new vscode.ThemeIcon("close"), tooltip: "Show Cancelled" };
 
-        quickPick.buttons = [btnAll, btnPending, btnExecuted, btnCancelled];
+        // Batch-clear action buttons (only when feature is enabled)
+        const btnApply = { iconPath: new vscode.ThemeIcon("check-all"), tooltip: "Apply — clear all marked entries" };
+        const btnClearAll = { iconPath: new vscode.ThemeIcon("clear-all"), tooltip: "Mark all completed/cancelled for clearing" };
+
+        const rebuildButtons = () => {
+            const filterBtns = [btnAll, btnPending, btnExecuted, btnCancelled];
+            if (isFeatureEnabled('ENABLE_ENTRY_CLEARING')) {
+                filterBtns.push(btnClearAll);
+                if (pendingClears.size > 0) {
+                    filterBtns.push(btnApply);
+                }
+            }
+            quickPick.buttons = filterBtns;
+        };
+        rebuildButtons();
 
         // Update items based on filter
         const updateItems = (filterType: 'all' | 'pending' | 'executed' | 'cancelled') => {
+            currentFilter = filterType;
             quickPick.items = generateItems(filterType);
-            // Don't auto-select the first entry
             quickPick.activeItems = [];
+            rebuildButtons();
         };
 
         // Initial state
         updateItems('all');
 
-        // Handle filter button clicks
-        quickPick.onDidTriggerButton(button => {
-            if (button === btnAll) updateItems('all');
-            else if (button === btnPending) updateItems('pending');
-            else if (button === btnExecuted) updateItems('executed');
-            else if (button === btnCancelled) updateItems('cancelled');
-        });
+        // Handle filter and action button clicks
+        quickPick.onDidTriggerButton(async (button) => {
+            if (button === btnAll) { updateItems('all'); return; }
+            if (button === btnPending) { updateItems('pending'); return; }
+            if (button === btnExecuted) { updateItems('executed'); return; }
+            if (button === btnCancelled) { updateItems('cancelled'); return; }
 
-        // Handle trash icon button clicks on individual items
-        quickPick.onDidTriggerItemButton(async (e) => {
-            const selectedItem = e.item as any;
-            if (!selectedItem || !selectedItem.entry) {
+            if (button === btnClearAll) {
+                // Mark all clearable entries in the current view
+                for (const entry of updatingList) {
+                    if ((entry.executed || isCancelled(entry)) && !pendingClears.has(entryKey(entry))) {
+                        pendingClears.add(entryKey(entry));
+                    }
+                }
+                updateItems(currentFilter);
                 return;
             }
 
-            const entry = selectedItem.entry;
+            if (button === btnApply) {
+                if (pendingClears.size === 0) {
+                    vscode.window.showInformationMessage("No entries are marked for clearing.");
+                    return;
+                }
 
-            // Check permissions first
-            const permCheck = await checkProjectAdminPermissions();
-            if (!permCheck.hasPermission) {
-                vscode.window.showErrorMessage(
-                    `⛔ Permission Denied\n\nYou do not have permission to clear entries from history.\n\nRequires: Maintainer or Owner role\nReason: ${permCheck.error || "Insufficient permissions"}`
+                const permCheck = await checkProjectAdminPermissions();
+                if (!permCheck.hasPermission) {
+                    vscode.window.showErrorMessage(
+                        `Permission Denied — Maintainer or Owner role required.\n${permCheck.error || ""}`
+                    );
+                    return;
+                }
+
+                const confirmed = await vscode.window.showWarningMessage(
+                    `Clear ${pendingClears.size} ${pendingClears.size === 1 ? "entry" : "entries"} from history?\n\n` +
+                    `This will permanently delete the marked entries from all records and cannot be undone.`,
+                    { modal: true },
+                    "Yes, Clear All Marked",
+                    "No, Keep Them"
                 );
-                return;
-            }
 
-            const confirmed = await vscode.window.showWarningMessage(
-                `⚠️ Clear "${entry.userToUpdate}" from history?\n\n` +
-                `This will permanently delete this entry from all records and cannot be undone.`,
-                { modal: true },
-                "Yes, Clear Entry",
-                "No, Keep It"
-            );
+                if (confirmed !== "Yes, Clear All Marked") {
+                    return;
+                }
 
-            if (confirmed === "Yes, Clear Entry") {
                 try {
-                    // Update metadata to mark entry for clearing
-                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                    if (!workspaceFolder) {
+                    const wsFolder = vscode.workspace.workspaceFolders?.[0];
+                    if (!wsFolder) {
                         vscode.window.showErrorMessage("No project is open.");
                         return;
                     }
 
                     const updateResult = await MetadataManager.safeUpdateMetadata(
-                        workspaceFolder.uri,
+                        wsFolder.uri,
                         (metadata: any) => {
                             if (!metadata.meta?.initiateRemoteUpdatingFor) {
                                 return metadata;
                             }
-
-                            // Find and mark entry for clearing
                             const list = metadata.meta.initiateRemoteUpdatingFor;
                             for (let i = 0; i < list.length; i++) {
-                                if (typeof list[i] === 'object' &&
-                                    list[i].userToUpdate === entry.userToUpdate &&
-                                    list[i].createdAt === entry.createdAt &&
-                                    list[i].addedBy === entry.addedBy) {
-                                    list[i].clearEntry = true;
-                                    list[i].updatedAt = Date.now();
-                                    break;
+                                if (typeof list[i] === 'object') {
+                                    const key = `${list[i].userToUpdate}:${list[i].addedBy}:${list[i].createdAt}`;
+                                    if (pendingClears.has(key)) {
+                                        list[i].clearEntry = true;
+                                        list[i].updatedAt = Date.now();
+                                    }
                                 }
                             }
-
                             return metadata;
                         }
                     );
@@ -784,24 +831,39 @@ export async function viewRemoteUpdatingList(): Promise<void> {
                         throw new Error(updateResult.error || "Failed to update metadata");
                     }
 
-                    // Sync to push the clearing
-                    const commitMessage = `Cleared update entry from history: ${entry.userToUpdate}`;
+                    const clearedCount = pendingClears.size;
+                    const commitMessage = `Cleared ${clearedCount} update ${clearedCount === 1 ? "entry" : "entries"} from history`;
                     await vscode.commands.executeCommand(
                         "codex-editor-extension.triggerSync",
                         commitMessage
                     );
 
                     vscode.window.showInformationMessage(
-                        `✅ Entry for "${entry.userToUpdate}" has been cleared from history`
+                        `${clearedCount} ${clearedCount === 1 ? "entry" : "entries"} cleared from history`
                     );
-
                     quickPick.hide();
                 } catch (error) {
                     vscode.window.showErrorMessage(
-                        `Failed to clear entry: ${error instanceof Error ? error.message : String(error)}`
+                        `Failed to clear entries: ${error instanceof Error ? error.message : String(error)}`
                     );
                 }
+                return;
             }
+        });
+
+        // Toggle entry mark on trash/undo button click (no write, no sync yet)
+        quickPick.onDidTriggerItemButton((e) => {
+            const selectedItem = e.item as any;
+            if (!selectedItem?.entry) {
+                return;
+            }
+            const key = entryKey(selectedItem.entry);
+            if (pendingClears.has(key)) {
+                pendingClears.delete(key);
+            } else {
+                pendingClears.add(key);
+            }
+            updateItems(currentFilter);
         });
 
 

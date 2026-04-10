@@ -38,7 +38,7 @@ export const cleanIntegrateFootnotes = (html: string, footnotes: FootnoteReferen
         processedHtml = replaceAllFootnoteReferences(processedHtml, footnoteContentMap);
 
         // Step 5: Merge any remaining standalone Codex footnote paragraphs
-        processedHtml = mergeCodexStandaloneFootnoteParagraphs(processedHtml);
+        processedHtml = mergeStandaloneFootnoteParagraphs(processedHtml, footnoteContentMap);
 
         // Step 6: Final cleanup of artifacts
         processedHtml = finalCleanup(processedHtml);

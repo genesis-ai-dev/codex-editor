@@ -1999,35 +1999,13 @@ async function resolveMetadataJsonConflict(conflict: ConflictFile): Promise<stri
             let finalEntry: any;
 
             if (!ourEntry && !theirEntry) {
-                continue; // Should not happen if in allUsers
+                continue;
             }
 
             if (!ourEntry && theirEntry) {
-                // We deleted it (or it wasn't there), they have it
-                if (baseEntry) {
-                    // We deleted it. Check if they updated it since base
-                    if ((theirEntry.updatedAt || 0) > (baseEntry.updatedAt || 0)) {
-                        finalEntry = theirEntry; // They updated it, keep their version
-                    } else {
-                        // They didn't update (or updated less than our deletion?), so our deletion wins
-                        continue;
-                    }
-                } else {
-                    // No base. They added it.
-                    finalEntry = theirEntry;
-                }
+                finalEntry = theirEntry;
             } else if (ourEntry && !theirEntry) {
-                // We have it, they don't
-                if (!baseEntry) {
-                    finalEntry = ourEntry; // We added it
-                } else {
-                    // They deleted it. Check if we updated it
-                    if ((ourEntry.updatedAt || 0) > (baseEntry.updatedAt || 0)) {
-                        finalEntry = ourEntry;
-                    } else {
-                        continue; // Accept their deletion
-                    }
-                }
+                finalEntry = ourEntry;
             } else {
                 // Both exist - need to merge boolean flags intelligently
 

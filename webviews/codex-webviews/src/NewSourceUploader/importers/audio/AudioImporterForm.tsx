@@ -1584,26 +1584,19 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                 </Alert>
                             )}
 
-                            <div className="flex gap-2 justify-end pt-4 border-t">
-                                <Button variant="ghost" onClick={onCancel} disabled={isImporting}>
-                                    <ArrowLeft className="mr-2 h-4 w-4" />
-                                    Cancel
-                                </Button>
-                                <Button
-                                    onClick={handleImport}
-                                    disabled={audioFile.segments.length === 0 || isImporting}
-                                >
-                                    {isImporting ? (
-                                        <>Importing...</>
-                                    ) : (
-                                        <>Import {audioFile.segments.length} Segment{audioFile.segments.length !== 1 ? "s" : ""}</>
-                                    )}
-                                </Button>
-                            </div>
                         </div>
                     )}
                 </CardContent>
             </Card>
+
+            <Button
+                onClick={handleImport}
+                disabled={!audioFile || audioFile.segments.length === 0 || isImporting}
+                className="w-full h-12 text-base mt-6"
+                variant={audioFile && audioFile.segments.length > 0 ? "default" : "secondary"}
+            >
+                {isImporting ? "Importing..." : "Finish Import"}
+            </Button>
         </div>
     );
 };
