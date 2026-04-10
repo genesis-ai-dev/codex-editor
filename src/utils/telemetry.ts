@@ -7,6 +7,9 @@ const EXTENSION_ID = "project-accelerate.codex-editor-extension";
 const POSTHOG_PROJECT_TOKEN = "phc_RI95xdYMQyCjOFSfPmsWrj9zviS4ywf56XwEX9cZ6Mf";
 const POSTHOG_HOST = "https://us.i.posthog.com";
 
+const GLOBAL_STATE_ANON_KEY = "telemetry.anonymousDistinctId";
+
+let extensionContext: vscode.ExtensionContext | undefined;
 let client: PostHog | undefined;
 let distinctId: string | undefined;
 
@@ -15,20 +18,17 @@ const isTelemetryEnabled = (): boolean =>
         .getConfiguration("codex-editor-extension")
         .get<boolean>("telemetryEnabled", true);
 
-const buildDistinctId = (): string => {
-    const uuid = crypto.randomUUID();
-    try {
-        const pm = vscode.workspace.getConfiguration("codex-project-manager");
-        const email = pm.get<string>("userEmail");
-
-        if (email) {
-            return `${email}`;
-        }
-    } catch {
-        // Config unavailable — fall through to OS username
+const getOrCreateAnonymousDistinctId = (): string => {
+    if (!extensionContext) {
+        return `anonymous_${crypto.randomUUID()}`;
     }
-
-    return `anonymous_${uuid}`;
+    const existing = extensionContext.globalState.get<string>(GLOBAL_STATE_ANON_KEY);
+    if (existing) {
+        return existing;
+    }
+    const created = `anonymous_${crypto.randomUUID()}`;
+    void extensionContext.globalState.update(GLOBAL_STATE_ANON_KEY, created);
+    return created;
 };
 
 const getExtensionVersion = (): string => {
@@ -50,12 +50,14 @@ const getSystemProperties = () => ({
     locale: vscode.env.language,
 });
 
-export const initTelemetry = (): void => {
+export const initTelemetry = (context: vscode.ExtensionContext): void => {
+    extensionContext = context;
+
     if (!isTelemetryEnabled()) {
         return;
     }
 
-    distinctId = buildDistinctId();
+    distinctId = getOrCreateAnonymousDistinctId();
 
     client = new PostHog(POSTHOG_PROJECT_TOKEN, {
         host: POSTHOG_HOST,
@@ -67,6 +69,73 @@ export const initTelemetry = (): void => {
         distinctId,
         properties: getSystemProperties(),
     });
+};
+
+/**
+ * Resolves distinct ID from Frontier GitLab session (getUserInfo email) or falls back to
+ * persisted anonymous ID. Call after frontier-authentication activates and on auth state changes.
+ */
+export const refreshTelemetryDistinctIdFromAuth = async (): Promise<void> => {
+    if (!client || !isTelemetryEnabled() || !extensionContext) {
+        return;
+    }
+
+    try {
+        const { getAuthApi } = await import("../extension");
+        const api = getAuthApi();
+        if (!api?.getUserInfo || !api.getAuthStatus) {
+            return;
+        }
+
+        let isAuthenticated = false;
+        try {
+            isAuthenticated = !!api.getAuthStatus().isAuthenticated;
+        } catch {
+            return;
+        }
+
+        const anonymousId = getOrCreateAnonymousDistinctId();
+
+        if (!isAuthenticated) {
+            if (distinctId !== anonymousId) {
+                distinctId = anonymousId;
+                client.identify({
+                    distinctId,
+                    properties: getSystemProperties(),
+                });
+            }
+            return;
+        }
+
+        const userInfo = await api.getUserInfo();
+        const email = userInfo?.email?.trim();
+        if (!email) {
+            if (distinctId !== anonymousId) {
+                distinctId = anonymousId;
+                client.identify({
+                    distinctId,
+                    properties: getSystemProperties(),
+                });
+            }
+            return;
+        }
+
+        const prev = distinctId;
+        if (prev === email) {
+            return;
+        }
+
+        distinctId = email;
+        if (prev && prev.startsWith("anonymous_") && prev !== email) {
+            client.alias({ distinctId: email, alias: prev });
+        }
+        client.identify({
+            distinctId: email,
+            properties: getSystemProperties(),
+        });
+    } catch (error) {
+        console.warn("[Telemetry] refreshTelemetryDistinctIdFromAuth failed:", error);
+    }
 };
 
 export const captureException = (
@@ -130,11 +199,13 @@ export const getPostHogWebviewScript = (nonce: string, webviewName?: string): st
 
     const enableRecording = userEnabled && SESSION_RECORDING_WEBVIEWS.has(webviewName ?? "");
 
+    const idForWebview = distinctId ?? getOrCreateAnonymousDistinctId();
+
     return `<script nonce="${nonce}">
         window.__POSTHOG_CONFIG__ = ${JSON.stringify({
         token: POSTHOG_PROJECT_TOKEN,
         host: POSTHOG_HOST,
-        distinctId: buildDistinctId(),
+        distinctId: idForWebview,
         enableRecording,
     })};
     </script>`;

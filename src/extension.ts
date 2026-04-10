@@ -68,7 +68,13 @@ import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteTo
 import { downloadFFmpeg } from "./utils/ffmpegManager";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
-import { initTelemetry, shutdownTelemetry, captureException, captureEvent } from "./utils/telemetry";
+import {
+    initTelemetry,
+    shutdownTelemetry,
+    captureException,
+    captureEvent,
+    refreshTelemetryDistinctIdFromAuth,
+} from "./utils/telemetry";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
@@ -338,7 +344,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Continue with activation even if splash screen fails
     }
 
-    initTelemetry();
+    initTelemetry(context);
 
     process.on("uncaughtException", (error) => {
         console.error("[Extension] Uncaught exception:", error);
@@ -409,6 +415,15 @@ export async function activate(context: vscode.ExtensionContext) {
         );
         if (extension?.isActive) {
             authApi = extension.exports;
+        }
+        void refreshTelemetryDistinctIdFromAuth();
+        const authForTelemetry = getAuthApi();
+        if (authForTelemetry && typeof authForTelemetry.onAuthStatusChanged === "function") {
+            context.subscriptions.push(
+                authForTelemetry.onAuthStatusChanged(() => {
+                    void refreshTelemetryDistinctIdFromAuth();
+                })
+            );
         }
         const gitAvailable = authApi?.isGitBinaryAvailable?.() ?? false;
         setNativeGitAvailable(gitAvailable);
