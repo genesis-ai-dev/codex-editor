@@ -185,7 +185,7 @@
 
     .button-outline:hover {
         background-color: var(--accent);
-        color: var(--accent-foreground);
+        color: var(--foreground);
         box-shadow: none;
         transform: none;
     }

@@ -440,7 +440,7 @@ export async function performProjectSwap(
     swapInitiatedBy?: string,
     swapReason?: string
 ): Promise<string> {
-    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID, swapInitiatedAt, swapInitiatedBy });
+    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl: sanitizeGitUrl(newProjectUrl), swapUUID, swapInitiatedAt, swapInitiatedBy });
 
     // Close the SQLite index database before any file operations to prevent
     // writing to an orphaned file descriptor after the project folder is moved/deleted.

@@ -10,6 +10,7 @@ import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Alert, AlertDescription } from "../../components/ui/alert";
 import { Input } from "../../components/ui/input";
+import { Checkbox } from "../../components/ui/checkbox";
 import { ArrowLeft, FileText, FolderOpen, Info, Search, Sparkles, Settings } from "lucide-react";
 import { ImporterPlugin } from "../types/plugin";
 import { ImportIntent } from "../types/wizard";
@@ -118,15 +119,30 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
     onSelectPlugin,
     onBack,
 }) => {
+    const [essentialSearchQuery, setEssentialSearchQuery] = useState("");
+    const [essentialRoundTripOnly, setEssentialRoundTripOnly] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
+    const [specializedRoundTripOnly, setSpecializedRoundTripOnly] = useState(false);
     const isTargetImport = intent === "target";
 
     const essentialPlugins = useMemo(() => getEssentialImporters(isTargetImport), [isTargetImport]);
     const specializedPlugins = useMemo(() => getSpecializedImporters(isTargetImport), [isTargetImport]);
 
+    const filteredEssentialPlugins = useMemo(() => {
+        let result = essentialSearchQuery ? searchPlugins(essentialSearchQuery, essentialPlugins) : essentialPlugins;
+        if (essentialRoundTripOnly) {
+            result = result.filter((p) => p.tags?.includes("Round-trip"));
+        }
+        return result;
+    }, [essentialSearchQuery, essentialPlugins, essentialRoundTripOnly]);
+
     const filteredSpecializedPlugins = useMemo(() => {
-        return searchQuery ? searchPlugins(searchQuery, specializedPlugins) : specializedPlugins;
-    }, [searchQuery, specializedPlugins]);
+        let result = searchQuery ? searchPlugins(searchQuery, specializedPlugins) : specializedPlugins;
+        if (specializedRoundTripOnly) {
+            result = result.filter((p) => p.tags?.includes("Round-trip"));
+        }
+        return result;
+    }, [searchQuery, specializedPlugins, specializedRoundTripOnly]);
 
     return (
         <div className="container mx-auto p-6 max-w-7xl space-y-8">
@@ -177,14 +193,33 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
             <div className="space-y-8">
                 <div className="text-center space-y-3">
                     <div className="flex items-center justify-center gap-3">
-                        <Sparkles className="h-6 w-6 text-primary" />
+                        <Sparkles className="h-6 w-6 text-blue-500" />
                         <h2 className="text-3xl font-light">Most Popular</h2>
                     </div>
                     <p className="text-muted-foreground text-lg">For everyday files</p>
                 </div>
 
+                <div className="max-w-md mx-auto flex items-center gap-3">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Search tools..."
+                            value={essentialSearchQuery}
+                            onChange={(e) => setEssentialSearchQuery(e.target.value)}
+                            className="pl-10 border-muted-foreground/20"
+                        />
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer select-none whitespace-nowrap">
+                        <Checkbox
+                            checked={essentialRoundTripOnly}
+                            onCheckedChange={(checked) => setEssentialRoundTripOnly(checked === true)}
+                        />
+                        <span className="text-sm text-muted-foreground">Round-trip</span>
+                    </label>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-                    {essentialPlugins.map((plugin) => (
+                    {filteredEssentialPlugins.map((plugin) => (
                         <PluginCard
                             key={plugin.id}
                             plugin={plugin}
@@ -198,21 +233,37 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                         />
                     ))}
                 </div>
+
+                {essentialSearchQuery && filteredEssentialPlugins.length === 0 && (
+                    <div className="text-center py-6">
+                        <p className="text-muted-foreground/60 text-sm">
+                            No matches for "{essentialSearchQuery}"
+                        </p>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEssentialSearchQuery("")}
+                            className="mt-1 text-xs"
+                        >
+                            Clear
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {/* Specialized Tools Section */}
             <div className="space-y-6 pt-8">
-                <div className="text-center space-y-2">
-                    <div className="flex items-center justify-center gap-2">
-                        <Settings className="h-4 w-4 text-muted-foreground" />
-                        <h2 className="text-xl font-light text-muted-foreground">Specialized</h2>
+                <div className="text-center space-y-3">
+                    <div className="flex items-center justify-center gap-3">
+                        <Settings className="h-6 w-6 text-blue-500" />
+                        <h2 className="text-3xl font-light">Specialized</h2>
                     </div>
-                    <p className="text-sm text-muted-foreground/80">For specific workflows</p>
+                    <p className="text-muted-foreground text-lg">For specific workflows</p>
                 </div>
 
                 {/* Search Bar */}
-                <div className="max-w-sm mx-auto">
-                    <div className="relative">
+                <div className="max-w-md mx-auto flex items-center gap-3">
+                    <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                             placeholder="Search tools..."
@@ -221,6 +272,13 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                             className="pl-10 border-muted-foreground/20"
                         />
                     </div>
+                    <label className="flex items-center gap-2 cursor-pointer select-none whitespace-nowrap">
+                        <Checkbox
+                            checked={specializedRoundTripOnly}
+                            onCheckedChange={(checked) => setSpecializedRoundTripOnly(checked === true)}
+                        />
+                        <span className="text-sm text-muted-foreground">Round-trip</span>
+                    </label>
                 </div>
 
                 {/* Specialized Tools Grid */}
@@ -257,14 +315,6 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                 )}
             </div>
 
-            {/* Simplified Help Text */}
-            <div className="text-center pt-4">
-                <p className="text-xs text-muted-foreground/60">
-                    {isTargetImport
-                        ? "Choose the format that matches your translation files"
-                        : "Need help? Most Popular tools work with any text file"}
-                </p>
-            </div>
         </div>
     );
 };

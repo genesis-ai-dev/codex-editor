@@ -356,14 +356,6 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                             <span className="font-medium">{selectedSource.name}</span>
                         </p>
                     )}
-                    <Button
-                        variant="ghost"
-                        onClick={handleCancel}
-                        className="flex items-center gap-2"
-                    >
-                        <ArrowLeft className="h-4 w-4" />
-                        Back to Home
-                    </Button>
                 </div>
 
                 <div className="space-y-4">
@@ -411,9 +403,6 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                     </Alert>
 
                     <div className="flex gap-3 justify-end">
-                        <Button variant="outline" onClick={handleCancel}>
-                            Cancel Import
-                        </Button>
                         <Button
                             variant="destructive"
                             onClick={() => setShowExistingCheck(false)}
@@ -442,10 +431,6 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                         </p>
                     )}
                 </div>
-                <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to Home
-                </Button>
             </div>
 
             {/* Search and Filters */}

@@ -385,98 +385,95 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             project.projectSwap.isOldProject &&
             project.projectSwap?.swapStatus === "active" &&
             !project.projectSwap?.currentUserAlreadySwapped;
+        const needsUpdateButOffline = !isOnline && (hasPendingUpdate || isSwapPending);
 
         if (isLocal) {
+            const getButtonLabel = () => {
+                if (isSwapping) {
+                    return <><i className="codicon codicon-loading codicon-modifier-spin mr-1" />Updating...</>;
+                }
+                if (isFixing) {
+                    return <><i className="codicon codicon-loading codicon-modifier-spin mr-1" />Fixing...</>;
+                }
+                if (isUpdating) {
+                    return <><i className="codicon codicon-loading codicon-modifier-spin mr-1" />Updating...</>;
+                }
+                if (isVerifying) {
+                    return <><i className="codicon codicon-loading codicon-modifier-spin mr-1" />Verifying...</>;
+                }
+                if (isOpening) {
+                    return <><i className="codicon codicon-loading codicon-modifier-spin mr-1" />Opening...</>;
+                }
+                if (hasPendingUpdate && isOnline) {
+                    return <><i className="codicon codicon-sync mr-1" />Update</>;
+                }
+                if (isSwapPending && isOnline) {
+                    return <><i className="codicon codicon-arrow-swap mr-1" />Update Project</>;
+                }
+                if (effectiveSyncStatus === "orphaned") {
+                    return <><i className="codicon codicon-tools mr-1" />Fix &amp; Open</>;
+                }
+                if (effectiveSyncStatus === "serverUnreachable" || !isOnline) {
+                    return <><i className="codicon codicon-cloud-offline mr-1" />Open Offline</>;
+                }
+                return <><i className="codicon codicon-folder-opened mr-1" />Open</>;
+            };
+
+            const openButton = (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                        if (isSwapPending && isOnline) {
+                            setIsSwapping(true);
+                            vscode.postMessage({
+                                command: "project.performSwap",
+                                projectPath: project.path,
+                            });
+                        } else if (effectiveSyncStatus === "orphaned") {
+                            setIsFixing(true);
+                            vscode.postMessage({
+                                command: "project.fixAndOpen",
+                                projectPath: project.path,
+                            });
+                        } else if (needsUpdateButOffline) {
+                            setIsOpening(true);
+                            vscode.postMessage({
+                                command: "project.open",
+                                projectPath: project.path,
+                                skipUpdateCheck: true,
+                            });
+                        } else {
+                            setIsOpening(true);
+                            onOpenProject(project);
+                        }
+                    }}
+                    className={cn(
+                        "h-6 text-xs px-2",
+                        (isChangingStrategy || isOpening || isUpdating || isSwapping || isFixing) &&
+                            "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
+                    )}
+                    disabled={disableControls}
+                >
+                    {getButtonLabel()}
+                </Button>
+            );
+
             return (
                 <div className="flex gap-1 items-center">
                     {renderMediaStrategyDropdown()}
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            if (isSwapPending) {
-                                // Immediately lock the UI to prevent double-clicks.
-                                // Backend will confirm via project.swappingInProgress message for update (swap).
-                                setIsSwapping(true);
-                                vscode.postMessage({
-                                    command: "project.performSwap",
-                                    projectPath: project.path,
-                                });
-                            } else if (effectiveSyncStatus === "orphaned") {
-                                // Only show Fix & Open for genuinely orphaned projects
-                                // (server confirmed the project doesn't exist remotely AND we're online)
-                                setIsFixing(true);
-                                vscode.postMessage({
-                                    command: "project.fixAndOpen",
-                                    projectPath: project.path,
-                                });
-                            } else {
-                                // Normal open for downloaded, local-only, AND serverUnreachable projects.
-                                // CRITICAL: when offline, we must NOT trigger Fix & Open -- the server
-                                // just couldn't be reached (expired cert, network error, etc.).
-                                setIsOpening(true);
-                                onOpenProject(project);
-                            }
-                        }}
-                        className={cn(
-                            "h-6 text-xs px-2",
-                            (isChangingStrategy || isOpening || isUpdating || isSwapping || isFixing) &&
-                                "ring-2 ring-amber-300 border-amber-300 bg-amber-50 text-amber-700 shadow-sm"
-                        )}
-                        disabled={disableControls}
-                    >
-                        {isSwapping ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Updating...
-                            </>
-                        ) : isFixing ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Fixing...
-                            </>
-                        ) : isUpdating ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Updating...
-                            </>
-                        ) : isVerifying ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Verifying...
-                            </>
-                        ) : isOpening ? (
-                            <>
-                                <i className="codicon codicon-loading codicon-modifier-spin mr-1" />
-                                Opening...
-                            </>
-                        ) : hasPendingUpdate ? (
-                            <>
-                                <i className="codicon codicon-sync mr-1" />
-                                Update
-                            </>
-                        ) : isSwapPending ? (
-                            <>
-                                <i className="codicon codicon-arrow-swap mr-1" />
-                                Update Project
-                            </>
-                        ) : effectiveSyncStatus === "orphaned" ? (
-                            <>
-                                <i className="codicon codicon-tools mr-1" />
-                                Fix & Open
-                            </>
-                        ) : (effectiveSyncStatus === "serverUnreachable" || !isOnline) ? (
-                            <>
-                                <i className="codicon codicon-cloud-offline mr-1" />
-                                Open Offline
-                            </>
-                        ) : (
-                            <>
-                                <i className="codicon codicon-folder-opened mr-1" />
-                                Open
-                            </>
-                        )}
-                    </Button>
+                    {needsUpdateButOffline ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className="inline-block">{openButton}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                                Can't update while offline
+                            </TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        openButton
+                    )}
                 </div>
             );
         }
