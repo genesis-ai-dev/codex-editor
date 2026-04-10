@@ -9,6 +9,10 @@ if [[ ! -f package.json ]]; then
   exit 1
 fi
 
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  printf '\033[33mWarning: git working tree is dirty.\033[0m\n' >&2
+fi
+
 # ---------------------------------------------------------------------------
 # Resolve VERSION
 # ---------------------------------------------------------------------------
@@ -55,12 +59,17 @@ fi
 NAME="$(jq -r .name package.json)"
 ORIGINAL_VERSION="$(jq -r .version package.json)"
 VSIX_FILE="${NAME}-${VERSION}.vsix"
+PACKAGE_JSON_BACKUP="$(mktemp "${TMPDIR:-/tmp}/package.json.backup.XXXXXX")"
+cp -p package.json "$PACKAGE_JSON_BACKUP"
 
-restore_version() {
-  echo "Restoring package.json version to $ORIGINAL_VERSION"
-  jq --arg v "$ORIGINAL_VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+cleanup() {
+  if [[ -f "$PACKAGE_JSON_BACKUP" ]]; then
+    echo "Restoring package.json from backup"
+    cp -p "$PACKAGE_JSON_BACKUP" package.json
+  fi
+  rm -f "$PACKAGE_JSON_BACKUP"
 }
-trap restore_version EXIT
+trap cleanup EXIT
 
 echo "==> Bumping version: $ORIGINAL_VERSION -> $VERSION"
 jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
@@ -85,7 +94,7 @@ pnpm dlx @vscode/vsce package --no-dependencies
 #pnpm dlx @vscode/vsce package
 
 echo "==> Restoring version before release"
-restore_version
+cleanup
 trap - EXIT
 
 # We need to ensure head is on remote so it's there to attach the release to.
