@@ -1947,7 +1947,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             audioId: targetAttachmentId,
                             audioData: base64Data,
                             transcription: targetAttachment.transcription || null,
-                            fileModified: fileStats.mtime
+                            fileModified: fileStats.mtime,
+                            createdBy: targetAttachment.createdBy || undefined,
                         }
                     });
 
@@ -2060,6 +2061,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                     audioData: base64Data,
                                     transcription: targetAttachment.transcription || null,
                                     fileModified: pointerStats.mtime,
+                                    createdBy: targetAttachment.createdBy || undefined,
                                 }
                             });
 
@@ -2412,7 +2414,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             cellId: typedEvent.content.cellId,
                             audioId: sanitizedAudioId,
                             audioData: base64Now,
-                            fileModified: Date.now()
+                            fileModified: Date.now(),
+                            createdBy,
                         }
                     } as any);
                 }

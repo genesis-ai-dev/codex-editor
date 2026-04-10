@@ -326,6 +326,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [audioAuthor, setAudioAuthor] = useState<string | undefined>(undefined);
     // While awaiting provider response, avoid showing "No audio attached" to prevent flicker
     const [audioFetchPending, setAudioFetchPending] = useState<boolean>(true);
     const [isRecording, setIsRecording] = useState(false);
@@ -1322,8 +1323,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const discardAudio = () => {
-        // Clean up audioBlob and audioUrl
         setAudioBlob(null);
+        setAudioUrl(null);
+        setAudioAuthor(undefined);
         setRecordingStatus("");
 
         // Cancel any ongoing transcription
@@ -1786,12 +1788,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 language: message.content.transcription.language,
                             });
                         }
+                        setAudioAuthor(message.content.createdBy || undefined);
                         if (message.content.audioId) {
                             sessionStorage.setItem(
                                 `audio-id-${cellMarkers[0]}`,
                                 message.content.audioId
                             );
-                            // Update tracked selected audio ID
                             setCurrentSelectedAudioId(message.content.audioId);
                         }
                     } catch (error) {
@@ -1850,7 +1852,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.content.cellId === cellMarkers[0]
             ) {
                 if (message.content.success) {
-                    setRecordingStatus("Audio deleted");
+                    setRecordingStatus("");
+                    setAudioUrl(null);
+                    setAudioBlob(null);
+                    setAudioAuthor(undefined);
+                    // Request the next available audio (if any remain)
+                    window.vscodeApi.postMessage({
+                        command: "requestAudioForCell",
+                        content: { cellId: cellMarkers[0] },
+                    });
                 } else {
                     setRecordingStatus(
                         `Error deleting audio: ${message.content.error || "Unknown error"}`
@@ -2918,6 +2928,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             onShowRecorder={() => setShowRecorder(true)}
                                             disabled={!audioBlob}
                                             validationStatusProps={audioValidationIconProps}
+                                            author={audioAuthor}
                                             audioValidationPopoverProps={
                                                 audioValidationPopoverProps
                                             }
@@ -2926,7 +2937,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         {confirmingDiscard && (
                                             <div className="flex flex-wrap items-center justify-center gap-2 mt-2 p-3 bg-[var(--vscode-editor-background)] border border-[var(--vscode-panel-border)] rounded-md">
                                                 <p className="text-sm text-[var(--vscode-foreground)] mr-4">
-                                                    Are you sure you want to remove this audio?
+                                                    Are you sure you want to delete this audio?
                                                 </p>
                                                 <Button
                                                     onClick={() => {

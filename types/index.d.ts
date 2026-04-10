@@ -2161,6 +2161,7 @@ type EditorReceiveMessages =
                 language?: string;
             };
             fileModified?: number; // File modification timestamp for cache validation
+            createdBy?: string;
         };
     }
     | {
@@ -2205,6 +2206,15 @@ type EditorReceiveMessages =
                     isDeleted: boolean;
                     isMissing?: boolean;
                     validatedBy?: ValidationEntry[];
+                    createdBy?: string;
+                    metadata?: {
+                        durationSec?: number;
+                        mimeType?: string;
+                        sizeBytes?: number;
+                        sampleRate?: number;
+                        channels?: number;
+                        bitrateKbps?: number;
+                    };
                 };
             }>;
             currentAttachmentId: string | null; // The ID of the currently selected/active attachment

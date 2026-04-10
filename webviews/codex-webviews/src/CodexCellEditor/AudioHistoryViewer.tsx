@@ -17,8 +17,9 @@ import {
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { ValidationEntry } from "../../../../types";
-import { getActiveAudioValidations } from "./validationUtils";
+import { getActiveAudioValidations, audioPopoverTracker } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
+import { ValidatorPopover } from "./components/ValidatorPopover";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -28,8 +29,17 @@ interface AudioHistoryEntry {
         createdAt: number;
         updatedAt: number;
         isDeleted: boolean;
-        isMissing?: boolean; // Added for missing audio
+        isMissing?: boolean;
         validatedBy?: ValidationEntry[];
+        createdBy?: string;
+        metadata?: {
+            durationSec?: number;
+            mimeType?: string;
+            sizeBytes?: number;
+            sampleRate?: number;
+            channels?: number;
+            bitrateKbps?: number;
+        };
     };
 }
 
@@ -67,6 +77,19 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
         requiredAudioValidationsProp ?? null
     );
+    const [popoverEntryId, setPopoverEntryId] = useState<string | null>(null);
+    const popoverAnchorRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
+    const popoverCloseTimerRef = useRef<number | null>(null);
+    const cancelPopoverCloseTimer = () => {
+        if (popoverCloseTimerRef.current != null) {
+            clearTimeout(popoverCloseTimerRef.current);
+            popoverCloseTimerRef.current = null;
+        }
+    };
+    const schedulePopoverCloseTimer = (cb: () => void, delay = 100) => {
+        cancelPopoverCloseTimer();
+        popoverCloseTimerRef.current = window.setTimeout(cb, delay);
+    };
 
     const effectiveRequiredAudioValidations =
         (requiredAudioValidationsProp ?? requiredAudioValidations ?? 1) || 1;
@@ -484,6 +507,12 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
         });
     };
 
+    const formatDuration = (seconds: number): string => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, "0")}`;
+    };
+
     const getLatestAttachment = () => {
         return audioHistory.find((entry) => !entry.attachment.isDeleted);
     };
@@ -586,11 +615,18 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                   )
                                 : false;
 
+                            const durationLabel = entry.attachment.metadata?.durationSec != null
+                                ? ` (${formatDuration(entry.attachment.metadata.durationSec)})`
+                                : "";
+                            const validatorsForPopover = Array.from(uniqueLatestByUser.values());
+                            const isPopoverOpen = popoverEntryId === entry.attachmentId;
+                            const popoverUniqueId = `history-validator-${entry.attachmentId}`;
+
                             return (
                                 <div
                                     key={entry.attachmentId}
                                     style={{
-                                        padding: "12px",
+                                        padding: "10px 12px",
                                         border: "1px solid var(--vscode-panel-border)",
                                         borderRadius: "6px",
                                         backgroundColor: entry.attachment.isDeleted
@@ -601,114 +637,33 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                         opacity: entry.attachment.isDeleted ? 0.9 : 1,
                                     }}
                                 >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            alignItems: "center",
-                                            marginBottom: "8px",
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "8px",
-                                                fontSize: "0.95em",
-                                                color: "var(--vscode-foreground)",
-                                            }}
-                                        >
-                                            <Clock size={14} />
-                                            <span>
-                                                Created: {formatDate(entry.attachment.createdAt)}
-                                            </span>
-                                            {entry.attachment.updatedAt !==
-                                                entry.attachment.createdAt && (
-                                                <span>
-                                                    • Updated:{" "}
-                                                    {formatDate(entry.attachment.updatedAt)}
+                                    {/* Top row: timestamps + status badges */}
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.9em", color: "var(--vscode-foreground)", flexWrap: "wrap" }}>
+                                            <Clock size={13} />
+                                            <span>{formatDate(entry.attachment.createdAt)}</span>
+                                            {entry.attachment.updatedAt !== entry.attachment.createdAt && (
+                                                <span style={{ color: "var(--vscode-descriptionForeground)" }}>
+                                                    • Updated: {formatDate(entry.attachment.updatedAt)}
                                                 </span>
                                             )}
                                         </div>
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "4px",
-                                            }}
-                                        >
-                                            {isSelected && (
-                                                <span
-                                                    style={{
-                                                        backgroundColor:
-                                                            "var(--vscode-badge-background)",
-                                                        color: "var(--vscode-badge-foreground)",
-                                                        padding: "2px 6px",
-                                                        borderRadius: "3px",
-                                                        fontSize: "0.8em",
-                                                        fontWeight: "bold",
-                                                    }}
-                                                >
-                                                    SELECTED
-                                                </span>
-                                            )}
-                                            {isCurrent && !hasExplicitSelection && (
-                                                <span
-                                                    style={{
-                                                        backgroundColor:
-                                                            "var(--vscode-editorInfo-foreground)",
-                                                        color: "var(--vscode-editor-background)",
-                                                        padding: "2px 6px",
-                                                        borderRadius: "3px",
-                                                        fontSize: "0.8em",
-                                                        fontWeight: "bold",
-                                                    }}
-                                                >
-                                                    CURRENT
-                                                </span>
-                                            )}
+                                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                                             {entry.attachment.isDeleted && (
-                                                <span
-                                                    style={{
-                                                        backgroundColor:
-                                                            "var(--vscode-inputValidation-errorBorder)",
-                                                        color: "var(--vscode-editor-background)",
-                                                        padding: "2px 6px",
-                                                        borderRadius: "3px",
-                                                        fontSize: "0.8em",
-                                                        fontWeight: "bold",
-                                                    }}
-                                                >
+                                                <span style={{ backgroundColor: "var(--vscode-inputValidation-errorBorder)", color: "var(--vscode-editor-background)", padding: "2px 6px", borderRadius: "3px", fontSize: "0.8em", fontWeight: "bold" }}>
                                                     DELETED
                                                 </span>
                                             )}
-                                            {entry.attachment.isMissing &&
-                                                !entry.attachment.isDeleted && (
-                                                    <span
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-inputValidation-warningBorder)",
-                                                            color: "var(--vscode-editor-background)",
-                                                            padding: "2px 6px",
-                                                            borderRadius: "3px",
-                                                            fontSize: "0.8em",
-                                                            fontWeight: "bold",
-                                                        }}
-                                                    >
-                                                        MISSING
-                                                    </span>
-                                                )}
+                                            {entry.attachment.isMissing && !entry.attachment.isDeleted && (
+                                                <span style={{ backgroundColor: "var(--vscode-inputValidation-warningBorder)", color: "var(--vscode-editor-background)", padding: "2px 6px", borderRadius: "3px", fontSize: "0.8em", fontWeight: "bold" }}>
+                                                    MISSING
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "8px",
-                                            flexWrap: "wrap",
-                                        }}
-                                    >
+                                    {/* Bottom row: action buttons + metadata */}
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                         <Button
                                             size="sm"
                                             variant={hasError ? "destructive" : "outline"}
@@ -727,12 +682,12 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             ) : isPlaying ? (
                                                 <>
                                                     <Pause className="h-4 w-4 mr-1" />
-                                                    Stop
+                                                    Stop{durationLabel}
                                                 </>
                                             ) : (
                                                 <>
                                                     <Play className="h-4 w-4 mr-1" />
-                                                    Play
+                                                    Play{durationLabel}
                                                 </>
                                             )}
                                         </Button>
@@ -742,9 +697,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 size="sm"
                                                 variant={isSelected ? "default" : "outline"}
                                                 className="transition-none"
-                                                onClick={() =>
-                                                    handleSelectAudio(entry.attachmentId)
-                                                }
+                                                onClick={() => handleSelectAudio(entry.attachmentId)}
                                                 disabled={isSelected || isValidating}
                                             >
                                                 {isSelected ? (
@@ -754,11 +707,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 ) : (
                                                     <Circle className="h-4 w-4 mr-1" />
                                                 )}
-                                                {isSelected
-                                                    ? "Selected"
-                                                    : isValidating
-                                                    ? "Validating..."
-                                                    : "Select"}
+                                                {isSelected ? "Selected" : isValidating ? "Validating..." : "Select"}
                                             </Button>
                                         )}
 
@@ -766,22 +715,17 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                onClick={() =>
-                                                    handleRestoreAudio(entry.attachmentId)
-                                                }
+                                                onClick={() => handleRestoreAudio(entry.attachmentId)}
                                             >
                                                 <RotateCcw className="h-4 w-4 mr-1" />
                                                 Restore
                                             </Button>
                                         ) : (
-                                            !isSelected &&
-                                            !hasError && (
+                                            !isSelected && !hasError && (
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    onClick={() =>
-                                                        handleDeleteAudio(entry.attachmentId)
-                                                    }
+                                                    onClick={() => handleDeleteAudio(entry.attachmentId)}
                                                 >
                                                     <Trash2 className="h-4 w-4 mr-1" />
                                                     Delete
@@ -789,38 +733,47 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             )
                                         )}
 
-                                        <div className="flex flex-col flex-grow items-end justify-end gap-1">
-                                            <span
-                                                style={{
-                                                    fontSize: "0.8em",
-                                                    color: "var(--vscode-descriptionForeground)",
-                                                    marginLeft: "auto",
-                                                }}
-                                            >
+                                        {/* Right-aligned: author, ID, validators */}
+                                        <div className="flex flex-col flex-grow items-end justify-end gap-0.5">
+                                            {entry.attachment.createdBy && (
+                                                <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}>
+                                                    <User size={11} />
+                                                    {entry.attachment.createdBy}
+                                                </span>
+                                            )}
+                                            <span style={{ fontSize: "0.75em", color: "var(--vscode-descriptionForeground)" }}>
                                                 ID: {entry.attachmentId.split("-").slice(-1)[0]}
                                             </span>
-                                            <span
-                                                style={{
-                                                    fontSize: "0.8em",
-                                                    color: "var(--vscode-descriptionForeground)",
-                                                    marginLeft: "auto",
+                                            <div
+                                                ref={(el) => { popoverAnchorRefs.current.set(entry.attachmentId, el); }}
+                                                style={{ position: "relative", cursor: validatorsForPopover.length > 0 ? "pointer" : "default", fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}
+                                                onClick={() => {
+                                                    if (validatorsForPopover.length > 0) {
+                                                        setPopoverEntryId(isPopoverOpen ? null : entry.attachmentId);
+                                                    }
                                                 }}
                                             >
                                                 <ValidationStatusIcon
                                                     isValidationInProgress={false}
-                                                    isDisabled={
-                                                        entry.attachment.isDeleted || hasError
-                                                    }
+                                                    isDisabled={entry.attachment.isDeleted || hasError}
                                                     currentValidations={currentValidations}
-                                                    requiredValidations={
-                                                        effectiveRequiredAudioValidations
-                                                    }
-                                                    isValidatedByCurrentUser={
-                                                        isValidatedByCurrentUser
-                                                    }
+                                                    requiredValidations={effectiveRequiredAudioValidations}
+                                                    isValidatedByCurrentUser={isValidatedByCurrentUser}
                                                     displayValidationText
                                                 />
-                                            </span>
+                                                {isPopoverOpen && validatorsForPopover.length > 0 && (
+                                                    <ValidatorPopover
+                                                        anchorRef={{ current: popoverAnchorRefs.current.get(entry.attachmentId) ?? null } as React.RefObject<HTMLElement>}
+                                                        show={isPopoverOpen}
+                                                        setShow={(show) => { if (!show) setPopoverEntryId(null); }}
+                                                        validators={validatorsForPopover}
+                                                        currentUsername={username}
+                                                        uniqueId={popoverUniqueId}
+                                                        cancelCloseTimer={cancelPopoverCloseTimer}
+                                                        scheduleCloseTimer={schedulePopoverCloseTimer}
+                                                    />
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

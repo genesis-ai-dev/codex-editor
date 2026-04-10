@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
+import { MessageCircle, Copy, Loader2, Trash2, History, Mic, User } from "lucide-react";
 import ValidationStatusIcon from "./AudioValidationStatusIcon.tsx";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import type { QuillCellContent } from "../../../../types";
@@ -41,6 +41,7 @@ interface AudioWaveformWithTranscriptionProps {
     onShowRecorder?: () => void;
     audioValidationPopoverProps: AudioValidationPopoverProps;
     validationStatusProps: ValidationStatusIconProps;
+    author?: string;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -58,6 +59,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     onShowRecorder,
     validationStatusProps,
     audioValidationPopoverProps,
+    author,
 }) => {
     const [audioSrc, setAudioSrc] = useState<string>("");
     // State for hover popover of audio validators
@@ -339,7 +341,14 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             )}
 
             {/* Action buttons at bottom */}
-            <div className="flex flex-wrap items-center justify-center gap-2 px-2">
+            <div className="flex flex-wrap items-center gap-2 px-2">
+                {author && (
+                    <span className="inline-flex items-center gap-1 h-8 text-sm text-[var(--vscode-foreground)] shrink-0 max-w-[40%]">
+                        <User className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">Author: {author}</span>
+                    </span>
+                )}
+                <div className="flex flex-wrap items-center justify-center gap-2 flex-1 min-w-0">
                 {!transcription && !isTranscribing && (
                     <Button
                         onClick={onTranscribe}
@@ -357,10 +366,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     size="sm"
                     className="h-8 px-2 text-xs"
                     onClick={() => onRequestRemove?.()}
-                    title="Remove Audio"
+                    title="Delete Audio"
                 >
                     <Trash2 className="h-3 w-3" />
-                    <span className="ml-1">Remove</span>
+                    <span className="ml-1">Delete</span>
                 </Button>
                 <Button
                     variant="outline"
@@ -400,6 +409,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <Mic className="h-3 w-3" />
                     <span className="ml-1">Re-record</span>
                 </Button>
+                </div>
             </div>
         </div>
     );
