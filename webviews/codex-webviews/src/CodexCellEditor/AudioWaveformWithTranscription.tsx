@@ -3,7 +3,7 @@ import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { MessageCircle, Copy, Loader2, Trash2, History, Mic, User } from "lucide-react";
-import ValidationStatusIcon from "./AudioValidationStatusIcon.tsx";
+import ValidationStatusIcon, { getValidationLabel } from "./AudioValidationStatusIcon.tsx";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import type { QuillCellContent } from "../../../../types";
 import { processValidationQueue, enqueueValidation } from "./validationQueue";
@@ -154,60 +154,32 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
         const { currentValidations, requiredValidations, isValidatedByCurrentUser } =
             validationStatusProps;
         const isFullyValidated = currentValidations >= requiredValidations;
+        const canValidate = currentValidations === 0 || (!isFullyValidated && !isValidatedByCurrentUser);
+        const label = getValidationLabel({ currentValidations, requiredValidations, isValidatedByCurrentUser });
+        const buttonLabel = currentValidations === 0 ? "Validate" : label;
 
-        if (currentValidations === 0) {
-            return (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
-                    onClick={handleValidation}
-                    onMouseEnter={handleAudioValidationMouseEnter}
-                    onMouseLeave={handleAudioValidationMouseLeave}
-                >
-                    <i
-                        className="codicon codicon-circle-outline"
-                        style={{
-                            fontSize: "14px",
-                            color: "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                    <span className="ml-1">Validate</span>
-                </Button>
-            );
-        }
-
-        if (currentValidations > 0 && !isFullyValidated && !isValidatedByCurrentUser) {
-            return (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
-                    onClick={handleValidation}
-                    onMouseEnter={handleAudioValidationMouseEnter}
-                    onMouseLeave={handleAudioValidationMouseLeave}
-                >
-                    <i
-                        className="codicon codicon-circle-filled"
-                        style={{
-                            fontSize: "14px",
-                            color: "var(--vscode-descriptionForeground)",
-                        }}
-                    ></i>
-                    {<span className="ml-1">Validated by other user(s)</span>}
-                </Button>
-            );
-        }
+        const iconClass = currentValidations === 0
+            ? "codicon codicon-circle-outline"
+            : isFullyValidated
+            ? "codicon codicon-check-all"
+            : isValidatedByCurrentUser
+            ? "codicon codicon-check"
+            : "codicon codicon-circle-filled";
+        const iconColor = (isFullyValidated || isValidatedByCurrentUser)
+            ? "var(--vscode-charts-green)"
+            : "var(--vscode-descriptionForeground)";
 
         return (
             <Button
                 variant="outline"
                 size="sm"
                 className="static h-6 px-2 rounded-full text-sm bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] border border-[var(--vscode-panel-border)]/40 hover:opacity-90"
+                onClick={canValidate ? handleValidation : undefined}
                 onMouseEnter={handleAudioValidationMouseEnter}
                 onMouseLeave={handleAudioValidationMouseLeave}
             >
-                <ValidationStatusIcon {...validationStatusProps} />
+                <i className={iconClass} style={{ fontSize: "14px", color: iconColor, filter: (isFullyValidated || isValidatedByCurrentUser) ? "drop-shadow(0 0 0.5px rgba(0,0,0,0.45))" : undefined }}></i>
+                <span className="ml-1">{buttonLabel}</span>
             </Button>
         );
     };

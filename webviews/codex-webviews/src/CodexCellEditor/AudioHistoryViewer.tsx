@@ -20,6 +20,7 @@ import { ValidationEntry } from "../../../../types";
 import { getActiveAudioValidations, audioPopoverTracker } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import { ValidatorPopover } from "./components/ValidatorPopover";
+import { processValidationQueue, enqueueValidation } from "./validationQueue";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -614,6 +615,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                           (username || "").toLowerCase()
                                   )
                                 : false;
+                            const otherValidatorCount = currentValidations - (isValidatedByCurrentUser ? 1 : 0);
 
                             const durationLabel = entry.attachment.metadata?.durationSec != null
                                 ? ` (${formatDuration(entry.attachment.metadata.durationSec)})`
@@ -747,10 +749,20 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <div
                                                 ref={(el) => { popoverAnchorRefs.current.set(entry.attachmentId, el); }}
                                                 style={{ position: "relative", cursor: validatorsForPopover.length > 0 ? "pointer" : "default", fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}
-                                                onClick={() => {
+                                                onMouseEnter={() => {
                                                     if (validatorsForPopover.length > 0) {
-                                                        setPopoverEntryId(isPopoverOpen ? null : entry.attachmentId);
+                                                        cancelPopoverCloseTimer();
+                                                        setPopoverEntryId(entry.attachmentId);
+                                                        audioPopoverTracker.setActivePopover(popoverUniqueId);
                                                     }
+                                                }}
+                                                onMouseLeave={() => {
+                                                    schedulePopoverCloseTimer(() => {
+                                                        setPopoverEntryId(null);
+                                                        if (audioPopoverTracker.getActivePopover() === popoverUniqueId) {
+                                                            audioPopoverTracker.setActivePopover(null);
+                                                        }
+                                                    }, 150);
                                                 }}
                                             >
                                                 <ValidationStatusIcon
@@ -759,16 +771,31 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                     currentValidations={currentValidations}
                                                     requiredValidations={effectiveRequiredAudioValidations}
                                                     isValidatedByCurrentUser={isValidatedByCurrentUser}
+                                                    otherValidatorCount={otherValidatorCount}
                                                     displayValidationText
                                                 />
                                                 {isPopoverOpen && validatorsForPopover.length > 0 && (
                                                     <ValidatorPopover
                                                         anchorRef={{ current: popoverAnchorRefs.current.get(entry.attachmentId) ?? null } as React.RefObject<HTMLElement>}
                                                         show={isPopoverOpen}
-                                                        setShow={(show) => { if (!show) setPopoverEntryId(null); }}
+                                                        setShow={(show) => {
+                                                            if (!show) {
+                                                                setPopoverEntryId(null);
+                                                                if (audioPopoverTracker.getActivePopover() === popoverUniqueId) {
+                                                                    audioPopoverTracker.setActivePopover(null);
+                                                                }
+                                                            }
+                                                        }}
                                                         validators={validatorsForPopover}
                                                         currentUsername={username}
                                                         uniqueId={popoverUniqueId}
+                                                        onRemoveSelf={isValidatedByCurrentUser ? () => {
+                                                            enqueueValidation(cellId, false, true)
+                                                                .then(() => {})
+                                                                .catch((error) => console.error("Audio validation queue error:", error));
+                                                            processValidationQueue(vscode, true)
+                                                                .catch((error) => console.error("Audio validation queue processing error:", error));
+                                                        } : undefined}
                                                         cancelCloseTimer={cancelPopoverCloseTimer}
                                                         scheduleCloseTimer={schedulePopoverCloseTimer}
                                                     />
