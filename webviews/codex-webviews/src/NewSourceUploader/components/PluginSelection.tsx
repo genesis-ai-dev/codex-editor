@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
     Card,
     CardContent,
@@ -125,6 +125,66 @@ const PluginCard: React.FC<{
     );
 };
 
+/** Matches Tailwind `max-sm` (single-column importer grids use `grid-cols-1` below `sm`). */
+const MAX_SM_SINGLE_COLUMN_MQ = "(max-width: 639px)";
+
+function useIsImporterSingleColumn(): boolean {
+    const [singleColumn, setSingleColumn] = useState(() =>
+        typeof window !== "undefined" ? window.matchMedia(MAX_SM_SINGLE_COLUMN_MQ).matches : false
+    );
+    useEffect(() => {
+        const mql = window.matchMedia(MAX_SM_SINGLE_COLUMN_MQ);
+        const onChange = (): void => setSingleColumn(mql.matches);
+        onChange();
+        mql.addEventListener("change", onChange);
+        return () => mql.removeEventListener("change", onChange);
+    }, []);
+    return singleColumn;
+}
+
+const PendingImporterExportCard: React.FC<{
+    pendingPluginName: string;
+    previewGroupKey: string;
+    onCancel: () => void;
+    onConfirm: () => void;
+    className?: string;
+}> = ({ pendingPluginName, previewGroupKey, onCancel, onConfirm, className }) => {
+    return (
+        <div
+            className={cn(
+                "rounded-xl border bg-card shadow-sm overflow-hidden flex flex-col max-sm:animate-nsu-export-panel-from-bottom sm:animate-nsu-export-panel-from-right",
+                className
+            )}
+        >
+            <div className="p-4 pb-3 border-b border-border/60 bg-muted/20">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Selected importer
+                </p>
+                <p className="text-sm font-semibold mt-0.5">{pendingPluginName}</p>
+            </div>
+            <div className="p-4">
+                <ExportOptionsPreviewPanel groupKey={previewGroupKey} />
+            </div>
+            <div className="border-t border-border p-4 bg-muted/15 flex flex-col gap-6">
+                <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        onClick={onCancel}
+                        className="h-12 min-h-12 w-full text-base"
+                    >
+                        Cancel
+                    </Button>
+                    <Button type="button" size="lg" onClick={onConfirm} className="h-12 min-h-12 w-full text-base">
+                        Continue
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export const PluginSelection: React.FC<PluginSelectionProps> = ({
     intent,
     selectedSource,
@@ -137,6 +197,7 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
     const [searchQuery, setSearchQuery] = useState("");
     const [specializedRoundTripOnly, setSpecializedRoundTripOnly] = useState(false);
     const [pendingPluginId, setPendingPluginId] = useState<string | null>(null);
+    const isImporterSingleColumn = useIsImporterSingleColumn();
     const isTargetImport = intent === "target";
 
     const previewGroupKey = pendingPluginId
@@ -186,6 +247,11 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
         setPendingPluginId(null);
     };
 
+    const showInlineExportPanel =
+        Boolean(pendingPluginId && previewGroupKey && isImporterSingleColumn);
+    const showAsideExportPanel =
+        Boolean(pendingPluginId && previewGroupKey && !isImporterSingleColumn);
+
     return (
         <div
             className={cn(
@@ -193,11 +259,11 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                 pendingPluginId ? "max-w-[1400px]" : "max-w-7xl"
             )}
         >
-            <div
+                <div
                 className={cn(
                     "gap-8",
-                    pendingPluginId
-                        ? "flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_min(300px,32vw)] xl:grid-cols-[minmax(0,1fr)_360px] lg:items-start"
+                    pendingPluginId && showAsideExportPanel
+                        ? "flex flex-col sm:grid sm:grid-cols-[minmax(0,1fr)_min(280px,34vw)] lg:grid-cols-[minmax(0,1fr)_min(300px,32vw)] xl:grid-cols-[minmax(0,1fr)_360px] sm:items-start"
                         : "flex flex-col"
                 )}
             >
@@ -282,23 +348,34 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
                             {filteredEssentialPlugins.map((plugin) => (
-                                <PluginCard
-                                    key={plugin.id}
-                                    plugin={plugin}
-                                    onPick={handlePickPlugin}
-                                    isPending={pendingPluginId === plugin.id}
-                                    className={cn(
-                                        "border-2 shadow-sm hover:shadow-xl",
-                                        plugin.id === "docx" ||
-                                            plugin.id === "pdf-importer" ||
-                                            plugin.id === "usfm-experimental" ||
-                                            plugin.id === "indesign-importer" ||
-                                            plugin.id === "biblica-importer" ||
-                                            plugin.id === "spreadsheet"
-                                            ? "hover:border-yellow-500"
-                                            : "hover:border-primary"
+                                <React.Fragment key={plugin.id}>
+                                    <PluginCard
+                                        plugin={plugin}
+                                        onPick={handlePickPlugin}
+                                        isPending={pendingPluginId === plugin.id}
+                                        className={cn(
+                                            "border-2 shadow-sm hover:shadow-xl",
+                                            plugin.id === "docx" ||
+                                                plugin.id === "pdf-importer" ||
+                                                plugin.id === "usfm-experimental" ||
+                                                plugin.id === "indesign-importer" ||
+                                                plugin.id === "biblica-importer" ||
+                                                plugin.id === "spreadsheet"
+                                                ? "hover:border-yellow-500"
+                                                : "hover:border-primary"
+                                        )}
+                                    />
+                                    {showInlineExportPanel && pendingPluginId === plugin.id && previewGroupKey && (
+                                        <div className="col-span-1 sm:col-span-2 lg:col-span-3 w-full min-w-0">
+                                            <PendingImporterExportCard
+                                                pendingPluginName={pendingPlugin?.name ?? pendingPluginId}
+                                                previewGroupKey={previewGroupKey}
+                                                onCancel={handleCancelPending}
+                                                onConfirm={handleConfirmPlugin}
+                                            />
+                                        </div>
                                     )}
-                                />
+                                </React.Fragment>
                             ))}
                         </div>
 
@@ -354,23 +431,34 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                         {/* Specialized Tools Grid */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
                             {filteredSpecializedPlugins.map((plugin) => (
-                                <PluginCard
-                                    key={plugin.id}
-                                    plugin={plugin}
-                                    onPick={handlePickPlugin}
-                                    isPending={pendingPluginId === plugin.id}
-                                    className={cn(
-                                        "border-2 shadow-sm hover:shadow-xl opacity-95 hover:opacity-100",
-                                        plugin.id === "docx" ||
-                                            plugin.id === "pdf-importer" ||
-                                            plugin.id === "usfm-experimental" ||
-                                            plugin.id === "indesign-importer" ||
-                                            plugin.id === "biblica-importer" ||
-                                            plugin.id === "spreadsheet"
-                                            ? "hover:border-yellow-500"
-                                            : "hover:border-primary"
+                                <React.Fragment key={plugin.id}>
+                                    <PluginCard
+                                        plugin={plugin}
+                                        onPick={handlePickPlugin}
+                                        isPending={pendingPluginId === plugin.id}
+                                        className={cn(
+                                            "border-2 shadow-sm hover:shadow-xl opacity-95 hover:opacity-100",
+                                            plugin.id === "docx" ||
+                                                plugin.id === "pdf-importer" ||
+                                                plugin.id === "usfm-experimental" ||
+                                                plugin.id === "indesign-importer" ||
+                                                plugin.id === "biblica-importer" ||
+                                                plugin.id === "spreadsheet"
+                                                ? "hover:border-yellow-500"
+                                                : "hover:border-primary"
+                                        )}
+                                    />
+                                    {showInlineExportPanel && pendingPluginId === plugin.id && previewGroupKey && (
+                                        <div className="col-span-1 sm:col-span-2 lg:col-span-3 w-full min-w-0">
+                                            <PendingImporterExportCard
+                                                pendingPluginName={pendingPlugin?.name ?? pendingPluginId}
+                                                previewGroupKey={previewGroupKey}
+                                                onCancel={handleCancelPending}
+                                                onConfirm={handleConfirmPlugin}
+                                            />
+                                        </div>
                                     )}
-                                />
+                                </React.Fragment>
                             ))}
                         </div>
 
@@ -392,42 +480,14 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                     </div>
                 </div>
 
-                {pendingPluginId && previewGroupKey && (
-                    <aside className="w-full shrink-0 max-lg:mt-6 lg:sticky lg:top-4 lg:self-start">
-                        <div className="rounded-xl border bg-card shadow-sm overflow-hidden flex flex-col max-lg:animate-nsu-export-panel-from-bottom lg:animate-nsu-export-panel-from-right">
-                            <div className="p-4 pb-3 border-b border-border/60 bg-muted/20">
-                                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                                    Selected importer
-                                </p>
-                                <p className="text-sm font-semibold mt-0.5">
-                                    {pendingPlugin?.name ?? pendingPluginId}
-                                </p>
-                            </div>
-                            <div className="p-4">
-                                <ExportOptionsPreviewPanel groupKey={previewGroupKey} />
-                            </div>
-                            <div className="border-t border-border p-4 bg-muted/15 flex flex-col gap-6">
-                                <div className="grid grid-cols-2 gap-3 max-w-md mx-auto w-full">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="lg"
-                                        onClick={handleCancelPending}
-                                        className="h-12 min-h-12 w-full text-base"
-                                    >
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        size="lg"
-                                        onClick={handleConfirmPlugin}
-                                        className="h-12 min-h-12 w-full text-base"
-                                    >
-                                        Continue
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
+                {showAsideExportPanel && previewGroupKey && pendingPluginId && (
+                    <aside className="w-full shrink-0 sm:sticky sm:top-4 sm:self-start">
+                        <PendingImporterExportCard
+                            pendingPluginName={pendingPlugin?.name ?? pendingPluginId}
+                            previewGroupKey={previewGroupKey}
+                            onCancel={handleCancelPending}
+                            onConfirm={handleConfirmPlugin}
+                        />
                     </aside>
                 )}
             </div>
