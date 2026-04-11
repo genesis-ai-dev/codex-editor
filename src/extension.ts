@@ -168,54 +168,41 @@ function finishRealtimeStep(): number {
     return globalThis.performance.now();
 }
 
-/** Compare running version against a pinned version; yield if mismatched. */
-function checkPinAndYield(
-    source: string,
-    pinnedVersion: string,
-    activationStart: number
-): boolean | undefined {
+/**
+ * Pin-match gate: returns true when the running version of codex-editor does
+ * not match the project's pinned version, meaning activation must halt at the
+ * gate while the Conductor switches profiles.
+ *
+ * Reads pins via the Conductor's effective pin resolution (admin intent →
+ * remote → local). The Conductor command is always available because
+ * workbench contributions activate before extensions.
+ */
+async function failsPinMatchGate(activationStart: number): Promise<boolean> {
     const EXTENSION_ID = "project-accelerate.codex-editor-extension";
-    const myVersion = MetadataManager.getCurrentExtensionVersion(EXTENSION_ID);
-    if (!myVersion) { return undefined; } // unknown — can't decide
-    if (myVersion === pinnedVersion) {
-        console.log(`[Extension] ${source} pin matched (${myVersion}). Proceeding.`);
+
+    let effectivePins: Record<string, { version: string; url: string; }> | undefined;
+    try {
+        effectivePins = await vscode.commands.executeCommand(
+            "codex.conductor.getEffectivePinnedExtensions"
+        );
+    } catch {
+        // Conductor command not available in older Codex builds
         return false;
     }
-    console.log(`[Extension] ${source} pin mismatch: ${myVersion} != ${pinnedVersion}. Yielding.`);
+    if (!effectivePins) return false;
+
+    const myPin = effectivePins[EXTENSION_ID];
+    if (!myPin) return false;
+
+    const myVersion = MetadataManager.getCurrentExtensionVersion(EXTENSION_ID);
+    if (!myVersion) return false; // unknown — can't decide
+    if (myVersion === myPin.version) {
+        return false;
+    }
+
+    console.log(`[Extension] Pin mismatch: ${myVersion} != ${myPin.version}. Halting at pin-match gate.`);
     trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
-    updateSplashScreenSync(0, "Applying extension version pins...");
     return true;
-}
-
-/**
- * Checks version pins and returns true if the extension should yield to the
- * Conductor for a profile switch (version mismatch).
- * Returns false when pins match or no pins exist — caller should continue activation.
- *
- * Uses the Conductor's consolidated pin resolution (admin intent → remote → local)
- * via a workbench command that reads directly from IStorageService — no dependency
- * on frontier being activated yet.
- */
-async function checkVersionPinsAndYield(
-    projectUri: vscode.Uri,
-    activationStart: number
-): Promise<boolean> {
-    const EXTENSION_ID = "project-accelerate.codex-editor-extension";
-
-    // Primary: use Conductor's effective pin resolution (always available —
-    // workbench contributions activate before extensions, so this avoids the
-    // activation race where frontier hasn't registered commands yet)
-    try {
-        const effectivePins: Record<string, { version: string; url: string }> | undefined =
-            await vscode.commands.executeCommand("codex.conductor.getEffectivePinnedExtensions");
-        if (effectivePins) {
-            const myPin = effectivePins[EXTENSION_ID];
-            if (!myPin) { return false; } // no pin for our extension — no constraint
-            return checkPinAndYield("Conductor", myPin.version, activationStart) ?? false;
-        }
-    } catch { /* Conductor command not available in older Codex builds */ }
-
-    return false;
 }
 
 declare global {
@@ -390,14 +377,24 @@ export async function activate(context: vscode.ExtensionContext) {
         // Continue with activation even if splash screen fails
     }
 
-    // Check for version pins before heavy initialization.
-    // If there's a mismatch, yield to the Conductor for profile switch.
+    // Check for metadata.json early — this determines if we're in a Codex project
     const workspaceFolders = vscode.workspace.workspaceFolders;
+    let metadataExists = false;
     if (workspaceFolders && workspaceFolders.length > 0) {
-        const shouldYield = await checkVersionPinsAndYield(workspaceFolders[0].uri, activationStart);
-        if (shouldYield) {
-            return;
+        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+        try {
+            await vscode.workspace.fs.stat(metadataUri);
+            metadataExists = true;
+        } catch {
+            metadataExists = false;
         }
+    }
+
+    // Pin-match gate: before heavy initialization, halt if our running version
+    // doesn't match the project's pin so the Conductor can switch profiles.
+    if (metadataExists && await failsPinMatchGate(activationStart)) {
+        updateSplashScreenSync(0, "Applying extension version pins...");
+        return;
     }
 
     let stepStart = activationStart;
@@ -420,18 +417,6 @@ export async function activate(context: vscode.ExtensionContext) {
         notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         await notebookMetadataManager.initialize();
         stepStart = trackTiming("Loading Project Metadata", metadataStart);
-
-        // Check for metadata.json early — this determines if we're in a Codex project
-        let metadataExists = false;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
-            try {
-                await vscode.workspace.fs.stat(metadataUri);
-                metadataExists = true;
-            } catch {
-                metadataExists = false;
-            }
-        }
 
         // Comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
         // Repair still runs at startup to fix any corrupted data
