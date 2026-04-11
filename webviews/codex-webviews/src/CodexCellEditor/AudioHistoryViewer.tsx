@@ -17,10 +17,8 @@ import {
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { ValidationEntry } from "../../../../types";
-import { getActiveAudioValidations, audioPopoverTracker } from "./validationUtils";
+import { getActiveAudioValidations } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
-import { ValidatorPopover } from "./components/ValidatorPopover";
-import { processValidationQueue, enqueueValidation } from "./validationQueue";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -78,20 +76,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
         requiredAudioValidationsProp ?? null
     );
-    const [popoverEntryId, setPopoverEntryId] = useState<string | null>(null);
-    const popoverAnchorRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
-    const popoverCloseTimerRef = useRef<number | null>(null);
-    const cancelPopoverCloseTimer = () => {
-        if (popoverCloseTimerRef.current != null) {
-            clearTimeout(popoverCloseTimerRef.current);
-            popoverCloseTimerRef.current = null;
-        }
-    };
-    const schedulePopoverCloseTimer = (cb: () => void, delay = 100) => {
-        cancelPopoverCloseTimer();
-        popoverCloseTimerRef.current = window.setTimeout(cb, delay);
-    };
-
     const effectiveRequiredAudioValidations =
         (requiredAudioValidationsProp ?? requiredAudioValidations ?? 1) || 1;
 
@@ -620,10 +604,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const durationLabel = entry.attachment.metadata?.durationSec != null
                                 ? ` (${formatDuration(entry.attachment.metadata.durationSec)})`
                                 : "";
-                            const validatorsForPopover = Array.from(uniqueLatestByUser.values());
-                            const isPopoverOpen = popoverEntryId === entry.attachmentId;
-                            const popoverUniqueId = `history-validator-${entry.attachmentId}`;
-
                             return (
                                 <div
                                     key={entry.attachmentId}
@@ -633,7 +613,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                         borderRadius: "6px",
                                         backgroundColor: entry.attachment.isDeleted
                                             ? "var(--vscode-inputValidation-errorBackground)"
-                                            : isCurrent
+                                            : isSelected
                                             ? "var(--vscode-editor-selectionBackground)"
                                             : "var(--vscode-editorWidget-background)",
                                         opacity: entry.attachment.isDeleted ? 0.9 : 1,
@@ -723,7 +703,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 Restore
                                             </Button>
                                         ) : (
-                                            !isSelected && !hasError && (
+                                            !hasError && (
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
@@ -746,25 +726,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <span style={{ fontSize: "0.75em", color: "var(--vscode-descriptionForeground)" }}>
                                                 ID: {entry.attachmentId.split("-").slice(-1)[0]}
                                             </span>
-                                            <div
-                                                ref={(el) => { popoverAnchorRefs.current.set(entry.attachmentId, el); }}
-                                                style={{ position: "relative", cursor: validatorsForPopover.length > 0 ? "pointer" : "default", fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}
-                                                onMouseEnter={() => {
-                                                    if (validatorsForPopover.length > 0) {
-                                                        cancelPopoverCloseTimer();
-                                                        setPopoverEntryId(entry.attachmentId);
-                                                        audioPopoverTracker.setActivePopover(popoverUniqueId);
-                                                    }
-                                                }}
-                                                onMouseLeave={() => {
-                                                    schedulePopoverCloseTimer(() => {
-                                                        setPopoverEntryId(null);
-                                                        if (audioPopoverTracker.getActivePopover() === popoverUniqueId) {
-                                                            audioPopoverTracker.setActivePopover(null);
-                                                        }
-                                                    }, 150);
-                                                }}
-                                            >
+                                            <span style={{ fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}>
                                                 <ValidationStatusIcon
                                                     isValidationInProgress={false}
                                                     isDisabled={entry.attachment.isDeleted || hasError}
@@ -774,33 +736,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                     otherValidatorCount={otherValidatorCount}
                                                     displayValidationText
                                                 />
-                                                {isPopoverOpen && validatorsForPopover.length > 0 && (
-                                                    <ValidatorPopover
-                                                        anchorRef={{ current: popoverAnchorRefs.current.get(entry.attachmentId) ?? null } as React.RefObject<HTMLElement>}
-                                                        show={isPopoverOpen}
-                                                        setShow={(show) => {
-                                                            if (!show) {
-                                                                setPopoverEntryId(null);
-                                                                if (audioPopoverTracker.getActivePopover() === popoverUniqueId) {
-                                                                    audioPopoverTracker.setActivePopover(null);
-                                                                }
-                                                            }
-                                                        }}
-                                                        validators={validatorsForPopover}
-                                                        currentUsername={username}
-                                                        uniqueId={popoverUniqueId}
-                                                        onRemoveSelf={isValidatedByCurrentUser ? () => {
-                                                            enqueueValidation(cellId, false, true)
-                                                                .then(() => {})
-                                                                .catch((error) => console.error("Audio validation queue error:", error));
-                                                            processValidationQueue(vscode, true)
-                                                                .catch((error) => console.error("Audio validation queue processing error:", error));
-                                                        } : undefined}
-                                                        cancelCloseTimer={cancelPopoverCloseTimer}
-                                                        scheduleCloseTimer={schedulePopoverCloseTimer}
-                                                    />
-                                                )}
-                                            </div>
+                                            </span>
                                         </div>
                                     </div>
                                 </div>

@@ -2443,17 +2443,32 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         // Soft delete the attachment (set isDeleted: true) instead of hard deleting files
         await document.softDeleteCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
+        const cellId = typedEvent.content.cellId;
+
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentDeleted",
             content: {
-                cellId: typedEvent.content.cellId,
+                cellId,
                 audioId: typedEvent.content.audioId,
                 success: true
             }
         });
 
-        // The modal will handle refreshing its own history, and the main UI will 
-        // update when the user navigates away and back or when the document is saved
+        // Proactively send updated audio availability so the webview can
+        // immediately reflect the correct state (avoids stale status from
+        // a delayed refreshCurrentPage round-trip).
+        const nextAttachment = document.getCurrentAttachment(cellId, "audio");
+        let updatedState: "available-local" | "deletedOnly" | "none";
+        if (nextAttachment) {
+            updatedState = "available-local";
+        } else {
+            const history = document.getAttachmentHistory(cellId, "audio");
+            updatedState = history.length > 0 ? "deletedOnly" : "none";
+        }
+        safePostMessageToPanel(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: { [cellId]: updatedState }
+        });
 
         debug("Audio attachment soft deleted successfully");
     },
@@ -2492,8 +2507,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId
         });
 
-        // Restore the attachment (set isDeleted: false)
+        // Restore the attachment (set isDeleted: false) and select it
         await document.restoreCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
+        await document.selectAudioAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentRestored",
@@ -2504,10 +2520,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         });
 
-        // The modal will handle refreshing its own history, and the main UI will 
-        // update when the user navigates away and back or when the document is saved
-
-        debug("Audio attachment restored successfully");
+        debug("Audio attachment restored and selected successfully");
     },
 
     selectAudioAttachment: async ({ event, document, webviewPanel, provider }) => {

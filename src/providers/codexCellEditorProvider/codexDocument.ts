@@ -3110,7 +3110,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Selection is invalid or missing — fall through to automatic resolution
         }
 
-        // STEP 2: Fall back to latest non-deleted, non-missing attachment (prefer available files)
+        // STEP 2: Fall back to newest non-deleted, non-missing attachment (prefer available files)
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3121,7 +3121,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 const aMissing = a.isMissing ? 1 : 0;
                 const bMissing = b.isMissing ? 1 : 0;
                 if (aMissing !== bMissing) return aMissing - bMissing;
-                return (b.updatedAt || 0) - (a.updatedAt || 0);
+                return (b.createdAt || 0) - (a.createdAt || 0);
             });
 
         if (attachments.length === 0) {

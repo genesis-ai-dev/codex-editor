@@ -22,7 +22,7 @@ import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio } from "../lib/audioCache";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -1554,6 +1554,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Preload audio when audio tab is accessed
     const preloadAudioForTab = useCallback(() => {
+        // Skip requesting audio when we know there are no playable attachments for this cell
+        const cellAudioState = audioAttachments?.[cellMarkers[0]];
+        if (cellAudioState === "none" || cellAudioState === "deletedOnly") {
+            setIsAudioLoading(false);
+            setAudioFetchPending(false);
+            setAudioBlob(null);
+            setAudioUrl(null);
+            setAudioAuthor(undefined);
+            setShowRecorder(true);
+            return;
+        }
         // If we already have a freshly recorded blob, don't fetch again
         if (audioBlob) return;
         // If cached from this session, hydrate synchronously without re-requesting
@@ -1573,13 +1584,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         } catch {
             /* empty */
-        }
-        // Skip requesting audio when we know there are no attachments for this cell
-        if (audioAttachments && audioAttachments[cellMarkers[0]] === "none") {
-            setIsAudioLoading(false);
-            setAudioFetchPending(false);
-            setShowRecorder(true);
-            return;
         }
         // Respect auto-download toggle: only fetch when enabled or when the file is already local
         const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
@@ -1802,7 +1806,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         setIsAudioLoading(false);
                     }
                 } else {
-                    // No audio — prepare recorder but do not switch tabs automatically
+                    // No audio — clear stale state (including session cache) and prepare recorder
+                    clearCachedAudio(cellMarkers[0]);
+                    setAudioBlob(null);
+                    setAudioUrl(null);
+                    setAudioAuthor(undefined);
+                    setCurrentSelectedAudioId(null);
+                    setRecordingStatus("");
                     setIsAudioLoading(false);
                     setAudioFetchPending(false);
                     setShowRecorder(true);
@@ -1852,10 +1862,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.content.cellId === cellMarkers[0]
             ) {
                 if (message.content.success) {
+                    clearCachedAudio(cellMarkers[0]);
                     setRecordingStatus("");
                     setAudioUrl(null);
                     setAudioBlob(null);
                     setAudioAuthor(undefined);
+                    setCurrentSelectedAudioId(null);
                     // Request the next available audio (if any remain)
                     window.vscodeApi.postMessage({
                         command: "requestAudioForCell",
@@ -1877,9 +1889,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.type === "audioAttachmentRestored" &&
                 message.content.cellId === cellMarkers[0]
             ) {
-                // Mark that the next history response should auto-close the modal once
-                (window as any).__codexAutoCloseHistoryOnce = true;
-                // Refresh audio history after restore
+                // Refresh audio history after restore (stay in the history modal)
                 window.vscodeApi.postMessage({
                     command: "getAudioHistory",
                     content: { cellId: cellMarkers[0] },
@@ -1915,12 +1925,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     setCurrentSelectedAudioId(message.content.currentAttachmentId);
                 }
 
-                // If we just restored an audio (previously none loaded),
-                // auto-close history and request the current audio so the waveform appears
+                // After restore, if no audio is loaded yet, request the current audio
+                // so it's ready when the user closes the history modal
                 const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
-                if (hasAvailable && !audioBlob && (window as any).__codexAutoCloseHistoryOnce) {
-                    (window as any).__codexAutoCloseHistoryOnce = false;
-                    setShowAudioHistory(false);
+                if (hasAvailable && !audioBlob) {
                     const messageContent: EditorPostMessages = {
                         command: "requestAudioForCell",
                         content: { cellId: cellMarkers[0] },

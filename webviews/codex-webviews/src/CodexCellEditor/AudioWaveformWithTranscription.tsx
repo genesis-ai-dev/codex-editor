@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { MessageCircle, Copy, Loader2, Trash2, History, Mic, User } from "lucide-react";
+import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
 import ValidationStatusIcon, { getValidationLabel } from "./AudioValidationStatusIcon.tsx";
 import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx";
 import type { QuillCellContent } from "../../../../types";
@@ -241,6 +241,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         height={48}
                         showControls={true}
                         showDebugInfo={false}
+                        author={author}
                     />
                 ) : (
                     <div className="flex items-center justify-center h-16 text-[var(--vscode-foreground)] text-sm">
@@ -313,14 +314,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             )}
 
             {/* Action buttons at bottom */}
-            <div className="flex flex-wrap items-center gap-2 px-2">
-                {author && (
-                    <span className="inline-flex items-center gap-1 h-8 text-sm text-[var(--vscode-foreground)] shrink-0 max-w-[40%]">
-                        <User className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">Author: {author}</span>
-                    </span>
-                )}
-                <div className="flex flex-wrap items-center justify-center gap-2 flex-1 min-w-0">
+            <div className="flex flex-wrap items-center justify-center gap-2 px-2">
                 {!transcription && !isTranscribing && (
                     <Button
                         onClick={onTranscribe}
@@ -381,7 +375,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <Mic className="h-3 w-3" />
                     <span className="ml-1">Re-record</span>
                 </Button>
-                </div>
             </div>
         </div>
     );
