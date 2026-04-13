@@ -269,7 +269,7 @@ function MainMenu() {
                 } catch (error) {
                     console.error("Could not send validation count:", error);
                 }
-            }, 150);
+            }, 1200);
 
             // Safety net: clear optimistic state after 5s in case server never confirms
             localCountFallbackRef.current = setTimeout(() => {
@@ -297,7 +297,7 @@ function MainMenu() {
                 } catch (error) {
                     console.error("Could not send audio validation count:", error);
                 }
-            }, 150);
+            }, 1200);
 
             localCountAudioFallbackRef.current = setTimeout(() => {
                 setLocalValidationCountAudio(null);
