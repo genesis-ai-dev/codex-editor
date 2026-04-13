@@ -299,7 +299,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
         editType: EditType,
         shouldUpdateValue = true,
         retainValidations = false,
-        skipAutoValidation = false
+        skipAutoValidation = false,
+        generationId?: string
     ) {
         debug("trace 124 updateCellContent", cellId, newContent, editType, shouldUpdateValue);
 
@@ -353,6 +354,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 author: this._author,
                 validatedBy: [],
                 preview: true,
+                ...(generationId ? { generationId } : {}),
             };
             cellToUpdate.metadata.edits.push(previewEdit);
 
@@ -465,6 +467,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             type: editType,
             author: this._author,
             validatedBy,
+            ...(generationId ? { generationId } : {}),
         });
 
         // Record the edit 

@@ -15,8 +15,8 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 import { MetadataManager } from "../../utils/metadataManager";
 import { EditMapUtils, addProjectMetadataEdit } from "../../utils/editMapUtils";
-import { readLocalProjectSettings, writeLocalProjectSettings, clearPendingUpdate } from "../../utils/localProjectSettings";
-import { checkRemoteUpdatingRequired } from "../../utils/remoteUpdatingManager";
+import { readLocalProjectSettings, writeLocalProjectSettings, clearPendingUpdate, markPendingUpdateRequired } from "../../utils/localProjectSettings";
+import { checkRemoteUpdatingRequired, normalizeUpdateEntry, isEffectivelyCancelled, reconcileUpdatingEntriesWithRemote } from "../../utils/remoteUpdatingManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => { };
@@ -1306,12 +1306,22 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
         debug("Error during swap folder cleanup:", err);
     });
 
+    // Get current username once for update detection across all projects
+    let currentUsername: string | undefined;
+    try {
+        const authApi = getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        currentUsername = userInfo?.username ?? undefined;
+    } catch {
+        // Auth not ready -- proceed without update detection
+    }
+
     const folderScanStart = Date.now();
 
 
     // Process all watched folders in parallel
     const folderResults = await Promise.allSettled(
-        watchedFolders.map(folder => processWatchedFolder(folder, projectHistory))
+        watchedFolders.map(folder => processWatchedFolder(folder, projectHistory, currentUsername))
     );
 
 
@@ -1367,11 +1377,27 @@ async function validatePendingUpdates(projects: LocalProject[]): Promise<void> {
                 // Check if remote still requires update
                 const remoteCheck = await checkRemoteUpdatingRequired(project.path, project.gitOriginUrl);
 
-                if (!remoteCheck.required && localSettings.pendingUpdate) {
-                    // Remote no longer requires update, clear the flag
-                    debug(`Clearing invalid pendingUpdate for ${project.name}`);
+                // Merge remote entries into local metadata so local stays fresh,
+                // even when sync is blocked. Only attempt when remote was reachable.
+                if (remoteCheck.remoteReachable) {
+                    try {
+                        await reconcileUpdatingEntriesWithRemote(project.path);
+                    } catch {
+                        debug(`Non-fatal: reconciliation failed for ${project.name}`);
+                    }
+                }
+
+                const canClear = !remoteCheck.required
+                    && remoteCheck.remoteReachable
+                    && (remoteCheck.entryStatus === "cancelled" || remoteCheck.entryStatus === "executed")
+                    && localSettings.pendingUpdate;
+
+                if (canClear) {
+                    // Only clear when remote is reachable AND the entry was positively
+                    // cancelled or executed. "not_found" (entry absent on remote) must
+                    // NOT clear a flag that syncManager legitimately set.
+                    debug(`Clearing pendingUpdate for ${project.name} (remote entryStatus: ${remoteCheck.entryStatus})`);
                     await clearPendingUpdate(projectUri);
-                    // Update the project object so UI reflects the change
                     project.pendingUpdate = undefined;
                 }
             } catch (error) {
@@ -1577,7 +1603,7 @@ async function filterSwappedProjects(projects: LocalProject[]): Promise<LocalPro
 /**
  * Process a single watched folder and return all valid Codex projects within it
  */
-async function processWatchedFolder(folder: string, projectHistory: Record<string, string>): Promise<LocalProject[]> {
+async function processWatchedFolder(folder: string, projectHistory: Record<string, string>, currentUsername?: string): Promise<LocalProject[]> {
     try {
         const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(folder));
 
@@ -1585,7 +1611,7 @@ async function processWatchedFolder(folder: string, projectHistory: Record<strin
         const projectResults = await Promise.allSettled(
             entries
                 .filter(([name, type]) => type === vscode.FileType.Directory)
-                .map(([name]) => processProjectDirectory(folder, name, projectHistory))
+                .map(([name]) => processProjectDirectory(folder, name, projectHistory, currentUsername))
         );
 
         // Extract successful results and filter out null values
@@ -1607,7 +1633,8 @@ async function processWatchedFolder(folder: string, projectHistory: Record<strin
 async function processProjectDirectory(
     folder: string,
     name: string,
-    projectHistory: Record<string, string>
+    projectHistory: Record<string, string>,
+    currentUsername?: string
 ): Promise<LocalProject | null> {
     let currentName = name;
     let projectPath = path.join(folder, currentName);
@@ -1752,6 +1779,48 @@ async function processProjectDirectory(
         if (!statsResult) {
             debug(`Could not get stats for ${projectPath}`);
             return null;
+        }
+
+        // --- Update detection from local metadata.json ---
+        // Check initiateRemoteUpdatingFor so the pendingUpdate flag in
+        // localProjectSettings.json stays in sync with the source of truth
+        // (metadata.json). This mirrors how swap checks metadata.json's
+        // projectSwap directly during list loading.
+        if (currentUsername && !settingsResult?.updateState) {
+            try {
+                const rawEntries = projectMetadata?.meta?.initiateRemoteUpdatingFor;
+                const entries = Array.isArray(rawEntries) ? rawEntries.map(normalizeUpdateEntry) : [];
+
+                const userEntries = entries.filter(e => e.userToUpdate === currentUsername);
+                const hasActiveEntry = userEntries.some(e => !e.executed && !isEffectivelyCancelled(e));
+                const hasInactiveEntry = !hasActiveEntry
+                    && userEntries.some(e => e.executed || isEffectivelyCancelled(e));
+
+                const alreadyFlagged = settingsResult?.pendingUpdate?.required === true;
+                const completedLocally = settingsResult?.updateCompletedLocally?.username === currentUsername;
+                const projectUri = vscode.Uri.file(projectPath);
+
+                if (hasActiveEntry && !alreadyFlagged && !completedLocally) {
+                    await markPendingUpdateRequired(projectUri, "Detected from local metadata");
+                    if (settingsResult) {
+                        (settingsResult as any).pendingUpdate = {
+                            required: true,
+                            reason: "Detected from local metadata",
+                            detectedAt: Date.now(),
+                        };
+                    }
+                } else if (hasInactiveEntry && alreadyFlagged && !completedLocally) {
+                    // Only clear when there is positive evidence (cancelled/executed).
+                    // Absence of an entry (e.g. sync was blocked so it never arrived)
+                    // must NOT clear a flag that syncManager legitimately set.
+                    await clearPendingUpdate(projectUri);
+                    if (settingsResult) {
+                        (settingsResult as any).pendingUpdate = undefined;
+                    }
+                }
+            } catch (e) {
+                debug("Error checking initiateRemoteUpdatingFor:", e);
+            }
         }
 
         // Populate convenience fields on projectSwap for webview access

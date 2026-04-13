@@ -997,10 +997,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 },
             ];
 
-            let resolved = await callLLM(prompt, config);
+            const llmResult = await callLLM(prompt, config);
 
             // Strip markdown code fences that LLMs often wrap around HTML output
-            resolved = resolved.trim();
+            let resolved = llmResult.content.trim();
             const fenceMatch = resolved.match(/^```(?:html)?\s*\n?([\s\S]*?)\n?\s*```$/);
             if (fenceMatch) {
                 resolved = fenceMatch[1].trim();

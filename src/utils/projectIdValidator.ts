@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as dugiteGit from "./dugiteGit";
 import { extractProjectIdFromFolderName, sanitizeProjectName } from "../projectManager/utils/projectUtils";
 import { MetadataManager } from "./metadataManager";
+import { sanitizeGitUrl } from "./projectSwapManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectIdValidator]", ...args) : () => { };
@@ -58,7 +59,7 @@ export async function detectProjectIdMismatch(
         const origin = remotes.find((r) => r.remote === "origin");
         if (origin?.url) {
             gitRemoteProjectId = extractProjectIdFromGitUrl(origin.url);
-            debug("Git remote URL:", origin.url);
+            debug("Git remote URL:", sanitizeGitUrl(origin.url));
             debug("Git remote projectId:", gitRemoteProjectId);
         }
     } catch (error) {
