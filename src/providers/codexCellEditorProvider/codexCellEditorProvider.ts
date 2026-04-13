@@ -937,16 +937,33 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                             const filesAbs = path.join(ws.uri.fsPath, filesRel);
                                             try {
                                                 await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
-                                                const { isPointerFile } = await import("../../utils/lfsHelpers");
+                                                const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
                                                 const isPtr = await isPointerFile(filesAbs).catch(() => false);
-                                                if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
+                                                if (isPtr) {
+                                                    const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+                                                    const ptr = await parsePointerFile(filesAbs).catch(() => null);
+                                                    if (ptr?.oid && getCachedLfsBytes(ptr.oid)) {
+                                                        hasAvailable = true;
+                                                    } else {
+                                                        hasAvailablePointer = true;
+                                                    }
+                                                } else {
+                                                    hasAvailable = true;
+                                                }
                                             } catch {
                                                 const pointerAbs = filesAbs.includes("/.project/attachments/files/")
                                                     ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
                                                     : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
                                                 try {
                                                     await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
-                                                    hasAvailablePointer = true;
+                                                    const { parsePointerFile: parsePtrInline } = await import("../../utils/lfsHelpers");
+                                                    const { getCachedLfsBytes: getLfsCacheInline } = await import("../../utils/mediaCache");
+                                                    const ptrInline = await parsePtrInline(pointerAbs).catch(() => null);
+                                                    if (ptrInline?.oid && getLfsCacheInline(ptrInline.oid)) {
+                                                        hasAvailable = true;
+                                                    } else {
+                                                        hasAvailablePointer = true;
+                                                    }
                                                 } catch {
                                                     hasMissing = true;
                                                 }
@@ -4312,9 +4329,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
             const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
             await vscode.workspace.fs.stat(vscode.Uri.file(abs));
-            const { isPointerFile } = await import("../../utils/lfsHelpers");
+            const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
             const isPtr = await isPointerFile(abs).catch(() => false);
-            return isPtr ? "available-pointer" : "available-local";
+            if (isPtr) {
+                const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+                const pointer = await parsePointerFile(abs).catch(() => null);
+                if (pointer?.oid && getCachedLfsBytes(pointer.oid)) {
+                    return "available-local";
+                }
+                return "available-pointer";
+            }
+            return "available-local";
         } catch {
             // File doesn't exist at files/ path, check for pointer
             try {
@@ -4324,6 +4349,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
                     : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
                 await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                const { parsePointerFile: parsePtrFallback } = await import("../../utils/lfsHelpers");
+                const { getCachedLfsBytes: getLfsCacheFallback } = await import("../../utils/mediaCache");
+                const ptrFallback = await parsePtrFallback(pointerAbs).catch(() => null);
+                if (ptrFallback?.oid && getLfsCacheFallback(ptrFallback.oid)) {
+                    return "available-local";
+                }
                 return "available-pointer";
             } catch {
                 return "missing";

@@ -37,13 +37,17 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 const message = event.data;
 
                 if (message.type === "providerSendsAudioAttachments") {
-                    const { clearCachedAudio } = await import("../lib/audioCache");
-                    clearCachedAudio(cellId);
+                    const incoming = message.attachments as Record<string, string> | undefined;
+                    const newState = incoming?.[cellId];
+                    if (newState === "deletedOnly" || newState === "none" || newState === "missing") {
+                        const { clearCachedAudio } = await import("../lib/audioCache");
+                        clearCachedAudio(cellId);
 
-                    if (audioUrl && audioUrl.startsWith("blob:")) {
-                        URL.revokeObjectURL(audioUrl);
+                        if (audioUrl && audioUrl.startsWith("blob:")) {
+                            URL.revokeObjectURL(audioUrl);
+                        }
+                        setAudioUrl(null);
                     }
-                    setAudioUrl(null);
                     setIsLoading(false);
                 }
 
@@ -236,7 +240,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     color: "var(--vscode-charts-blue)",
                 } as const;
             }
-            if (state === "available-local") {
+            if (state === "available-local" || state === "available") {
                 return {
                     iconClass: isLoading
                         ? "codicon-loading codicon-modifier-spin"
@@ -246,7 +250,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     color: "var(--vscode-charts-blue)",
                 } as const;
             }
-            if (state === "available" || state === "available-pointer") {
+            if (state === "available-pointer") {
                 return {
                     iconClass: isLoading
                         ? "codicon-loading codicon-modifier-spin"
@@ -267,11 +271,11 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 title={
                     isLoading
                         ? "Preparing audio..."
-                        : state === "available" || state === "available-pointer"
+                        : state === "available-pointer"
                           ? audioUrl || getCachedAudioDataUrl(cellId)
                             ? "Play"
                             : "Download"
-                          : state === "available-local"
+                          : state === "available-local" || state === "available"
                             ? "Play"
                             : state === "missing"
                               ? "Missing audio"

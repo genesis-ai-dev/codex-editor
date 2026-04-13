@@ -5,6 +5,28 @@ import { CustomNotebookMetadata } from "../../../../../types";
 
 type AudioAvailability = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
 
+const REFINED_STATES = new Set<AudioAvailability>(["available-local", "available-pointer"]);
+
+/**
+ * Merge webview-derived availability into existing state without downgrading
+ * refined states (from provider file-system checks) to the generic "available".
+ */
+const mergeAvailabilityWithoutDowngrade = (
+    prev: Record<string, AudioAvailability> | undefined,
+    incoming: Record<string, AudioAvailability>,
+): Record<string, AudioAvailability> => {
+    if (!prev) return incoming;
+    const next = { ...prev };
+    for (const [cellId, newState] of Object.entries(incoming)) {
+        const existing = prev[cellId];
+        if (existing && REFINED_STATES.has(existing) && newState === "available") {
+            continue;
+        }
+        next[cellId] = newState;
+    }
+    return next;
+};
+
 /**
  * Derives the audio availability state for a cell based on its attachments and selection.
  * When an explicit selectedAudioId is missing, returns "missing" regardless of other entries.
@@ -179,7 +201,7 @@ export const useVSCodeMessageHandler = ({
                                 .filter((a) => a?.type === "audio").length;
                             if (audioCount > 0) counts[cellId] = audioCount;
                         }
-                        setAudioAttachments(availability);
+                        setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
                         if (Object.keys(counts).length > 0) setAudioHistoryCounts(counts);
                     } catch { /* ignore */ }
                     break;
@@ -378,7 +400,7 @@ export const useVSCodeMessageHandler = ({
                                 .filter((a) => a?.type === "audio").length;
                             if (audioCount > 0) counts[cellId] = audioCount;
                         }
-                        setAudioAttachments(availability);
+                        setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
                         if (Object.keys(counts).length > 0) setAudioHistoryCounts(counts);
                     } catch { /* ignore */ }
                     break;
@@ -412,7 +434,7 @@ export const useVSCodeMessageHandler = ({
                                 .filter((a) => a?.type === "audio").length;
                             if (audioCount > 0) counts[cellId] = audioCount;
                         }
-                        setAudioAttachments((prev) => ({ ...prev, ...availability }));
+                        setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
                         if (Object.keys(counts).length > 0) {
                             setAudioHistoryCounts((prev) => ({ ...prev, ...counts }));
                         }

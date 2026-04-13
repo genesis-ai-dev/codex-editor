@@ -1721,21 +1721,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             // Handle audio availability updates specifically for this cell
             if (message.type === "providerSendsAudioAttachments") {
-                // Clear cached audio data since selected audio might have changed
-                const { clearCachedAudio } = await import("../lib/audioCache");
-                clearCachedAudio(cellMarkers[0]);
+                const availability = (message.attachments || {}) as Record<
+                    string,
+                    "available" | "available-local" | "available-pointer" | "deletedOnly" | "none"
+                >;
+                const stateForCell = availability[cellMarkers[0]];
+
+                // Only clear cached audio when the cell's audio is actually gone
+                if (stateForCell === "deletedOnly" || stateForCell === "none" || stateForCell === "missing") {
+                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    clearCachedAudio(cellMarkers[0]);
+                }
 
                 // If we already have local audio (e.g., just recorded) or are loading, don't disrupt UI
                 // UNLESS this is coming after a selection change (which we handle above)
                 if (audioBlob || isAudioLoading) {
                     return;
                 }
-
-                const availability = (message.attachments || {}) as Record<
-                    string,
-                    "available" | "available-local" | "available-pointer" | "deletedOnly" | "none"
-                >;
-                const stateForCell = availability[cellMarkers[0]];
 
                 const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
                 const autoFlag = (window as any).__autoDownloadAudioOnOpen;
