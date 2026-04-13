@@ -2149,7 +2149,7 @@ type EditorReceiveMessages =
     | {
         type: "providerSendsAudioAttachments";
         // Availability now distinguishes between real local files vs LFS pointer placeholders
-        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; };
+        attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; };
         historyCounts?: { [cellId: string]: number; };
     }
     | {

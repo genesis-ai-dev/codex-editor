@@ -920,7 +920,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     for (const cell of notebookData.cells as any[]) {
                         const cellId = cell?.metadata?.id;
                         if (!cellId) continue;
-                        let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
+                        let hasAvailable = false; let hasAvailablePointer = false; let hasCached = false; let hasMissing = false; let hasDeleted = false;
                         let audioCount = 0;
                         const atts = cell?.metadata?.attachments || {};
                         for (const key of Object.keys(atts)) {
@@ -943,7 +943,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                                     const { getCachedLfsBytes } = await import("../../utils/mediaCache");
                                                     const ptr = await parsePointerFile(filesAbs).catch(() => null);
                                                     if (ptr?.oid && getCachedLfsBytes(ptr.oid)) {
-                                                        hasAvailable = true;
+                                                        hasCached = true;
                                                     } else {
                                                         hasAvailablePointer = true;
                                                     }
@@ -960,7 +960,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                                     const { getCachedLfsBytes: getLfsCacheInline } = await import("../../utils/mediaCache");
                                                     const ptrInline = await parsePtrInline(pointerAbs).catch(() => null);
                                                     if (ptrInline?.oid && getLfsCacheInline(ptrInline.oid)) {
-                                                        hasAvailable = true;
+                                                        hasCached = true;
                                                     } else {
                                                         hasAvailablePointer = true;
                                                     }
@@ -981,8 +981,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                         // Prefer showing available when a valid file exists,
                         // even if the user's explicit selection points to a missing file.
-                        let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                        let state: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
                         if (hasAvailable) state = "available-local";
+                        else if (hasCached) state = "available-cached";
                         else if (hasAvailablePointer) state = "available-pointer";
                         else if (selectedIsMissing || hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
@@ -990,7 +991,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                         // If Frontier installed version is below minimum, any non-local availability
                         // should present as "available-pointer" (cloud/download) to avoid Play UI.
-                        if (state !== "available-local") {
+                        if (state !== "available-local" && state !== "available-cached") {
                             try {
                                 const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
                                 const status = await getFrontierVersionStatus();
@@ -4312,7 +4313,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private async checkAttachmentAvailability(
         attachment: any,
         workspaceFolder: vscode.WorkspaceFolder
-    ): Promise<"available-local" | "available-pointer" | "missing" | "deletedOnly"> {
+    ): Promise<"available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly"> {
         if (attachment.isDeleted) {
             return "deletedOnly";
         }
@@ -4335,7 +4336,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const { getCachedLfsBytes } = await import("../../utils/mediaCache");
                 const pointer = await parsePointerFile(abs).catch(() => null);
                 if (pointer?.oid && getCachedLfsBytes(pointer.oid)) {
-                    return "available-local";
+                    return "available-cached";
                 }
                 return "available-pointer";
             }
@@ -4353,7 +4354,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const { getCachedLfsBytes: getLfsCacheFallback } = await import("../../utils/mediaCache");
                 const ptrFallback = await parsePtrFallback(pointerAbs).catch(() => null);
                 if (ptrFallback?.oid && getLfsCacheFallback(ptrFallback.oid)) {
-                    return "available-local";
+                    return "available-cached";
                 }
                 return "available-pointer";
             } catch {
@@ -4379,7 +4380,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (!ws) continue;
 
-                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; } = {};
                 const historyCounts: { [cellId: string]: number; } = {};
 
                 // Check audio availability for all cells using getCurrentAttachment()
@@ -4400,7 +4401,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     let state = await this.checkAttachmentAvailability(currentAttachment.attachment, ws);
 
                     // Apply version gate if needed
-                    if (state !== "available-local") {
+                    if (state !== "available-local" && state !== "available-cached") {
                         try {
                             const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
                             const status = await getFrontierVersionStatus();

@@ -3,9 +3,9 @@ import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
 
-type AudioAvailability = "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+type AudioAvailability = "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
 
-const REFINED_STATES = new Set<AudioAvailability>(["available-local", "available-pointer"]);
+const REFINED_STATES = new Set<AudioAvailability>(["available-local", "available-pointer", "available-cached"]);
 
 /**
  * Merge webview-derived availability into existing state without downgrading
@@ -124,7 +124,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; }>>;
+    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; }>>;
     setAudioHistoryCounts: Dispatch<SetStateAction<{ [cellId: string]: number; }>>;
 
     // A/B testing handlers

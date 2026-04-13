@@ -57,6 +57,7 @@ interface CellContentDisplayProps {
             | "available"
             | "available-local"
             | "available-pointer"
+            | "available-cached"
             | "deletedOnly"
             | "none"
             | "missing";
@@ -847,6 +848,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                     audioState === "available" ||
                                                     audioState === "available-local" ||
                                                     audioState === "available-pointer" ||
+                                                    audioState === "available-cached" ||
                                                     audioState === "missing"
                                                 )
                                             )

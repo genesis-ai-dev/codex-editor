@@ -9,6 +9,7 @@ type AudioState =
     | "available"
     | "available-local"
     | "available-pointer"
+    | "available-cached"
     | "missing"
     | "deletedOnly"
     | "none";
@@ -132,7 +133,8 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 if (
                     state !== "available" &&
                     state !== "available-local" &&
-                    state !== "available-pointer"
+                    state !== "available-pointer" &&
+                    state !== "available-cached"
                 ) {
                     if (isCellLocked && state !== "missing") {
                         onLockedClick?.();
@@ -240,7 +242,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     color: "var(--vscode-charts-blue)",
                 } as const;
             }
-            if (state === "available-local" || state === "available") {
+            if (state === "available-local" || state === "available" || state === "available-cached") {
                 return {
                     iconClass: isLoading
                         ? "codicon-loading codicon-modifier-spin"
@@ -275,7 +277,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                           ? audioUrl || getCachedAudioDataUrl(cellId)
                             ? "Play"
                             : "Download"
-                          : state === "available-local" || state === "available"
+                          : state === "available-local" || state === "available" || state === "available-cached"
                             ? "Play"
                             : state === "missing"
                               ? "Missing audio"

@@ -337,6 +337,7 @@ const CodexCellEditor: React.FC = () => {
             | "available"
             | "available-local"
             | "available-pointer"
+            | "available-cached"
             | "deletedOnly"
             | "none"
             | "missing";

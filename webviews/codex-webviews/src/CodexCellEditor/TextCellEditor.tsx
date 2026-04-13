@@ -129,6 +129,7 @@ interface CellEditorProps {
             | "available"
             | "available-local"
             | "available-pointer"
+            | "available-cached"
             | "deletedOnly"
             | "none"
             | "missing";
@@ -1723,7 +1724,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             if (message.type === "providerSendsAudioAttachments") {
                 const availability = (message.attachments || {}) as Record<
                     string,
-                    "available" | "available-local" | "available-pointer" | "deletedOnly" | "none"
+                    "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"
                 >;
                 const stateForCell = availability[cellMarkers[0]];
 
@@ -1742,12 +1743,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
                 const autoFlag = (window as any).__autoDownloadAudioOnOpen;
                 const shouldAutoDownload = autoInit ? !!autoFlag : false;
+                const isLocal = stateForCell === "available-local";
 
                 if (
-                    (stateForCell === "available" ||
-                        stateForCell === "available-local" ||
-                        stateForCell === "available-pointer") &&
-                    shouldAutoDownload
+                    isLocal ||
+                    ((stateForCell === "available" || stateForCell === "available-pointer" || stateForCell === "available-cached") &&
+                        shouldAutoDownload)
                 ) {
                     setIsAudioLoading(true);
                     const messageContent: EditorPostMessages = {
@@ -1930,18 +1931,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
 
                 // After restore, if no audio is loaded yet, request the current audio
-                // so it's ready when the user closes the history modal
+                // so it's ready when the user closes the history modal.
+                // Only auto-fetch if the file is local/cached or auto-download is enabled.
                 const hasAvailable = history.some((h: any) => !h.attachment?.isDeleted);
                 if (hasAvailable && !audioBlob) {
-                    const messageContent: EditorPostMessages = {
-                        command: "requestAudioForCell",
-                        content: { cellId: cellMarkers[0] },
-                    };
-                    window.vscodeApi.postMessage(messageContent);
+                    const stateForCell = audioAttachments?.[cellMarkers[0]];
+                    const isLocal = stateForCell === "available-local";
+                    const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+                    const autoFlag = (window as any).__autoDownloadAudioOnOpen;
+                    const shouldAutoDownload = autoInit ? !!autoFlag : false;
+                    if (shouldAutoDownload || isLocal) {
+                        const messageContent: EditorPostMessages = {
+                            command: "requestAudioForCell",
+                            content: { cellId: cellMarkers[0] },
+                        };
+                        window.vscodeApi.postMessage(messageContent);
+                    }
                 }
             }
         },
-        [cellMarkers, audioBlob, showAudioHistory, currentSelectedAudioId]
+        [cellMarkers, audioBlob, showAudioHistory, currentSelectedAudioId, audioAttachments]
     );
 
     // Clean up media recorder and stream on unmount
