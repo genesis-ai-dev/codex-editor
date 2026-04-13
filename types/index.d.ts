@@ -174,7 +174,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsListFromGitLab"; }
     | { command: "forceRefreshProjectsList"; }
     | { command: "getProjectsSyncStatus"; }
-    | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
+    | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; skipUpdateCheck?: boolean; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
     | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }

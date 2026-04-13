@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 // Import the actual plugin definitions
-import { docxRoundtripImporterPlugin as docxImporterPlugin } from "./docx/index.tsx";
+import { docxImporterPlugin } from "./docx/index.tsx";
 import { markdownImporterPlugin } from "./markdown/index.tsx";
 // import { usfmImporterPlugin } from "./usfm/index.tsx"; // Original USFM importer
 import { usfmExperimentalImporterPlugin } from "./usfm/experimental/index.tsx"; // Experimental round-trip importer (standalone with headers in chapter 1)
@@ -63,13 +63,6 @@ export const importerPlugins: ImporterPlugin[] = [
         tags: ["Essential", "Media", "Audio"],
     },
     {
-        ...markdownImporterPlugin,
-        name: "Markdown",
-        description: "GitHub-style markdown files with round-trip export support",
-        supportsTargetImport: true,
-        tags: ["Essential", "Documentation", "GitHub", "Round-trip"],
-    },
-    {
         ...subtitlesImporterPlugin,
         name: "Subtitles",
         description: "Video captions with timestamps",
@@ -77,18 +70,25 @@ export const importerPlugins: ImporterPlugin[] = [
         tags: ["Essential", "Media", "Video"],
     },
     {
-        ...tmsImporterPlugin,
-        name: "TMS Files",
-        description: "Translation memory and localization files (TMX/XLIFF) with round-trip export support",
-        supportsTargetImport: true,
-        tags: ["Essential", "Translation", "Localization", "Round-trip"],
-    },
-    {
         ...docxImporterPlugin,
         name: "Word Documents",
         description: "Microsoft Word files with round-trip export support",
         supportsTargetImport: true,
         tags: ["Essential", "Documents", "Microsoft", "Round-trip"],
+    },
+    {
+        ...markdownImporterPlugin,
+        name: "Markdown",
+        description: "GitHub-style markdown files with round-trip export support",
+        supportsTargetImport: true,
+        tags: ["Essential", "Documentation", "GitHub", "Round-trip"],
+    },
+    {
+        ...tmsImporterPlugin,
+        name: "TMS Files",
+        description: "Translation memory and localization files with round-trip export support",
+        supportsTargetImport: true,
+        tags: ["Essential", "Translation", "Localization", "Round-trip"],
     },
     {
         ...indesignImporterPlugin,
@@ -115,7 +115,8 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...usfmExperimentalImporterPlugin,
         name: "USFM New",
-        description: "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
+        description:
+            "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
         supportsTargetImport: true,
         tags: ["Specialized", "Bible", "USFM", "Round-trip"],
     },
@@ -211,8 +212,7 @@ export const getSupportedExtensions = (): string[] => {
 export const getEssentialImporters = (targetOnly?: boolean): ImporterPlugin[] => {
     return importerPlugins.filter(
         (plugin) =>
-            plugin.tags?.includes("Essential") &&
-            (!targetOnly || plugin.supportsTargetImport)
+            plugin.tags?.includes("Essential") && (!targetOnly || plugin.supportsTargetImport)
     );
 };
 
@@ -222,8 +222,7 @@ export const getEssentialImporters = (targetOnly?: boolean): ImporterPlugin[] =>
 export const getSpecializedImporters = (targetOnly?: boolean): ImporterPlugin[] => {
     return importerPlugins.filter(
         (plugin) =>
-            plugin.tags?.includes("Specialized") &&
-            (!targetOnly || plugin.supportsTargetImport)
+            plugin.tags?.includes("Specialized") && (!targetOnly || plugin.supportsTargetImport)
     );
 };
 

@@ -10,6 +10,7 @@ import {
     ImportResult,
     ProcessedImage,
     ProgressCallback,
+    ProcessedNotebook,
 } from '../../types/common';
 import {
     createProgress,
@@ -22,7 +23,6 @@ import { DocxParser } from './docxParser';
 import type { DocxDocument, DocxParagraph, DocxRun } from './docxTypes';
 import { createDocxCellMetadata, createDocxTableCellMetadata } from './cellMetadata';
 import { extractTableCellParagraphGroups } from './utils/tableSegmentation';
-import { ProcessedNotebook } from '../../types/common';
 const SUPPORTED_EXTENSIONS = ['docx'];
 
 /**
