@@ -60,7 +60,7 @@ const EXPORT_PREVIEW_ITEMS: PreviewItem[] = [
     },
     {
         id: "usfm-fast",
-        title: "USFM (no validate)",
+        title: "USFM (no validation)",
         subtitle: "Faster export",
         gate: "usfm",
         hoverHelp:

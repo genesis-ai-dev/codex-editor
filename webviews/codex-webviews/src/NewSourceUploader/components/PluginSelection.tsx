@@ -152,7 +152,7 @@ const PendingImporterExportCard: React.FC<{
     return (
         <div
             className={cn(
-                "rounded-xl border bg-card shadow-sm overflow-hidden flex flex-col max-sm:animate-nsu-export-panel-from-bottom sm:animate-nsu-export-panel-from-right",
+                "rounded-xl border border-muted-foreground/20 dark:border-gray-800 bg-card shadow-sm overflow-hidden flex flex-col max-sm:animate-nsu-export-panel-from-bottom sm:animate-nsu-export-panel-from-right",
                 className
             )}
         >
@@ -176,7 +176,12 @@ const PendingImporterExportCard: React.FC<{
                     >
                         Cancel
                     </Button>
-                    <Button type="button" size="lg" onClick={onConfirm} className="h-12 min-h-12 w-full text-base">
+                    <Button
+                        type="button"
+                        size="lg"
+                        onClick={onConfirm}
+                        className="h-12 min-h-12 w-full text-base"
+                    >
                         Continue
                     </Button>
                 </div>
@@ -247,10 +252,12 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
         setPendingPluginId(null);
     };
 
-    const showInlineExportPanel =
-        Boolean(pendingPluginId && previewGroupKey && isImporterSingleColumn);
-    const showAsideExportPanel =
-        Boolean(pendingPluginId && previewGroupKey && !isImporterSingleColumn);
+    const showInlineExportPanel = Boolean(
+        pendingPluginId && previewGroupKey && isImporterSingleColumn
+    );
+    const showAsideExportPanel = Boolean(
+        pendingPluginId && previewGroupKey && !isImporterSingleColumn
+    );
 
     return (
         <div
@@ -259,7 +266,7 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                 pendingPluginId ? "max-w-[1400px]" : "max-w-7xl"
             )}
         >
-                <div
+            <div
                 className={cn(
                     "gap-8",
                     pendingPluginId && showAsideExportPanel
@@ -365,16 +372,20 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                                                 : "hover:border-primary"
                                         )}
                                     />
-                                    {showInlineExportPanel && pendingPluginId === plugin.id && previewGroupKey && (
-                                        <div className="col-span-1 sm:col-span-2 lg:col-span-3 w-full min-w-0">
-                                            <PendingImporterExportCard
-                                                pendingPluginName={pendingPlugin?.name ?? pendingPluginId}
-                                                previewGroupKey={previewGroupKey}
-                                                onCancel={handleCancelPending}
-                                                onConfirm={handleConfirmPlugin}
-                                            />
-                                        </div>
-                                    )}
+                                    {showInlineExportPanel &&
+                                        pendingPluginId === plugin.id &&
+                                        previewGroupKey && (
+                                            <div className="col-span-1 sm:col-span-2 lg:col-span-3 w-full min-w-0">
+                                                <PendingImporterExportCard
+                                                    pendingPluginName={
+                                                        pendingPlugin?.name ?? pendingPluginId
+                                                    }
+                                                    previewGroupKey={previewGroupKey}
+                                                    onCancel={handleCancelPending}
+                                                    onConfirm={handleConfirmPlugin}
+                                                />
+                                            </div>
+                                        )}
                                 </React.Fragment>
                             ))}
                         </div>
@@ -448,16 +459,20 @@ export const PluginSelection: React.FC<PluginSelectionProps> = ({
                                                 : "hover:border-primary"
                                         )}
                                     />
-                                    {showInlineExportPanel && pendingPluginId === plugin.id && previewGroupKey && (
-                                        <div className="col-span-1 sm:col-span-2 lg:col-span-3 w-full min-w-0">
-                                            <PendingImporterExportCard
-                                                pendingPluginName={pendingPlugin?.name ?? pendingPluginId}
-                                                previewGroupKey={previewGroupKey}
-                                                onCancel={handleCancelPending}
-                                                onConfirm={handleConfirmPlugin}
-                                            />
-                                        </div>
-                                    )}
+                                    {showInlineExportPanel &&
+                                        pendingPluginId === plugin.id &&
+                                        previewGroupKey && (
+                                            <div className="col-span-1 sm:col-span-2 lg:col-span-3 w-full min-w-0">
+                                                <PendingImporterExportCard
+                                                    pendingPluginName={
+                                                        pendingPlugin?.name ?? pendingPluginId
+                                                    }
+                                                    previewGroupKey={previewGroupKey}
+                                                    onCancel={handleCancelPending}
+                                                    onConfirm={handleConfirmPlugin}
+                                                />
+                                            </div>
+                                        )}
                                 </React.Fragment>
                             ))}
                         </div>
