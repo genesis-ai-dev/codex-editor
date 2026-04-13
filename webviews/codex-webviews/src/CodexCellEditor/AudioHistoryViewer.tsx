@@ -48,6 +48,7 @@ interface AudioHistoryViewerProps {
     onClose: () => void;
     currentUsername?: string | null;
     requiredAudioValidations?: number;
+    audioAvailability?: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
 }
 
 export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
@@ -56,6 +57,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     onClose,
     currentUsername,
     requiredAudioValidations: requiredAudioValidationsProp,
+    audioAvailability,
 }) => {
     const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>([]);
     const [playingId, setPlayingId] = useState<string | null>(null);
@@ -646,33 +648,45 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
 
                                     {/* Bottom row: action buttons + metadata */}
                                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                        <Button
-                                            size="sm"
-                                            variant={hasError ? "destructive" : "outline"}
-                                            onClick={() => handlePlayAudio(entry.attachmentId)}
-                                            disabled={isLoading || hasError}
-                                            className={hasError ? "opacity-100" : undefined}
-                                            title={hasError ? "File missing" : undefined}
-                                        >
-                                            {isLoading ? (
-                                                <span>Loading...</span>
-                                            ) : hasError ? (
-                                                <>
-                                                    <XCircle className="h-4 w-4 mr-1" />
-                                                    Play
-                                                </>
-                                            ) : isPlaying ? (
-                                                <>
-                                                    <Pause className="h-4 w-4 mr-1" />
-                                                    Stop{durationLabel}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Play className="h-4 w-4 mr-1" />
-                                                    Play{durationLabel}
-                                                </>
-                                            )}
-                                        </Button>
+                                        {(() => {
+                                            const needsDownload = !audioUrls.has(entry.attachmentId) &&
+                                                audioAvailability !== "available-local" &&
+                                                audioAvailability !== undefined;
+                                            return (
+                                                <Button
+                                                    size="sm"
+                                                    variant={hasError ? "destructive" : "outline"}
+                                                    onClick={() => handlePlayAudio(entry.attachmentId)}
+                                                    disabled={isLoading || hasError}
+                                                    className={hasError ? "opacity-100" : undefined}
+                                                    title={hasError ? "File missing" : needsDownload ? "Download audio" : undefined}
+                                                >
+                                                    {isLoading ? (
+                                                        <span>Loading...</span>
+                                                    ) : hasError ? (
+                                                        <>
+                                                            <XCircle className="h-4 w-4 mr-1" />
+                                                            Play
+                                                        </>
+                                                    ) : isPlaying ? (
+                                                        <>
+                                                            <Pause className="h-4 w-4 mr-1" />
+                                                            Stop{durationLabel}
+                                                        </>
+                                                    ) : needsDownload ? (
+                                                        <>
+                                                            <Download className="h-4 w-4 mr-1" />
+                                                            Download{durationLabel}
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Play className="h-4 w-4 mr-1" />
+                                                            Play{durationLabel}
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            );
+                                        })()}
 
                                         {!entry.attachment.isDeleted && !hasError && (
                                             <Button

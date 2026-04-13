@@ -3043,6 +3043,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     requiredAudioValidations={
                         (window as any)?.initialData?.validationCountAudio ?? undefined
                     }
+                    audioAvailability={audioAttachments?.[cellMarkers[0]]}
                     onClose={() => setShowAudioHistory(false)}
                 />
             )}
