@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import * as path from "path";
 import * as fs from "fs";
@@ -27,7 +26,7 @@ const execAsync = promisify(exec);
  */
 
 import { CodexNotebookAsJSONData } from "../../types";
-import { readCodexNotebookFromUri, getActiveCells } from "./exportHandlerUtils";
+import { readCodexNotebookFromUri, getActiveCells, isContentCellType } from "./exportHandlerUtils";
 import { resolveOriginalFileUri, findOriginalFileByPossibleNames } from "../providers/NewSourceUploader/originalFileUtils";
 import { isLfsPointerContent, resolveLfsPointerFile } from "../utils/lfsHelpers";
 import { exportCodexContentAsPlaintext } from "./plaintextExporter";
@@ -773,8 +772,12 @@ async function exportCodexContentAsObsRoundtrip(
         async (progress) => {
             const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
 
-            // Import OBS exporter
-            const { exportObsWithTranslations } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
+            const {
+                exportObsWithTranslations,
+                collectObsTranslationsFromCells,
+                exportObsWithTranslationsFromOriginal,
+                obsStoryHasSourceSpans,
+            } = await import("../../webviews/codex-webviews/src/NewSourceUploader/importers/obs/obsExporter");
 
             // For each selected codex file, reconstruct the OBS markdown with translations
             for (const [index, filePath] of filesToExport.entries()) {
@@ -812,13 +815,27 @@ async function exportCodexContentAsObsRoundtrip(
                         console.log('[OBS Export] Retrieved OBS story structure from metadata');
                     }
 
-                    // Export with translations
-                    const updatedMarkdown = await exportObsWithTranslations(
-                        codexNotebook.cells,
-                        obsStoryJson // Pass the JSON string, exporter will parse it
-                    );
+                    const storyParsed = typeof obsStoryJson === "string" ? JSON.parse(obsStoryJson) : obsStoryJson;
 
-                    console.log('[OBS Export] Generated markdown with translations, length:', updatedMarkdown.length);
+                    let updatedMarkdown: string;
+                    if (obsStoryHasSourceSpans(storyParsed)) {
+                        const originalFileNameForRead =
+                            (codexNotebook.metadata as any)?.originalFileName ||
+                            (codexNotebook.metadata as any)?.originalName ||
+                            `${fileName.split(".")[0]}.md`;
+                        const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileNameForRead);
+                        const originalBytes = await vscode.workspace.fs.readFile(originalFileUri);
+                        const originalText = new TextDecoder("utf-8").decode(originalBytes);
+                        const translationMap = collectObsTranslationsFromCells(codexNotebook.cells as never);
+                        updatedMarkdown = exportObsWithTranslationsFromOriginal(originalText, storyParsed, translationMap);
+                        console.log("[OBS Export] Used span-based patch from saved original, length:", updatedMarkdown.length);
+                    } else {
+                        updatedMarkdown = await exportObsWithTranslations(
+                            codexNotebook.cells,
+                            obsStoryJson
+                        );
+                        console.log("[OBS Export] Used structure reconstruction, length:", updatedMarkdown.length);
+                    }
 
                     // Determine output filename
                     const originalFileName = (codexNotebook.metadata as any)?.originalFileName ||
@@ -844,6 +861,83 @@ async function exportCodexContentAsObsRoundtrip(
             }
 
             vscode.window.showInformationMessage(`OBS markdown round-trip export completed to ${userSelectedPath}`);
+        }
+    );
+}
+
+/**
+ * Generic Markdown round-trip: read canonical UTF-8 source from attachments and splice translated spans.
+ */
+async function exportCodexContentAsMarkdownRoundtrip(
+    userSelectedPath: string,
+    filesToExport: string[],
+    _options?: ExportOptions
+) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No project folder found. Please open a project first.");
+        return;
+    }
+
+    const exportFolder = vscode.Uri.file(userSelectedPath);
+    await vscode.workspace.fs.createDirectory(exportFolder);
+
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Exporting Markdown Round-trip",
+            cancellable: false,
+        },
+        async (progress) => {
+            const increment = filesToExport.length > 0 ? 100 / filesToExport.length : 100;
+            const { exportMarkdownWithTranslations } = await import(
+                "../../webviews/codex-webviews/src/NewSourceUploader/importers/markdown/markdownExporter"
+            );
+
+            for (const [index, filePath] of filesToExport.entries()) {
+                progress.report({ message: `Processing ${index + 1}/${filesToExport.length}`, increment });
+                try {
+                    const file = vscode.Uri.file(filePath);
+                    const fileName = basename(file.fsPath);
+
+                    const codexNotebook = await readCodexNotebookFromUri(file);
+                    const corpusMarker = (codexNotebook.metadata as { corpusMarker?: string }).corpusMarker;
+                    const importerType = (codexNotebook.metadata as { importerType?: string }).importerType;
+                    if (corpusMarker !== "markdown" && importerType !== "markdown") {
+                        console.warn(
+                            `[Markdown Export] Skipping ${fileName} - not markdown importer (corpusMarker: ${corpusMarker}, importerType: ${importerType})`
+                        );
+                        vscode.window.showWarningMessage(`Skipping ${fileName} - not imported as Markdown`);
+                        continue;
+                    }
+
+                    const originalFileName =
+                        (codexNotebook.metadata as { originalFileName?: string }).originalFileName ||
+                        (codexNotebook.metadata as { originalName?: string }).originalName ||
+                        `${fileName.split(".")[0]}.md`;
+
+                    const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);
+                    const fileBytes = await vscode.workspace.fs.readFile(originalFileUri);
+                    const canonicalSource = new TextDecoder("utf-8").decode(fileBytes);
+
+                    const updated = exportMarkdownWithTranslations(canonicalSource, codexNotebook.cells as never);
+
+                    const baseFileName = originalFileName.replace(/\.(md|markdown)$/i, "");
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0];
+                    const exportedName = `${baseFileName}_${timestamp}_translated.md`;
+                    const exportedUri = vscode.Uri.joinPath(exportFolder, exportedName);
+                    await vscode.workspace.fs.writeFile(exportedUri, new TextEncoder().encode(updated));
+
+                    console.log(`[Markdown Export] ✓ Exported ${exportedName}`);
+                } catch (error) {
+                    console.error(`[Markdown Export] Error exporting ${filePath}:`, error);
+                    vscode.window.showErrorMessage(
+                        `Failed to export ${basename(filePath)}: ${error instanceof Error ? error.message : "Unknown error"}`
+                    );
+                }
+            }
+
+            vscode.window.showInformationMessage(`Markdown round-trip export completed to ${userSelectedPath}`);
         }
     );
 }
@@ -1384,6 +1478,9 @@ async function exportCodexContentAsRebuild(
                         // Fallback: also detect by importerType for older files
                         filesByType['obs'] = filesByType['obs'] || [];
                         filesByType['obs'].push(filePath);
+                    } else if (corpusMarker === 'markdown' || importerType === 'markdown') {
+                        filesByType['markdown'] = filesByType['markdown'] || [];
+                        filesByType['markdown'].push(filePath);
                     } else if (
                         corpusMarker === 'tms' || // New: Unified TMS corpus marker
                         corpusMarker === 'tms-tmx' || // Legacy: Backwards compatibility
@@ -1525,6 +1622,22 @@ async function exportCodexContentAsRebuild(
                 }
             }
 
+            // Export generic Markdown files
+            if (filesByType['markdown']?.length > 0) {
+                console.log(`[Rebuild Export] Exporting ${filesByType['markdown'].length} Markdown file(s)...`);
+                progress.report({
+                    message: `Exporting ${filesByType['markdown'].length} Markdown file(s)...`,
+                    increment: 20
+                });
+                try {
+                    await exportCodexContentAsMarkdownRoundtrip(userSelectedPath, filesByType['markdown'], options);
+                    processedCount += filesByType['markdown'].length;
+                } catch (error) {
+                    console.error('[Rebuild Export] Markdown export failed:', error);
+                    vscode.window.showErrorMessage(`Markdown export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+
             // Export TMS files
             if (filesByType['tms']?.length > 0) {
                 console.log(`[Rebuild Export] Exporting ${filesByType['tms'].length} TMS file(s)...`);
@@ -1596,7 +1709,7 @@ async function exportCodexContentAsRebuild(
                     .join('\n');
 
                 vscode.window.showWarningMessage(
-                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, TMS, USFM, CSV/TSV`,
+                    `The following files were skipped (unsupported or coming soon):\n${unsupportedList}\n\nSupported types: DOCX, IDML, Biblica, Reach4Life, PDF, OBS, Markdown, TMS, USFM, CSV/TSV`,
                     { modal: false }
                 );
             }
@@ -2059,7 +2172,7 @@ async function exportCodexContentAsDelimited(
                                     const metadata = cell.metadata;
                                     return (cell.kind === 2 || cell.kind === 1) &&
                                         cell.metadata?.id &&
-                                        cell.metadata?.type === CodexCellTypes.TEXT &&
+                                        isContentCellType(cell.metadata?.type) &&
                                         !metadata?.data?.merged;
                                 })
                                 .map((cell) => [cell.metadata.id, cell])
@@ -2071,7 +2184,7 @@ async function exportCodexContentAsDelimited(
                                     const metadata = cell.metadata;
                                     return (cell.kind === 2 || cell.kind === 1) &&
                                         cell.metadata?.id &&
-                                        cell.metadata?.type === CodexCellTypes.TEXT &&
+                                        isContentCellType(cell.metadata?.type) &&
                                         !metadata?.data?.merged;
                                 })
                                 .map((cell) => [cell.metadata.id, cell])
@@ -2106,7 +2219,7 @@ async function exportCodexContentAsDelimited(
                             if (codexCell.kind === 2 || codexCell.kind === 1) { // vscode.NotebookCellKind.Code
                                 const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
 
-                                if (cellMetadata.type === CodexCellTypes.TEXT &&
+                                if (isContentCellType(cellMetadata.type) &&
                                     cellMetadata.id &&
                                     !cellMetadata?.data?.merged) {
                                     totalCells++;
