@@ -916,14 +916,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (ws && Array.isArray(notebookData?.cells)) {
                     const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                    const historyCounts: { [cellId: string]: number; } = {};
                     for (const cell of notebookData.cells as any[]) {
                         const cellId = cell?.metadata?.id;
                         if (!cellId) continue;
                         let hasAvailable = false; let hasAvailablePointer = false; let hasMissing = false; let hasDeleted = false;
+                        let audioCount = 0;
                         const atts = cell?.metadata?.attachments || {};
                         for (const key of Object.keys(atts)) {
                             const att: any = atts[key];
                             if (att && att.type === "audio") {
+                                audioCount++;
                                 if (att.isDeleted) hasDeleted = true;
                                 else if (att.isMissing) hasMissing = true;
                                 else {
@@ -985,11 +988,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
 
                         availability[cellId] = state as any;
+                        if (audioCount > 0) historyCounts[cellId] = audioCount;
                     }
                     if (Object.keys(availability).length > 0) {
                         this.postMessageToWebview(webviewPanel, {
                             type: "providerSendsAudioAttachments",
                             attachments: availability as any,
+                            historyCounts,
                         });
                     }
                 }
@@ -4344,15 +4349,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 if (!ws) continue;
 
                 const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                const historyCounts: { [cellId: string]: number; } = {};
 
                 // Check audio availability for all cells using getCurrentAttachment()
                 const cellIds = document.getAllCellIds();
                 for (const cellId of cellIds) {
+                    const history = document.getAttachmentHistory(cellId, "audio");
+                    if (history.length > 0) historyCounts[cellId] = history.length;
+
                     // Get the current attachment (respects selectedAudioId)
                     const currentAttachment = document.getCurrentAttachment(cellId, "audio");
 
                     if (!currentAttachment) {
-                        availability[cellId] = "none";
+                        availability[cellId] = history.some((h: any) => h.attachment?.isDeleted) ? "deletedOnly" : "none";
                         continue;
                     }
 
@@ -4381,7 +4390,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 if (Object.keys(availability).length > 0) {
                     safePostMessageToPanel(webviewPanel, {
                         type: "providerSendsAudioAttachments",
-                        attachments: availability
+                        attachments: availability,
+                        historyCounts,
                     });
 
                     debug(`Refreshed audio attachments for ${Object.keys(availability).length} cells in ${documentUri}`);

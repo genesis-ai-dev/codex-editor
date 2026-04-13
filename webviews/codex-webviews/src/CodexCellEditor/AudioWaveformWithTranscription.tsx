@@ -346,7 +346,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 >
                     <History className="h-3 w-3" />
                     <span className="ml-1">History</span>
-                    {typeof (historyCount as any) === "number" && (historyCount as any) > 0 && (
+                    {typeof historyCount === "number" && historyCount > 1 && (
                         <span
                             className="ml-2 inline-flex items-center justify-center rounded-full"
                             style={{
@@ -361,7 +361,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                                 lineHeight: 1,
                             }}
                         >
-                            {historyCount as any}
+                            {historyCount}
                         </span>
                     )}
                 </Button>

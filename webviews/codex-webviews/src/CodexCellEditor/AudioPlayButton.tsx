@@ -20,10 +20,11 @@ interface AudioPlayButtonProps {
     onOpenCell?: (cellId: string) => void;
     isCellLocked?: boolean;
     onLockedClick?: () => void;
+    historyCount?: number;
 }
 
 const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
-    ({ cellId, vscode, state = "available", onOpenCell, isCellLocked = false, onLockedClick }) => {
+    ({ cellId, vscode, state = "available", onOpenCell, isCellLocked = false, onLockedClick, historyCount }) => {
         const [isPlaying, setIsPlaying] = useState(false);
         const [audioUrl, setAudioUrl] = useState<string | null>(null);
         const [isLoading, setIsLoading] = useState(false);
@@ -280,6 +281,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 }
                 disabled={false}
                 style={{
+                    position: "relative",
                     background: "none",
                     border: "none",
                     cursor: "pointer",
@@ -303,8 +305,30 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
             >
                 <i
                     className={`codicon ${iconClass}`}
-                    style={{ fontSize: "16px", position: "relative" }}
+                    style={{ fontSize: "16px" }}
                 />
+                {historyCount != null && (historyCount > 1 || (historyCount === 1 && state === "deletedOnly")) && (
+                    <span
+                        style={{
+                            position: "absolute",
+                            top: "-4px",
+                            right: "-6px",
+                            minWidth: "14px",
+                            height: "14px",
+                            padding: "0 3px",
+                            borderRadius: "7px",
+                            backgroundColor: "var(--vscode-badge-background)",
+                            color: "var(--vscode-badge-foreground)",
+                            fontSize: "9px",
+                            fontWeight: 700,
+                            lineHeight: "14px",
+                            textAlign: "center" as const,
+                            pointerEvents: "none" as const,
+                        }}
+                    >
+                        {historyCount}
+                    </span>
+                )}
             </button>
         );
     }

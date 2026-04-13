@@ -966,6 +966,36 @@ ChapterNavigationHeaderProps) {
                                     : "Show Line Numbers"}
                             </span>
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => {
+                                const next = !metadata?.hideAudioBadges;
+                                const updatedMetadata = {
+                                    ...metadata,
+                                    hideAudioBadges: next,
+                                };
+                                vscode.postMessage({
+                                    command: "updateNotebookMetadata",
+                                    content: updatedMetadata,
+                                });
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-unmute mr-2 h-4 w-4" />
+                            <span className="flex-1">Audio recording counts</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor: !metadata?.hideAudioBadges
+                                        ? "var(--vscode-charts-blue)"
+                                        : "var(--vscode-editorHoverWidget-border)",
+                                    color: !metadata?.hideAudioBadges
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {metadata?.hideAudioBadges ? "Off" : "On"}
+                            </span>
+                        </DropdownMenuItem>
 
                         {documentHasVideoAvailable && (
                             <>

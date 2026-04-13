@@ -341,6 +341,7 @@ const CodexCellEditor: React.FC = () => {
             | "none"
             | "missing";
     }>({});
+    const [audioHistoryCounts, setAudioHistoryCounts] = useState<{ [cellId: string]: number; }>({});
 
     // Add cells per page configuration
     const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);
@@ -1529,7 +1530,8 @@ const CodexCellEditor: React.FC = () => {
             }
             setChapterNumber(chapter);
         },
-        setAudioAttachments: setAudioAttachments,
+        setAudioAttachments,
+        setAudioHistoryCounts,
         showABTestVariants: (data) => {
             const { variants, cellId, testId, testName, names, abProbability } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;
@@ -3301,6 +3303,8 @@ const CodexCellEditor: React.FC = () => {
                             }
                             successfulCompletions={successfulCompletions}
                             audioAttachments={audioAttachments}
+                            audioHistoryCounts={audioHistoryCounts}
+                            hideAudioBadges={!!metadata?.hideAudioBadges}
                             isAudioOnly={Boolean(metadata?.audioOnly)}
                             isSaving={isSaving}
                             saveError={saveError}

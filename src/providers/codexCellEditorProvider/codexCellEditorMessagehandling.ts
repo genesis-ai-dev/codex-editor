@@ -458,6 +458,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const notebookData = JSON.parse(document.getText());
                 const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
+                const historyCounts: { [cellId: string]: number; } = {};
                 if (Array.isArray(notebookData?.cells) && workspaceFolder) {
                     for (const cell of notebookData.cells) {
                         const id = cell?.metadata?.id;
@@ -466,10 +467,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         let hasAvailablePointer = false;
                         let hasMissing = false;
                         let hasDeleted = false;
+                        let audioCount = 0;
                         const atts = cell?.metadata?.attachments || {};
                         for (const key of Object.keys(atts)) {
                             const att: any = (atts as any)[key];
                             if (att && att.type === "audio") {
+                                audioCount++;
                                 if (att.isDeleted) {
                                     hasDeleted = true;
                                 } else if (att.isMissing) {
@@ -518,11 +521,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         }
 
                         availability[id] = state as any;
+                        if (audioCount > 0) historyCounts[id] = audioCount;
                     }
                 }
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsAudioAttachments",
                     attachments: availability,
+                    historyCounts,
                 });
             } catch (err) {
                 console.warn("Failed to compute audio availability after transcription", err);
@@ -2307,6 +2312,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
             const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const historyCounts: { [cellId: string]: number; } = {};
 
             for (const cell of cells) {
                 const cellId = cell?.metadata?.id;
@@ -2315,10 +2321,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 let hasAvailablePointer = false;
                 let hasMissing = false;
                 let hasDeleted = false;
+                let audioCount = 0;
                 const atts = cell?.metadata?.attachments || {};
                 for (const key of Object.keys(atts)) {
                     const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
+                        audioCount++;
                         if (att.isDeleted) {
                             hasDeleted = true;
                         } else if (att.isMissing) {
@@ -2378,11 +2386,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
 
                 availability[cellId] = state as any;
+                if (audioCount > 0) historyCounts[cellId] = audioCount;
             }
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
                 attachments: availability as any,
+                historyCounts,
             });
 
             debug("Audio attachment saved successfully:", { pointersPath, filesPath });
@@ -2556,6 +2566,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
             const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
+            const historyCounts: { [cellId: string]: number; } = {};
             let validatedByArray: ValidationEntry[] = [];
 
             for (const cell of cells) {
@@ -2565,11 +2576,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 let hasAvailablePointer = false;
                 let hasMissing = false;
                 let hasDeleted = false;
+                let audioCount = 0;
                 const atts = cell?.metadata?.attachments || {};
 
                 for (const key of Object.keys(atts)) {
                     const att: any = (atts as any)[key];
                     if (att && att.type === "audio") {
+                        audioCount++;
                         if (att.isDeleted) {
                             hasDeleted = true;
                         } else if (att.isMissing) {
@@ -2617,11 +2630,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 } else {
                     availability[cellId] = "none";
                 }
+                if (audioCount > 0) historyCounts[cellId] = audioCount;
             }
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsAudioAttachments",
                 attachments: availability as any,
+                historyCounts,
             });
 
             provider.postMessageToWebview(webviewPanel, {

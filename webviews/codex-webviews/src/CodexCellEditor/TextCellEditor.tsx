@@ -139,6 +139,7 @@ interface CellEditorProps {
     vscode?: any;
     isSourceText?: boolean;
     isAuthenticated?: boolean;
+    hideAudioBadges?: boolean;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -245,6 +246,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     vscode,
     isSourceText,
     isAuthenticated,
+    hideAudioBadges,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -2300,15 +2302,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </TabsTrigger>
                             )}
                         {USE_AUDIO_TAB && (
-                            <TabsTrigger value="audio">
-                                <Mic className="mr-2 h-4 w-4" />
-
+                            <TabsTrigger value="audio" className="relative">
+                                <Mic className="h-4 w-4" />
+                                {!hideAudioBadges && (audioHistoryCount > 1 || (audioHistoryCount === 1 && audioAttachments?.[cellMarkers[0]] === "deletedOnly")) && (
+                                    <span
+                                        className="absolute -top-1 -right-1 inline-flex items-center justify-center rounded-full"
+                                        style={{
+                                            minWidth: "1rem",
+                                            height: "1rem",
+                                            padding: "0 3px",
+                                            backgroundColor: "var(--vscode-badge-background)",
+                                            color: "var(--vscode-badge-foreground)",
+                                            fontSize: "0.6rem",
+                                            fontWeight: 700,
+                                            lineHeight: 1,
+                                        }}
+                                    >
+                                        {audioHistoryCount}
+                                    </span>
+                                )}
                                 {audioUrl &&
                                     (audioUrl.startsWith("blob:") ||
                                         audioUrl.startsWith("data:") ||
                                         audioUrl.startsWith("http")) && (
                                         <span
-                                            className="ml-2 h-2 w-2 rounded-full bg-green-400"
+                                            className="ml-1 h-2 w-2 rounded-full bg-green-400"
                                             title="Audio attached"
                                         />
                                     )}
@@ -2886,7 +2904,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         <History className="h-3 w-3" />
                                                         <span className="ml-1">History</span>
                                                     </Button>
-                                                    {audioHistoryCount > 0 && (
+                                                    {!hideAudioBadges && (audioHistoryCount > 1 || (audioHistoryCount === 1 && audioAttachments?.[cellMarkers[0]] === "deletedOnly")) && (
                                                         <span
                                                             className="absolute -top-2 -right-2 inline-flex items-center justify-center rounded-full"
                                                             style={{
