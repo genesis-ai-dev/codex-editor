@@ -2,11 +2,8 @@ import { CodexExportFormat } from "../exportHandler/exportHandler";
 import * as fs from "fs";
 import * as vscode from "vscode";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
-import {
-    groupCodexFilesByImporterType,
-    EXPORT_OPTIONS_BY_FILE_TYPE,
-    type FileGroup,
-} from "./utils/exportViewUtils";
+import { EXPORT_OPTIONS_BY_FILE_TYPE } from "../../sharedUtils/exportOptionsEligibility";
+import { groupCodexFilesByImporterType, type FileGroup } from "./utils/exportViewUtils";
 import { readCodexNotebookFromUri } from "../exportHandler/exportHandlerUtils";
 import { compareHtmlStructure } from "../../sharedUtils/htmlStructureUtils";
 import { getMediaFilesStrategy } from "../utils/localProjectSettings";
