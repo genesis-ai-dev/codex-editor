@@ -141,7 +141,7 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
             ...textCells,
         ];
 
-        const vtt = generateVttData(cells, false, "test.codex");
+        const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(!vtt.includes("NaN"), "Milestone cell should not produce NaN timestamps in VTT");
         assert.ok(
@@ -157,7 +157,7 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
             ...textCells,
         ];
 
-        const vtt = generateVttData(cells, false, "test.codex");
+        const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(!vtt.includes("Orphan text"), "Cell without timestamps should be excluded from VTT");
         assert.ok(vtt.includes("Hello world"));
@@ -166,7 +166,7 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
     test("VTT: excludes merged cells", () => {
         const cells: Cell[] = [makeMergedCell("merged-1", "Merged text", 1, 2), ...textCells];
 
-        const vtt = generateVttData(cells, false, "test.codex");
+        const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(!vtt.includes("Merged text"), "Merged cell should be excluded from VTT");
         assert.ok(vtt.includes("Hello world"));
@@ -178,7 +178,7 @@ suite("Subtitle export filtering – milestone and timestamp guards", () => {
             ...textCells,
         ];
 
-        const vtt = generateVttData(cells, false, "test.codex");
+        const vtt = generateVttData(cells, false, false, "test.codex");
 
         assert.ok(vtt.startsWith("WEBVTT"), "VTT output should start with WEBVTT header");
     });
