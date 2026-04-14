@@ -462,6 +462,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     /**
+     * Reset tracked milestone position so the next updateWebview() treats this
+     * as an initial load (sends full content instead of refreshCurrentPage).
+     * Called when the webview remounts (e.g. after "Developer: Reload Webviews").
+     */
+    public resetPositionForReload(documentUri: string): void {
+        debug("Resetting tracked position for reload:", documentUri);
+        this.currentMilestoneSubsectionMap.delete(documentUri);
+        this.webviewReadyState.set(documentUri, false);
+    }
+
+    /**
      * Wait for a webview to be ready with exponential backoff
      * @param documentUri The URI of the document to wait for
      * @param maxWaitMs Maximum time to wait (default 5000ms)
@@ -823,6 +834,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             }
 
+            let initialCellIds = new Set<string>();
+
             // Only send initial content if this is not an update (webview not ready or no tracked position)
             if (!isWebviewReady || !currentPosition) {
                 // Get first page of cells for the initial milestone
@@ -870,8 +883,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     debug("Could not fetch user role:", error);
                 }
 
-                // Compute refined audio availability BEFORE sending initial content
-                // so the webview has correct icon states from the first render.
+                // Compute refined audio availability for the INITIAL PAGE cells only
+                // (not all cells) so the webview has correct icon states without delay.
+                initialCellIds = new Set(
+                    processedInitialCells
+                        .flatMap((c: any) => c.cellMarkers || [])
+                        .filter(Boolean)
+                );
                 try {
                     const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (ws && Array.isArray(notebookData?.cells)) {
@@ -879,7 +897,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     const historyCounts: { [cellId: string]: number; } = {};
                     for (const cell of notebookData.cells as any[]) {
                         const cellId = cell?.metadata?.id;
-                        if (!cellId) continue;
+                        if (!cellId || !initialCellIds.has(cellId)) continue;
                         let hasAvailable = false; let hasAvailablePointer = false; let hasCached = false; let hasMissing = false; let hasDeleted = false;
                         let audioCount = 0;
                         const atts = cell?.metadata?.attachments || {};
@@ -1019,6 +1037,83 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     type: "providerUpdatesNotebookMetadataForWebview",
                     content: notebookData.metadata,
                 });
+            }
+
+            // Compute availability for ALL remaining cells in the background
+            // (the initial page was already sent above).
+            try {
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (ws && Array.isArray(notebookData?.cells)) {
+                    const remainingCells = (notebookData.cells as any[]).filter(
+                        (c: any) => c?.metadata?.id && !initialCellIds.has(c.metadata.id)
+                    );
+                    if (remainingCells.length > 0) {
+                        const bgAvailability: { [cellId: string]: string; } = {};
+                        const bgCounts: { [cellId: string]: number; } = {};
+                        for (const cell of remainingCells) {
+                            const cellId = cell.metadata.id;
+                            let hasAvailable = false; let hasAvailablePointer = false; let hasCached = false; let hasMissing = false; let hasDeleted = false;
+                            let audioCount = 0;
+                            const atts = cell?.metadata?.attachments || {};
+                            for (const key of Object.keys(atts)) {
+                                const att: any = atts[key];
+                                if (att && att.type === "audio") {
+                                    audioCount++;
+                                    if (att.isDeleted) hasDeleted = true;
+                                    else if (att.isMissing) hasMissing = true;
+                                    else {
+                                        try {
+                                            const url = String(att.url || "");
+                                            if (url) {
+                                                const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+                                                const filesAbs = path.join(ws.uri.fsPath, filesRel);
+                                                try {
+                                                    await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+                                                    const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
+                                                    const isPtr = await isPointerFile(filesAbs).catch(() => false);
+                                                    if (isPtr) {
+                                                        const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+                                                        const ptr = await parsePointerFile(filesAbs).catch(() => null);
+                                                        if (ptr?.oid && getCachedLfsBytes(ptr.oid)) { hasCached = true; } else { hasAvailablePointer = true; }
+                                                    } else { hasAvailable = true; }
+                                                } catch {
+                                                    const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+                                                        ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+                                                        : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+                                                    try {
+                                                        await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+                                                        const { parsePointerFile: parsePtrBg } = await import("../../utils/lfsHelpers");
+                                                        const { getCachedLfsBytes: getLfsBg } = await import("../../utils/mediaCache");
+                                                        const ptrBg = await parsePtrBg(pointerAbs).catch(() => null);
+                                                        if (ptrBg?.oid && getLfsBg(ptrBg.oid)) { hasCached = true; } else { hasAvailablePointer = true; }
+                                                    } catch { hasMissing = true; }
+                                                }
+                                            } else { hasMissing = true; }
+                                        } catch { hasMissing = true; }
+                                    }
+                                }
+                            }
+                            let state: string;
+                            if (hasAvailable) state = "available-local";
+                            else if (hasCached) state = "available-cached";
+                            else if (hasAvailablePointer) state = "available-pointer";
+                            else if (hasMissing) state = "missing";
+                            else if (hasDeleted) state = "deletedOnly";
+                            else state = "none";
+                            bgAvailability[cellId] = state;
+                            if (audioCount > 0) bgCounts[cellId] = audioCount;
+                        }
+                        if (Object.keys(bgAvailability).length > 0) {
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsAudioAttachments",
+                                attachments: bgAvailability as any,
+                                historyCounts: bgCounts,
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                debug("Failed to compute background audio availability", e);
             }
         };
 

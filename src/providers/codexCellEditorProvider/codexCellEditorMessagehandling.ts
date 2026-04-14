@@ -765,7 +765,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    getContent: ({ updateWebview }) => {
+    getContent: ({ updateWebview, document, provider }) => {
+        // getContent is only sent when the webview mounts (useEffect on initial render).
+        // Reset tracked state so updateWebview treats this as an initial load and sends
+        // full content (milestoneIndex, cells, etc.) instead of a refreshCurrentPage.
+        const docUri = document.uri.toString();
+        provider.resetPositionForReload(docUri);
         updateWebview();
     },
 
