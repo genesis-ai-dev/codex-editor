@@ -10,38 +10,7 @@ interface ChatMessage {
     content: string;
 }
 
-type Dictionary = {
-    id: string;
-    label: string;
-    entries: DictionaryEntry[];
-    metadata: DictionaryMetadata;
-};
-
-interface ChatMessageWithContext extends ChatMessage {
-    context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
-    createdAt: string;
-    preReflection?: string; //If reflection has happened for a chat message, preReflection will be set to the original message.
-    grade?: number;
-    gradeComment?: string;
-}
-
-interface FrontEndMessage {
-    command: {
-        name: string; // use enum
-        data?: any; // define based on enum
-    };
-}
 type CommentThread = vscode.CommentThread;
-
-interface ChatMessageThread {
-    id: string;
-    messages: ChatMessageWithContext[];
-    collapsibleState: number;
-    canReply: boolean;
-    threadTitle?: string;
-    deleted: boolean;
-    createdAt: string;
-}
 
 interface NotebookCommentThread {
     id: string;
@@ -134,35 +103,6 @@ interface EditHistoryItem<TEditMap extends readonly string[] = readonly string[]
     validatedBy?: ValidationEntry[];
 }
 
-// Relating to Smart Edits
-interface SmartEditContext {
-    cellId: string;
-    currentCellValue: string;
-    edits: EditHistoryItem[];
-    memory?: string; // Add this line
-}
-
-interface SmartSuggestion {
-    oldString: string;
-    newString: string;
-    confidence?: "high" | "low";
-    source?: "llm" | "ice";
-    frequency?: number;
-}
-
-export interface SavedSuggestions {
-    cellId: string;
-    lastCellValue: string;
-    suggestions: SmartSuggestion[];
-    lastUpdatedDate: string;
-    rejectedSuggestions?: { oldString: string; newString: string; }[];
-}
-
-interface SmartEdit {
-    context: SmartEditContext;
-    suggestions: SmartSuggestion[];
-}
-
 interface CellIdGlobalState {
     cellId: string; // UUID for internal cell reference
     globalReferences: string[]; // Array of Bible references (e.g., ["GEN 1:1", "GEN 1:2"]) - primary mechanism for highlighting
@@ -211,53 +151,12 @@ type CommentPostMessages =
     | { command: "updateUser"; user: { id: any; name: any; avatar: any; }; }
     | { command: "navigateToMainMenu"; };
 
-interface SelectedTextDataWithContext {
-    selection: string;
-    completeLineContent: string | null;
-    vrefAtStartOfLine: string | null;
-    selectedText: string | null;
-    verseNotes: string | null;
-    verseGraphData: any;
+interface TimeBlock {
+    begin: number;
+    end: number;
+    text: string;
+    id: string;
 }
-
-type ChatPostMessages =
-    | { command: "threadsFromWorkspace"; content: ChatMessageThread[]; }
-    | { command: "response"; finished: boolean; text: string; }
-    | { command: "reload"; }
-    | { command: "select"; textDataWithContext: SelectedTextDataWithContext; }
-    | { command: "fetch"; messages: string; }
-    | { command: "notifyUserError"; message: string; }
-    | {
-        command: "updateMessageThread";
-        messages: ChatMessageWithContext[];
-        threadId: string;
-        threadTitle?: string;
-    }
-    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string; }
-    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string; }
-    | {
-        command: "performReflection";
-        messageToReflect: string;
-        context: string;
-        lastMessageCreatedAt: string;
-    }
-    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string; }
-    | { command: "deleteThread"; threadId: string; }
-    | { command: "fetchThread"; }
-    | { command: "abort-fetch"; }
-    | { command: "openSettings"; }
-    | { command: "subscribeSettings"; settingsToSubscribe: string[]; }
-    | { command: "updateSetting"; setting: string; value: string; }
-    | { command: "openContextItem"; text: string; }
-    | { command: "cellGraphData"; data: string[]; }
-    | {
-        command: "cellIdUpdate";
-        data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string; }; };
-    }
-    | { command: "getCurrentCellId"; }
-    | { command: "navigateToMainMenu"; };
-
-
 
 export type MessagesToStartupFlowProvider =
     | { command: "error"; errorMessage: string; }
@@ -280,11 +179,12 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsListFromGitLab"; }
     | { command: "forceRefreshProjectsList"; }
     | { command: "getProjectsSyncStatus"; }
-    | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
+    | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; skipUpdateCheck?: boolean; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
     | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
     | { command: "project.initialize"; waitForStateUpdate?: boolean; }
+    | { command: "project.initializeWithLanguages"; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.showManager"; }
     | { command: "project.triggerSync"; message?: string; }
     | { command: "startup.dismiss"; }
@@ -381,6 +281,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "setupIncompleteCriticalDataMissing"; }
     | { command: "setupComplete"; }
     | { command: "project.nameExistsCheck"; exists: boolean; isCodexProject: boolean; errorMessage?: string; }
+    | { command: "project.nameWillBeSanitized"; original: string; sanitized: string; projectId: string; }
     | { command: "project.updatingInProgress"; projectPath: string; updating: boolean; }
     | { command: "project.cloningInProgress"; projectPath: string; gitOriginUrl?: string; cloning: boolean; }
     | { command: "project.openingInProgress"; projectPath: string; opening: boolean; }
@@ -397,68 +298,8 @@ export type MessagesFromStartupFlowProvider =
     | { command: "systemMessage.generated"; message: string; }
     | { command: "systemMessage.generateError"; error: string; }
     | { command: "systemMessage.saved"; }
-    | { command: "systemMessage.saveError"; error: string; };
-
-type DictionaryPostMessages =
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "update" | "add";
-        entry: {
-            id: string;
-            headWord: string;
-            definition: string;
-        };
-    }
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "fetchPage";
-        pagination: {
-            page: number;
-            pageSize: number;
-            searchQuery?: string;
-        };
-    }
-    | {
-        command: "webviewTellsProviderToUpdateData";
-        operation: "delete";
-        entry: {
-            id: string;
-        };
-    }
-    | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary; }
-    | { command: "updateEntryCount"; count: number; }
-    | { command: "updateFrequentWords"; words: string[]; }
-    | {
-        command: "updateWordFrequencies";
-        wordFrequencies: { [key: string]: number; };
-    }
-    | { command: "updateDictionary"; content: Dictionary; }
-    | { command: "callCommand"; vscodeCommandName: string; args: any[]; };
-
-type DictionaryReceiveMessages =
-    | { command: "providerTellsWebviewRemoveConfirmed"; }
-    | {
-        command: "providerTellsWebviewToUpdateData";
-        data: {
-            entries: DictionaryEntry[];
-            total: number;
-            page: number;
-            pageSize: number;
-        };
-    };
-
-type DictionarySummaryPostMessages =
-    | { command: "providerSendsDataToWebview"; data: Dictionary; }
-    | {
-        command: "providerSendsUpdatedWordFrequenciesToWebview";
-        wordFrequencies: { [key: string]: number; };
-    }
-    | { command: "providerSendsFrequentWordsToWebview"; words: string[]; }
-    | { command: "updateData"; }
-    | { command: "showDictionaryTable"; }
-    | { command: "refreshWordFrequency"; }
-    | { command: "addFrequentWordsToDictionary"; words: string[]; }
-    | { command: "updateEntryCount"; count: number; };
+    | { command: "systemMessage.saveError"; error: string; }
+    | { command: "provideWorkspaceContext"; workspaceFolderName: string; };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV; }
@@ -467,30 +308,6 @@ type TranslationNotePostMessages =
 type ScripturePostMessages =
     | { command: "sendScriptureData"; data: ScriptureContent; }
     | { command: "fetchScriptureData"; };
-
-type DictionaryEntry = {
-    id: string;
-    headWord: string;
-    definition?: string;
-    isUserEntry: boolean;
-    authorId?: string;
-    createdAt?: string;
-    updatedAt?: string;
-};
-
-type SpellCheckResult = {
-    word: string;
-    corrections: string[];
-};
-
-type SpellCheckFunction = (word: string) => SpellCheckResult;
-
-type SpellCheckDiagnostic = {
-    range: vscode.Range;
-    message: string;
-    severity: vscode.DiagnosticSeverity;
-    source: string;
-};
 
 type MiniSearchVerseResult = {
     book: string;
@@ -510,6 +327,7 @@ type MiniSearchVerseResult = {
 type MinimalCellResult = {
     cellId?: string;
     content?: string;
+    rawContent?: string;
     uri?: string;
     line?: number;
     notebookId?: string;
@@ -567,17 +385,14 @@ export type EditorPostMessages =
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
+    | { command: "resolveHtmlStructure"; content: { cellId: string; }; }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
     | { command: "pickVideoFile"; }
-    | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
-    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent; }
     | { command: "getSourceText"; content: { cellId: string; }; }
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "updateCellAudioTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
-    | { command: "addWord"; words: string[]; }
-    | { command: "getAlertCodes"; content: GetAlertCodes; }
     | { command: "executeCommand"; content: { command: string; args: any[]; }; }
     | { command: "togglePrimarySidebar"; }
     | { command: "toggleSecondarySidebar"; }
@@ -623,15 +438,6 @@ export type EditorPostMessages =
     | { command: "openSourceText"; content: { chapterNumber: number; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "pickVideoFile"; }
-    | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string; }; }
-    | { command: "getTopPrompts"; content: { text: string; cellId: string; }; }
-    | {
-        command: "supplyRecentEditHistory";
-        content: {
-            cellId: string;
-            editHistory: EditHistoryEntry[];
-        };
-    }
     | {
         command: "exportFile";
         content: { subtitleData: string; format: string; includeStyles: boolean; };
@@ -653,17 +459,6 @@ export type EditorPostMessages =
             cellId: string;
             originalText: string;
             userBacktranslation: string;
-        };
-    }
-    | {
-        command: "rejectEditSuggestion";
-        content: {
-            source: "ice" | "llm";
-            cellId?: string;
-            oldString: string;
-            newString: string;
-            leftToken: string;
-            rightToken: string;
         };
     }
     | {
@@ -794,7 +589,6 @@ export type EditorPostMessages =
             variants?: string[];
         };
     }
-    | { command: "adjustABTestingProbability"; content: { delta: number; buttonChoice?: "more" | "less"; testId?: string; cellId?: string; }; }
     | { command: "openLoginFlow"; }
     | {
         command: "requestCellsForMilestone";
@@ -818,18 +612,11 @@ export type EditorPostMessages =
     }
     | {
         command: "refreshWebviewAfterMilestoneEdits";
-        content?: Record<string, never>; // Empty content
-    };
+        content?: Record<string, never>;
+    }
+    | { command: "searchNavigateToCell"; content: string; };
 
 // (revalidateMissingForCell added above in EditorPostMessages union)
-
-type AlertCodesServerResponse = {
-    code: number;
-    cellId: string;
-    savedSuggestions: { suggestions: string[]; };
-}[];
-
-type GetAlertCodes = { text: string; cellId: string; }[];
 
 /**
  * Represents a validation entry by a user
@@ -876,6 +663,8 @@ type EditHistoryBase = {
     timestamp: number;
     type: import("./enums").EditType;
     validatedBy?: ValidationEntry[];
+    /** OpenRouter generation ID for LLM-generated edits */
+    generationId?: string;
 };
 
 export type EditHistory<TEditMap extends readonly string[] = readonly string[]> = EditHistoryBase & {
@@ -1029,6 +818,11 @@ export interface CustomNotebookMetadata {
         originalUsfmContent: string;
         lineMappings?: Array<{ lineIndex: number; cellId?: string;[key: string]: unknown; }>;
     };
+    /**
+     * When true, translated cells are validated against the source HTML structure.
+     * Mismatches are flagged in the editor and warned about during round-trip export.
+     */
+    enforceHtmlStructure?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1047,7 +841,6 @@ type FileImporterType =
     | "plaintext"
     | "audio"
     | "docx"
-    | "docx-roundtrip"
     | "markdown"
     | "subtitles"
     | "spreadsheet"
@@ -1063,6 +856,7 @@ type FileImporterType =
     | "ebibleCorpus"
     | "macula"
     | "biblica"
+    | "reach4life"
     | "obs";
 
 /**
@@ -1162,16 +956,6 @@ interface Timestamps {
     format?: string;
 }
 
-interface SpellCheckResponse {
-    id: string;
-    text: string;
-    replacements: Array<{ value: string; }>;
-    offset: number;
-    length: number;
-}
-
-type SpellCheckResult = SpellCheckResponse[];
-
 /* This is the project overview that populates the project manager webview */
 interface ProjectOverview extends Project {
     projectName: string;
@@ -1194,7 +978,6 @@ interface ProjectOverview extends Project {
         validationCount?: number;
         validationCountAudio?: number;
     };
-    spellcheckIsEnabled: boolean;
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
@@ -1205,8 +988,8 @@ type ProjectMetadata = {
     /** Registry of original imported files (hash, fileName, referencedBy) - stored in metadata.json for sync/merge */
     originalFilesHashes?: {
         version: number;
-        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string } };
-        fileNameToHash: { [fileName: string]: string };
+        files: { [hash: string]: { hash: string; fileName: string; originalNames: string[]; referencedBy: string[]; addedAt: string; }; };
+        fileNameToHash: { [fileName: string]: string; };
     };
     edits?: ProjectEditHistory[];
     meta: {
@@ -1228,6 +1011,11 @@ type ProjectMetadata = {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        /** Pin specific extension versions for this project */
+        pinnedExtensions?: Record<string, {
+            version: string;
+            url: string;
+        }>;
         /** List of users that should be forced to restore/update their project when opening */
         initiateRemoteUpdatingFor?: RemoteUpdatingEntry[];
         abbreviation?: string;
@@ -1261,12 +1049,7 @@ type ProjectMetadata = {
             [lang: string]: string;
         };
     };
-    languages: Array<{
-        tag: string;
-        name: {
-            [lang: string]: string;
-        };
-    }>;
+    languages: Array<LanguageMetadata>;
     type: {
         flavorType: {
             name: string;
@@ -1593,6 +1376,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "openSourceUpload"; }
     | { command: "openExportView"; }
     | { command: "openAISettings"; }
+    | { command: "openInterfaceSettings"; }
     | { command: "openLicenseSettings"; }
     | { command: "openExportView"; }
     | { command: "closeProject"; }
@@ -1609,13 +1393,13 @@ type ProjectManagerMessageFromWebview =
     | { command: "publishProject"; }
     | { command: "syncProject"; }
     | { command: "openEditAnalysis"; }
-    | { command: "toggleSpellcheck"; }
     | { command: "getSyncSettings"; }
     | {
         command: "updateSyncSettings";
         data: { autoSyncEnabled: boolean; syncDelayMinutes: number; };
     }
     | { command: "triggerSync"; }
+    | { command: "downloadSyncRuntime"; }
     | { command: "editBookName"; content: { bookAbbr: string; newBookName: string; }; }
     | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | {
@@ -1623,7 +1407,7 @@ type ProjectManagerMessageFromWebview =
         content: {
             corpusLabel: string;
             displayName: string;
-            children: Array<{ uri: string; label: string; type: string }>;
+            children: Array<{ uri: string; label: string; type: string; }>;
         };
     }
     | { command: "openCellLabelImporter"; }
@@ -1683,6 +1467,7 @@ type ProjectManagerMessageToWebview =
             syncDelayMinutes: number;
             isFrontierExtensionEnabled: boolean;
             isAuthenticated: boolean;
+            isGitAvailable: boolean;
         };
     }
     | {
@@ -1732,6 +1517,8 @@ interface LocalProject {
     hasFolderNameMismatch?: boolean;
     correctFolderName?: string;
     projectSwap?: ProjectSwapInfo;
+    /** Cached display name from GitLab API, persisted in localProjectSettings.json so it survives offline/orphaned states */
+    displayedProjectName?: string;
 }
 
 export interface BiblePreview extends BasePreview {
@@ -2019,7 +1806,7 @@ export type NewSourceUploaderPostMessages = any; // Placeholder - actual types a
 interface CodexItem {
     uri: vscode.Uri | string;
     label: string;
-    type: "corpus" | "codexDocument" | "dictionary";
+    type: "corpus" | "codexDocument";
     children?: CodexItem[];
     corpusMarker?: string;
     progress?: {
@@ -2034,9 +1821,6 @@ interface CodexItem {
         requiredAudioValidations?: number;
     };
     sortOrder?: string;
-    isProjectDictionary?: boolean;
-    wordCount?: number;
-    isEnabled?: boolean;
     fileDisplayName?: string;
 }
 type EditorReceiveMessages =
@@ -2197,15 +1981,10 @@ type EditorReceiveMessages =
         type: "autocompleteChapterComplete";
         totalCells?: number;
     }
-    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse; }
-    | {
-        type: "providerSendsgetAlertCodeResponse";
-        content: { [cellId: string]: number; };
-    }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
+    | { type: "providerSendsResolvedHtmlStructure"; content: { cellId: string; resolvedContent: string; }; }
     | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; testName?: string; names?: string[]; abProbability?: number; }; }
-    | { type: "abTestingProbabilityUpdated"; content: { value: number; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
@@ -2232,9 +2011,7 @@ type EditorReceiveMessages =
             [cellId: string]: number; // cellId -> unresolvedCount
         };
     }
-    | { type: "providerSendsPromptedEditResponse"; content: string; }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
-    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }
     | { type: "providerSendsSourceText"; content: string; }
     | {
         type: "providerSendsBacktranslation";
@@ -2362,6 +2139,10 @@ type EditorReceiveMessages =
         cellId?: string;
     }
     | {
+        type: "scrollToCell";
+        cellId: string;
+    }
+    | {
         type: "updateCellsPerPage";
         cellsPerPage: number;
     }
@@ -2484,7 +2265,37 @@ type EditorReceiveMessages =
     | {
         type: "searchMatchCounts";
         query: string;
-        milestoneMatchCounts: { [milestoneIdx: number]: number };
+        milestoneMatchCounts: { [milestoneIdx: number]: number; };
         totalMatches: number;
         error?: string;
     };
+
+export type AudioToolMode = "auto" | "builtin" | "force-builtin";
+export type GitToolMode = "auto" | "builtin" | "force-builtin";
+export type SqliteToolMode = "auto" | "builtin" | "force-builtin";
+
+export type MessagesToMissingToolsWarning =
+    | { command: "showWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean }
+    | { command: "updateWarnings"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean }
+    | { command: "showToolsStatus"; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode; syncInProgress?: boolean; audioProcessingInProgress?: boolean }
+    | { command: "toolDownloadResult"; tool: "sqlite" | "git" | "ffmpeg"; success: boolean; git: boolean; nativeGitAvailable?: boolean; sqlite: boolean; nativeSqliteAvailable?: boolean; ffmpeg: boolean; audioToolMode: AudioToolMode; gitToolMode: GitToolMode; sqliteToolMode: SqliteToolMode }
+    | { command: "audioModeChanged"; audioToolMode: AudioToolMode; ffmpeg: boolean }
+    | { command: "gitModeChanged"; gitToolMode: GitToolMode; git: boolean; nativeGitAvailable?: boolean }
+    | { command: "sqliteModeChanged"; sqliteToolMode: SqliteToolMode; sqlite: boolean; nativeSqliteAvailable?: boolean }
+    | { command: "operationStatusChanged"; syncInProgress: boolean; audioProcessingInProgress: boolean }
+    | { command: "showDeleteButtons" }
+    | { command: "showForceBuiltinButtons" }
+    | { command: "toolDeleted"; tool: "sqlite" | "git" | "ffmpeg" };
+
+export type MessagesFromMissingToolsWarning =
+    | { command: "retry" }
+    | { command: "continue" }
+    | { command: "openDownloadPage" }
+    | { command: "close" }
+    | { command: "downloadTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "toggleAudioMode" }
+    | { command: "toggleGitMode" }
+    | { command: "toggleSqliteMode" }
+    | { command: "deleteTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "forceBuiltinTool"; tool: "sqlite" | "git" | "ffmpeg" }
+    | { command: "reloadWindow" };

@@ -391,7 +391,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
             if (isJsonFile) {
                 onProgress({
                     stage: "Processing",
-                    message: "Parsing JSON structure...",
+                    message: "Reading file structure...",
                     progress: 30,
                 });
 
@@ -403,7 +403,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
                     onProgress({
                         stage: "Creating",
-                        message: `Creating ${jsonCells.length} sections from JSON...`,
+                        message: `Creating ${jsonCells.length} sections...`,
                         progress: 70,
                     });
 
@@ -420,7 +420,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     // Failed to parse as JSON, fall back to text splitting
                     onProgress({
                         stage: "Processing",
-                        message: "Invalid JSON, using smart text analysis...",
+                        message: "Analyzing text structure...",
                         progress: 30,
                     });
 
@@ -637,14 +637,6 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                             <Sparkles className="h-6 w-6" />
                             Smart Segmenter
                         </h1>
-                        <Button
-                            variant="ghost"
-                            onClick={handleCancel}
-                            className="flex items-center gap-2"
-                        >
-                            <ArrowLeft className="h-4 w-4" />
-                            Back to Home
-                        </Button>
                     </div>
 
                     <Card>

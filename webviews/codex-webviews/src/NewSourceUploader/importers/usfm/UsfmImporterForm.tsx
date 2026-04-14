@@ -23,6 +23,7 @@ import { usfmImporter } from "./index";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
 import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
+import EnforceStructureCheckbox from "../../components/EnforceStructureCheckbox";
 
 // Use the real parser functions from the USFM importer
 const { validateFile, parseFile } = usfmImporter;
@@ -41,6 +42,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
     const [targetCells, setTargetCells] = useState<any[]>([]);
     const [previewFiles, setPreviewFiles] = useState<Array<{ name: string; preview: string }>>([]);
+    const [enforceStructure, setEnforceStructure] = useState(true);
 
     const isTranslationImport = wizardContext?.intent === "target";
     const selectedSource = wizardContext?.selectedSource;
@@ -122,6 +124,13 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
             if (notebookPairs.length === 0) {
                 throw new Error("No valid USFM files could be processed");
+            }
+
+            if (enforceStructure) {
+                for (const pair of notebookPairs) {
+                    pair.source.metadata = { ...pair.source.metadata, enforceHtmlStructure: true };
+                    pair.codex.metadata = { ...pair.codex.metadata, enforceHtmlStructure: true };
+                }
             }
 
             setResults(notebookPairs);
@@ -264,10 +273,6 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         </p>
                     )}
                 </div>
-                <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to Home
-                </Button>
             </div>
 
             <Card>
@@ -313,6 +318,10 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
                     {files && files.length > 0 && (
                         <div className="space-y-4">
+                            <EnforceStructureCheckbox
+                                checked={enforceStructure}
+                                onCheckedChange={setEnforceStructure}
+                            />
                             <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                                 <div className="flex items-center gap-3">
                                     <FileText className="h-5 w-5 text-muted-foreground" />

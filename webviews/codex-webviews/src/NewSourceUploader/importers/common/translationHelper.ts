@@ -1,26 +1,32 @@
 import { NotebookPair } from "../../types/common";
 import { ImportedContent, ImporterComponentProps } from "../../types/plugin";
+import { CodexCellTypes } from "types/enums";
 
 /**
- * Helper function to convert notebook cells to ImportedContent format for translation imports
+ * Helper function to convert notebook cells to ImportedContent format for translation imports.
+ * Skips milestone cells — they are structural markers (chapter numbers, etc.) that the editor
+ * hides from view, so they should not be treated as translatable content.
  */
 export function notebookToImportedContent(notebook: NotebookPair): ImportedContent[] {
-    return notebook.source.cells.map((cell, index) => {
-        const md = cell.metadata || {};
-        const data = md.data || {};
-        return {
-            id: cell.id || md.id || `cell-${index}`,
-            content: cell.content,
-            edits: md.edits,
-            // Surface commonly used fields for aligners
-            startTime: data.startTime ?? md.startTime,
-            endTime: data.endTime ?? md.endTime,
-            format: data.format ?? md.format,
-            originalText: data.originalText ?? md.originalText,
-            // Spread remaining metadata for flexibility
-            ...md,
-        };
-    });
+    return notebook.source.cells
+        .filter((cell) => {
+            const cellType = cell.metadata?.type;
+            return cellType !== CodexCellTypes.MILESTONE;
+        })
+        .map((cell, index) => {
+            const md = cell.metadata || {};
+            const data = md.data || {};
+            return {
+                id: cell.id || md.id || `cell-${index}`,
+                content: cell.content,
+                edits: md.edits,
+                startTime: data.startTime ?? md.startTime,
+                endTime: data.endTime ?? md.endTime,
+                format: data.format ?? md.format,
+                originalText: data.originalText ?? md.originalText,
+                ...md,
+            };
+        });
 }
 
 /**

@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { randomUUID } from "crypto";
-import git from "isomorphic-git";
-import fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
@@ -38,7 +37,7 @@ async function stageAndCommitAllWithMessage(
     try {
         let hasGit = false;
         try {
-            await git.resolveRef({ fs, dir: workspacePath, ref: "HEAD" });
+            await dugiteGit.resolveRef(workspacePath, "HEAD");
             hasGit = true;
         } catch {
             // No git repo or no commits; skip commit step
@@ -48,8 +47,8 @@ async function stageAndCommitAllWithMessage(
             return;
         }
 
-        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
-        const hasChanges = statusMatrix.some(([_, head, workdir, stage]) => {
+        const matrix = await dugiteGit.statusMatrix(workspacePath);
+        const hasChanges = matrix.some(([_, head, workdir, stage]) => {
             return !(head === 1 && workdir === 1 && stage === 1);
         });
 
@@ -57,7 +56,7 @@ async function stageAndCommitAllWithMessage(
             return;
         }
 
-        await git.add({ fs, dir: workspacePath, filepath: "." });
+        await dugiteGit.add(workspacePath, ".");
         const authApi = getAuthApi();
         let userInfo;
         try {
@@ -84,12 +83,7 @@ async function stageAndCommitAllWithMessage(
                 "unknown",
         };
 
-        await git.commit({
-            fs,
-            dir: workspacePath,
-            message,
-            author,
-        });
+        await dugiteGit.commit(workspacePath, message, { name: author.name, email: author.email });
     } catch (error) {
         console.warn("[Cleanup] Unable to stage/commit changes (non-critical):", error);
     }
@@ -1131,13 +1125,17 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
         const allNotebookFiles = [...codexFiles, ...sourceFiles];
 
         if (allNotebookFiles.length === 0) {
-            debug("No codex or source files found, skipping migration");
+            debug("No codex or source files found, marking line numbers migration as done");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
         let processedFiles = 0;
 
-        // Process files with progress
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -1194,7 +1192,30 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
 // Gently migrate A/B testing probability from older explicit 25% to 5% with user consent
 // (removed) migration_abTestingProbabilityDefault — intentionally deleted for now
 
-async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
+/**
+ * Process newly imported files through line-number and importerType setup.
+ * Called after import (before indexing) so files are ready for sync immediately.
+ * Unlike the one-shot startup migrations, this runs on every import.
+ */
+export async function processNewlyImportedFiles(fileUris: vscode.Uri[]): Promise<void> {
+    for (const fileUri of fileUris) {
+        try {
+            const probablyBible = await isBibleBook(fileUri);
+            if (probablyBible) {
+                await addCellLabelsToBibleBook(fileUri);
+            }
+
+            const shouldShowLineNumbers = await analyzeFileForLineNumbers(fileUri);
+            await updateFileLineNumbers(fileUri, shouldShowLineNumbers);
+
+            await migrateImporterTypeForFile(fileUri);
+        } catch (error) {
+            console.error(`Error processing imported file ${fileUri.fsPath}:`, error);
+        }
+    }
+}
+
+export async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
     try {
         // Read the file content using serializer for proper deserialization
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -1292,7 +1313,7 @@ function getRandomSample<T>(array: T[], sampleSize: number): T[] {
     return sample;
 }
 
-async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean): Promise<boolean> {
+export async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean): Promise<boolean> {
     try {
         // Read the file content
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -1437,9 +1458,6 @@ function standardizeImporterType(importerType: string | undefined): string | und
     const normalized = importerType.toLowerCase().trim();
 
     // Standardization rules
-    if (normalized === "ebiblecorpus") {
-        return "ebible";
-    }
     if (normalized === "macula-bible") {
         return "macula";
     }
@@ -1451,7 +1469,7 @@ function standardizeImporterType(importerType: string | undefined): string | und
     const validTypes: string[] = [
         "smart-segmenter",
         "audio",
-        "docx-roundtrip",
+        "docx",
         "markdown",
         "subtitles",
         "spreadsheet",
@@ -1461,6 +1479,7 @@ function standardizeImporterType(importerType: string | undefined): string | und
         "usfm",
         "paratext",
         "ebible",
+        "ebibleCorpus",
         "macula",
         "biblica",
         "obs",
@@ -1498,14 +1517,14 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
         "usfm": "usfm",
         "paratext": "paratext",
         "ebible": "ebible",
-        "ebiblecorpus": "ebible", // Special case
+        "ebiblecorpus": "ebibleCorpus",
         "macula": "macula",
         "macula-bible": "macula", // Special case
         "biblica": "biblica",
         "audio": "audio",
         "smart-segmenter": "smart-segmenter",
-        "docx-roundtrip": "docx-roundtrip",
-        "docx": "docx-roundtrip", // Common alias
+        "docx": "docx",
+        "docx-roundtrip": "docx", // Legacy alias
         "obs-story": "obs", // Special case
     };
 
@@ -1515,7 +1534,7 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
 /**
  * Migrates importerType for a single notebook file
  */
-async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean> {
+export async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean> {
     try {
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
         const serializer = new CodexContentSerializer();
@@ -1583,7 +1602,7 @@ async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean>
  * Migration: Add importerType to notebook metadata by inferring from corpusMarker
  * and standardizing old values to match current FileImporterType definition.
  * - Idempotent
- * - Standardizes old values: "ebibleCorpus" → "ebible", "macula-bible" → "macula", "obs-story" → "obs"
+ * - Standardizes old values: "macula-bible" → "macula", "obs-story" → "obs"; preserves "ebibleCorpus" as its own FileImporterType
  * - Infers importerType from corpusMarker when missing
  */
 export const migration_addImporterTypeToMetadata = async (context?: vscode.ExtensionContext) => {
@@ -1625,14 +1644,18 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            debug("No codex or source files found, skipping importerType migration");
+            debug("No codex or source files found, marking importerType migration as done");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
         let processedFiles = 0;
         let migratedFiles = 0;
 
-        // Process files with progress
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -2979,11 +3002,11 @@ export async function migrateVerseRangeLabelsAndPositionsForFile(
         const cells: any[] = notebookData.cells || [];
         if (cells.length === 0) return false;
 
-        const milestones: Array<{ cell: any; chapter: number | null }> = [];
+        const milestones: Array<{ cell: any; chapter: number | null; }> = [];
         const contentWithRef: Array<{
             cell: any;
             parsed: ParsedVerseRef;
-            sortKey: { book: string; chapter: number; verse: number };
+            sortKey: { book: string; chapter: number; verse: number; };
         }> = [];
         const contentWithoutRef: any[] = [];
         const paratextByParentId = new Map<string, any[]>();
@@ -3197,7 +3220,7 @@ export const migration_verseRangeLabelsAndPositions = async (): Promise<void> =>
                     ) as {
                         refreshWebviewsForFiles?: (
                             paths: string[],
-                            options?: { isSourceAndCodexFiles?: boolean }
+                            options?: { isSourceAndCodexFiles?: boolean; }
                         ) => Promise<void>;
                     };
                     if (provider?.refreshWebviewsForFiles) {

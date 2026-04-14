@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { ChevronUp, ChevronDown, X, Replace, ChevronRight, Files } from "lucide-react";
+import { ChevronUp, ChevronDown, X, Replace, ChevronRight, Files, Trash2 } from "lucide-react";
 import { QuillCellContent } from "../../../../../types";
 import "./floatingSearchBar.css";
 
@@ -86,15 +86,20 @@ const applyDomHighlights = (
             while ((match = regex.exec(text)) !== null) {
                 // Add text before the match
                 if (match.index > lastIndex) {
-                    fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+                    fragment.appendChild(
+                        document.createTextNode(text.slice(lastIndex, match.index))
+                    );
                 }
 
-                const isCurrent = cellId === currentMatchCellId && matchCountInCell === currentMatchInCellIndex;
+                const isCurrent =
+                    cellId === currentMatchCellId && matchCountInCell === currentMatchInCellIndex;
 
                 if (showDiff) {
                     // Show inline diff: old text struck through, new text highlighted
                     const diffContainer = document.createElement("span");
-                    diffContainer.className = `${HIGHLIGHT_CLASS} floating-search-diff${isCurrent ? ` ${HIGHLIGHT_CURRENT_CLASS}` : ""}`;
+                    diffContainer.className = `${HIGHLIGHT_CLASS} floating-search-diff${
+                        isCurrent ? ` ${HIGHLIGHT_CURRENT_CLASS}` : ""
+                    }`;
 
                     // Old text (struck through)
                     const oldSpan = document.createElement("span");
@@ -249,13 +254,18 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
         [matchCase]
     );
 
-    // Update page matches when query or cells change
+    // Reset match index only when the search query or case setting changes
+    useEffect(() => {
+        setCurrentMatchIndex(0);
+    }, [query, matchCase]);
+
+    // Update page matches when query or cells change (does not reset index, preserving position after deletions)
     useEffect(() => {
         const matches = findMatchesOnPage(query, translationUnits);
         setPageMatches(matches);
-        setCurrentMatchIndex(0);
+        // Clamp index so we never show "2 of 1" after deletions
+        setCurrentMatchIndex((prev) => (matches.length === 0 ? 0 : Math.min(prev, matches.length - 1)));
 
-        // Request total match counts from extension
         if (query.trim()) {
             onRequestMatchCounts(query, matchCase);
         }
@@ -488,7 +498,7 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
             const cell = translationUnits[cellIndex];
             if (!cell) continue;
 
-            let plainText = stripHtml(cell.cellContent);
+            const plainText = stripHtml(cell.cellContent);
             const searchRegex = new RegExp(escapeRegex(query), matchCase ? "g" : "gi");
             const newContent = plainText.replace(searchRegex, replaceText);
 
@@ -505,6 +515,70 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
         }
     }, [
         replaceText,
+        pageMatches,
+        translationUnits,
+        query,
+        matchCase,
+        onReplaceInCell,
+        findNextMilestoneWithMatches,
+        onNavigateToMilestone,
+    ]);
+
+    // Delete current match (replace with empty string)
+    const deleteCurrentMatch = useCallback(() => {
+        if (pageMatches.length === 0) return;
+        const match = pageMatches[currentMatchIndex];
+        const cell = translationUnits[match.cellIndex];
+        if (!cell) return;
+
+        const plainText = stripHtml(cell.cellContent);
+        const searchQuery = matchCase ? query : query.toLowerCase();
+        const searchText = matchCase ? plainText : plainText.toLowerCase();
+
+        let count = 0;
+        let startIdx = 0;
+        while (count <= match.matchIndex) {
+            startIdx = searchText.indexOf(searchQuery, startIdx);
+            if (startIdx === -1) break;
+            if (count === match.matchIndex) break;
+            startIdx += searchQuery.length;
+            count++;
+        }
+
+        if (startIdx !== -1) {
+            const newContent =
+                plainText.substring(0, startIdx) + plainText.substring(startIdx + query.length);
+            onReplaceInCell(match.cellId, cell.cellContent, newContent);
+        }
+    }, [pageMatches, currentMatchIndex, translationUnits, query, matchCase, onReplaceInCell]);
+
+    // Delete all matches on current page (replace with empty string)
+    const deleteAll = useCallback(() => {
+        if (pageMatches.length === 0) return;
+
+        const matchesByCell = new Map<number, SearchMatch[]>();
+        for (const match of pageMatches) {
+            const existing = matchesByCell.get(match.cellIndex) || [];
+            existing.push(match);
+            matchesByCell.set(match.cellIndex, existing);
+        }
+
+        for (const [cellIndex, matches] of matchesByCell) {
+            const cell = translationUnits[cellIndex];
+            if (!cell) continue;
+            const plainText = stripHtml(cell.cellContent);
+            const searchRegex = new RegExp(escapeRegex(query), matchCase ? "g" : "gi");
+            const newContent = plainText.replace(searchRegex, "");
+            if (newContent !== plainText) {
+                onReplaceInCell(matches[0].cellId, cell.cellContent, newContent);
+            }
+        }
+
+        const nextMilestone = findNextMilestoneWithMatches("next");
+        if (nextMilestone !== null) {
+            onNavigateToMilestone(nextMilestone, 0);
+        }
+    }, [
         pageMatches,
         translationUnits,
         query,
@@ -546,8 +620,8 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
     );
 
     // Match count display
-    const matchCountDisplay = useMemo(() => {
-        if (!query.trim()) return "";
+    const matchCountDisplay = useMemo((): React.ReactNode => {
+        if (!query.trim()) return null;
         if (totalDocumentMatches === 0) return "No matches";
 
         const pageMatchCount = pageMatches.length;
@@ -555,8 +629,18 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
             return `0 on page (${totalDocumentMatches} total)`;
         }
 
-        return `${globalMatchIndex} of ${pageMatchCount} of ${totalDocumentMatches}`;
-    }, [query, pageMatches.length, globalMatchIndex, totalDocumentMatches]);
+        const localIndex = currentMatchIndex + 1;
+        return (
+            <span className="floating-search-bar-match-count-lines">
+                <span>
+                    Page {localIndex} of {pageMatchCount}
+                </span>
+                <span>
+                    File {globalMatchIndex} of {totalDocumentMatches}
+                </span>
+            </span>
+        );
+    }, [query, pageMatches.length, currentMatchIndex, globalMatchIndex, totalDocumentMatches]);
 
     if (!isOpen) return null;
 
@@ -687,6 +771,29 @@ export const FloatingSearchBar: React.FC<FloatingSearchBarProps> = ({
                                 Replace All
                             </Button>
                         </div>
+                        {!replaceText && (
+                            <div className="floating-search-bar-replace-actions">
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={deleteCurrentMatch}
+                                    disabled={pageMatches.length === 0}
+                                    title="Delete this match"
+                                >
+                                    <Trash2 className="h-4 w-4 mr-1" />
+                                    Delete
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={deleteAll}
+                                    disabled={pageMatches.length === 0}
+                                    title="Delete all matches on this page"
+                                >
+                                    Delete All
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

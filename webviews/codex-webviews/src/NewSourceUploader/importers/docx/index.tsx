@@ -12,5 +12,6 @@ export const docxImporterPlugin: ImporterPlugin = {
     icon: FileText,
     component: DocxImporterForm,
     supportedExtensions: ["docx"],
+    supportedMimeTypes: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
     enabled: true,
 };

@@ -51,7 +51,7 @@ describe("migration_addImporterTypeToMetadata", () => {
         const serializer = new CodexContentSerializer();
         const data: any = await serializer.deserializeNotebook(fileBytes, new vscode.CancellationTokenSource().token);
 
-        assert.strictEqual(data.metadata.importerType, "ebible");
+        assert.strictEqual(data.metadata.importerType, "ebibleCorpus");
     });
 
     it("infers importerType from corpusMarker when missing", async () => {
@@ -91,11 +91,11 @@ describe("migration_addImporterTypeToMetadata", () => {
 
     it("handles special case mappings", async () => {
         const testCases = [
-            { corpusMarker: "ebiblecorpus", expected: "ebible" },
+            { corpusMarker: "ebiblecorpus", expected: "ebibleCorpus" },
             { corpusMarker: "macula-bible", expected: "macula" },
             { corpusMarker: "obs-story", expected: "obs" },
             { corpusMarker: "subtitle", expected: "subtitles" },
-            { corpusMarker: "docx", expected: "docx-roundtrip" },
+            { corpusMarker: "docx", expected: "docx" },
         ];
 
         for (const testCase of testCases) {

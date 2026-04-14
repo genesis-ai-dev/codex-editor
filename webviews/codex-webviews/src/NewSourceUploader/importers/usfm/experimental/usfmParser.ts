@@ -146,7 +146,7 @@ export async function parseUsfmFile(
             originalLine: lines[startLineIndex]?.trim() || '',
             originalText: verseText.join(' ').trim(), // Store original text for reference
             lineIndex: startLineIndex,
-            cellLabel: `${bookCode} ${cellChapter}:${verseNumber}`,
+            cellLabel: `${verseNumber}`,
             breakTag: breakTagMetadata, // Store original break tags for export (including \b)
         });
 
@@ -371,14 +371,18 @@ export async function parseUsfmFile(
                     finishCurrentVerse();
                 }
 
-                // Check if this is a chapter marker (\c)
-                const isChapterMarker = marker === 'c';
-                let chapterNumberForMarker: number | undefined;
-                if (isChapterMarker && textContent) {
-                    const chapterNum = parseInt(textContent, 10);
-                    if (!isNaN(chapterNum)) {
-                        chapterNumberForMarker = chapterNum;
-                    }
+                // Skip \c markers — chapter boundaries are already handled by
+                // milestones. The original line is preserved in lineMappings for
+                // round-trip export (the exporter keeps unmapped lines as-is).
+                if (marker === 'c') {
+                    lineMappings.push({
+                        lineIndex,
+                        cellId: '',
+                        originalLine: line,
+                        marker: `\\${marker}`,
+                        hasContent: false,
+                    });
+                    continue;
                 }
 
                 // All other markers (headers, sections, paragraphs with text, etc.)
@@ -388,12 +392,10 @@ export async function parseUsfmFile(
                     bookName,
                     fileName: file.name,
                     chapter: cellChapter,
-                    marker: `\\${marker}`, // Store the full marker (e.g., \id, \s1, \v, \c)
-                    originalLine: trimmedLine, // Store the full original line for matching
-                    originalText: textContent, // Store just the text part
-                    lineIndex, // Store line index for export
-                    isChapterMarker, // True if this is a \c chapter marker
-                    chapterNumber: chapterNumberForMarker, // Chapter number from \c marker
+                    marker: `\\${marker}`,
+                    originalLine: trimmedLine,
+                    originalText: textContent,
+                    lineIndex,
                 });
 
                 paratextCount++;
