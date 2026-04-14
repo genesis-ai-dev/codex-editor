@@ -62,8 +62,6 @@ interface CellContentDisplayProps {
             | "none"
             | "missing";
     };
-    audioHistoryCounts?: { [cellId: string]: number; };
-    hideAudioBadges?: boolean;
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
@@ -127,8 +125,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         handleCellTranslation,
         handleCellClick,
         audioAttachments,
-        audioHistoryCounts,
-        hideAudioBadges,
         footnoteOffset = 0,
         isCorrectionEditorMode = false,
         translationUnits = [],
@@ -874,7 +870,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                             (window as any).openCellById;
                                                         if (typeof open === "function") open(id);
                                                     }}
-                                                    historyCount={hideAudioBadges ? undefined : audioHistoryCounts?.[cellIds[0]]}
                                                 />
                                             );
                                         })()}

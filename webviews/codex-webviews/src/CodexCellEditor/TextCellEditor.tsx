@@ -140,7 +140,6 @@ interface CellEditorProps {
     vscode?: any;
     isSourceText?: boolean;
     isAuthenticated?: boolean;
-    hideAudioBadges?: boolean;
 }
 
 // Simple ISO-639-1 to ISO-639-3 mapping for common languages; default to 'eng'
@@ -247,7 +246,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     vscode,
     isSourceText,
     isAuthenticated,
-    hideAudioBadges,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -349,7 +347,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     });
     const [isAudioLoading, setIsAudioLoading] = useState(false);
     const [hasAudioHistory, setHasAudioHistory] = useState<boolean>(false);
-    const [audioHistoryCount, setAudioHistoryCount] = useState<number>(0);
     const [currentSelectedAudioId, setCurrentSelectedAudioId] = useState<string | null>(null);
 
     // Transcription state
@@ -1923,7 +1920,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             ) {
                 const history = message.content.audioHistory || [];
                 setHasAudioHistory(history.length > 0);
-                setAudioHistoryCount(history.length);
 
                 // Initialize currentSelectedAudioId from the current attachment ID if available
                 if (message.content.currentAttachmentId && !currentSelectedAudioId) {
@@ -2315,23 +2311,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         {USE_AUDIO_TAB && (
                             <TabsTrigger value="audio" className="relative">
                                 <Mic className="h-4 w-4" />
-                                {!hideAudioBadges && (audioHistoryCount > 1 || (audioHistoryCount === 1 && audioAttachments?.[cellMarkers[0]] === "deletedOnly")) && (
-                                    <span
-                                        className="absolute -top-1 -right-1 inline-flex items-center justify-center rounded-full"
-                                        style={{
-                                            minWidth: "1rem",
-                                            height: "1rem",
-                                            padding: "0 3px",
-                                            backgroundColor: "var(--vscode-badge-background)",
-                                            color: "var(--vscode-badge-foreground)",
-                                            fontSize: "0.6rem",
-                                            fontWeight: 700,
-                                            lineHeight: 1,
-                                        }}
-                                    >
-                                        {audioHistoryCount}
-                                    </span>
-                                )}
                                 {audioUrl &&
                                     (audioUrl.startsWith("blob:") ||
                                         audioUrl.startsWith("data:") ||
@@ -2915,25 +2894,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         <History className="h-3 w-3" />
                                                         <span className="ml-1">History</span>
                                                     </Button>
-                                                    {!hideAudioBadges && (audioHistoryCount > 1 || (audioHistoryCount === 1 && audioAttachments?.[cellMarkers[0]] === "deletedOnly")) && (
-                                                        <span
-                                                            className="absolute -top-2 -right-2 inline-flex items-center justify-center rounded-full"
-                                                            style={{
-                                                                minWidth: "1.25rem",
-                                                                height: "1.1rem",
-                                                                padding: "0 6px",
-                                                                backgroundColor:
-                                                                    "var(--vscode-badge-background)",
-                                                                color: "var(--vscode-badge-foreground)",
-                                                                border: "1px solid var(--vscode-panel-border)",
-                                                                fontSize: "0.7rem",
-                                                                fontWeight: 700,
-                                                                lineHeight: 1,
-                                                            }}
-                                                        >
-                                                            {audioHistoryCount}
-                                                        </span>
-                                                    )}
                                                 </div>
                                             )}
 
@@ -2961,7 +2921,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             onInsertTranscription={handleInsertTranscription}
                                             onRequestRemove={() => setConfirmingDiscard(true)}
                                             onShowHistory={() => setShowAudioHistory(true)}
-                                            historyCount={audioHistoryCount}
                                             onShowRecorder={() => setShowRecorder(true)}
                                             disabled={!audioBlob}
                                             validationStatusProps={audioValidationIconProps}

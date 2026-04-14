@@ -125,7 +125,6 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
     setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; }>>;
-    setAudioHistoryCounts: Dispatch<SetStateAction<{ [cellId: string]: number; }>>;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
@@ -175,7 +174,6 @@ export const useVSCodeMessageHandler = ({
     singleCellTranslationFailed,
     setChapterNumber,
     setAudioAttachments,
-    setAudioHistoryCounts,
     showABTestVariants,
     setContentPaginated,
     handleCellPage,
@@ -192,17 +190,12 @@ export const useVSCodeMessageHandler = ({
                     try {
                         const units = (message.content || []) as QuillCellContent[];
                         const availability: Record<string, AudioAvailability> = {};
-                        const counts: Record<string, number> = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
                             availability[cellId] = deriveAudioAvailability(unit);
-                            const audioCount = Object.values((unit?.attachments || {}) as Record<string, any>)
-                                .filter((a) => a?.type === "audio").length;
-                            if (audioCount > 0) counts[cellId] = audioCount;
                         }
                         setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
-                        if (Object.keys(counts).length > 0) setAudioHistoryCounts(counts);
                     } catch { /* ignore */ }
                     break;
 
@@ -342,12 +335,6 @@ export const useVSCodeMessageHandler = ({
                             }
                         });
                     }
-                    if (message.historyCounts) {
-                        setAudioHistoryCounts((prev) => {
-                            const incoming = message.historyCounts as Record<string, number>;
-                            return { ...prev, ...incoming };
-                        });
-                    }
                     break;
                 case "providerSendsABTestVariants":
                     if (showABTestVariants) {
@@ -391,17 +378,12 @@ export const useVSCodeMessageHandler = ({
                     try {
                         const units = (message.cells || []) as QuillCellContent[];
                         const availability: Record<string, AudioAvailability> = {};
-                        const counts: Record<string, number> = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
                             availability[cellId] = deriveAudioAvailability(unit);
-                            const audioCount = Object.values((unit?.attachments || {}) as Record<string, any>)
-                                .filter((a) => a?.type === "audio").length;
-                            if (audioCount > 0) counts[cellId] = audioCount;
                         }
                         setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
-                        if (Object.keys(counts).length > 0) setAudioHistoryCounts(counts);
                     } catch { /* ignore */ }
                     break;
 
@@ -425,19 +407,12 @@ export const useVSCodeMessageHandler = ({
                     try {
                         const units = (message.cells || []) as QuillCellContent[];
                         const availability: Record<string, AudioAvailability> = {};
-                        const counts: Record<string, number> = {};
                         for (const unit of units) {
                             const cellId = unit?.cellMarkers?.[0];
                             if (!cellId) continue;
                             availability[cellId] = deriveAudioAvailability(unit);
-                            const audioCount = Object.values((unit?.attachments || {}) as Record<string, any>)
-                                .filter((a) => a?.type === "audio").length;
-                            if (audioCount > 0) counts[cellId] = audioCount;
                         }
                         setAudioAttachments((prev) => mergeAvailabilityWithoutDowngrade(prev, availability));
-                        if (Object.keys(counts).length > 0) {
-                            setAudioHistoryCounts((prev) => ({ ...prev, ...counts }));
-                        }
                     } catch { /* ignore */ }
                     break;
             }
@@ -471,7 +446,6 @@ export const useVSCodeMessageHandler = ({
         singleCellTranslationFailed,
         setChapterNumber,
         setAudioAttachments,
-        setAudioHistoryCounts,
         showABTestVariants,
         setContentPaginated,
         handleCellPage,

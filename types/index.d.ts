@@ -644,7 +644,6 @@ type EditMapValueType<T extends readonly string[]> =
     : T extends readonly ["metadata", "fontSize"] ? number
     : T extends readonly ["metadata", "autoDownloadAudioOnOpen"] ? boolean
     : T extends readonly ["metadata", "showInlineBacktranslations"] ? boolean
-    : T extends readonly ["metadata", "hideAudioBadges"] ? boolean
     : T extends readonly ["metadata", "fileDisplayName"] ? string
     : T extends readonly ["metadata", "audioOnly"] ? boolean
     // Fallback for unmatched paths
@@ -777,8 +776,6 @@ export interface CustomNotebookMetadata {
     autoDownloadAudioOnOpen?: boolean;
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
-    /** When true, audio recording count badges are hidden on cell icons */
-    hideAudioBadges?: boolean;
     fileDisplayName?: string;
     edits?: FileEditHistory[];
     importerType?: FileImporterType;
@@ -2150,7 +2147,6 @@ type EditorReceiveMessages =
         type: "providerSendsAudioAttachments";
         // Availability now distinguishes between real local files vs LFS pointer placeholders
         attachments: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; };
-        historyCounts?: { [cellId: string]: number; };
     }
     | {
         type: "providerSendsAudioData";

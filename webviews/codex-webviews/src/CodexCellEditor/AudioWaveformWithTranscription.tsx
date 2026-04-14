@@ -37,7 +37,6 @@ interface AudioWaveformWithTranscriptionProps {
     disabled?: boolean;
     onRequestRemove?: () => void;
     onShowHistory?: () => void;
-    historyCount?: number;
     onShowRecorder?: () => void;
     audioValidationPopoverProps: AudioValidationPopoverProps;
     validationStatusProps: ValidationStatusIconProps;
@@ -55,7 +54,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     disabled = false,
     onRequestRemove,
     onShowHistory,
-    historyCount,
     onShowRecorder,
     validationStatusProps,
     audioValidationPopoverProps,
@@ -346,24 +344,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 >
                     <History className="h-3 w-3" />
                     <span className="ml-1">History</span>
-                    {typeof historyCount === "number" && historyCount > 1 && (
-                        <span
-                            className="ml-2 inline-flex items-center justify-center rounded-full"
-                            style={{
-                                minWidth: "1.5rem",
-                                height: "1.25rem",
-                                padding: "0 6px",
-                                backgroundColor: "var(--vscode-badge-background)",
-                                color: "var(--vscode-badge-foreground)",
-                                border: "1px solid var(--vscode-panel-border)",
-                                fontSize: "0.75rem",
-                                fontWeight: 700,
-                                lineHeight: 1,
-                            }}
-                        >
-                            {historyCount}
-                        </span>
-                    )}
                 </Button>
                 <Button
                     variant="outline"

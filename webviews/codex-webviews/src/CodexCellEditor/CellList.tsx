@@ -51,8 +51,6 @@ export interface CellListProps {
             | "none"
             | "missing";
     }; // Cells that have audio attachments
-    audioHistoryCounts?: { [cellId: string]: number; };
-    hideAudioBadges?: boolean;
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
     saveErrorMessage?: string | null; // Error message to display when save fails
@@ -105,8 +103,6 @@ const CellList: React.FC<CellListProps> = ({
     cellsInAutocompleteQueue = [],
     successfulCompletions = new Set(),
     audioAttachments,
-    audioHistoryCounts,
-    hideAudioBadges,
     isSaving = false,
     saveError = false,
     saveErrorMessage = null,
@@ -854,8 +850,6 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
                                 audioAttachments={audioAttachments}
-                                audioHistoryCounts={audioHistoryCounts}
-                                hideAudioBadges={hideAudioBadges}
                                 footnoteOffset={calculateFootnoteOffset(startIndex + index)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
@@ -890,8 +884,6 @@ const CellList: React.FC<CellListProps> = ({
             successfulCompletions,
             handleCellTranslation,
             audioAttachments,
-            audioHistoryCounts,
-            hideAudioBadges,
             calculateFootnoteOffset,
             isCorrectionEditorMode,
             workingTranslationUnits,
@@ -969,14 +961,12 @@ const CellList: React.FC<CellListProps> = ({
                             saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
                             audioAttachments={audioAttachments}
-                            audioHistoryCounts={audioHistoryCounts}
                             requiredValidations={requiredValidations}
                             requiredAudioValidations={requiredAudioValidations}
                             currentUsername={currentUsername || undefined}
                             vscode={vscode}
                             isSourceText={isSourceText}
                             isAuthenticated={isAuthenticated}
-                            hideAudioBadges={hideAudioBadges}
                         />
                     </span>
                 );
@@ -1028,8 +1018,6 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
                                 audioAttachments={audioAttachments as any}
-                                audioHistoryCounts={audioHistoryCounts}
-                                hideAudioBadges={hideAudioBadges}
                                 footnoteOffset={calculateFootnoteOffset(i)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
@@ -1083,8 +1071,6 @@ const CellList: React.FC<CellListProps> = ({
         successfulCompletions.size,
         handleCellTranslation,
         audioAttachments,
-        audioHistoryCounts,
-        hideAudioBadges,
         cellCommentsCount,
         currentUsername,
         requiredValidations,
