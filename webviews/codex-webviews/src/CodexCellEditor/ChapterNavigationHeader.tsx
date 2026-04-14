@@ -832,19 +832,6 @@ ChapterNavigationHeaderProps) {
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" title="Advanced Settings" className="relative">
                             <i className="codicon codicon-settings-gear" />
-                            {autoDownloadAudioOnOpen ? (
-                                <span
-                                    className="absolute rounded-full"
-                                    style={{
-                                        width: 8,
-                                        height: 8,
-                                        right: 6,
-                                        top: 6,
-                                        backgroundColor: "var(--vscode-charts-blue)",
-                                    }}
-                                    title="Auto-download enabled"
-                                />
-                            ) : null}
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
