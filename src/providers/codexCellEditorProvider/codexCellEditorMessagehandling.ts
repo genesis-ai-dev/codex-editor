@@ -1261,8 +1261,20 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
-        vscode.window.showInformationMessage("Notebook details updated.");
-        provider.refreshWebview(webviewPanel, document);
+
+        const COSMETIC_ONLY_KEYS = new Set(["hideAudioBadges"]);
+        const changedKeys = Object.keys(newMetadata);
+        const isCosmeticOnly = changedKeys.length > 0 && changedKeys.every((k) => COSMETIC_ONLY_KEYS.has(k));
+
+        if (isCosmeticOnly) {
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesNotebookMetadataForWebview",
+                content: await document.getNotebookMetadata(),
+            });
+        } else {
+            vscode.window.showInformationMessage("Notebook details updated.");
+            provider.refreshWebview(webviewPanel, document);
+        }
     },
 
     pickVideoFile: async ({ document, webviewPanel, provider }) => {

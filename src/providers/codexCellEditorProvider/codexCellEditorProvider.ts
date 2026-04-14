@@ -870,50 +870,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     debug("Could not fetch user role:", error);
                 }
 
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsInitialContentPaginated",
-                    rev,
-                    milestoneIndex: milestoneIndex,
-                    cells: processedInitialCells,
-                    currentMilestoneIndex: initialMilestoneIndex,
-                    currentSubsectionIndex: initialSubsectionIndex,
-                    isSourceText: isSourceText,
-                    sourceCellMap: initialSourceCellMap,
-                    username: username,
-                    validationCount: validationCount,
-                    validationCountAudio: validationCountAudio,
-                    isAuthenticated: isAuthenticated,
-                    userAccessLevel: userAccessLevel,
-                });
-
-                // Record the initial position so subsequent updateWebview() calls
-                // (e.g. from "getContent") see a tracked position and send
-                // refreshCurrentPage instead of duplicating the initial content.
-                this.currentMilestoneSubsectionMap.set(docUri, {
-                    milestoneIndex: initialMilestoneIndex,
-                    subsectionIndex: initialSubsectionIndex,
-                });
-            }
-
-            // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
-            try {
-                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                const { getAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
-                const autoFlag = await getAutoDownloadAudioOnOpen(ws?.uri);
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerUpdatesNotebookMetadataForWebview",
-                    content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag },
-                });
-            } catch {
-                this.postMessageToWebview(webviewPanel, {
-                    type: "providerUpdatesNotebookMetadataForWebview",
-                    content: notebookData.metadata,
-                });
-            }
-
-            // After sending initial content, send refined audio availability with pointer detection
-            try {
-                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                // Compute refined audio availability BEFORE sending initial content
+                // so the webview has correct icon states from the first render.
+                try {
+                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (ws && Array.isArray(notebookData?.cells)) {
                     const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {};
                     const historyCounts: { [cellId: string]: number; } = {};
@@ -1018,6 +978,47 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             } catch (e) {
                 debug("Failed to compute refined audio availability", e);
+            }
+
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsInitialContentPaginated",
+                    rev,
+                    milestoneIndex: milestoneIndex,
+                    cells: processedInitialCells,
+                    currentMilestoneIndex: initialMilestoneIndex,
+                    currentSubsectionIndex: initialSubsectionIndex,
+                    isSourceText: isSourceText,
+                    sourceCellMap: initialSourceCellMap,
+                    username: username,
+                    validationCount: validationCount,
+                    validationCountAudio: validationCountAudio,
+                    isAuthenticated: isAuthenticated,
+                    userAccessLevel: userAccessLevel,
+                });
+
+                // Record the initial position so subsequent updateWebview() calls
+                // (e.g. from "getContent") see a tracked position and send
+                // refreshCurrentPage instead of duplicating the initial content.
+                this.currentMilestoneSubsectionMap.set(docUri, {
+                    milestoneIndex: initialMilestoneIndex,
+                    subsectionIndex: initialSubsectionIndex,
+                });
+            }
+
+            // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
+            try {
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                const { getAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+                const autoFlag = await getAutoDownloadAudioOnOpen(ws?.uri);
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag },
+                });
+            } catch {
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: notebookData.metadata,
+                });
             }
         };
 
@@ -4446,7 +4447,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      */
     public async refreshWebviewsForFiles(
         filePaths: string[],
-        options?: { isSourceAndCodexFiles?: boolean }
+        options?: { isSourceAndCodexFiles?: boolean; }
     ): Promise<void> {
         if (!filePaths || filePaths.length === 0) {
             return;
