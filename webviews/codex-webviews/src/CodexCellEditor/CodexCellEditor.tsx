@@ -1495,7 +1495,7 @@ const CodexCellEditor: React.FC = () => {
             setTextDirection(direction);
         },
         updateNotebookMetadata: (newMetadata) => {
-            setMetadata(newMetadata);
+            setMetadata((prev) => ({ ...prev, ...newMetadata }));
             // Clear temporary font size when metadata updates to ensure new font size takes effect
             setTempFontSize(null);
             // Update text direction when metadata changes (for global text direction updates)
