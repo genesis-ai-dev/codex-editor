@@ -39,6 +39,15 @@ interface SourceFileUIData {
     name: string;
 }
 
+/** Alphanumeric (natural) order for source file display names, e.g. "a2" before "a10". */
+const sourceFileNameCollator = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base",
+});
+
+const compareSourceFileByName = (a: SourceFileUIData, b: SourceFileUIData) =>
+    sourceFileNameCollator.compare(a.name, b.name);
+
 // --- State Interface
 interface AppState {
     view: "initial" | "columnSelection" | "tableView";
@@ -79,10 +88,9 @@ const App: React.FC = () => {
             selectedColumns: persistedState?.selectedColumns || [],
             useMultiColumns: persistedState?.useMultiColumns || false,
             importSource: persistedState?.importSource || "",
-            availableSourceFiles:
-                persistedState?.availableSourceFiles.sort(
-                    (a: SourceFileUIData, b: SourceFileUIData) => a.name.localeCompare(b.name)
-                ) || [],
+            availableSourceFiles: persistedState?.availableSourceFiles
+                ? [...persistedState.availableSourceFiles].sort(compareSourceFileByName)
+                : [],
             selectedTargetFilePath: persistedState?.selectedTargetFilePath || null,
             metadataFields: persistedState?.metadataFields || [],
             selectedMatchColumn: persistedState?.selectedMatchColumn || null,
@@ -196,11 +204,9 @@ const App: React.FC = () => {
                         view: "columnSelection",
                         headers: message.headers || [],
                         importSource: message.importSource || "",
-                        availableSourceFiles:
-                            message.availableSourceFiles.sort(
-                                (a: SourceFileUIData, b: SourceFileUIData) =>
-                                    a.name.localeCompare(b.name)
-                            ) || prev.availableSourceFiles, // Extension should send these
+                        availableSourceFiles: message.availableSourceFiles
+                            ? [...message.availableSourceFiles].sort(compareSourceFileByName)
+                            : prev.availableSourceFiles, // Extension should send these
                         selectedColumn:
                             message.headers && message.headers.includes(prev.selectedColumn)
                                 ? prev.selectedColumn
