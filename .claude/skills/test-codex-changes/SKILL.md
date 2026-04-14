@@ -66,7 +66,7 @@ If a change's UI impact isn't obvious from filenames, read the diff for new comm
 
 ## Reporting
 
-Take notes **as you go**, not reconstructed at the end — include timing ("took 8s with no spinner"), whether behaviour matched what the diff suggested, and what felt easy or hard. Save screenshots of anything noteworthy or unexpected via `screenshot(save_to_disk=true)`.
+Take notes **as you go**, not reconstructed at the end — include timing ("took 8s with no spinner"), whether behaviour matched what the diff suggested, and what felt easy or hard.
 
 Post findings to the PR (prefer a PR comment over pushing to the branch). Suggested structure:
 
@@ -74,16 +74,6 @@ Post findings to the PR (prefer a PR comment over pushing to the branch). Sugges
 - **What I tested** — bullet list with ✅ / ⚠️ / ❌
 - **Findings** — counterintuitive, slow, or broken; include repro steps
 - **Nits** — small things that aren't blockers
-
-### Attaching screenshots
-
-`gh` has no first-class image upload. In order of preference:
-
-1. `gh gist create` the PNGs, reference raw URLs in the comment markdown.
-2. If the repo has a convention for UI screenshots (check `docs/` or past PR comments), follow it.
-3. Otherwise list local paths in the comment and tell the user the screenshots are on their machine.
-
-Don't invent URLs. If upload fails, say so.
 
 ## Gotchas
 
