@@ -155,12 +155,26 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     return;
                 }
 
+                // Download-only: if the audio is remote (pointer) and not yet cached,
+                // just fetch it in the background without auto-playing.
+                const isDownloadOnly =
+                    state === "available-pointer" &&
+                    !audioUrl &&
+                    !getCachedAudioDataUrl(cellId);
+
                 if (isPlaying) {
                     if (audioRef.current) {
                         audioRef.current.pause();
                         audioRef.current.currentTime = 0;
                     }
                     setIsPlaying(false);
+                } else if (isDownloadOnly) {
+                    setIsLoading(true);
+                    pendingPlayRef.current = false;
+                    vscode.postMessage({
+                        command: "requestAudioForCell",
+                        content: { cellId },
+                    } as EditorPostMessages);
                 } else {
                     let effectiveUrl: string | null = audioUrl;
                     if (!effectiveUrl) {

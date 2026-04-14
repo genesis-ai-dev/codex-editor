@@ -360,10 +360,10 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
         return () => globalAudioController.removeListener(listener);
     }, []);
 
-    const handlePlayAudio = async (attachmentId: string) => {
+    const handlePlayAudio = async (attachmentId: string, downloadOnly = false) => {
         try {
-            // Stop any currently playing audio
-            if (playingId && playingId !== attachmentId) {
+            // Stop any currently playing audio (skip when just downloading)
+            if (!downloadOnly && playingId && playingId !== attachmentId) {
                 const currentAudio = audioRefs.current.get(playingId);
                 if (currentAudio) {
                     currentAudio.pause();
@@ -371,7 +371,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 }
             }
 
-            if (playingId === attachmentId) {
+            if (!downloadOnly && playingId === attachmentId) {
                 // Stop current audio
                 const audio = audioRefs.current.get(attachmentId);
                 if (audio) {
@@ -385,7 +385,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             // Request audio data if not already loaded
             if (!audioUrls.has(attachmentId)) {
                 setLoadingIds((prev) => new Set(prev).add(attachmentId));
-                pendingPlayRefs.current.set(attachmentId, true);
+                pendingPlayRefs.current.set(attachmentId, !downloadOnly);
 
                 // Set a timer to show loading text after 300ms
                 const timer = setTimeout(() => {
@@ -656,7 +656,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 <Button
                                                     size="sm"
                                                     variant={hasError ? "destructive" : "outline"}
-                                                    onClick={() => handlePlayAudio(entry.attachmentId)}
+                                                    onClick={() => handlePlayAudio(entry.attachmentId, needsDownload)}
                                                     disabled={isLoading || hasError}
                                                     className={hasError ? "opacity-100" : undefined}
                                                     title={hasError ? "File missing" : needsDownload ? "Download audio" : undefined}
