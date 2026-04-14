@@ -1263,7 +1263,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await document.save(new vscode.CancellationTokenSource().token);
 
         vscode.window.showInformationMessage("Notebook details updated.");
-        provider.refreshWebview(webviewPanel, document);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: await document.getNotebookMetadata(),
+        });
     },
 
     pickVideoFile: async ({ document, webviewPanel, provider }) => {
