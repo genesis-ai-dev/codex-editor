@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
 import { EditorPostMessages, QuillCellContent } from "../../../../types";
 import type { ReactPlayerRef } from "./types/reactPlayerTypes";
 import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
@@ -29,7 +29,6 @@ import {
 } from "../components/ui/dialog";
 import AudioPlayButton from "./AudioPlayButton";
 import { MessageCircle } from "lucide-react";
-import AudioPlayButton from "./AudioPlayButton";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {

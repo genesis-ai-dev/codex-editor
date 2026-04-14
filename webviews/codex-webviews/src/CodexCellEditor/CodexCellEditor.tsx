@@ -1778,11 +1778,6 @@ const CodexCellEditor: React.FC = () => {
         return () => window.removeEventListener("focus", () => {});
     }, []);
 
-    useEffect(() => {
-        // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill as any, vscode);
-    }, []);
-
     // Listen for audio state changes from other webview types
     useMessageHandler(
         "codexCellEditor-audioStateChanged",
