@@ -78,6 +78,7 @@ export const createProcessedCell = (
  * - TEXT cells get empty content (ready for translation).
  * - STYLE / PARATEXT / MILESTONE cells keep their content (structural).
  * - Images array is always preserved.
+ * - Audio attachments are stripped so the target starts without source audio.
  * - Metadata is shallow-copied so the caller can mutate without affecting the source.
  */
 export const createCodexCellsFromSource = (sourceCells: ProcessedCell[]): ProcessedCell[] =>
@@ -91,7 +92,13 @@ export const createCodexCellsFromSource = (sourceCells: ProcessedCell[]): Proces
             id: sourceCell.id,
             content: isTranslatable ? '' : sourceCell.content,
             images: sourceCell.images || [],
-            metadata: { ...sourceCell.metadata },
+            metadata: {
+                ...sourceCell.metadata,
+                attachments: {},
+                cellAttachments: undefined,
+                selectedAudioId: undefined,
+                selectionTimestamp: undefined,
+            },
         };
     });
 

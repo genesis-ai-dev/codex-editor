@@ -793,15 +793,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 });
             });
 
-            const codexCells = createCodexCellsFromSource(sourceCells).map(cell => ({
-                ...cell,
-                metadata: {
-                    ...cell.metadata,
-                    attachments: {},
-                    selectedAudioId: undefined,
-                    selectionTimestamp: undefined,
-                },
-            }));
+            const codexCells = createCodexCellsFromSource(sourceCells);
 
             const notebookPair: NotebookPair = {
                 source: {
