@@ -43,6 +43,8 @@ export interface EditorProps {
     setIsEditingFootnoteInline: (isEditing: boolean) => void;
     isEditingFootnoteInline: boolean;
     footnoteOffset?: number;
+    pasteAsPlainText?: boolean;
+    onCharacterCountChange?: (count: number) => void;
 }
 
 // Fix the imports with correct typing
@@ -254,6 +256,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
+    const pasteAsPlainTextRef = useRef(props.pasteAsPlainText ?? false);
 
     const [currentAuthor, setCurrentAuthor] = useState<string>(
         (window as any).initialData?.userInfo?.username || "anonymous"
@@ -265,6 +268,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
     const [footnoteCount, setFootnoteCount] = useState(1);
     const [characterCount, setCharacterCount] = useState(0);
+
+    useEffect(() => {
+        props.onCharacterCountChange?.(characterCount);
+    }, [characterCount, props.onCharacterCountChange]);
 
     // Track the baseline content for dirty checking (updated when LLM content is set)
     const quillInitialContentRef = useRef<string>("");
@@ -302,6 +309,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         };
     }, [isEditingFootnoteInline]);
 
+    useEffect(() => {
+        pasteAsPlainTextRef.current = props.pasteAsPlainText ?? false;
+    }, [props.pasteAsPlainText]);
+
     // Initialize Quill editor
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
@@ -337,9 +348,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 toolbar.setAttribute("style", "transition: all 0.2s ease; overflow: hidden;");
             }
 
-            // Add paste event listener to handle paste operations
-            quill.root.addEventListener("paste", () => {
-                // Set unsaved changes immediately when paste is detected
+            const triggerPostPasteProcessing = () => {
                 setUnsavedChanges(true);
 
                 // Use setTimeout to ensure the paste operation completes, then process content
@@ -364,7 +373,41 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             html: finalContent,
                         });
                     }
-                }, 50); // Slightly longer timeout to ensure paste is complete
+                }, 50);
+            };
+
+            // Capture-phase listener intercepts paste before Quill's clipboard
+            // module so we can strip formatting without Quill also inserting
+            // the rich content (which would double the text).
+            quill.root.addEventListener("paste", (event: ClipboardEvent) => {
+                if (!pasteAsPlainTextRef.current) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                const text = event.clipboardData?.getData("text/plain") ?? "";
+                if (!text || !quillRef.current) return;
+
+                const sel = quillRef.current.getSelection(true);
+                if (sel) {
+                    if (sel.length > 0) {
+                        quillRef.current.deleteText(sel.index, sel.length, "user");
+                    }
+                    quillRef.current.insertText(sel.index, text, "user");
+                    quillRef.current.setSelection(sel.index + text.length, 0, "silent");
+                } else {
+                    const end = quillRef.current.getLength() - 1;
+                    quillRef.current.insertText(end, text, "user");
+                }
+
+                triggerPostPasteProcessing();
+            }, { capture: true });
+
+            // Bubble-phase listener handles the normal (rich) paste path.
+            // When plain-text mode is active the event never reaches here
+            // because the capture-phase handler stops propagation.
+            quill.root.addEventListener("paste", () => {
+                triggerPostPasteProcessing();
             });
 
             // Add Microsoft Word-style footnote deletion behavior
@@ -1347,20 +1390,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             : {}
                     }
                 ></div>
-                <div
-                    style={{
-                        display: "flex",
-                        justifyContent: "flex-end",
-                        alignItems: "center",
-                        marginTop: "4px",
-                        padding: "2px 4px",
-                        fontSize: "0.8em",
-                        color: "var(--vscode-descriptionForeground)",
-                        backgroundColor: "transparent",
-                    }}
-                >
-                    <span>{characterCount} characters</span>
-                </div>
             </div>
             {showHistoryModal && (
                 <div
