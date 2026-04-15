@@ -1058,14 +1058,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 });
             }
 
-            // Also send updated metadata plus the autoDownloadAudioOnOpen flag for the project
+            // Also send updated metadata plus project-level flags
             try {
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
-                const { getAutoDownloadAudioOnOpen } = await import("../../utils/localProjectSettings");
+                const { getAutoDownloadAudioOnOpen, getAutoRecordOnMicClick } = await import("../../utils/localProjectSettings");
                 const autoFlag = await getAutoDownloadAudioOnOpen(ws?.uri);
+                const autoRecordFlag = await getAutoRecordOnMicClick(ws?.uri);
                 this.postMessageToWebview(webviewPanel, {
                     type: "providerUpdatesNotebookMetadataForWebview",
-                    content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag },
+                    content: { ...notebookData.metadata, autoDownloadAudioOnOpen: !!autoFlag, autoRecordOnMicClick: !!autoRecordFlag },
                 });
             } catch {
                 this.postMessageToWebview(webviewPanel, {

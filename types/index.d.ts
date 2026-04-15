@@ -780,6 +780,8 @@ export interface CustomNotebookMetadata {
     lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, clicking the microphone icon in the cell list auto-starts recording */
+    autoRecordOnMicClick?: boolean;
     /** When true, backtranslations will be displayed inline below cells */
     showInlineBacktranslations?: boolean;
     fileDisplayName?: string;

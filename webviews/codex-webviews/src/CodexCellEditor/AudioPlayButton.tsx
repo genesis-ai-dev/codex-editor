@@ -146,6 +146,10 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                         try {
                             sessionStorage.setItem(`open-audio-history-${cellId}`, "1");
                         } catch { /* ignore */ }
+                    } else if ((window as any).__autoRecordOnMicClick && state !== "missing") {
+                        try {
+                            sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
+                        } catch { /* ignore */ }
                     }
 
                     vscode.postMessage({

@@ -69,6 +69,10 @@ export function clearAttentionCheck(testId: string): void {
 let autoDownloadBroadcastTimer: NodeJS.Timeout | undefined;
 let pendingAutoDownloadValue: boolean | undefined;
 
+// Debounce container for broadcasting auto-record flag updates
+let autoRecordBroadcastTimer: NodeJS.Timeout | undefined;
+let pendingAutoRecordValue: boolean | undefined;
+
 
 // Helper to use VS Code FS API
 async function pathExists(filePath: string): Promise<boolean> {
@@ -348,6 +352,36 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }, 150);
         } catch (e) {
             console.warn("Failed to set autoDownloadAudioOnOpen", e);
+        }
+    },
+    setAutoRecordOnMicClick: async ({ event, document, webviewPanel, provider }) => {
+        try {
+            const typed = event as any;
+            const value = !!typed?.content?.value;
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            const { setAutoRecordOnMicClick } = await import("../../utils/localProjectSettings");
+            await setAutoRecordOnMicClick(value, ws?.uri);
+            pendingAutoRecordValue = value;
+            if (autoRecordBroadcastTimer) {
+                clearTimeout(autoRecordBroadcastTimer);
+            }
+            autoRecordBroadcastTimer = setTimeout(() => {
+                try {
+                    const panels = provider.getWebviewPanels();
+                    panels.forEach((panel) => {
+                        provider.postMessageToWebview(panel, {
+                            type: "providerUpdatesNotebookMetadataForWebview",
+                            content: { autoRecordOnMicClick: pendingAutoRecordValue },
+                        } as any);
+                    });
+                } catch (broadcastErr) {
+                    console.warn("Failed to broadcast autoRecordOnMicClick", broadcastErr);
+                } finally {
+                    autoRecordBroadcastTimer = undefined;
+                }
+            }, 150);
+        } catch (e) {
+            console.warn("Failed to set autoRecordOnMicClick", e);
         }
     },
     getAsrConfig: async ({ webviewPanel }) => {
