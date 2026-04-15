@@ -10,6 +10,8 @@ const REFINED_STATES = new Set<AudioAvailability>(["available-local", "available
 /**
  * Merge webview-derived availability into existing state without downgrading
  * refined states (from provider file-system checks) to the generic "available".
+ * Also prevents "available-cached" (audio is in LFS memory cache) from being
+ * overwritten by "available-pointer" or "available" which re-checks from disk.
  */
 const mergeAvailabilityWithoutDowngrade = (
     prev: Record<string, AudioAvailability> | undefined,
@@ -316,24 +318,12 @@ export const useVSCodeMessageHandler = ({
                     break;
                 case "providerSendsAudioAttachments":
                     if (message.attachments) {
-                        // Merge incrementally and only trigger state update if a value actually changes
-                        setAudioAttachments((prev) => {
-                            try {
-                                const incoming = message.attachments as Record<string, string>;
-                                let changed = false;
-                                const next = { ...(prev || {}) } as Record<string, string>;
-                                for (const key of Object.keys(incoming)) {
-                                    const val = incoming[key as keyof typeof incoming];
-                                    if (next[key] !== val) {
-                                        next[key] = val as any;
-                                        changed = true;
-                                    }
-                                }
-                                return changed ? (next as any) : prev;
-                            } catch {
-                                return message.attachments;
-                            }
-                        });
+                        setAudioAttachments((prev) =>
+                            mergeAvailabilityWithoutDowngrade(
+                                prev,
+                                message.attachments as Record<string, AudioAvailability>
+                            )
+                        );
                     }
                     break;
                 case "providerSendsABTestVariants":

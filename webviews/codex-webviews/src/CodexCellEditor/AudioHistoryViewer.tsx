@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { globalAudioController, type AudioControllerEvent } from "../lib/audioController";
+import { getCachedAudioDataUrl, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
 import { Button } from "../components/ui/button";
 import {
     Play,
@@ -65,8 +66,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
     const [delayedLoadingIds, setDelayedLoadingIds] = useState<Set<string>>(new Set());
     const [errorIds, setErrorIds] = useState<Set<string>>(new Set());
-    const [validatingIds, setValidatingIds] = useState<Set<string>>(new Set());
-    const validatingIdsRef = useRef<Set<string>>(new Set());
     const fetchCurrentOnCloseRef = useRef<boolean>(false);
     const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
     const [hasExplicitSelection, setHasExplicitSelection] = useState<boolean>(false);
@@ -124,8 +123,43 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
                 setAudioHistory(message.content.audioHistory);
                 // Use the currentAttachmentId from the backend (this reflects the actual selection state)
-                setSelectedAudioId(message.content.currentAttachmentId);
+                const currentId = message.content.currentAttachmentId;
+                setSelectedAudioId(currentId);
                 setHasExplicitSelection(message.content.hasExplicitSelection);
+
+                // Hydrate entries from per-attachment cache (survives selection changes)
+                const entries = message.content.audioHistory as { attachmentId: string }[];
+                for (const entry of entries) {
+                    if (audioUrls.has(entry.attachmentId)) continue;
+                    try {
+                        const cached = getCachedAttachmentAudioDataUrl(entry.attachmentId);
+                        if (!cached && entry.attachmentId === currentId) {
+                            // Fallback: try cell-level cache for the selected entry
+                            const cellCached = getCachedAudioDataUrl(cellId);
+                            if (cellCached) {
+                                fetch(cellCached)
+                                    .then((res) => res.blob())
+                                    .then((blob) => {
+                                        const blobUrl = URL.createObjectURL(blob);
+                                        blobUrlsRef.current.add(blobUrl);
+                                        setAudioUrls((prev) => new Map(prev).set(entry.attachmentId, blobUrl));
+                                    })
+                                    .catch(() => { /* ignore */ });
+                            }
+                            continue;
+                        }
+                        if (cached) {
+                            fetch(cached)
+                                .then((res) => res.blob())
+                                .then((blob) => {
+                                    const blobUrl = URL.createObjectURL(blob);
+                                    blobUrlsRef.current.add(blobUrl);
+                                    setAudioUrls((prev) => new Map(prev).set(entry.attachmentId, blobUrl));
+                                })
+                                .catch(() => { /* ignore */ });
+                        }
+                    } catch { /* ignore */ }
+                }
 
                 // Pre-mark entries that are known missing
                 try {
@@ -247,12 +281,14 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     }
 
                     if (audioData) {
-                        // Convert base64 to blob URL
+                        try {
+                            setCachedAttachmentAudioDataUrl(audioId, audioData);
+                        } catch { /* ignore */ }
                         fetch(audioData)
                             .then((res) => res.blob())
                             .then((blob) => {
                                 const blobUrl = URL.createObjectURL(blob);
-                                blobUrlsRef.current.add(blobUrl); // Track for cleanup
+                                blobUrlsRef.current.add(blobUrl);
                                 setAudioUrls((prev) => new Map(prev).set(audioId, blobUrl));
 
                                 // Auto-play if there was a pending play request
@@ -281,37 +317,12 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     }
                                 }
 
-                                // If we were validating for selection, select now
-                                if (validatingIdsRef.current.has(audioId)) {
-                                    validatingIdsRef.current.delete(audioId);
-                                    setValidatingIds((prev) => {
-                                        const next = new Set(prev);
-                                        next.delete(audioId);
-                                        return next;
-                                    });
-                                    // Selection succeeded; do not force fallback on close
-                                    fetchCurrentOnCloseRef.current = false;
-                                    vscode.postMessage({
-                                        command: "selectAudioAttachment",
-                                        content: { cellId, audioId },
-                                    });
-                                }
                             })
                             .catch(console.error);
                     } else {
                         // No audio data found - set error state
                         setErrorIds((prev) => new Set(prev).add(audioId));
-                        // Clear any in-progress validation for this audioId
-                        if (validatingIdsRef.current.has(audioId)) {
-                            validatingIdsRef.current.delete(audioId);
-                            setValidatingIds((prev) => {
-                                const next = new Set(prev);
-                                next.delete(audioId);
-                                return next;
-                            });
-                            // Mark that we should request the current audio when the user closes history
-                            fetchCurrentOnCloseRef.current = true;
-                        }
+                        fetchCurrentOnCloseRef.current = true;
                     }
                 }
             }
@@ -456,20 +467,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             return;
         }
 
-        // If we already have the audio loaded or cached, select immediately
-        if (audioUrls.has(attachmentId)) {
-            vscode.postMessage({
-                command: "selectAudioAttachment",
-                content: { cellId, audioId: attachmentId },
-            });
-            return;
-        }
-
-        // Otherwise, validate by requesting the audio; on success, selection happens in handler
-        validatingIdsRef.current.add(attachmentId);
-        setValidatingIds((prev) => new Set(prev).add(attachmentId));
+        // Select immediately — no download required
         vscode.postMessage({
-            command: "requestAudioForCell",
+            command: "selectAudioAttachment",
             content: { cellId, audioId: attachmentId },
         });
     };
@@ -580,8 +580,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const hasError =
                                 errorIds.has(entry.attachmentId) ||
                                 entry.attachment?.isMissing === true;
-                            const isValidating = validatingIds.has(entry.attachmentId);
-
                             // Compute validation status from attachment.validatedBy
                             const activeValidations = getActiveAudioValidations(
                                 entry.attachment.validatedBy
@@ -694,16 +692,14 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 variant={isSelected ? "default" : "outline"}
                                                 className="transition-none"
                                                 onClick={() => handleSelectAudio(entry.attachmentId)}
-                                                disabled={isSelected || isValidating}
+                                                disabled={isSelected}
                                             >
                                                 {isSelected ? (
                                                     <CheckCircle className="h-4 w-4 mr-1" />
-                                                ) : isValidating ? (
-                                                    <span className="h-4 w-4 mr-1" />
                                                 ) : (
                                                     <Circle className="h-4 w-4 mr-1" />
                                                 )}
-                                                {isSelected ? "Selected" : isValidating ? "Validating..." : "Select"}
+                                                {isSelected ? "Selected" : "Select"}
                                             </Button>
                                         )}
 

@@ -92,6 +92,39 @@ interface StateStore {
     updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState; }) => void;
 }
 
+/**
+ * Resolves the audio availability state for a cell based on its explicitly
+ * selected attachment (`selectedAudioId`).  If an explicit selection exists
+ * and the selected file is an LFS pointer (or cached), the returned state
+ * reflects that — regardless of what other attachments in the cell look like.
+ * Falls back to `baseState` when there is no explicit selection or the
+ * selected attachment is a real local file.
+ */
+export async function resolveSelectedAttachmentState(
+    cell: any,
+    baseState: string,
+    wsPath: string,
+): Promise<string> {
+    const selectedId = cell?.metadata?.selectedAudioId;
+    if (!selectedId) return baseState;
+    const selectedAtt = (cell?.metadata?.attachments || {} as any)[selectedId];
+    if (!selectedAtt || selectedAtt.type !== "audio" || selectedAtt.isDeleted) return baseState;
+    if (selectedAtt.isMissing) return "missing";
+    const url = String(selectedAtt.url || "");
+    if (!url) return baseState;
+    const filesPath = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+    const abs = path.join(wsPath, filesPath);
+    const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
+    const isPtr = await isPointerFile(abs).catch(() => false);
+    if (isPtr) {
+        const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+        const ptr = await parsePointerFile(abs).catch(() => null);
+        if (ptr?.oid && getCachedLfsBytes(ptr.oid)) return "available-cached";
+        return "available-pointer";
+    }
+    return baseState;
+}
+
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     private static instance: CodexCellEditorProvider | undefined;
 
@@ -964,8 +997,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         else if (hasDeleted) state = "deletedOnly";
                         else state = "none";
 
-                        // If Frontier installed version is below minimum, any non-local availability
-                        // should present as "available-pointer" (cloud/download) to avoid Play UI.
+                        state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath) as typeof state;
+
                         if (state !== "available-local" && state !== "available-cached") {
                             try {
                                 const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
@@ -1092,6 +1125,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             else if (hasMissing) state = "missing";
                             else if (hasDeleted) state = "deletedOnly";
                             else state = "none";
+                            state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath);
                             bgAvailability[cellId] = state;
                         }
                         if (Object.keys(bgAvailability).length > 0) {
@@ -1159,14 +1193,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Prefer showing available when a valid file exists,
                     // even if the user's explicit selection points to a missing file.
-                    let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
+                    let state: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
                     if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
                     else if (selectedIsMissing || hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
                     else state = "none";
 
-                    if (state !== "available-local") {
+                    const wsFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (wsFolder) {
+                        state = await resolveSelectedAttachmentState(cell, state, wsFolder.uri.fsPath) as
+                            "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
+                    }
+
+                    if (state !== "available-local" && state !== "available-cached") {
                         try {
                             const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
                             const status = await getFrontierVersionStatus();
@@ -1293,13 +1333,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Still update the current webview with the full content
                     updateWebview();
+                } else if (
+                    e.edits?.length > 0 &&
+                    [
+                        "selectAudioAttachment",
+                        "addAudioAttachment",
+                        "softDeleteAudioAttachment",
+                        "restoreAudioAttachment",
+                    ].includes(e.edits[0].type)
+                ) {
+                    // Audio metadata changes are handled by their own message
+                    // handlers which send targeted providerSendsAudioAttachments.
+                    // Skipping updateWebview() avoids a stale refreshCurrentPage
+                    // race that overwrites the correct availability state.
+                    debug("Audio metadata edit, skipping updateWebview", { type: e.edits[0].type });
                 } else {
                     // Check if this is a paratext cell addition
                     debug("Document change event", { edits: e.edits, firstEdit: e.edits?.[0] });
                     if (e.edits && e.edits.length > 0 && e.edits[0].cellType === CodexCellTypes.PARATEXT) {
                         debug("Paratext cell added, sending refreshCurrentPage message");
-                        // Send a message to refresh the current page (not reset to initial)
-                        // The webview will handle this by requesting cells for its current milestone/subsection
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === document.uri.toString()) {
                                 debug(`Sending refreshCurrentPage to webview for ${docUri}`);
@@ -1310,7 +1362,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             }
                         });
                     } else {
-                        // For non-validation updates, just update the webview as normal
                         updateWebview();
                     }
                 }

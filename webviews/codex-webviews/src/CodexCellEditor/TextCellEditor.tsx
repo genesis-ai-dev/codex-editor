@@ -22,7 +22,7 @@ import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio } from "../lib/audioCache";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl, clearCachedAudio, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -1567,20 +1567,35 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
         // If we already have a freshly recorded blob, don't fetch again
         if (audioBlob) return;
-        // If cached from this session, hydrate synchronously without re-requesting
+        // If cached from this session, hydrate without re-requesting — but only
+        // when the cached data belongs to the currently selected attachment.
+        // If the cell's availability is "available-pointer", the selected audio
+        // isn't local so any cached data URL belongs to a different attachment.
         try {
-            const cached = getCachedAudioDataUrl(cellMarkers[0]);
-            if (cached) {
-                (async () => {
-                    const resp = await fetch(cached);
-                    const blob = await resp.blob();
-                    setAudioBlob(blob);
-                    setShowRecorder(false);
-                    setRecordingStatus("Audio loaded");
-                    setIsAudioLoading(false);
-                    setAudioFetchPending(false);
-                })();
-                return;
+            const cellState = cellAudioState;
+            const selectedIsRemote = cellState === "available-pointer";
+            if (!selectedIsRemote) {
+                let cached = getCachedAudioDataUrl(cellMarkers[0]);
+                if (!cached) {
+                    try {
+                        const storedAudioId = currentSelectedAudioId || sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
+                        if (storedAudioId) {
+                            cached = getCachedAttachmentAudioDataUrl(storedAudioId) ?? undefined;
+                        }
+                    } catch { /* ignore */ }
+                }
+                if (cached) {
+                    (async () => {
+                        const resp = await fetch(cached);
+                        const blob = await resp.blob();
+                        setAudioBlob(blob);
+                        setShowRecorder(false);
+                        setRecordingStatus("Audio loaded");
+                        setIsAudioLoading(false);
+                        setAudioFetchPending(false);
+                    })();
+                    return;
+                }
             }
         } catch {
             /* empty */
@@ -1670,50 +1685,65 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.content.success
             ) {
                 const newSelectedAudioId = message.content.audioId;
-                // Only reload if the selection actually changed
                 if (currentSelectedAudioId !== newSelectedAudioId) {
                     setCurrentSelectedAudioId(newSelectedAudioId);
-                    // Clear cached audio data since selected audio has changed
-                    const { clearCachedAudio } = await import("../lib/audioCache");
+                    try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId); } catch { /* ignore */ }
                     clearCachedAudio(cellMarkers[0]);
-                    // Clear current audio blob to force reload
                     setAudioBlob(null);
                     setAudioUrl(null);
-                    // Request the newly selected audio
-                    setIsAudioLoading(true);
-                    setAudioFetchPending(true);
-                    const messageContent: EditorPostMessages = {
-                        command: "requestAudioForCell",
-                        content: { cellId: cellMarkers[0] },
-                    };
-                    window.vscodeApi.postMessage(messageContent);
+
+                    // Try per-attachment cache first — avoids re-downloading
+                    const attachmentCached = getCachedAttachmentAudioDataUrl(newSelectedAudioId);
+                    if (attachmentCached) {
+                        setCachedAudioDataUrl(cellMarkers[0], attachmentCached);
+                        (async () => {
+                            try {
+                                const resp = await fetch(attachmentCached);
+                                const blob = await resp.blob();
+                                setAudioBlob(blob);
+                                setShowRecorder(false);
+                                setRecordingStatus("Audio loaded");
+                                setIsAudioLoading(false);
+                                setAudioFetchPending(false);
+                            } catch { /* ignore, fall through to normal flow */ }
+                        })();
+                        return;
+                    }
+
+                    const autoInit = (window as any).__autoDownloadAudioOnOpenInitialized;
+                    const autoFlag = (window as any).__autoDownloadAudioOnOpen;
+                    const shouldAutoDownload = autoInit ? !!autoFlag : false;
+                    const stateForCell = audioAttachments?.[cellMarkers[0]];
+                    const isLocal = stateForCell === "available-local";
+
+                    if (shouldAutoDownload || isLocal) {
+                        setIsAudioLoading(true);
+                        setAudioFetchPending(true);
+                        window.vscodeApi.postMessage({
+                            command: "requestAudioForCell",
+                            content: { cellId: cellMarkers[0] },
+                        } as EditorPostMessages);
+                    } else {
+                        setIsAudioLoading(false);
+                        setAudioFetchPending(false);
+                    }
                 }
             }
 
-            // Handle audio validation state updates (includes selectedAudioId changes)
+            // Handle audio validation state updates (includes selectedAudioId changes).
+            // Only sync the selected ID — do NOT clear audioBlob here.
+            // The audioAttachmentSelected handler above already handles the
+            // audio loading path; clearing again here would undo cache hydration
+            // that completed between the two messages and cause flickering.
             if (
                 message.type === "providerUpdatesAudioValidationState" &&
                 message.content.cellId === cellMarkers[0] &&
                 message.content.selectedAudioId
             ) {
                 const newSelectedAudioId = message.content.selectedAudioId;
-                // Only reload if the selection actually changed
                 if (currentSelectedAudioId !== newSelectedAudioId) {
                     setCurrentSelectedAudioId(newSelectedAudioId);
-                    // Clear cached audio data since selected audio has changed
-                    const { clearCachedAudio } = await import("../lib/audioCache");
-                    clearCachedAudio(cellMarkers[0]);
-                    // Clear current audio blob to force reload
-                    setAudioBlob(null);
-                    setAudioUrl(null);
-                    // Request the newly selected audio
-                    setIsAudioLoading(true);
-                    setAudioFetchPending(true);
-                    const messageContent: EditorPostMessages = {
-                        command: "requestAudioForCell",
-                        content: { cellId: cellMarkers[0] },
-                    };
-                    window.vscodeApi.postMessage(messageContent);
+                    try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, newSelectedAudioId); } catch { /* ignore */ }
                 }
             }
 
@@ -1773,9 +1803,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         const base64Response = await fetch(message.content.audioData);
                         const blob = await base64Response.blob();
                         setAudioBlob(blob);
-                        // cache base64 for future openings in this session
                         try {
                             setCachedAudioDataUrl(cellMarkers[0], message.content.audioData);
+                            if (message.content.audioId) {
+                                setCachedAttachmentAudioDataUrl(message.content.audioId, message.content.audioData);
+                            }
                         } catch {
                             /* empty */
                         }
@@ -1921,9 +1953,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const history = message.content.audioHistory || [];
                 setHasAudioHistory(history.length > 0);
 
-                // Initialize currentSelectedAudioId from the current attachment ID if available
-                if (message.content.currentAttachmentId && !currentSelectedAudioId) {
-                    setCurrentSelectedAudioId(message.content.currentAttachmentId);
+                // Initialize or correct currentSelectedAudioId from the provider's
+                // authoritative currentAttachmentId.  If it differs from what we
+                // have, clear any stale waveform so the wrong audio isn't shown.
+                if (message.content.currentAttachmentId) {
+                    const providerSelectedId = message.content.currentAttachmentId;
+                    if (currentSelectedAudioId && currentSelectedAudioId !== providerSelectedId) {
+                        if (audioBlob) {
+                            clearCachedAudio(cellMarkers[0]);
+                            setAudioBlob(null);
+                            setAudioUrl(null);
+                        }
+                    }
+                    if (currentSelectedAudioId !== providerSelectedId) {
+                        setCurrentSelectedAudioId(providerSelectedId);
+                        try { sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, providerSelectedId); } catch { /* ignore */ }
+                    }
                 }
 
                 // After restore, if no audio is loaded yet, request the current audio
@@ -2763,7 +2808,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     (audioAttachments[cellMarkers[0]] ===
                                                         "available" ||
                                                         audioAttachments[cellMarkers[0]] ===
-                                                            "available-pointer") ? (
+                                                            "available-pointer" ||
+                                                        audioAttachments[cellMarkers[0]] ===
+                                                            "available-cached") ? (
                                                         <div className="flex flex-col items-center gap-2">
                                                             {isAudioLoading || audioFetchPending ? (
                                                                 <Button

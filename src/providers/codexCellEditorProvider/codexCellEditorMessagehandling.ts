@@ -3,6 +3,7 @@ import { CodexCellDocument } from "./codexDocument";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
+import { resolveSelectedAttachmentState } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
@@ -1905,7 +1906,15 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 debug("Successfully streamed file from LFS");
                             }
 
-                            // If strategy is "stream-and-save", replace pointer with actual file
+                            // Inform webview the audio is now available (cached or local)
+                            if (mediaStrategy === "stream-only") {
+                                try {
+                                    safePostMessageToPanel(webviewPanel, {
+                                        type: "providerSendsAudioAttachments",
+                                        attachments: { [cellId]: "available-cached" as const }
+                                    });
+                                } catch { /* non-fatal */ }
+                            }
                             if (mediaStrategy === "stream-and-save") {
                                 try {
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
@@ -2055,6 +2064,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 } catch (e) {
                                     // Non-fatal
                                 }
+                                try {
+                                    safePostMessageToPanel(webviewPanel, {
+                                        type: "providerSendsAudioAttachments",
+                                        attachments: { [cellId]: "available-cached" as const }
+                                    });
+                                } catch { /* non-fatal */ }
                             }
 
                             // Send to webview
@@ -2564,6 +2579,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 }
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+
+            // Quick targeted availability for just the selected cell so the
+            // webview updates immediately, before the expensive full-notebook loop.
+            try {
+                const targetCell = cells.find((c: any) => c?.metadata?.id === typedEvent.content.cellId);
+                if (targetCell) {
+                    const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (ws) {
+                        const quickState = await resolveSelectedAttachmentState(
+                            targetCell, "available-local", ws.uri.fsPath
+                        );
+                        provider.postMessageToWebview(webviewPanel, {
+                            type: "providerSendsAudioAttachments",
+                            attachments: { [typedEvent.content.cellId]: quickState } as any,
+                        });
+                    }
+                }
+            } catch { /* best-effort; full loop follows */ }
+
             const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
             let validatedByArray: ValidationEntry[] = [];
 
@@ -2608,24 +2642,30 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         validatedByArray = [...validatedBy];
                     }
                 }
-                // If the user's selected audio is missing, show missing icon regardless of other attachments.
                 const selectedId = cell?.metadata?.selectedAudioId;
                 const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                 const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
+                let state: string;
                 if (selectedIsMissing) {
-                    availability[cellId] = "missing";
+                    state = "missing";
                 } else if (hasAvailable) {
-                    availability[cellId] = "available-local";
+                    state = "available-local";
                 } else if (hasAvailablePointer) {
-                    availability[cellId] = "available-pointer";
+                    state = "available-pointer";
                 } else if (hasMissing) {
-                    availability[cellId] = "missing";
+                    state = "missing";
                 } else if (hasDeleted) {
-                    availability[cellId] = "deletedOnly";
+                    state = "deletedOnly";
                 } else {
-                    availability[cellId] = "none";
+                    state = "none";
                 }
+
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (ws) {
+                    state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath);
+                }
+                availability[cellId] = state as any;
             }
 
             provider.postMessageToWebview(webviewPanel, {

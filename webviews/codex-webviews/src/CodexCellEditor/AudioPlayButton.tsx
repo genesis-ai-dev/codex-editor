@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getCachedAudioDataUrl, setCachedAudioDataUrl } from "../lib/audioCache";
+import { getCachedAudioDataUrl, setCachedAudioDataUrl, setCachedAttachmentAudioDataUrl, clearCachedAudio } from "../lib/audioCache";
 import { globalAudioController, type AudioControllerEvent } from "../lib/audioController";
 import type { WebviewApi } from "vscode-webview";
 import type { EditorPostMessages } from "../../../../types";
@@ -39,8 +39,7 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                 if (message.type === "providerSendsAudioAttachments") {
                     const incoming = message.attachments as Record<string, string> | undefined;
                     const newState = incoming?.[cellId];
-                    if (newState === "deletedOnly" || newState === "none" || newState === "missing") {
-                        const { clearCachedAudio } = await import("../lib/audioCache");
+                    if (newState === "deletedOnly" || newState === "none" || newState === "missing" || newState === "available-pointer") {
                         clearCachedAudio(cellId);
 
                         if (audioUrl && audioUrl.startsWith("blob:")) {
@@ -66,6 +65,9 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                                 const blobUrl = URL.createObjectURL(blob);
                                 try {
                                     setCachedAudioDataUrl(cellId, message.content.audioData);
+                                    if (message.content.audioId) {
+                                        setCachedAttachmentAudioDataUrl(message.content.audioId, message.content.audioData);
+                                    }
                                 } catch {
                                     /* empty */
                                 }
@@ -245,6 +247,14 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                     color: "var(--vscode-errorForeground)",
                 } as const;
             }
+            if (state === "available-pointer") {
+                return {
+                    iconClass: isLoading
+                        ? "codicon-loading codicon-modifier-spin"
+                        : "codicon-cloud-download",
+                    color: "var(--vscode-charts-blue)",
+                } as const;
+            }
             if (audioUrl || getCachedAudioDataUrl(cellId)) {
                 return {
                     iconClass: isLoading
@@ -262,14 +272,6 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                         : isPlaying
                           ? "codicon-debug-stop"
                           : "codicon-play",
-                    color: "var(--vscode-charts-blue)",
-                } as const;
-            }
-            if (state === "available-pointer") {
-                return {
-                    iconClass: isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : "codicon-cloud-download",
                     color: "var(--vscode-charts-blue)",
                 } as const;
             }
