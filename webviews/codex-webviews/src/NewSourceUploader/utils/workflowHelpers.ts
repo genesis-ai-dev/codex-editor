@@ -72,8 +72,28 @@ export const createProcessedCell = (
     metadata,
 });
 
-// Removed createSourceNotebook, createCodexNotebook, createNotebookPair
-// These functions are now implemented directly in each plugin for better modularity
+/**
+ * Creates codex (target) cells from source cells by blanking translatable content.
+ *
+ * - TEXT cells get empty content (ready for translation).
+ * - STYLE / PARATEXT / MILESTONE cells keep their content (structural).
+ * - Images array is always preserved.
+ * - Metadata is shallow-copied so the caller can mutate without affecting the source.
+ */
+export const createCodexCellsFromSource = (sourceCells: ProcessedCell[]): ProcessedCell[] =>
+    sourceCells.map(sourceCell => {
+        const cellType = sourceCell.metadata?.type;
+        const isTranslatable =
+            cellType === CodexCellTypes.TEXT ||
+            cellType === undefined; // cells without an explicit type default to translatable
+
+        return {
+            id: sourceCell.id,
+            content: isTranslatable ? '' : sourceCell.content,
+            images: sourceCell.images || [],
+            metadata: { ...sourceCell.metadata },
+        };
+    });
 
 /**
  * Validates file extension against supported extensions
