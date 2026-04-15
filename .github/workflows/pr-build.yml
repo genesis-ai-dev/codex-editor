@@ -1,0 +1,179 @@
+name: PR Build
+
+on:
+    issue_comment:
+        types: [created]
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: "PR number to build"
+                required: true
+                type: string
+            version:
+                description: "Version override (leave blank to auto-generate as x.y.z-prNNN-shorthash)"
+                required: false
+                type: string
+
+permissions:
+    contents: write
+    pull-requests: write
+    issues: write
+
+jobs:
+    build:
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (github.event.issue.pull_request != null &&
+             contains(github.event.comment.body, '/build') &&
+             (github.event.comment.author_association == 'OWNER' ||
+              github.event.comment.author_association == 'MEMBER' ||
+              github.event.comment.author_association == 'COLLABORATOR'))
+        runs-on: ubuntu-latest
+        concurrency:
+            group: pr-build-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.issue.number }}
+            cancel-in-progress: true
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        steps:
+            - name: React to comment (acknowledge)
+              if: github.event_name == 'issue_comment'
+              run: |
+                  set -euo pipefail
+                  gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+                    --method POST -f content='+1'
+
+            - name: Get PR info
+              id: pr
+              run: |
+                  set -euo pipefail
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    PR_NUMBER="${{ inputs.pr_number }}"
+                  else
+                    PR_NUMBER="${{ github.event.issue.number }}"
+                  fi
+                  PR_DATA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}")
+                  echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+                  echo "ref=$(echo "$PR_DATA" | jq -r '.head.ref')" >> "$GITHUB_OUTPUT"
+
+            - name: Checkout PR branch
+              run: |
+                  set -euo pipefail
+                  REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+                  git init .
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git config user.name "github-actions[bot]"
+                  git remote add origin "$REPO_URL"
+                  git fetch --depth=1 origin "${{ steps.pr.outputs.ref }}"
+                  git checkout "${{ steps.pr.outputs.ref }}"
+
+            - name: Setup Node 20
+              run: |
+                  set -euo pipefail
+                  export NVM_DIR="$HOME/.nvm"
+                  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+                    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+                  fi
+                  . "$NVM_DIR/nvm.sh"
+                  nvm install 20
+                  nvm use 20
+                  echo "$(dirname "$(which node)")" >> "$GITHUB_PATH"
+
+            - name: Setup pnpm
+              run: npm install -g pnpm
+
+            - name: Generate version
+              id: version
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ inputs.version || '' }}"
+                  if [[ -z "$VERSION" ]]; then
+                    BASE_VERSION=$(jq -r .version package.json)
+                    SHORT_HASH=$(git rev-parse --short HEAD)
+                    VERSION="${BASE_VERSION}-pr${{ steps.pr.outputs.number }}-${SHORT_HASH}"
+                  fi
+                  NAME=$(jq -r .name package.json)
+                  REPO_URL=$(gh repo view --json url -q .url)
+                  echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+                  echo "vsix=${NAME}-${VERSION}.vsix" >> "$GITHUB_OUTPUT"
+                  echo "release_url=${REPO_URL}/releases/tag/${VERSION}" >> "$GITHUB_OUTPUT"
+
+            - name: Bump version in package.json
+              run: |
+                  set -euo pipefail
+                  jq --arg v "${{ steps.version.outputs.version }}" '.version = $v' package.json > package.json.tmp
+                  mv package.json.tmp package.json
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Build webviews (if applicable)
+              run: |
+                  set -euo pipefail
+                  if jq -e '.scripts["build:webviews"]' package.json &>/dev/null; then
+                    (cd webviews/codex-webviews && pnpm install)
+                    pnpm run build:webviews
+                  fi
+
+            - name: Production build
+              run: pnpm run package
+
+            - name: Package VSIX
+              run: pnpm dlx @vscode/vsce package --no-dependencies
+
+            - name: Restore package.json
+              if: always()
+              run: git checkout -- package.json
+
+            - name: Generate release notes
+              run: |
+                  set -euo pipefail
+                  PR_NUMBER="${{ steps.pr.outputs.number }}"
+                  VERSION="${{ steps.version.outputs.version }}"
+                  REPO="${{ github.repository }}"
+                  REPO_URL="https://github.com/${REPO}"
+
+                  GENERATED_NOTES=$(gh api "repos/${REPO}/releases/generate-notes" \
+                    --method POST \
+                    --field tag_name="${VERSION}" \
+                    --field target_commitish="$(git rev-parse HEAD)" \
+                    -q .body)
+
+                  PR_TITLE=$(gh pr view "${PR_NUMBER}" --json title -q .title)
+                  printf 'For PR #%s: [%s](%s)\n\n%s\n' \
+                    "${PR_NUMBER}" "${PR_TITLE}" "${REPO_URL}/pull/${PR_NUMBER}" \
+                    "${GENERATED_NOTES}" > /tmp/release-notes.md
+
+            - name: Create GitHub prerelease
+              run: |
+                  gh release create "${{ steps.version.outputs.version }}" \
+                    --target "$(git rev-parse HEAD)" \
+                    --prerelease \
+                    --title "${{ steps.version.outputs.version }}" \
+                    --notes-file /tmp/release-notes.md \
+                    "./${{ steps.version.outputs.vsix }}"
+
+            - name: Comment on PR
+              run: |
+                  gh pr comment "${{ steps.pr.outputs.number }}" \
+                    --body "Pre-release: ${{ steps.version.outputs.version }} ${{ steps.version.outputs.release_url }}"
+
+            - name: React with rocket on success
+              if: success() && github.event_name == 'issue_comment'
+              run: |
+                  gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+                    --method POST -f content='rocket'
+
+            - name: Handle failure
+              if: failure()
+              run: |
+                  set -euo pipefail
+                  RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  PR_NUMBER="${{ steps.pr.outputs.number }}"
+                  if [[ -n "$PR_NUMBER" ]]; then
+                    gh pr comment "${PR_NUMBER}" --body "Build failed: ${RUN_URL}"
+                  fi
+                  if [ "${{ github.event_name }}" = "issue_comment" ]; then
+                    gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+                      --method POST -f content='-1'
+                  fi
