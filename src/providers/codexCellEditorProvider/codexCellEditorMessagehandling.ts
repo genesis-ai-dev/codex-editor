@@ -2575,8 +2575,21 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const cellId = typedEvent.content.cellId;
 
-        const explicitSelection = document.getExplicitAudioSelection(cellId);
-        const updatedState = explicitSelection ? "available-local" : "unselected";
+        let updatedState: string = "unselected";
+        try {
+            const documentText = document.getText();
+            const notebookData = documentText.trim().length > 0 ? JSON.parse(documentText) : {};
+            const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
+            const targetCell = cells.find((c: any) => c?.metadata?.id === cellId);
+            if (targetCell) {
+                const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (ws) {
+                    updatedState = await resolveSelectedAttachmentState(
+                        targetCell, "available-local", ws.uri.fsPath
+                    );
+                }
+            }
+        } catch { /* best-effort — falls back to "unselected" */ }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentRestored",
