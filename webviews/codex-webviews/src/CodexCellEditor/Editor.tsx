@@ -376,30 +376,48 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 }, 50);
             };
 
-            // Capture-phase listener intercepts paste before Quill's clipboard
-            // module so we can strip formatting without Quill also inserting
-            // the rich content (which would double the text).
+            // Pending toolbar formats (e.g. bold + italic) that should be
+            // applied to pasted content. Captured in the capture phase before
+            // Quill's clipboard module runs, then consumed in the bubble phase.
+            let prePasteFormats: ReturnType<Quill["getFormat"]> | null = null;
+            let prePasteLength: number | null = null;
+
+            // Capture-phase listener fires before Quill's clipboard module.
+            // When plain-text mode is active it intercepts the event entirely;
+            // otherwise it just snapshots the active formats for the bubble handler.
             quill.root.addEventListener("paste", (event: ClipboardEvent) => {
+                if (!quillRef.current) return;
+
+                const formats = quillRef.current.getFormat();
+                const hasActiveFormats = Object.keys(formats).length > 0;
+
+                if (hasActiveFormats) {
+                    prePasteFormats = formats;
+                    prePasteLength = quillRef.current.getLength();
+                }
+
                 if (!pasteAsPlainTextRef.current) return;
 
                 event.preventDefault();
                 event.stopPropagation();
 
                 const text = event.clipboardData?.getData("text/plain") ?? "";
-                if (!text || !quillRef.current) return;
+                if (!text) return;
 
                 const sel = quillRef.current.getSelection(true);
                 if (sel) {
                     if (sel.length > 0) {
                         quillRef.current.deleteText(sel.index, sel.length, "user");
                     }
-                    quillRef.current.insertText(sel.index, text, "user");
+                    quillRef.current.insertText(sel.index, text, formats, "user");
                     quillRef.current.setSelection(sel.index + text.length, 0, "silent");
                 } else {
                     const end = quillRef.current.getLength() - 1;
-                    quillRef.current.insertText(end, text, "user");
+                    quillRef.current.insertText(end, text, formats, "user");
                 }
 
+                prePasteFormats = null;
+                prePasteLength = null;
                 triggerPostPasteProcessing();
             }, { capture: true });
 
@@ -407,6 +425,29 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             // When plain-text mode is active the event never reaches here
             // because the capture-phase handler stops propagation.
             quill.root.addEventListener("paste", () => {
+                if (prePasteFormats && prePasteLength !== null && quillRef.current) {
+                    const formats = prePasteFormats;
+                    const prevLen = prePasteLength;
+                    prePasteFormats = null;
+                    prePasteLength = null;
+
+                    // Quill processes clipboard content asynchronously, so
+                    // wait for it to finish before applying the formats.
+                    setTimeout(() => {
+                        if (!quillRef.current) return;
+                        const newLen = quillRef.current.getLength();
+                        const insertedCount = newLen - prevLen;
+                        if (insertedCount <= 0) return;
+
+                        const sel = quillRef.current.getSelection();
+                        const insertStart = (sel?.index ?? newLen - 1) - insertedCount;
+                        if (insertStart < 0) return;
+
+                        for (const [name, value] of Object.entries(formats)) {
+                            quillRef.current.formatText(insertStart, insertedCount, name, value, "silent");
+                        }
+                    }, 0);
+                }
                 triggerPostPasteProcessing();
             });
 

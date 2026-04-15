@@ -67,7 +67,7 @@ vi.mock("quill", () => {
             insertText: vi.fn(),
             deleteText: vi.fn(),
             format: vi.fn(),
-            getFormat: vi.fn(),
+            getFormat: vi.fn().mockReturnValue({}),
             removeFormat: vi.fn(),
             setSelection: vi.fn(),
             getSelection: vi
@@ -238,6 +238,7 @@ describe("Editor paste-as-plain-text", () => {
         expect(quillInstance.insertText).toHaveBeenCalledWith(
             0,
             "pasted plain",
+            {},
             "user"
         );
     });
@@ -273,6 +274,7 @@ describe("Editor paste-as-plain-text", () => {
         expect(quillInstance.insertText).toHaveBeenCalledWith(
             6,
             "universe",
+            {},
             "user"
         );
         expect(quillInstance.setSelection).toHaveBeenCalledWith(
