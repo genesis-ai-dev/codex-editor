@@ -3332,22 +3332,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 const isMissing = !isInvalid && selectedAttachment.isMissing === true;
 
                 if (isInvalid || isMissing) {
-                    // Look for a valid non-missing audio attachment to auto-select
-                    const validAlternative = Object.entries(cell.metadata.attachments)
-                        .filter(([_, att]: [string, any]) =>
-                            att?.type === "audio" && !att.isDeleted && !att.isMissing
-                        )
-                        .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
-                            (b.updatedAt || 0) - (a.updatedAt || 0)
-                        )[0];
-
-                    if (validAlternative) {
-                        cell.metadata.selectedAudioId = validAlternative[0];
-                        cell.metadata.selectionTimestamp = Date.now();
-                    } else {
-                        delete cell.metadata.selectedAudioId;
-                        delete cell.metadata.selectionTimestamp;
-                    }
+                    delete cell.metadata.selectedAudioId;
+                    delete cell.metadata.selectionTimestamp;
                     hasChanges = true;
                     if (cell.metadata?.id) {
                         this._dirtyCellIds.add(cell.metadata.id);

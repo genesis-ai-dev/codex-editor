@@ -1906,8 +1906,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 debug("Successfully streamed file from LFS");
                             }
 
-                            // Inform webview the audio is now available (cached or local)
-                            if (mediaStrategy === "stream-only") {
+                            // Inform webview the audio is now available — but only if the
+                            // attachment isn't deleted (deleted audio is played from history
+                            // and shouldn't change cell-level availability).
+                            if (!targetAttachment.isDeleted && mediaStrategy === "stream-only") {
                                 try {
                                     safePostMessageToPanel(webviewPanel, {
                                         type: "providerSendsAudioAttachments",
@@ -1919,16 +1921,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 try {
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), fileData);
                                     debug("Saved streamed file to disk (stream-and-save mode)");
-                                    // Immediately inform webview this cell now has a local file
-                                    try {
-                                        safePostMessageToPanel(webviewPanel, {
-                                            type: "providerSendsAudioAttachments",
-                                            attachments: { [cellId]: "available-local" as const }
-                                        });
-                                    } catch { /* non-fatal */ }
+                                    if (!targetAttachment.isDeleted) {
+                                        try {
+                                            safePostMessageToPanel(webviewPanel, {
+                                                type: "providerSendsAudioAttachments",
+                                                attachments: { [cellId]: "available-local" as const }
+                                            });
+                                        } catch { /* non-fatal */ }
+                                    }
                                 } catch (saveError) {
                                     console.warn("Failed to save streamed file:", saveError);
-                                    // Don't fail the whole operation if save fails
                                 }
                             }
                         } else {
@@ -2037,25 +2039,23 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 );
                             }
 
-                            // If stream-and-save, write file bytes to files path
                             if (mediaStrategy === "stream-and-save") {
                                 try {
                                     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
                                     await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), lfsData);
-                                    // Targeted availability update for this cell
-                                    try {
-                                        safePostMessageToPanel(webviewPanel, {
-                                            type: "providerSendsAudioAttachments",
-                                            attachments: { [cellId]: "available-local" as const }
-                                        });
-                                    } catch { /* non-fatal */ }
+                                    if (!targetAttachment.isDeleted) {
+                                        try {
+                                            safePostMessageToPanel(webviewPanel, {
+                                                type: "providerSendsAudioAttachments",
+                                                attachments: { [cellId]: "available-local" as const }
+                                            });
+                                        } catch { /* non-fatal */ }
+                                    }
                                 } catch (e) {
                                     console.warn("Failed to save streamed file in fallback:", e);
                                 }
                             } else if (mediaStrategy === "stream-only") {
-                                // Ensure files/ contains pointer for consistency (avoid repeated "not found")
                                 try {
-                                    // Derive relative path under pointers/
                                     const relFromPointers = pointerFullPath.split("/.project/attachments/pointers/").pop() ||
                                         pointerFullPath.split(".project/attachments/pointers/").pop();
                                     if (relFromPointers) {
@@ -2064,12 +2064,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 } catch (e) {
                                     // Non-fatal
                                 }
-                                try {
-                                    safePostMessageToPanel(webviewPanel, {
-                                        type: "providerSendsAudioAttachments",
-                                        attachments: { [cellId]: "available-cached" as const }
-                                    });
-                                } catch { /* non-fatal */ }
+                                if (!targetAttachment.isDeleted) {
+                                    try {
+                                        safePostMessageToPanel(webviewPanel, {
+                                            type: "providerSendsAudioAttachments",
+                                            attachments: { [cellId]: "available-cached" as const }
+                                        });
+                                    } catch { /* non-fatal */ }
+                                }
                             }
 
                             // Send to webview
@@ -2469,26 +2471,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const cellId = typedEvent.content.cellId;
 
+        // Compute availability once and include in both messages
+        const explicitSelection = document.getExplicitAudioSelection(cellId);
+        let updatedState: string;
+        if (explicitSelection) {
+            updatedState = "available-local";
+        } else {
+            const history = document.getAttachmentHistory(cellId, "audio");
+            const hasNonDeleted = history.some((h: any) => !h.attachment?.isDeleted);
+            updatedState = hasNonDeleted ? "unselected" : (history.length > 0 ? "deletedOnly" : "none");
+        }
+
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentDeleted",
             content: {
                 cellId,
                 audioId: typedEvent.content.audioId,
-                success: true
+                success: true,
+                updatedAvailability: updatedState
             }
         });
 
-        // Proactively send updated audio availability so the webview can
-        // immediately reflect the correct state (avoids stale status from
-        // a delayed refreshCurrentPage round-trip).
-        const nextAttachment = document.getCurrentAttachment(cellId, "audio");
-        let updatedState: "available-local" | "deletedOnly" | "none";
-        if (nextAttachment) {
-            updatedState = "available-local";
-        } else {
-            const history = document.getAttachmentHistory(cellId, "audio");
-            updatedState = history.length > 0 ? "deletedOnly" : "none";
-        }
         safePostMessageToPanel(webviewPanel, {
             type: "providerSendsAudioAttachments",
             attachments: { [cellId]: updatedState }
@@ -2505,23 +2508,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const audioHistory = document.getAttachmentHistory(typedEvent.content.cellId, "audio") || [];
 
-        // Get the current attachment to know which one is actually selected
-        const currentAttachment = document.getCurrentAttachment(typedEvent.content.cellId, "audio");
-
         // Check if there's an explicit selection or if we're using automatic behavior
         const explicitSelection = document.getExplicitAudioSelection(typedEvent.content.cellId);
+
+        // Only report a currentAttachmentId when there's an explicit selection —
+        // otherwise send null so the webview stays in the "unselected" state.
+        const currentAttachmentId = explicitSelection
+            ? (document.getCurrentAttachment(typedEvent.content.cellId, "audio")?.attachmentId ?? null)
+            : null;
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioHistoryReceived",
             content: {
                 cellId: typedEvent.content.cellId,
                 audioHistory: audioHistory,
-                currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                currentAttachmentId,
                 hasExplicitSelection: explicitSelection !== null
             }
         });
 
-        debug("Audio history sent successfully:", { cellId: typedEvent.content.cellId, count: audioHistory.length, currentId: currentAttachment?.attachmentId });
+        debug("Audio history sent successfully:", { cellId: typedEvent.content.cellId, count: audioHistory.length, currentId: currentAttachmentId });
     },
 
     restoreAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -2531,20 +2537,29 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId
         });
 
-        // Restore the attachment (set isDeleted: false) and select it
         await document.restoreCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
-        await document.selectAudioAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
+
+        const cellId = typedEvent.content.cellId;
+
+        const explicitSelection = document.getExplicitAudioSelection(cellId);
+        const updatedState = explicitSelection ? "available-local" : "unselected";
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentRestored",
             content: {
-                cellId: typedEvent.content.cellId,
+                cellId,
                 audioId: typedEvent.content.audioId,
-                success: true
+                success: true,
+                updatedAvailability: updatedState
             }
         });
 
-        debug("Audio attachment restored and selected successfully");
+        safePostMessageToPanel(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: { [cellId]: updatedState }
+        });
+
+        debug("Audio attachment restored successfully");
     },
 
     selectAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -2555,19 +2570,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
 
         try {
-            // Select the audio attachment
             await document.selectAudioAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
-            provider.postMessageToWebview(webviewPanel, {
-                type: "audioAttachmentSelected",
-                content: {
-                    cellId: typedEvent.content.cellId,
-                    audioId: typedEvent.content.audioId,
-                    success: true
-                }
-            });
-
-            // Send targeted audio attachment update instead of full refresh to preserve tab state
             const documentText = document.getText();
             let notebookData: any = {};
             if (documentText.trim().length > 0) {
@@ -2580,23 +2584,37 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
             const cells = Array.isArray(notebookData?.cells) ? notebookData.cells : [];
 
-            // Quick targeted availability for just the selected cell so the
-            // webview updates immediately, before the expensive full-notebook loop.
+            // Compute targeted availability so the webview can update in one render
+            let quickState: string | undefined;
             try {
                 const targetCell = cells.find((c: any) => c?.metadata?.id === typedEvent.content.cellId);
                 if (targetCell) {
                     const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                     if (ws) {
-                        const quickState = await resolveSelectedAttachmentState(
+                        quickState = await resolveSelectedAttachmentState(
                             targetCell, "available-local", ws.uri.fsPath
                         );
-                        provider.postMessageToWebview(webviewPanel, {
-                            type: "providerSendsAudioAttachments",
-                            attachments: { [typedEvent.content.cellId]: quickState } as any,
-                        });
                     }
                 }
-            } catch { /* best-effort; full loop follows */ }
+            } catch { /* best-effort */ }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSelected",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: typedEvent.content.audioId,
+                    success: true,
+                    updatedAvailability: quickState
+                }
+            });
+
+            // Also send as providerSendsAudioAttachments for the cell list
+            if (quickState) {
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: { [typedEvent.content.cellId]: quickState } as any,
+                });
+            }
 
             const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none"; } = {} as any;
             let validatedByArray: ValidationEntry[] = [];
@@ -2700,6 +2718,35 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     error: error instanceof Error ? error.message : String(error)
                 }
             });
+        }
+    },
+
+    deselectAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "deselectAudioAttachment"; }>;
+        const cellId = typedEvent.content.cellId;
+        debug("deselectAudioAttachment message received", { cellId });
+
+        try {
+            document.clearAudioSelection(cellId);
+
+            const history = document.getAttachmentHistory(cellId, "audio");
+            const hasNonDeleted = history.some((h: any) => !h.attachment?.isDeleted);
+            const updatedState = hasNonDeleted ? "unselected" : (history.length > 0 ? "deletedOnly" : "none");
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSelected",
+                content: { cellId, audioId: null, success: true, updatedAvailability: updatedState }
+            });
+
+            safePostMessageToPanel(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: { [cellId]: updatedState }
+            });
+
+            await document.save(new vscode.CancellationTokenSource().token);
+            debug("Audio attachment deselected successfully");
+        } catch (error) {
+            console.error("Error deselecting audio attachment:", error);
         }
     },
 

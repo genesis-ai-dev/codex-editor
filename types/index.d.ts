@@ -530,6 +530,12 @@ export type EditorPostMessages =
         };
     }
     | {
+        command: "deselectAudioAttachment";
+        content: {
+            cellId: string;
+        };
+    }
+    | {
         command: "updateCellAfterTranscription";
         content: {
             cellId: string;
@@ -2190,6 +2196,7 @@ type EditorReceiveMessages =
             audioId: string;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
         };
     }
     | {
@@ -2228,15 +2235,17 @@ type EditorReceiveMessages =
             audioId: string;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
         };
     }
     | {
         type: "audioAttachmentSelected";
         content: {
             cellId: string;
-            audioId: string;
+            audioId: string | null;
             success: boolean;
             error?: string;
+            updatedAvailability?: string;
         };
     }
     | {

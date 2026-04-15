@@ -3,15 +3,17 @@ import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, MilestoneIndex } from "../../../../../types";
 import { CustomNotebookMetadata } from "../../../../../types";
 
-type AudioAvailability = "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
+type AudioAvailability = "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none";
 
-const REFINED_STATES = new Set<AudioAvailability>(["available-local", "available-pointer", "available-cached"]);
+const PROTECTED_FROM_GENERIC = new Set<AudioAvailability>([
+    "available-local", "available-pointer", "available-cached",
+    "unselected", "deletedOnly",
+]);
 
 /**
- * Merge webview-derived availability into existing state without downgrading
- * refined states (from provider file-system checks) to the generic "available".
- * Also prevents "available-cached" (audio is in LFS memory cache) from being
- * overwritten by "available-pointer" or "available" which re-checks from disk.
+ * Merge incoming availability into existing state without downgrading
+ * refined/provider-set states to the generic "available" that webview-side
+ * derivation produces (it can't do file-system checks).
  */
 const mergeAvailabilityWithoutDowngrade = (
     prev: Record<string, AudioAvailability> | undefined,
@@ -21,7 +23,7 @@ const mergeAvailabilityWithoutDowngrade = (
     const next = { ...prev };
     for (const [cellId, newState] of Object.entries(incoming)) {
         const existing = prev[cellId];
-        if (existing && REFINED_STATES.has(existing) && newState === "available") {
+        if (existing && PROTECTED_FROM_GENERIC.has(existing) && newState === "available") {
             continue;
         }
         next[cellId] = newState;
@@ -30,14 +32,14 @@ const mergeAvailabilityWithoutDowngrade = (
 };
 
 /**
- * Derives the audio availability state for a cell based on its attachments and selection.
- * When an explicit selectedAudioId is missing, returns "missing" regardless of other entries.
- * When no explicit selection exists, checks whether the implicit current audio
- * (latest non-deleted by updatedAt) is missing—this is the one the provider would serve on play.
+ * Derives the audio availability state for a cell based on its attachments
+ * and explicit selection.  Mirrors the provider-side logic so that the
+ * webview-derived state matches what the provider will send, preventing
+ * icon toggling between intermediate renders.
  */
 const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
     const atts = (unit?.attachments || {}) as Record<string, any>;
-    let hasAvailable = false;
+    let hasUsable = false;
     let hasMissing = false;
     let hasDeleted = false;
 
@@ -46,29 +48,25 @@ const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
         if (att?.type === "audio") {
             if (att.isDeleted) hasDeleted = true;
             else if (att.isMissing) hasMissing = true;
-            else hasAvailable = true;
+            else hasUsable = true;
         }
     }
-
-    // Prefer showing available when a valid file exists,
-    // even if the user's explicit selection points to a missing file.
-    if (hasAvailable) return "available";
 
     const selectedId = unit?.metadata?.selectedAudioId;
-    const selectedAtt = selectedId ? atts[selectedId] : undefined;
-    if (selectedAtt?.type === "audio" && selectedAtt?.isMissing === true) {
-        return "missing";
+
+    if (!selectedId) {
+        if (hasUsable) return "unselected";
+        if (hasMissing || hasDeleted) return "deletedOnly";
+        return "none";
     }
 
-    if (!selectedId && hasMissing) {
-        const nonDeleted = Object.entries(atts)
-            .filter(([, att]) => att?.type === "audio" && !att.isDeleted)
-            .sort(([, a], [, b]) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        if (nonDeleted.length > 0 && nonDeleted[0][1].isMissing) {
-            return "missing";
-        }
+    const selectedAtt = atts[selectedId];
+    if (selectedAtt?.type === "audio" && selectedAtt?.isMissing) return "missing";
+    if (selectedAtt?.type === "audio" && selectedAtt?.isDeleted) {
+        return hasUsable ? "unselected" : "deletedOnly";
     }
 
+    if (hasUsable) return "available";
     if (hasMissing) return "missing";
     if (hasDeleted) return "deletedOnly";
     return "none";

@@ -200,9 +200,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             }
             if (message.type === "audioAttachmentSelected" && message.content.cellId === cellId) {
                 if (message.content.success) {
-                    // Immediately update the selected state
                     setSelectedAudioId(message.content.audioId);
-                    setHasExplicitSelection(true);
+                    setHasExplicitSelection(!!message.content.audioId);
                 }
             }
             if (message.type === "audioAttachmentDeleted" && message.content.cellId === cellId) {
@@ -462,16 +461,23 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     };
 
     const handleSelectAudio = (attachmentId: string) => {
-        // If previously determined missing, block selection
         if (errorIds.has(attachmentId)) {
             return;
         }
 
-        // Select immediately — no download required
-        vscode.postMessage({
-            command: "selectAudioAttachment",
-            content: { cellId, audioId: attachmentId },
-        });
+        if (selectedAudioId === attachmentId) {
+            vscode.postMessage({
+                command: "deselectAudioAttachment",
+                content: { cellId },
+            });
+            setSelectedAudioId(null);
+            setHasExplicitSelection(false);
+        } else {
+            vscode.postMessage({
+                command: "selectAudioAttachment",
+                content: { cellId, audioId: attachmentId },
+            });
+        }
     };
 
     // Helper function to determine current attachment (latest non-deleted)
@@ -692,7 +698,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                                 variant={isSelected ? "default" : "outline"}
                                                 className="transition-none"
                                                 onClick={() => handleSelectAudio(entry.attachmentId)}
-                                                disabled={isSelected}
                                             >
                                                 {isSelected ? (
                                                     <CheckCircle className="h-4 w-4 mr-1" />

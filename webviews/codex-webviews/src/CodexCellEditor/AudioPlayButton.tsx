@@ -142,13 +142,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                         return;
                     }
 
-                    if (state !== "missing" && !isCellLocked) {
+                    if (state === "unselected") {
                         try {
-                            sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
-                        } catch (e) {
-                            void e;
-                        }
+                            sessionStorage.setItem(`open-audio-history-${cellId}`, "1");
+                        } catch { /* ignore */ }
                     }
+
                     vscode.postMessage({
                         command: "setPreferredEditorTab",
                         content: { tab: "audio" },
@@ -273,6 +272,12 @@ const AudioPlayButton: React.FC<AudioPlayButtonProps> = React.memo(
                           ? "codicon-debug-stop"
                           : "codicon-play",
                     color: "var(--vscode-charts-blue)",
+                } as const;
+            }
+            if (state === "unselected") {
+                return {
+                    iconClass: "codicon-history",
+                    color: "var(--vscode-foreground)",
                 } as const;
             }
             return {

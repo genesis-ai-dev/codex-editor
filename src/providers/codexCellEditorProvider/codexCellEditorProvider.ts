@@ -106,7 +106,14 @@ export async function resolveSelectedAttachmentState(
     wsPath: string,
 ): Promise<string> {
     const selectedId = cell?.metadata?.selectedAudioId;
-    if (!selectedId) return baseState;
+    if (!selectedId) {
+        const atts = cell?.metadata?.attachments || {};
+        const hasUsable = Object.values(atts).some(
+            (att: any) => att?.type === "audio" && !att.isDeleted && !att.isMissing
+        );
+        if (hasUsable) return "unselected";
+        return baseState === "none" ? "none" : "deletedOnly";
+    }
     const selectedAtt = (cell?.metadata?.attachments || {} as any)[selectedId];
     if (!selectedAtt || selectedAtt.type !== "audio" || selectedAtt.isDeleted) return baseState;
     if (selectedAtt.isMissing) return "missing";
@@ -1340,6 +1347,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         "addAudioAttachment",
                         "softDeleteAudioAttachment",
                         "restoreAudioAttachment",
+                        "clearAudioSelection",
                     ].includes(e.edits[0].type)
                 ) {
                     // Audio metadata changes are handled by their own message
@@ -4519,11 +4527,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; } = {};
                 // Check audio availability for all cells using getCurrentAttachment()
+                let notebookCells: any[] = [];
+                try {
+                    const docText = document.getText();
+                    if (docText.trim().length > 0) {
+                        const parsed = JSON.parse(docText);
+                        notebookCells = Array.isArray(parsed?.cells) ? parsed.cells : [];
+                    }
+                } catch { /* ignore */ }
+
                 const cellIds = document.getAllCellIds();
                 for (const cellId of cellIds) {
                     const history = document.getAttachmentHistory(cellId, "audio");
 
-                    // Get the current attachment (respects selectedAudioId)
                     const currentAttachment = document.getCurrentAttachment(cellId, "audio");
 
                     if (!currentAttachment) {
@@ -4531,10 +4547,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         continue;
                     }
 
-                    // Check availability only for the current attachment
-                    let state = await this.checkAttachmentAvailability(currentAttachment.attachment, ws);
+                    let state: string = await this.checkAttachmentAvailability(currentAttachment.attachment, ws);
 
-                    // Apply version gate if needed
                     if (state !== "available-local" && state !== "available-cached") {
                         try {
                             const { getFrontierVersionStatus } = await import("../../projectManager/utils/versionChecks");
@@ -4549,7 +4563,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                     }
 
-                    availability[cellId] = state;
+                    const cell = notebookCells.find((c: any) => c?.metadata?.id === cellId);
+                    if (cell) {
+                        state = await resolveSelectedAttachmentState(cell, state, ws.uri.fsPath);
+                    }
+
+                    availability[cellId] = state as typeof availability[string];
                 }
 
                 // Send updated audio attachments to webview
