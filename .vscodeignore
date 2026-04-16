@@ -16,9 +16,6 @@
 # vscode.css was removed in favor of Tailwind CSS
 !src/assets/bible_data_with_vref_keys.json.gz
 !**/*.svg
-!node_modules/@vscode/codicons/dist/**
-!node_modules/vscode-languageserver-textdocument
-!node_modules/vscode-uri
 
 !CHANGELOG.md
 !LICENSE

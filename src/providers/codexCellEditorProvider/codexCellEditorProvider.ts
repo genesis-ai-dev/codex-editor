@@ -559,7 +559,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
+                vscode.Uri.joinPath(this.context.extensionUri, "out", "node_modules", "@vscode", "codicons", "dist"),
                 vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
             ]
         };
@@ -1508,6 +1508,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
+                "out",
                 "node_modules",
                 "@vscode/codicons",
                 "dist",
