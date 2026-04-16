@@ -83,7 +83,7 @@ jobs:
               run: pnpm run package
 
             - name: Package VSIX
-              run: pnpm dlx @vscode/vsce package --no-dependencies
+              run: xvfb-run -a pnpm dlx @vscode/vsce package --no-dependencies
 
             - name: Restore package.json
               if: always()
