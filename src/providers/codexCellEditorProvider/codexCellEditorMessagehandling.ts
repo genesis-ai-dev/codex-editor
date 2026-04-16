@@ -8,8 +8,6 @@ import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import {
     QuillCellContent,
-    SpellCheckResponse,
-    AlertCodesServerResponse,
     ValidationEntry,
 } from "../../../types";
 import path from "path";
@@ -23,13 +21,6 @@ import { toPosixPath } from "../../utils/pathUtils";
 import { revalidateCellMissingFlags } from "../../utils/audioMissingUtils";
 import { mergeAudioFiles } from "../../utils/audioMerger";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
-// Comment out problematic imports
-// import { getAddWordToSpellcheckApi } from "../../extension";
-// import { getSimilarCellIds } from "@/utils/semanticSearch";
-// import { getSpellCheckResponseForText } from "../../extension";
-// import { ChapterGenerationManager } from "./chapterGenerationManager";
-// import { generateBackTranslation, editBacktranslation, getBacktranslation, setBacktranslation } from "../../backtranslation";
-// import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -38,6 +29,19 @@ function debug(...args: any[]): void {
         console.log("[CodexCellEditorMessageHandling]", ...args);
     }
 }
+
+const AUDIO_MIME_MAP: Record<string, string> = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".webm": "audio/webm",
+    ".flac": "audio/flac",
+};
+
+const audioExtensionToMime = (ext: string): string =>
+    AUDIO_MIME_MAP[ext.toLowerCase()] ?? "application/octet-stream";
 
 // Track pending attention checks - keyed by testId
 interface PendingAttentionCheck {
@@ -98,7 +102,7 @@ async function withErrorHandling<T>(
     }
 }
 
-async function safeExecuteSmartEditCommand<T>(commandId: string, ...args: unknown[]): Promise<T | null> {
+async function safeExecuteCommand<T>(commandId: string, ...args: unknown[]): Promise<T | null> {
     const allCommands = await vscode.commands.getCommands(true);
     if (!allCommands.includes(commandId)) {
         return null;
@@ -270,7 +274,7 @@ async function getAudioFilePathForCell(
         // Fallback to parsing cell ID (legacy)
         basename = toBookChapterVerseBasename(cellId);
     }
-    const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+    const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
 
     const attachmentsFilesPath = path.join(
         workspaceFolder.uri.fsPath,
@@ -551,14 +555,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    addWord: async ({ event, webviewPanel }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "addWord"; }>;
-        await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);
-        safePostMessageToPanel(webviewPanel, {
-            type: "wordAdded",
-            content: typedEvent.words,
-        });
-    },
 
     getCommentsForCell: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getCommentsForCell"; }>;
@@ -681,75 +677,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    "from-quill-spellcheck-getSpellCheckResponse": async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "from-quill-spellcheck-getSpellCheckResponse"; }>;
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-        if (!spellcheckEnabled) {
-            return;
-        }
-
-        const response = await vscode.commands.executeCommand(
-            "codex-editor-extension.spellCheckText",
-            typedEvent.content.cellContent
-        );
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsSpellCheckResponse",
-            content: response as SpellCheckResponse,
-        });
-    },
-
-    getAlertCodes: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes"; }>;
-
-        try {
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-
-            if (!spellcheckEnabled) {
-                debug("[Message Handler] Spellcheck is disabled, skipping alert codes");
-                return;
-            }
-
-            const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
-                "codex-editor-extension.alertCodes",
-                typedEvent.content
-            );
-
-            const content: { [cellId: string]: number; } = {};
-            result.forEach((item) => {
-                content[item.cellId] = item.code;
-            });
-
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        } catch (error) {
-            console.error("[Message Handler] Failed to get alert codes:", {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                requestedCells: typedEvent?.content?.length || 0,
-                cellIds: typedEvent?.content?.map(item => item.cellId) || [],
-                errorType: error instanceof Error ? error.constructor.name : typeof error
-            });
-
-            // Provide fallback response with empty codes for all requested cells
-            const content: { [cellId: string]: number; } = {};
-            if (typedEvent?.content && Array.isArray(typedEvent.content)) {
-                typedEvent.content.forEach((item) => {
-                    content[item.cellId] = 0; // 0 = no alerts
-                });
-            }
-
-            // Always send a response to prevent webview from waiting indefinitely
-            provider.postMessageToWebview(webviewPanel, {
-                type: "providerSendsgetAlertCodeResponse",
-                content,
-            });
-        }
-    },
-
     saveHtml: async ({ event, document, provider, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
         const requestId = typedEvent.requestId;
@@ -794,13 +721,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
 
         if (oldText !== newText) {
-            if (!isSourceText) {
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.recordIceEdit",
-                    oldText,
-                    newText
-                );
-            }
             provider.updateFileStatus("dirty");
         }
 
@@ -1082,6 +1002,82 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
+    resolveHtmlStructure: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "resolveHtmlStructure"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        try {
+            const sourceCell = (await vscode.commands.executeCommand(
+                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                cellId
+            )) as { cellId: string; content: string; } | null;
+
+            if (!sourceCell?.content) {
+                vscode.window.showWarningMessage("Could not find source cell content to resolve structure.");
+                return;
+            }
+
+            const targetCell = document.getCellContent(cellId);
+            if (!targetCell) {
+                vscode.window.showWarningMessage("Could not find target cell.");
+                return;
+            }
+
+            const { callLLM, fetchCompletionConfig } = await import("../../utils/llmUtils");
+            const config = await fetchCompletionConfig();
+            const prompt = [
+                {
+                    role: "system" as const,
+                    content:
+                        "You fix structural mismatches between a source text and its translation. " +
+                        "The translation is missing some non-translatable elements that exist in the source. These can be:\n" +
+                        "1. USFM markers in angle brackets: <\\f + \\fr 1:7. \\ft>, <\\xt>, <11:44\\xt*>, <\\f*>\n" +
+                        "2. Line breaks: <br/>, <br>\n" +
+                        "3. Formatting tags: <strong>, </strong>, <em>, </em>, <b>, </b>, <i>, </i>, " +
+                        "<sup>, </sup>, <sub>, </sub>\n" +
+                        "4. Semantic spans: <span data-tag=\"...\"> and </span> (for bold, italic, small-caps, etc.)\n" +
+                        "5. Headings: <h1>–<h4> and their closing tags\n" +
+                        "6. Paragraph tags: <p>, </p>\n" +
+                        "Copy ALL missing elements EXACTLY from the source and place them at the corresponding position in the translation. " +
+                        "Keep ALL translated text unchanged. Do NOT revert any translated words back to the source language. " +
+                        "Return ONLY the corrected translation, no explanation.",
+                },
+                {
+                    role: "user" as const,
+                    content: `Source (with structural elements):\n${sourceCell.content}\n\nTranslation (missing elements):\n${targetCell.cellContent}\n\nReturn the translation with ALL missing structural elements inserted:`,
+                },
+            ];
+
+            const llmResult = await callLLM(prompt, config);
+
+            // Strip markdown code fences that LLMs often wrap around HTML output
+            let resolved = llmResult.content.trim();
+            const fenceMatch = resolved.match(/^```(?:html)?\s*\n?([\s\S]*?)\n?\s*```$/);
+            if (fenceMatch) {
+                resolved = fenceMatch[1].trim();
+            }
+
+            // Persist the resolved content to the document so it survives reload
+            await document.updateCellContent(cellId, resolved, EditType.LLM_GENERATION);
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsResolvedHtmlStructure",
+                content: { cellId, resolvedContent: resolved },
+            });
+        } catch (error) {
+            console.error("[resolveHtmlStructure] Error:", error);
+            vscode.window.showErrorMessage(
+                `Failed to resolve HTML structure: ${error instanceof Error ? error.message : String(error)}`
+            );
+            // Signal failure so the webview can reset the loading state
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsResolvedHtmlStructure",
+                content: { cellId, resolvedContent: "" },
+            });
+        }
+    },
+
     openSourceText: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "openSourceText"; }>;
         const workspaceFolderUri = getWorkSpaceUri();
@@ -1260,7 +1256,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
         await document.save(new vscode.CancellationTokenSource().token);
-        vscode.window.showInformationMessage("Notebook metadata updated successfully.");
+        vscode.window.showInformationMessage("Notebook details updated.");
         provider.refreshWebview(webviewPanel, document);
     },
 
@@ -1299,16 +1295,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    supplyRecentEditHistory: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
-        debug("supplyRecentEditHistory message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.supplyRecentEditHistory",
-            typedEvent.content.cellId,
-            typedEvent.content.editHistory
-        );
-    },
-
     exportFile: async ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile"; }>;
         const notebookName = path.parse(document.uri.fsPath).name;
@@ -1344,19 +1330,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
     },
 
-    togglePinPrompt: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt"; }>;
-        debug("togglePinPrompt message received", { event });
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.togglePinPrompt",
-            typedEvent.content.cellId,
-            typedEvent.content.promptText
-        );
-    },
-
     generateBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "generateBacktranslation"; }>;
-        const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.generateBacktranslation",
             typedEvent.content.text,
             typedEvent.content.cellId,
@@ -1370,7 +1346,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     editBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "editBacktranslation"; }>;
-        const updatedBacktranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const updatedBacktranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.editBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.newText,
@@ -1385,7 +1361,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     getBacktranslation: async ({ event, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getBacktranslation"; }>;
-        const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.getBacktranslation",
             typedEvent.content.cellId
         );
@@ -1401,7 +1377,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const backtranslations: { [cellId: string]: SavedBacktranslation | null; } = {};
         for (const cellId of cellIds) {
-            const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+            const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
                 "codex-smart-edits.getBacktranslation",
                 cellId
             );
@@ -1416,7 +1392,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     setBacktranslation: async ({ event, webviewPanel, provider, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "setBacktranslation"; }>;
-        const backtranslation = await safeExecuteSmartEditCommand<SavedBacktranslation | null>(
+        const backtranslation = await safeExecuteCommand<SavedBacktranslation | null>(
             "codex-smart-edits.setBacktranslation",
             typedEvent.content.cellId,
             typedEvent.content.originalText,
@@ -1427,14 +1403,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             type: "providerConfirmsBacktranslationSet",
             content: backtranslation,
         });
-    },
-
-    rejectEditSuggestion: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion"; }>;
-        await vscode.commands.executeCommand(
-            "codex-smart-edits.rejectEditSuggestion",
-            typedEvent.content
-        );
     },
 
     webviewFocused: ({ event, provider }) => {
@@ -1586,7 +1554,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     togglePrimarySidebar: async () => {
-        vscode.window.showInformationMessage("togglePrimarySidebar");
+        // No user notification needed - just toggle the sidebar
         await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
         await vscode.commands.executeCommand("codex-editor.navigation.focus");
     },
@@ -1784,7 +1752,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 await provider.unmergeMatchingCellsInTargetFile(cellId, document.uri.toString(), workspaceFolder);
             } else {
                 console.warn("No workspace folder found, skipping target file unmerge");
-                vscode.window.showWarningMessage("Could not unmerge corresponding cell in target file - no workspace folder found");
+                vscode.window.showWarningMessage("Could not fully undo the merge — no project folder found.");
             }
 
             // Refresh the webview to show the updated state
@@ -1857,10 +1825,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                 if (fileExists && fileStats) {
                     const ext = path.extname(fullPath).toLowerCase();
-                    const mimeType = ext === ".webm" ? "audio/webm" :
-                        ext === ".mp3" ? "audio/mp3" :
-                            ext === ".m4a" ? "audio/mp4" :
-                                ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                    const mimeType = audioExtensionToMime(ext);
 
                     let fileData: Uint8Array;
 
@@ -2084,10 +2049,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
                             // Send to webview
                             const ext = path.extname(fullPath).toLowerCase();
-                            const mimeType = ext === ".webm" ? "audio/webm" :
-                                ext === ".mp3" ? "audio/mp3" :
-                                    ext === ".m4a" ? "audio/mp4" :
-                                        ext === ".ogg" ? "audio/ogg" : "audio/wav";
+                            const mimeType = audioExtensionToMime(ext);
                             const base64Data = `data:${mimeType};base64,${Buffer.from(lfsData).toString('base64')}`;
 
                             safePostMessageToPanel(webviewPanel, {
@@ -2146,7 +2108,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         for (const attachmentsPath of tryPaths) {
             if (!(await pathExists(attachmentsPath))) continue;
             const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
-            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+            const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
 
             for (const [entryName, entryType] of files) {
                 if (entryType !== vscode.FileType.File) continue;
@@ -2157,11 +2119,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         const fullPath = path.join(attachmentsPath, audioFile);
 
                         const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
-                        const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
-                            audioFile.endsWith('.mp3') ? 'audio/mp3' :
-                                audioFile.endsWith('.m4a') ? 'audio/mp4' :
-                                    audioFile.endsWith('.ogg') ? 'audio/ogg' :
-                                        'audio/wav';
+                        const mimeType = audioExtensionToMime(path.extname(audioFile));
                         const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                         safePostMessageToPanel(webviewPanel, {
@@ -2432,10 +2390,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             {
                 const absPath = path.isAbsolute(filesPath) ? filesPath : path.join(workspaceFolder.uri.fsPath, filesPath);
                 const extNow = path.extname(absPath).toLowerCase();
-                const mimeNow = extNow === ".webm" ? "audio/webm" :
-                    extNow === ".mp3" ? "audio/mp3" :
-                        extNow === ".m4a" ? "audio/mp4" :
-                            extNow === ".ogg" ? "audio/ogg" : "audio/wav";
+                const mimeNow = audioExtensionToMime(extNow);
 
                 let base64Now: string | null = null;
                 try {
@@ -3205,6 +3160,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             // Mark the document as dirty manually since we bypassed the normal update methods
             (document as any)._isDirty = true;
+            (document as any)._dirtyCellIds.add(previousCellId);
 
             // 6. Mark current cell as merged by updating its data
             const currentCellData = document.getCellData(currentCellId) || {};
@@ -3519,6 +3475,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
+    searchNavigateToCell: async ({ event, webviewPanel, provider }) => {
+        const cellId = (event as any).content;
+        if (cellId) {
+            provider.scrollOtherPanelsToCell(cellId, webviewPanel);
+        }
+    },
+
     // Handler for expanding in-tab search to Parallel Passages (all files)
     expandSearchToAllFiles: async ({ event }) => {
         const typed = event as any;
@@ -3784,7 +3747,7 @@ export async function scanForAudioAttachments(
                             const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
 
                             // Look for any audio files that might match this cell
-                            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+                            const audioExtensions = ['.wav', '.mp3', '.m4a', '.aac', '.ogg', '.webm', '.flac'];
                             const audioFiles = files
                                 .filter(([name, type]) => type === vscode.FileType.File)
                                 .map(([name]) => name)

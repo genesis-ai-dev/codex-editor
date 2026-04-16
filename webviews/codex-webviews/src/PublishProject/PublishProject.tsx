@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useNetworkState } from "@uidotdev/usehooks";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { Button } from "../components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -44,6 +46,34 @@ export default function PublishProject() {
     const [loadingGroups, setLoadingGroups] = useState(!persistedState?.groups?.length);
     const [groupSearch, setGroupSearch] = useState("");
     const [comboboxOpen, setComboboxOpen] = useState(false);
+    const [highlightedIndex, setHighlightedIndex] = useState(0);
+    const listRef = useRef<HTMLDivElement>(null);
+
+    const network = useNetworkState();
+    const isOnline = network?.online ?? true;
+    const wasOnlineRef = useRef<boolean | undefined>(undefined);
+
+    // Detect offline→online transition: auto-refresh groups, close combobox, clear errors
+    useEffect(() => {
+        if (wasOnlineRef.current === undefined) {
+            wasOnlineRef.current = isOnline;
+            return;
+        }
+
+        if (!isOnline) {
+            setComboboxOpen(false);
+        }
+
+        if (isOnline && wasOnlineRef.current === false) {
+            setError(undefined);
+            if (!busy) {
+                setLoadingGroups(true);
+                vscode.postMessage({ command: "fetchGroups" });
+            }
+        }
+
+        wasOnlineRef.current = isOnline;
+    }, [isOnline, busy]);
 
     const isValidName = useMemo(() => /^[\w.-]+$/.test(name) && name.length > 0, [name]);
     
@@ -64,7 +94,46 @@ export default function PublishProject() {
         [groups, selectedGroupId]
     );
 
-    const canCreate = isValidName && !busy;
+    const canCreate = isValidName && !busy && isOnline;
+
+    // Reset highlighted index when filtered groups change
+    useEffect(() => {
+        setHighlightedIndex(0);
+    }, [groupSearch, filteredGroups.length]);
+
+    const selectGroup = (g: GroupList) => {
+        setSelectedGroupId(g.id);
+        setComboboxOpen(false);
+        setGroupSearch("");
+    };
+
+    const handleGroupKeyDown = (e: React.KeyboardEvent) => {
+        if (filteredGroups.length === 0) return;
+        switch (e.key) {
+            case "ArrowDown": {
+                e.preventDefault();
+                const next = Math.min(highlightedIndex + 1, filteredGroups.length - 1);
+                setHighlightedIndex(next);
+                listRef.current?.children[next]?.scrollIntoView({ block: "nearest" });
+                break;
+            }
+            case "ArrowUp": {
+                e.preventDefault();
+                const next = Math.max(highlightedIndex - 1, 0);
+                setHighlightedIndex(next);
+                listRef.current?.children[next]?.scrollIntoView({ block: "nearest" });
+                break;
+            }
+            case "Enter":
+                e.preventDefault();
+                selectGroup(filteredGroups[highlightedIndex]!);
+                break;
+            case "Escape":
+                e.preventDefault();
+                setComboboxOpen(false);
+                break;
+        }
+    };
     
     // Persist state whenever important values change
     useEffect(() => {
@@ -153,6 +222,11 @@ export default function PublishProject() {
                 showBorderShadow={false}
             />
             <div className="max-w-3xl mx-auto p-6">
+                {!isOnline && (
+                    <div className="mb-4 text-[var(--vscode-editorWarning-foreground)] bg-[var(--vscode-inputValidation-warningBackground)] border border-[var(--vscode-inputValidation-warningBorder)] rounded-md p-3 text-sm">
+                        You are currently offline. Publishing requires an internet connection.
+                    </div>
+                )}
                 {error && (
                     <div className="mb-4 text-[var(--vscode-errorForeground)] bg-[var(--vscode-inputValidation-errorBackground)] border border-[var(--vscode-inputValidation-errorBorder)] rounded-md p-3 text-sm">
                         {error}
@@ -165,7 +239,7 @@ export default function PublishProject() {
                             className="text-sm text-[var(--vscode-descriptionForeground)]"
                             htmlFor="name"
                         >
-                            Project name (from workspace folder)
+                            Project name (from project folder)
                         </label>
                         <input
                             id="name"
@@ -173,10 +247,10 @@ export default function PublishProject() {
                             readOnly
                             className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-disabledForeground)] cursor-not-allowed"
                             placeholder="my-project"
-                            title="Project name is based on the workspace folder name and cannot be changed"
+                            title="Project name is based on the project folder name and cannot be changed"
                         />
                         <div className="text-xs text-[var(--vscode-descriptionForeground)]">
-                            Project name matches your workspace folder and includes a unique ID
+                            Project name matches your project folder and includes a unique ID
                         </div>
                     </div>
 
@@ -192,7 +266,13 @@ export default function PublishProject() {
                             rows={3}
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            className="w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+                            disabled={busy}
+                            className={cn(
+                                "w-full rounded-md px-2 py-1 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)]",
+                                busy
+                                    ? "text-[var(--vscode-disabledForeground)] cursor-not-allowed opacity-60"
+                                    : "text-[var(--vscode-input-foreground)]"
+                            )}
                             placeholder="Short description..."
                         />
                     </div>
@@ -207,7 +287,7 @@ export default function PublishProject() {
                             </label>
                             <Button
                                 onClick={onFetchGroups}
-                                disabled={busy || loadingGroups}
+                                disabled={busy || loadingGroups || !isOnline}
                                 className="whitespace-nowrap rounded-md border text-xs px-2 py-0.5 border-[var(--vscode-button-border)] bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)] disabled:opacity-60"
                             >
                                 {loadingGroups ? "Loading..." : "Refresh"}
@@ -219,7 +299,7 @@ export default function PublishProject() {
                                     type="button"
                                     role="combobox"
                                     aria-expanded={comboboxOpen}
-                                    disabled={loadingGroups || groups.length === 0}
+                                    disabled={busy || loadingGroups || groups.length === 0}
                                     className="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-base outline-none border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] disabled:opacity-60 disabled:cursor-not-allowed"
                                 >
                                     <span className={cn(!selectedGroup && "text-[var(--vscode-descriptionForeground)]")}>
@@ -244,40 +324,44 @@ export default function PublishProject() {
                                         placeholder="Search groups..."
                                         value={groupSearch}
                                         onChange={(e) => setGroupSearch(e.target.value)}
+                                        onKeyDown={handleGroupKeyDown}
                                         className="w-full px-2 py-1 text-sm outline-none border border-[var(--vscode-input-border)] rounded bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
                                         autoFocus
                                     />
                                 </div>
-                                <div className="max-h-60 overflow-y-auto">
+                                <div ref={listRef} className="max-h-60 overflow-y-auto">
                                     {filteredGroups.length === 0 ? (
                                         <div className="px-3 py-2 text-sm text-[var(--vscode-descriptionForeground)]">
                                             No groups found
                                         </div>
                                     ) : (
-                                        filteredGroups.map((g) => (
-                                            <div
-                                                key={g.id}
-                                                onClick={() => {
-                                                    setSelectedGroupId(g.id);
-                                                    setComboboxOpen(false);
-                                                    setGroupSearch("");
-                                                }}
-                                                className={cn(
-                                                    "flex items-center px-3 py-1.5 text-sm cursor-pointer transition-colors",
-                                                    selectedGroupId === g.id
-                                                        ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
-                                                        : "hover:bg-[var(--vscode-list-hoverBackground)]"
-                                                )}
-                                            >
-                                                <Check
+                                        filteredGroups.map((g, index) => {
+                                            const isHighlighted = index === highlightedIndex;
+                                            const isSelected = selectedGroupId === g.id;
+                                            return (
+                                                <div
+                                                    key={g.id}
+                                                    role="option"
+                                                    aria-selected={isSelected}
+                                                    onClick={() => selectGroup(g)}
+                                                    onMouseEnter={() => setHighlightedIndex(index)}
                                                     className={cn(
-                                                        "mr-2 h-4 w-4",
-                                                        selectedGroupId === g.id ? "opacity-100" : "opacity-0"
+                                                        "flex items-center px-3 py-1.5 text-sm cursor-pointer transition-colors",
+                                                        isHighlighted
+                                                            ? "bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]"
+                                                            : "hover:bg-[var(--vscode-list-hoverBackground)]"
                                                     )}
-                                                />
-                                                {g.name}
-                                            </div>
-                                        ))
+                                                >
+                                                    <Check
+                                                        className={cn(
+                                                            "mr-2 h-4 w-4",
+                                                            isSelected ? "opacity-100" : "opacity-0"
+                                                        )}
+                                                    />
+                                                    {g.name}
+                                                </div>
+                                            );
+                                        })
                                     )}
                                 </div>
                             </PopoverContent>
@@ -292,18 +376,42 @@ export default function PublishProject() {
                         >
                             Cancel
                         </Button>
-                        <Button
-                            variant="default"
-                            onClick={onCreate}
-                            disabled={disableOnCreateButton}
-                            className={`${
-                                disableOnCreateButton
-                                    ? "cursor-not-allowed pointer-events-auto"
-                                    : "cursor-pointer"
-                            }`}
-                        >
-                            {busy ? "Creating..." : "Create"}
-                        </Button>
+                        {disableOnCreateButton ? (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span className="inline-block">
+                                        <Button
+                                            variant="default"
+                                            disabled
+                                            className="cursor-not-allowed pointer-events-none"
+                                        >
+                                            {busy
+                                                ? "Publishing..."
+                                                : !isOnline
+                                                    ? "Offline"
+                                                    : "Publish"}
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                    {!isOnline
+                                        ? "You are currently offline. Please reconnect to publish."
+                                        : !hasGroup
+                                            ? "Please select a group first."
+                                            : !isValidName
+                                                ? "Please enter a valid project name."
+                                                : "Please wait..."}
+                                </TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            <Button
+                                variant="default"
+                                onClick={onCreate}
+                                className="cursor-pointer"
+                            >
+                                Publish
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>

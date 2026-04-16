@@ -45,8 +45,8 @@ async function generateCompletionFromPairs(
     ctx.sourceLanguage
   );
 
-  const raw = await callLLM(msgs, ctx.completionConfig, ctx.token);
-  return parseFinalAnswer(raw);
+  const result = await callLLM(msgs, ctx.completionConfig, ctx.token);
+  return parseFinalAnswer(result.content);
 }
 
 export function initializeABTesting() {
