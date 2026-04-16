@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { ProjectMetadata, ProjectSwapInfo, ProjectSwapEntry, ProjectSwapUserEntry } from "../../types";
 import * as crypto from "crypto";
-import git from "isomorphic-git";
-import fs from "fs";
+import * as dugiteGit from "./dugiteGit";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectSwap]", ...args) : () => { };
@@ -319,7 +318,7 @@ export async function checkProjectSwapRequired(
                 const { fetchRemoteMetadata, extractProjectIdFromUrl } = await import("./remoteUpdatingManager");
                 const projectId = extractProjectIdFromUrl(gitOriginUrl);
                 if (projectId) {
-                    const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache);
+                    const remoteMetadata = await fetchRemoteMetadata(projectId, !bypassCache, gitOriginUrl);
                     if (remoteMetadata === null) {
                         // Server unreachable (network error, 404, 500, auth failure).
                         // Do NOT treat this as "projectSwap erased" - we simply couldn't reach the server.
@@ -651,7 +650,7 @@ async function getSwapUserEntries(swapInfo: ProjectSwapInfo, activeEntry: Projec
         const projectId = extractProjectIdFromUrl(newProjectUrl);
         if (projectId) {
             try {
-                const remoteMetadata = await fetchRemoteMetadata(projectId, false);
+                const remoteMetadata = await fetchRemoteMetadata(projectId, false, newProjectUrl);
                 const remoteSwap = remoteMetadata?.meta?.projectSwap;
                 if (remoteSwap) {
                     // Normalize and find matching entry by swapUUID
@@ -794,7 +793,7 @@ export async function validateGitUrl(gitUrl: string): Promise<{
         // Format is valid - skip remote validation
         // The actual clone operation will fail with a proper error if the URL is inaccessible
         // This avoids authentication complexity during the validation step
-        debug("Git URL format validated:", gitUrl);
+        debug("Git URL format validated:", sanitizeGitUrl(gitUrl));
         return { valid: true };
     } catch (error) {
         debug("Error in validateGitUrl:", error);
@@ -821,7 +820,7 @@ export function generateProjectUUID(): string {
  */
 export async function getGitOriginUrl(projectPath: string): Promise<string | null> {
     try {
-        const remotes = await git.listRemotes({ fs, dir: projectPath });
+        const remotes = await dugiteGit.listRemotes(projectPath);
         const origin = remotes.find((r) => r.remote === "origin");
         return origin?.url || null;
     } catch (error) {
@@ -858,17 +857,12 @@ export function sanitizeGitUrl(url: string): string {
 export async function updateGitOriginUrl(projectPath: string, newUrl: string): Promise<void> {
     try {
         // Remove old origin
-        await git.deleteRemote({ fs, dir: projectPath, remote: "origin" });
+        await dugiteGit.deleteRemote(projectPath, "origin");
 
         // Add new origin
-        await git.addRemote({
-            fs,
-            dir: projectPath,
-            remote: "origin",
-            url: newUrl,
-        });
+        await dugiteGit.addRemote(projectPath, "origin", newUrl);
 
-        debug("Updated git origin URL to:", newUrl);
+        debug("Updated git origin URL to:", sanitizeGitUrl(newUrl));
     } catch (error) {
         debug("Error updating git origin URL:", error);
         throw new Error(`Failed to update git remote: ${error instanceof Error ? error.message : String(error)}`);

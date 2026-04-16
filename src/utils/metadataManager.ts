@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { ProjectUserVersionEntry } from "@types";
 import { addProjectMetadataEdit } from "./editMapUtils";
 
 /**
@@ -17,9 +18,11 @@ interface ProjectMetadata {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        pinnedExtensions?: Record<string, { version: string; url: string }>;
         [key: string]: unknown;
     };
     edits?: any[];
+    users?: ProjectUserVersionEntry[];
     chatSystemMessage?: string;
     [key: string]: unknown;
 }
@@ -326,19 +329,28 @@ export class MetadataManager {
                     metadata.meta.requiredExtensions = {};
                 }
 
-                // Only update codexEditor if new version is greater or missing
+                const pinnedExtensions: Record<string, { version: string; url: string }> =
+                    metadata.meta.pinnedExtensions ?? {};
+
+                // Only update codexEditor if new version is greater or missing,
+                // AND no codex-editor pin is active (the Conductor owns the floor while active).
                 if (versions.codexEditor !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.codexEditor;
-                    if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                    if (!pinnedExtensions["project-accelerate.codex-editor-extension"]) {
+                        const existingVersion = metadata.meta.requiredExtensions.codexEditor;
+                        if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
+                            metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                        }
                     }
                 }
-                
-                // Only update frontierAuthentication if new version is greater or missing
+
+                // Only update frontierAuthentication if new version is greater or missing,
+                // AND no frontier-authentication pin is active.
                 if (versions.frontierAuthentication !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
-                    if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                    if (!pinnedExtensions["frontier-rnd.frontier-authentication"]) {
+                        const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
+                        if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
+                            metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                        }
                     }
                 }
 
@@ -396,17 +408,20 @@ export class MetadataManager {
             const codexEditorVersion = this.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
             const frontierAuthVersion = this.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
 
-            // Read current metadata versions
-            const currentVersions = await this.getExtensionVersions(workspaceUri);
-            if (!currentVersions.success) {
+            // Read current metadata (single read for both versions and pins)
+            const result = await this.safeReadMetadata<ProjectMetadata>(workspaceUri);
+            if (!result.success) {
                 return; // No metadata file yet, or can't read it
             }
 
-            const existingVersions = currentVersions.versions || {};
+            const existingVersions = result.metadata?.meta?.requiredExtensions || {};
             const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
 
+            // Suppress ratchet if a pin exists (The Conductor is in charge)
+            const pinnedExtensions = result.metadata?.meta?.pinnedExtensions || {};
+
             // Check codexEditor - update if missing or if installed version is newer
-            if (codexEditorVersion) {
+            if (codexEditorVersion && !pinnedExtensions['project-accelerate.codex-editor-extension']) {
                 if (!existingVersions.codexEditor) {
                     versionsToUpdate.codexEditor = codexEditorVersion;
                 } else if (compareVersions(codexEditorVersion, existingVersions.codexEditor) > 0) {
@@ -415,7 +430,7 @@ export class MetadataManager {
             }
 
             // Check frontierAuthentication - update if missing or if installed version is newer
-            if (frontierAuthVersion) {
+            if (frontierAuthVersion && !pinnedExtensions['frontier-rnd.frontier-authentication']) {
                 if (!existingVersions.frontierAuthentication) {
                     versionsToUpdate.frontierAuthentication = frontierAuthVersion;
                 } else if (compareVersions(frontierAuthVersion, existingVersions.frontierAuthentication) > 0) {
@@ -431,6 +446,59 @@ export class MetadataManager {
         } catch (error) {
             console.warn("[MetadataManager] Failed to ensure extension versions:", error);
             // Non-fatal - don't block project opening
+        }
+    }
+
+    /**
+     * Record the current user's Codex editor version in the metadata `users` array.
+     * Called on project open and after sync so deploy-compatibility checks can see
+     * which binary each collaborator is running.
+     */
+    static async ensureCurrentUserVersionRecorded(workspaceUri: vscode.Uri): Promise<void> {
+        try {
+            const codexVersion = vscode.version;
+            if (!codexVersion) {
+                return;
+            }
+
+            let userName: string | undefined;
+            try {
+                const { getAuthApi } = await import("../extension");
+                const authApi = getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                userName = userInfo?.username;
+            } catch {
+                // Auth not available — fall through to config
+            }
+            if (!userName) {
+                userName =
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userName") || undefined;
+            }
+            if (!userName) {
+                return;
+            }
+
+            await this.safeUpdateMetadata<ProjectMetadata>(workspaceUri, (metadata) => {
+                const users: ProjectUserVersionEntry[] = metadata.users ?? [];
+                const existing = users.find((u) => u.userName === userName);
+
+                if (existing) {
+                    if (existing.codexVersion === codexVersion) {
+                        return metadata; // nothing changed — skip write
+                    }
+                    existing.codexVersion = codexVersion;
+                    existing.updatedAt = Date.now();
+                } else {
+                    users.push({ userName, codexVersion, updatedAt: Date.now() });
+                }
+
+                metadata.users = users;
+                return metadata;
+            });
+        } catch (error) {
+            console.warn("[MetadataManager] Failed to record user version:", error);
         }
     }
 
@@ -458,8 +526,8 @@ export class MetadataManager {
 
         if (result.success && result.metadata) {
             const metadata = result.metadata as any;
-            sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            sourceLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "source");
+            targetLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "target");
         }
 
         if (!sourceLanguage || !targetLanguage) {
@@ -591,25 +659,10 @@ export class MetadataManager {
 }
 
 /**
- * Register commands that frontier-authentication can call to write to metadata.json
- * This implements the "single writer" principle - only codex-editor writes to metadata.json
+ * Register commands that frontier-authentication can call to read metadata.json.
+ * All writes to metadata.json happen internally via MetadataManager (single-writer principle).
  */
 export function registerMetadataCommands(context: vscode.ExtensionContext): void {
-    // Command for frontier-authentication to update extension versions
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor.updateMetadataExtensionVersions",
-            async (versions: { codexEditor?: string; frontierAuthentication?: string }): Promise<{ success: boolean; error?: string }> => {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (!workspaceFolder) {
-                    return { success: false, error: "No workspace folder open" };
-                }
-
-                return MetadataManager.updateExtensionVersions(workspaceFolder.uri, versions);
-            }
-        )
-    );
-
     // Command for frontier-authentication to read extension versions
     context.subscriptions.push(
         vscode.commands.registerCommand(

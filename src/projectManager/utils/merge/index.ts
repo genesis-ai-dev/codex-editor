@@ -13,9 +13,7 @@
  */
 
 import * as vscode from "vscode";
-import git from "isomorphic-git";
-import fs from "fs";
-import http from "isomorphic-git/http/web";
+import * as dugiteGit from "../../../utils/dugiteGit";
 import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
@@ -66,8 +64,8 @@ export async function stageAndCommitAllAndSync(
     if (!versionStatus.ok) {
         debug("Frontier version requirement not met. Blocking sync operation.");
         const details = versionStatus.installedVersion
-            ? `Frontier Authentication ${versionStatus.installedVersion} detected. Version ${versionStatus.requiredVersion} or newer is required to sync.`
-            : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
+            ? `Frontier Authentication ${versionStatus.installedVersion} is installed, but version ${versionStatus.requiredVersion} or newer is needed to sync. Please update the extension.`
+            : `Frontier Authentication is not installed. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
         await vscode.window.showWarningMessage(details, { modal: true });
         return {
             success: false,
@@ -83,7 +81,7 @@ export async function stageAndCommitAllAndSync(
 
     const authApi = getAuthApi();
     if (!authApi) {
-        vscode.window.showErrorMessage("No auth API found");
+        vscode.window.showErrorMessage("Sync is not available. Please make sure you're signed in and try again.");
         return {
             success: false,
             changedFiles: [],
@@ -108,36 +106,41 @@ export async function stageAndCommitAllAndSync(
         // First check if we have a valid git repo
         let remotes;
         try {
-            remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            remotes = await dugiteGit.listRemotes(workspaceFolder);
             if (remotes.length === 0) {
                 return syncResult;
             }
         } catch (error) {
-            vscode.window.showErrorMessage("No git repository found in this project");
+            vscode.window.showErrorMessage("This project is not set up for syncing. Please re-open the project and try again.");
             return syncResult;
         }
 
-        // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
-        // which handles authentication properly
         const conflictsResponse = await authApi.syncChanges({ commitMessage });
-        if (conflictsResponse?.offline) {
+        if (!conflictsResponse) {
+            throw new Error("syncChanges returned an empty response — sync may not have completed");
+        }
+        if (conflictsResponse.blocked) {
+            debug("Sync was blocked by Frontier (e.g., extension version requirements)");
+            return syncResult;
+        }
+        if (conflictsResponse.offline) {
             syncResult.offline = true;
-            syncResult.uploadedLfsFiles = (conflictsResponse as any).uploadedLfsFiles;
+            syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
             return syncResult;
         }
 
         // Optional diagnostics from Frontier to help detect “remote changes not applied” scenarios.
         // This is intentionally non-destructive: we only warn/log so issues can be triaged.
         try {
-            const conflictsArr = Array.isArray((conflictsResponse as any)?.conflicts)
-                ? ((conflictsResponse as any).conflicts as Array<{ filepath?: string; }>)
+            const conflictsArr = Array.isArray(conflictsResponse?.conflicts)
+                ? (conflictsResponse.conflicts as Array<{ filepath?: string; }>)
                 : [];
             const conflictPaths = new Set(
                 conflictsArr.map((c) => c?.filepath).filter((p): p is string => typeof p === "string")
             );
 
-            const remoteChanged = (conflictsResponse as any)?.remoteChangedFilePaths;
-            const allChanged = (conflictsResponse as any)?.allChangedFilePaths;
+            const remoteChanged = conflictsResponse?.remoteChangedFilePaths;
+            const allChanged = conflictsResponse?.allChangedFilePaths;
             const changedList: unknown =
                 Array.isArray(remoteChanged) ? remoteChanged : Array.isArray(allChanged) ? allChanged : [];
 
@@ -157,7 +160,7 @@ export async function stageAndCommitAllAndSync(
                     );
                     // Avoid modal spam; one-time lightweight warning.
                     vscode.window.showWarningMessage(
-                        `Sync warning: ${missingFromConflicts.length} remote .codex change(s) were not included for merge. Some remote edits may be missing.`
+                        `Some changes from other team members may not have been included. Try syncing again if something looks missing.`
                     );
                 }
             }
@@ -166,8 +169,8 @@ export async function stageAndCommitAllAndSync(
         }
 
         // Capture uploaded LFS files from the sync operation
-        if ((conflictsResponse as any)?.uploadedLfsFiles) {
-            syncResult.uploadedLfsFiles = (conflictsResponse as any).uploadedLfsFiles;
+        if (conflictsResponse?.uploadedLfsFiles) {
+            syncResult.uploadedLfsFiles = conflictsResponse.uploadedLfsFiles;
         }
 
         if (conflictsResponse?.hasConflicts) {
@@ -187,32 +190,63 @@ export async function stageAndCommitAllAndSync(
                 }
             }
 
-            const resolvedFiles = await resolveConflictFiles(conflicts, workspaceFolder);
+            const { resolved: resolvedFiles, failed: failedConflicts } = await resolveConflictFiles(conflicts, workspaceFolder);
+
+            if (failedConflicts.length > 0) {
+                const failedList = failedConflicts
+                    .map((f) => `  - ${f.filepath}: ${f.error}`)
+                    .join("\n");
+                console.error(
+                    `[Merge] ${failedConflicts.length} conflict(s) could not be resolved:\n${failedList}`
+                );
+                vscode.window.showErrorMessage(
+                    `${failedConflicts.length} file(s) had changes that couldn't be combined automatically. ` +
+                    `Your data is safe — please try syncing again or contact support.`
+                );
+                throw new Error(
+                    `Merge aborted: ${failedConflicts.length} conflict(s) could not be resolved. ` +
+                    `Resolved ${resolvedFiles.length} of ${conflicts.length} total. ` +
+                    `Failed:\n${failedList}`
+                );
+            }
+
             if (resolvedFiles.length > 0) {
                 try {
                     await authApi.completeMerge(resolvedFiles, undefined);
                     debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
                 } catch (completeMergeError) {
                     const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
-                    debug("errorMessage in retry", errorMessage);
-                    if (retryCount < 3) {
-                        debug(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
+                    debug("completeMerge error:", errorMessage);
 
-                        // Exponential backoff starting at 30s: 30s, 60s, 120s
-                        const backoffMs = 30 * Math.pow(2, retryCount) * 1000;
+                    // Only retry on transient errors (push rejected because remote
+                    // advanced, network hiccups, etc.). Permanent failures like auth,
+                    // validation, or staging errors should surface immediately.
+                    const isTransient =
+                        errorMessage.includes("non-fast-forward") ||
+                        errorMessage.includes("failed to push") ||
+                        errorMessage.includes("Failed to push") ||
+                        errorMessage.includes("timeout") ||
+                        errorMessage.includes("ETIMEDOUT") ||
+                        errorMessage.includes("ECONNRESET") ||
+                        errorMessage.includes("ECONNREFUSED") ||
+                        errorMessage.includes("network");
+
+                    if (isTransient && retryCount < 3) {
+                        debug(`⚠️ Transient completeMerge failure, retrying... (attempt ${retryCount + 1}/3)`);
+
+                        const backoffMs = 5 * Math.pow(2, retryCount) * 1000;
                         debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
                         await new Promise(resolve => setTimeout(resolve, backoffMs));
 
                         return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
-                    } else if (retryCount >= 3) {
-                        vscode.window.showErrorMessage(
-                            `Failed to complete merge after 3 retries: ${errorMessage}`
-                        );
-                        throw completeMergeError;
-                    } else {
-                        // Re-throw if it's not a fast-forward error or we've exhausted retries
-                        throw completeMergeError;
                     }
+
+                    if (retryCount >= 3) {
+                        vscode.window.showErrorMessage(
+                            `Sync couldn't complete after multiple attempts. Please check your internet connection and try again.`
+                        );
+                    }
+                    throw completeMergeError;
                 }
             }
         }
@@ -233,14 +267,14 @@ export async function stageAndCommitAllAndSync(
 
         // Only show completion message if requested (not during startup with splash screen)
         if (showCompletionMessage) {
-            vscode.window.showInformationMessage("Project is fully synced.");
+            vscode.window.showInformationMessage("Your project is up to date!");
         }
 
         return syncResult;
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(
-            `Failed to commit and sync changes: ${error instanceof Error ? error.message : String(error)}`
+            `Sync failed. Please try again or contact support if the problem persists.`
         );
         throw error;
     }

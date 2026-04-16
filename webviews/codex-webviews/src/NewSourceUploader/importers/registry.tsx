@@ -13,8 +13,7 @@ import {
 } from "lucide-react";
 
 // Import the actual plugin definitions
-// import { docxImporterPlugin } from "./docx/index.tsx"; // Old mammoth.js importer
-import { docxRoundtripImporterPlugin as docxImporterPlugin } from "./docx/experiment/index.tsx"; // New round-trip importer
+import { docxImporterPlugin } from "./docx/index.tsx";
 import { markdownImporterPlugin } from "./markdown/index.tsx";
 // import { usfmImporterPlugin } from "./usfm/index.tsx"; // Original USFM importer
 import { usfmExperimentalImporterPlugin } from "./usfm/experimental/index.tsx"; // Experimental round-trip importer (standalone with headers in chapter 1)
@@ -51,12 +50,12 @@ const createPlaceholderComponent = (name: string) => {
 export const importerPlugins: ImporterPlugin[] = [
     // Essential Tools - General purpose importers for broad appeal
     // Non-beta importers first
-        // {
-        //     ...smartSegmenterPlugin,
-        //     name: "Smart Segmenter",
-        //     description: "Works with any text file",
-        //     tags: [...(smartSegmenterPlugin.tags || []), "Essential", "Universal", "Text"],
-        // },
+    // {
+    //     ...smartSegmenterPlugin,
+    //     name: "Smart Segmenter",
+    //     description: "Works with any text file",
+    //     tags: [...(smartSegmenterPlugin.tags || []), "Essential", "Universal", "Text"],
+    // },
     {
         ...audioImporterPlugin,
         name: "Audio",
@@ -64,28 +63,32 @@ export const importerPlugins: ImporterPlugin[] = [
         tags: ["Essential", "Media", "Audio"],
     },
     {
-        ...markdownImporterPlugin,
-        name: "Markdown",
-        description: "GitHub-style markdown files with round-trip export support",
-        tags: ["Essential", "Documentation", "GitHub", "Round-trip"],
-    },
-    {
         ...subtitlesImporterPlugin,
         name: "Subtitles",
         description: "Video captions with timestamps",
+        supportsTargetImport: true,
         tags: ["Essential", "Media", "Video"],
-    },
-    {
-        ...tmsImporterPlugin,
-        name: "TMS Files",
-        description: "Translation memory and localization files (TMX/XLIFF) with round-trip export support",
-        tags: ["Essential", "Translation", "Localization", "Round-trip"],
     },
     {
         ...docxImporterPlugin,
         name: "Word Documents",
         description: "Microsoft Word files with round-trip export support",
+        supportsTargetImport: true,
         tags: ["Essential", "Documents", "Microsoft", "Round-trip"],
+    },
+    {
+        ...markdownImporterPlugin,
+        name: "Markdown",
+        description: "GitHub-style markdown files with round-trip export support",
+        supportsTargetImport: true,
+        tags: ["Essential", "Documentation", "GitHub", "Round-trip"],
+    },
+    {
+        ...tmsImporterPlugin,
+        name: "TMS Files",
+        description: "Translation memory and localization files with round-trip export support",
+        supportsTargetImport: true,
+        tags: ["Essential", "Translation", "Localization", "Round-trip"],
     },
     {
         ...indesignImporterPlugin,
@@ -93,50 +96,56 @@ export const importerPlugins: ImporterPlugin[] = [
         description: "Adobe InDesign IDML files with round-trip loss-free editing",
         tags: ["Essential", "Documents", "Adobe", "Round-trip"],
     },
-        // {
-        //     ...pdfImporterPlugin,
-        //     name: "PDF Documents",
-        //     description: "Portable Document Format files with Bible text",
-        //     icon: FileText,
-        //     tags: ["Essential", "Documents", "PDF"],
-        // },
+    // {
+    //     ...pdfImporterPlugin,
+    //     name: "PDF Documents",
+    //     description: "Portable Document Format files with Bible text",
+    //     icon: FileText,
+    //     tags: ["Essential", "Documents", "PDF"],
+    // },
 
     // Specialized Tools - Domain-specific importers for Bible translation
     // Non-beta importers first
-        // {
-        //     ...usfmImporterPlugin,
-        //     name: "USFM Files",
-        //     description: "Unified Standard Format Marker files",
-        //     tags: [...(usfmImporterPlugin.tags || []), "Specialized", "Bible", "USFM"],
-        // },
+    // {
+    //     ...usfmImporterPlugin,
+    //     name: "USFM Files",
+    //     description: "Unified Standard Format Marker files",
+    //     tags: [...(usfmImporterPlugin.tags || []), "Specialized", "Bible", "USFM"],
+    // },
     {
         ...usfmExperimentalImporterPlugin,
         name: "USFM New",
-        description: "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
+        description:
+            "USFM files with round-trip export support (headers in chapter 1, verse-only target imports)",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "USFM", "Round-trip"],
     },
     {
         ...paratextImporterPlugin,
         name: "Paratext Projects",
         description: "Translation projects with settings",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Paratext"],
     },
     {
         ...ebibleDownloadImporterPlugin,
         name: "eBible Download",
         description: "Download directly from eBible.org",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Download"],
     },
     {
         ...maculaBibleImporterPlugin,
         name: "Macula Bible",
         description: "Hebrew and Greek with annotations",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Original Languages"],
     },
     {
         ...obsImporterPlugin,
         name: "Bible Stories",
         description: "Open Bible Stories format with round-trip export support",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Stories", "Round-trip"],
     },
     {
@@ -148,13 +157,14 @@ export const importerPlugins: ImporterPlugin[] = [
     // {
     //     ...reach4lifeImporterPlugin,
     //     name: "Reach4Life",
-    //     description: "Reach4Life IDML importer with Study Bible notes",
+    //     description: "Reach4Life IDML importer",
     //     tags: ["Specialized", "Bible", "Reach4Life", "Round-trip"],
     // },
     {
         ...spreadsheetImporterPlugin,
         name: "Bible Spreadsheet with Audio data",
         description: "CSV and TSV files with audio URLs",
+        supportsTargetImport: true,
         tags: ["Specialized", "Bible", "Spreadsheet", "CSV", "TSV", "Round-trip"],
     },
 ];
@@ -199,15 +209,21 @@ export const getSupportedExtensions = (): string[] => {
 /**
  * Get Essential importers (general-purpose, broad appeal)
  */
-export const getEssentialImporters = (): ImporterPlugin[] => {
-    return importerPlugins.filter((plugin) => plugin.tags?.includes("Essential"));
+export const getEssentialImporters = (targetOnly?: boolean): ImporterPlugin[] => {
+    return importerPlugins.filter(
+        (plugin) =>
+            plugin.tags?.includes("Essential") && (!targetOnly || plugin.supportsTargetImport)
+    );
 };
 
 /**
  * Get Specialized importers (domain-specific tools)
  */
-export const getSpecializedImporters = (): ImporterPlugin[] => {
-    return importerPlugins.filter((plugin) => plugin.tags?.includes("Specialized"));
+export const getSpecializedImporters = (targetOnly?: boolean): ImporterPlugin[] => {
+    return importerPlugins.filter(
+        (plugin) =>
+            plugin.tags?.includes("Specialized") && (!targetOnly || plugin.supportsTargetImport)
+    );
 };
 
 /**

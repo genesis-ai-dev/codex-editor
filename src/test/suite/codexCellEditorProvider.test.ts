@@ -63,7 +63,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Stub background tasks to avoid side-effects and assert calls
         sinon.restore();
         sinon.stub((CodexCellDocument as any).prototype, "addCellToIndexImmediately").callsFake(() => { });
-        sinon.stub((CodexCellDocument as any).prototype, "syncAllCellsToDatabase").resolves();
+        sinon.stub((CodexCellDocument as any).prototype, "syncDirtyCellsToDatabase").resolves();
         sinon.stub((CodexCellDocument as any).prototype, "populateSourceCellMapFromIndex").resolves();
     });
 
@@ -1088,16 +1088,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         const newContent = "Updated HTML content";
 
-        // Stub command used by saveHtml handler
-        const originalExecuteCommand = vscode.commands.executeCommand;
-        // @ts-expect-error test stub
-        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.recordIceEdit") {
-                return undefined;
-            }
-            return originalExecuteCommand(command, ...args);
-        };
-
         onDidReceiveMessageCallback!({
             command: "saveHtml",
             content: {
@@ -1198,9 +1188,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             "providerUpdatesNotebookMetadataForWebview",
         ];
         assert.ok(allowedAutoTypes.includes(postMessageCallback.type));
-
-        // Restore command stub
-        vscode.commands.executeCommand = originalExecuteCommand;
     });
 
     test("text direction update should be reflected in the webview", async () => {
@@ -1405,7 +1392,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.strictEqual(lastEdit.value, 333);
     });
 
-    test("smart edit functionality updates cell content correctly", async () => {
+    test("saveHtml updates cell content correctly", async () => {
         const provider = new CodexCellEditorProvider(context);
         const document = await provider.openCustomDocument(
             tempUri,
@@ -1449,22 +1436,14 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Mock cell content and edit history
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         const originalDocCellValue = JSON.parse(document.getText()).cells.find((c: any) => c.metadata.id === cellId)?.value;
-        const smartEditResult = "This is the improved content after smart edit.";
+        const updatedContent = "This is the improved content after editing.";
 
-        // Simulate saving the updated content (stub recordIceEdit)
-        const originalExecuteCommand2 = vscode.commands.executeCommand;
-        // @ts-expect-error test stub
-        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.recordIceEdit") {
-                return undefined;
-            }
-            return originalExecuteCommand2(command, ...args);
-        };
+        // Simulate saving the updated content
         onDidReceiveMessageCallback!({
             command: "saveHtml",
             content: {
                 cellMarkers: [cellId],
-                cellContent: smartEditResult,
+                cellContent: updatedContent,
             },
         });
 
@@ -1472,18 +1451,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
         let updatedValue: string | undefined;
         for (let i = 0; i < 5; i++) {
             await new Promise((resolve) => setTimeout(resolve, 60));
-            const updatedContent = JSON.parse(document.getText());
-            updatedValue = updatedContent.cells.find((c: any) => c.metadata.id === cellId)?.value;
-            if (updatedValue === smartEditResult) break;
+            const parsedContent = JSON.parse(document.getText());
+            updatedValue = parsedContent.cells.find((c: any) => c.metadata.id === cellId)?.value;
+            if (updatedValue === updatedContent) break;
         }
         // Accept either immediate update or unchanged value depending on async timing
         assert.ok(
-            updatedValue === smartEditResult || updatedValue === originalDocCellValue,
+            updatedValue === updatedContent || updatedValue === originalDocCellValue,
             "Cell content should eventually be updated or remain unchanged if async processing defers it"
         );
-
-        // Restore command stub
-        vscode.commands.executeCommand = originalExecuteCommand2;
     });
 
     test("git commit is triggered on document save operations", async () => {
@@ -2534,14 +2510,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
             onDidChangeViewState: (_cb: any) => ({ dispose: () => { } }),
         } as any as vscode.WebviewPanel;
 
-        // Stub command used by saveHtml handler (recordIceEdit)
-        const originalExecuteCommand = vscode.commands.executeCommand;
-        // @ts-expect-error test stub
-        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.recordIceEdit") return undefined;
-            return originalExecuteCommand(command, ...args);
-        };
-
         // Gate saveCustomDocument so we can assert ack is only posted after it resolves
         const originalSaveCustomDocument = (provider as any).saveCustomDocument;
         let saveResolve!: () => void;
@@ -2597,7 +2565,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         // Restore stubs
         (provider as any).saveCustomDocument = originalSaveCustomDocument;
-        vscode.commands.executeCommand = originalExecuteCommand;
     });
 
     test("mergeMatchingCellsInTargetFile marks target current cell merged and logs merged edit", async function () {
@@ -3075,9 +3042,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Then, perform search/replace with retainValidations=true (simulating updateCellContentDirect with retainValidations=true)
         await (document as any).updateCellContent(cellId, "Replaced value", EditType.USER_EDIT, true, true, true);
 
-        // Persist to disk to assert the stored structure
+        // Persist to disk to assert the stored structure (retry to handle Windows filesystem flush timing)
         await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
-        const diskData = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(document.uri)));
+        const diskData = await readJsonFromDiskWithRetry(document.uri);
         const diskCell = diskData.cells.find((c: any) => c.metadata.id === cellId);
 
         // Latest value edit should have a NEW validation entry (not copied from old)
@@ -3744,7 +3711,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked LLM response";
+                return { content: "Mocked LLM response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar item
@@ -3886,7 +3853,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ content: "Mocked response", generationId: "gen-test-mock" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -3989,7 +3956,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
             // Mock callLLM
             const llmUtils = await import("../../utils/llmUtils");
-            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves("Mocked response");
+            const callLLMStub = sinon.stub(llmUtils, "callLLM").resolves({ content: "Mocked response", generationId: "gen-test-mock" });
 
             // Stub status bar and notebook reader
             const extModule = await import("../../extension");
@@ -4093,7 +4060,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub MetadataManager.getChatSystemMessage to return custom system message
@@ -4238,7 +4205,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar and notebook reader
@@ -4378,7 +4345,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             // Mock callLLM to capture messages
             const llmUtils = await import("../../utils/llmUtils");
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar and notebook reader
@@ -4527,7 +4494,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             let capturedMessages: any[] | null = null;
             const callLLMStub = sinon.stub(llmUtils, "callLLM").callsFake(async (messages: any[]) => {
                 capturedMessages = messages;
-                return "Mocked response";
+                return { content: "Mocked response", generationId: "gen-test-mock" };
             });
 
             // Stub status bar and notebook reader

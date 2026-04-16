@@ -16,7 +16,7 @@ export async function openLicenseEditor() {
     // Get workspace folder
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
+        vscode.window.showErrorMessage("No project is open. Please open a project first.");
         panel.dispose();
         return;
     }
@@ -154,7 +154,7 @@ License: cc0`;
     }
 }
 
-function getWebviewContent(currentLicense: { type: string; owner: string; year: string }) {
+function getWebviewContent(currentLicense: { type: string; owner: string; year: string; }) {
     return `<!DOCTYPE html>
     <html>
         <head>

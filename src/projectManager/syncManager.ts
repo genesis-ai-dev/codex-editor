@@ -5,13 +5,13 @@ import { createIndexWithContext } from "../activationHelpers/contextAware/conten
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import * as path from "path";
 import { updateSplashScreenSync } from "../providers/SplashScreen/register";
-import git from "isomorphic-git";
-import fs from "fs";
-import http from "isomorphic-git/http/web";
+import * as dugiteGit from "../utils/dugiteGit";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
-import { markPendingUpdateRequired } from "../utils/localProjectSettings";
+import { markPendingUpdateRequired, clearPendingUpdate, readLocalProjectSettings } from "../utils/localProjectSettings";
+import { isDatabaseReady } from "../utils/sqliteDatabaseFactory";
+import { isOnline } from "../utils/connectivityChecker";
 
 const DEBUG_SYNC_MANAGER = false;
 
@@ -26,26 +26,15 @@ function debug(message: string, ...args: any[]): void {
  */
 async function hasLocalModifications(workspaceFolder: string, filePath: string): Promise<boolean> {
     try {
-        const status = await git.status({
-            fs,
-            dir: workspaceFolder,
-            filepath: filePath,
-        });
+        const statusOutput = await dugiteGit.status(workspaceFolder, filePath);
 
-        // status can be:
-        // - "*modified" (unstaged changes)
-        // - "*added" (new file, unstaged)
-        // - "*deleted" (deleted, unstaged)
-        // - "modified" (staged changes)
-        // - "added" (new file, staged)
-        // - "deleted" (deleted, staged)
-        // - "unmodified" (no changes)
-
-        const hasChanges = status !== "unmodified";
+        // dugiteGit.status returns undefined for unmodified files,
+        // or porcelain v2 output if there are changes
+        const hasChanges = statusOutput !== undefined;
         return hasChanges;
     } catch (error) {
         console.warn(`[SyncManager] Could not check git status for ${filePath}:`, error);
-        return false; // If we can't check, assume no changes to be safe
+        return true; // If we can't check, assume changes exist so repair/sync paths are not skipped
     }
 }
 
@@ -66,7 +55,7 @@ export class SyncManager {
     // Track active progress notification
     private activeProgressNotification: Promise<void> | undefined;
     private updatingCheckInterval: NodeJS.Timeout | null = null;
-    // Track if user has been notified about swap (keyed by swapInitiatedAt to allow new swap notifications)
+    // Track if user has been notified about update (swap) (keyed by swapInitiatedAt to allow new notifications)
     private swapNotificationShownFor: number | null = null;
     // Track when NewSourceUploader is importing files - sync must be disabled during import
     private importInProgressCount: number = 0;
@@ -81,23 +70,23 @@ export class SyncManager {
         this.startUpdatingMonitor();
     }
 
-    // Start monitoring for updating and swap requirements
+    // Start monitoring for updating and update (swap) requirements
     private startUpdatingMonitor() {
         if (this.updatingCheckInterval) {
             clearInterval(this.updatingCheckInterval);
         }
 
-        // Check periodically (every hour) if updating or swap is required
+        // Check periodically (every hour) if updating or update (swap) is required
         // This handles cases where the user is constantly working (resetting sync timer)
         // or leaving the editor open without syncing
         this.updatingCheckInterval = setInterval(async () => {
             const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
             if (hasWorkspace) {
                 const projectPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
-                // Check for both updating and swap requirements
+                // Check for both updating and update (swap) requirements
                 const isUpdatingRequired = await this.checkUpdating(projectPath);
                 if (!isUpdatingRequired) {
-                    // Only check swap if updating isn't required (updating takes priority)
+                    // Only check update (swap) if updating isn't required (updating takes priority)
                     await this.checkProjectSwap(projectPath);
                 }
             }
@@ -107,11 +96,75 @@ export class SyncManager {
     // Check if updating is required and notify/block if so
     private async checkUpdating(projectPath: string): Promise<boolean> {
         try {
-            // Check if updating is required
-            // We force bypass cache to ensure we get the latest state from server
+            // Check local sticky flag first — instant, no network needed.
+            // This covers cases where the remote API call fails but the flag
+            // was already set by a prior sync, project list load, or admin action.
+            try {
+                const localSettings = await readLocalProjectSettings(vscode.Uri.file(projectPath));
+                if (localSettings.pendingUpdate?.required) {
+                    debug("Pending update flag set in localProjectSettings — verifying with remote before blocking");
+
+                    // Verify with remote before blocking: admin may have cancelled
+                    let clearedByRemote = false;
+                    try {
+                        const remoteVerify = await checkRemoteUpdatingRequired(projectPath, undefined, true);
+                        if (
+                            !remoteVerify.required
+                            && remoteVerify.remoteReachable
+                            && (remoteVerify.entryStatus === "cancelled" || remoteVerify.entryStatus === "executed")
+                        ) {
+                            debug("Remote confirms entry is no longer active, clearing stale local flag");
+                            await clearPendingUpdate(vscode.Uri.file(projectPath));
+                            clearedByRemote = true;
+                        }
+                    } catch {
+                        debug("Remote verification failed (non-fatal), will check local metadata");
+                    }
+
+                    // If remote didn't clear, check local metadata.json as fallback.
+                    // Covers the case where the admin cancelled locally but hasn't synced yet.
+                    if (!clearedByRemote) {
+                        const clearedByLocal = await this.checkLocalMetadataForCancellation(projectPath);
+                        if (clearedByLocal) {
+                            debug("Local metadata confirms all entries cancelled/executed, clearing stale flag");
+                            await clearPendingUpdate(vscode.Uri.file(projectPath));
+                            // Fully resolved — skip the second remote check and allow sync
+                            return false;
+                        } else {
+                            debug("Update still required (remote and local checks), blocking sync");
+                            const selection = await vscode.window.showWarningMessage(
+                                "Project Update Required\n\nAn administrator has made changes that require updating your project. Syncing is paused until the update is applied.\n\nThe project needs to be closed to complete the update.",
+                                { modal: true },
+                                "Update Project"
+                            );
+                            if (selection === "Update Project") {
+                                await vscode.commands.executeCommand("workbench.action.closeFolder");
+                            }
+                            return true;
+                        }
+                    }
+                }
+            } catch {
+                debug("Could not read localProjectSettings for pre-check (non-fatal)");
+            }
+
+            // Also check remote for the latest state (catches newly-set entries)
             const result = await checkRemoteUpdatingRequired(projectPath, undefined, true);
 
             if (result.required) {
+                // Remote says required — but local metadata may have a newer
+                // cancellation/execution that hasn't been pushed yet.
+                const localOverride = await this.checkLocalMetadataForCancellation(projectPath);
+                if (localOverride) {
+                    debug("Remote says required but local metadata has newer cancellation/execution — allowing sync");
+                    try {
+                        await clearPendingUpdate(vscode.Uri.file(projectPath));
+                    } catch (e) {
+                        console.warn("Failed to clear pending update flag:", e);
+                    }
+                    return false;
+                }
+
                 debug("Updating required for user, blocking sync and notifying");
 
                 // Persist pending update flag so the projects list can surface it after close
@@ -123,7 +176,7 @@ export class SyncManager {
 
                 // Show modal dialog that cannot be missed (even if notifications are disabled)
                 const selection = await vscode.window.showWarningMessage(
-                    "Project Update Required\n\nA project administrator has initiated an update. Syncing has been disabled until you update.\n\nThe project must be closed to complete the update.",
+                    "Project Update Required\n\nAn administrator has made changes that require updating your project. Syncing is paused until the update is applied.\n\nThe project needs to be closed to complete the update.",
                     { modal: true },  // Modal dialog - appears in center, cannot be missed
                     "Update Project"
                 );
@@ -132,9 +185,19 @@ export class SyncManager {
                 if (selection === "Update Project") {
                     await vscode.commands.executeCommand("workbench.action.closeFolder");
                 }
-                // If user clicks Cancel (default button) or Escape, selection will be undefined - stay in project
 
                 return true;
+            } else if (
+                result.remoteReachable
+                && (result.entryStatus === "cancelled" || result.entryStatus === "executed")
+            ) {
+                // Remote confirms the entry is no longer active — clear any stale flag immediately
+                // so the user doesn't need to wait for a project-list reload.
+                try {
+                    await clearPendingUpdate(vscode.Uri.file(projectPath));
+                } catch (e) {
+                    console.warn("Failed to clear pending update flag:", e);
+                }
             }
         } catch (error) {
             console.error("Error checking updating requirement:", error);
@@ -142,9 +205,56 @@ export class SyncManager {
         return false;
     }
 
-    // Check if project swap is required and notify/block if so
+    /**
+     * Check local metadata.json for cancellation/execution evidence.
+     * Returns true if all entries for the current user are inactive
+     * (cancelled with newer updatedAt, or executed), meaning sync can proceed.
+     */
+    private async checkLocalMetadataForCancellation(projectPath: string): Promise<boolean> {
+        try {
+            const { getCurrentUsername, normalizeUpdateEntry, isEffectivelyCancelled } = await import("../utils/remoteUpdatingManager");
+            const { MetadataManager } = await import("../utils/metadataManager");
+
+            const currentUsername = await getCurrentUsername();
+            if (!currentUsername) {
+                return false;
+            }
+
+            const projectUri = vscode.Uri.file(projectPath);
+            const metaResult = await MetadataManager.safeReadMetadata(projectUri);
+            if (!metaResult.success || !metaResult.metadata) {
+                return false;
+            }
+
+            const rawEntries = (metaResult.metadata as any).meta?.initiateRemoteUpdatingFor;
+            if (!Array.isArray(rawEntries) || rawEntries.length === 0) {
+                return false;
+            }
+
+            const entries = rawEntries.map((e: any) => normalizeUpdateEntry(e));
+            const userEntries = entries.filter((e) => e.userToUpdate === currentUsername);
+
+            if (userEntries.length === 0) {
+                return false;
+            }
+
+            const allInactive = userEntries.every(
+                (e) => e.executed || isEffectivelyCancelled(e)
+            );
+
+            if (allInactive) {
+                debug("Local metadata: all entries for user are cancelled/executed");
+            }
+            return allInactive;
+        } catch (e) {
+            debug("checkLocalMetadataForCancellation error (non-fatal):", e);
+            return false;
+        }
+    }
+
+    // Check if project update (swap) is required and notify/block if so
     // isManualSync: when true, always show the dialog (user explicitly clicked sync)
-    // when false (hourly timer), only show once per swap entry to prevent infinite popups
+    // when false (hourly timer), only show once per update (swap) entry to prevent infinite popups
     private async checkProjectSwap(projectPath: string, isManualSync: boolean = false): Promise<boolean> {
         try {
             const { checkProjectSwapRequired } = await import("../utils/projectSwapManager");
@@ -152,17 +262,17 @@ export class SyncManager {
             const result = await checkProjectSwapRequired(projectPath, undefined, true);
 
             if (result.required && result.activeEntry && !result.remoteUnreachable) {
-                debug("Project swap required for user, blocking sync");
+                debug("Project update (swap) required for user, blocking sync");
 
-                // Check if there are pending downloads for the swap
-                // If so, DON'T show the swap modal - let downloads complete first
+                // Check if there are pending downloads for the update (swap)
+                // If so, DON'T show the update (swap) modal - let downloads complete first
                 const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
                 const pendingState = await getSwapPendingState(projectPath);
 
                 if (pendingState && pendingState.swapState === "pending_downloads") {
-                    debug("Swap has pending downloads - suppressing swap modal, allowing media downloads");
+                    debug("Update (swap) has pending downloads - suppressing modal, allowing media downloads");
                     // Return false to allow media operations to proceed
-                    // The swap modal will show after downloads complete via checkPendingSwapDownloads
+                    // The update (swap) modal will show after downloads complete via checkPendingSwapDownloads
                     return false;
                 }
 
@@ -170,33 +280,33 @@ export class SyncManager {
                 const swapTimestamp = activeEntry.swapInitiatedAt;
 
                 // For manual sync: always show the dialog so user knows why sync is blocked
-                // For automatic sync (hourly timer): only show once per swap entry to prevent infinite popups
+                // For automatic sync (hourly timer): only show once per update (swap) entry to prevent infinite popups
                 const shouldShowDialog = isManualSync || this.swapNotificationShownFor !== swapTimestamp;
 
                 if (shouldShowDialog) {
-                    // Track that we've shown for this swap entry (for automatic checks)
+                    // Track that we've shown for this update (swap) entry (for automatic checks)
                     this.swapNotificationShownFor = swapTimestamp;
 
                     const newProjectName = activeEntry.newProjectName;
 
                     // Show modal dialog that cannot be missed
                     const selection = await vscode.window.showWarningMessage(
-                        `📦 Project Swap Required\n\n` +
-                        `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
-                        `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
-                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
-                        `Syncing has been disabled until you swap.\n\n` +
-                        `Your local changes will be preserved and backed up.`,
+                        `📦 Project Update Required\n\n` +
+                        `This project has been moved to a new version:\n${newProjectName}\n\n` +
+                        `Reason: ${activeEntry.swapReason || "Project update"}\n` +
+                        `Started by: ${activeEntry.swapInitiatedBy}\n\n` +
+                        `Syncing is paused until you update.\n\n` +
+                        `Your work will be saved and backed up.`,
                         { modal: true },
-                        "Swap Now"
+                        "Update Now"
                     );
 
-                    if (selection === "Swap Now") {
-                        // Close folder - StartupFlowProvider will handle the swap on next open
+                    if (selection === "Update Now") {
+                        // Close folder - StartupFlowProvider will handle the update (swap) on next open
                         await vscode.commands.executeCommand("workbench.action.closeFolder");
                     }
                 } else {
-                    debug("Swap notification already shown for this swap entry (automatic check), silently blocking sync");
+                    debug("Update (swap) notification already shown for this entry (automatic check), silently blocking sync");
                 }
 
                 return true;
@@ -208,10 +318,10 @@ export class SyncManager {
     }
 
     /**
-     * Post-sync swap check: after sync completes, check if a swap is required and show notification.
+     * Post-sync update (swap) check: after sync completes, check if an update (swap) is required and show notification.
      * This handles:
-     * 1. Admin initiates swap → syncs with bypass → should see swap notification after sync
-     * 2. User syncs → pulls new swap info from remote → should see swap notification
+     * 1. Admin initiates update (swap) → syncs with bypass → should see update notification after sync
+     * 2. User syncs → pulls new update (swap) info from remote → should see update notification
      * 
      * This is async and non-blocking - we don't want to hold up the sync completion flow.
      */
@@ -227,49 +337,134 @@ export class SyncManager {
             const result = await checkProjectSwapRequired(projectPath, undefined, true);
 
             if (result.required && result.activeEntry && !result.remoteUnreachable) {
-                // Check if there are pending downloads for the swap
-                // If so, DON'T show the swap modal - let downloads complete first
+                // Check if there are pending downloads for the update (swap)
+                // If so, DON'T show the update modal - let downloads complete first
                 const { getSwapPendingState } = await import("../providers/StartupFlow/performProjectSwap");
                 const pendingState = await getSwapPendingState(projectPath);
 
                 if (pendingState && pendingState.swapState === "pending_downloads") {
-                    debug("[SyncManager] Post-sync: Swap has pending downloads - suppressing modal");
+                    debug("[SyncManager] Post-sync: Update (swap) has pending downloads - suppressing modal");
                     return;
                 }
 
                 const activeEntry = result.activeEntry;
                 const swapTimestamp = activeEntry.swapInitiatedAt;
 
-                // Only show if we haven't shown for this swap entry yet (prevent double-notification)
+                // Only show if we haven't shown for this update (swap) entry yet (prevent double-notification)
                 if (this.swapNotificationShownFor !== swapTimestamp) {
                     this.swapNotificationShownFor = swapTimestamp;
 
-                    debug("[SyncManager] Post-sync: Project swap required, showing notification");
+                    debug("[SyncManager] Post-sync: Project update (swap) required, showing notification");
 
                     const newProjectName = activeEntry.newProjectName;
 
                     // Show modal dialog
                     const selection = await vscode.window.showWarningMessage(
-                        `📦 Project Swap Required\n\n` +
-                        `This project has been swapped to a new repository:\n${newProjectName}\n\n` +
-                        `Reason: ${activeEntry.swapReason || "Repository swap"}\n` +
-                        `Initiated by: ${activeEntry.swapInitiatedBy}\n\n` +
+                        `📦 Project Update Required\n\n` +
+                        `This project has moved to a new folder:\n${newProjectName}\n\n` +
+                        `Reason: ${activeEntry.swapReason || "Project update"}\n` +
+                        `Started by: ${activeEntry.swapInitiatedBy}\n\n` +
                         `Your local changes will be preserved and backed up.`,
                         { modal: true },
-                        "Swap Now"
+                        "Update Now"
                     );
 
-                    if (selection === "Swap Now") {
-                        // Close folder - StartupFlowProvider will handle the swap on next open
+                    if (selection === "Update Now") {
+                        // Close folder - StartupFlowProvider will handle the update (swap) on next open
                         await vscode.commands.executeCommand("workbench.action.closeFolder");
                     }
                 } else {
-                    debug("[SyncManager] Post-sync: Swap notification already shown for this entry");
+                    debug("[SyncManager] Post-sync: Update (swap) notification already shown for this entry");
                 }
             }
         } catch (error) {
             // Non-fatal - don't disrupt the user if this check fails
-            debug("[SyncManager] Post-sync swap check error (non-fatal):", error);
+            debug("[SyncManager] Post-sync update (swap) check error (non-fatal):", error);
+        }
+    }
+
+    /**
+     * Reconcile remote updating entries into local metadata, then run the
+     * existing post-sync active-entry check.  Reconciliation fetches the
+     * remote `initiateRemoteUpdatingFor` list and unions it with the local
+     * list so that entries silently dropped by Git's auto-merge are restored.
+     */
+    private async reconcileAndCheckUpdatingAfterSync(): Promise<void> {
+        try {
+            const projectPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (projectPath) {
+                const { reconcileUpdatingEntriesWithRemote } = await import("../utils/remoteUpdatingManager");
+                await reconcileUpdatingEntriesWithRemote(projectPath);
+            }
+        } catch (error) {
+            debug("[SyncManager] Reconciliation error (non-fatal):", error);
+        }
+        await this.checkUpdatingAfterSync();
+    }
+
+    /**
+     * Post-sync update check: after git pull, the local metadata.json may now
+     * contain an active initiateRemoteUpdatingFor entry that wasn't visible
+     * to the pre-sync remote API check. Read local metadata and block if needed.
+     */
+    private async checkUpdatingAfterSync(): Promise<void> {
+        try {
+            const projectPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!projectPath) {
+                return;
+            }
+
+            const { MetadataManager } = await import("../utils/metadataManager");
+            const { getCurrentUsername, normalizeUpdateEntry, isEffectivelyCancelled } = await import("../utils/remoteUpdatingManager");
+
+            const currentUsername = await getCurrentUsername();
+            if (!currentUsername) {
+                return;
+            }
+
+            const metadataResult = await MetadataManager.safeReadMetadata(
+                vscode.Uri.file(projectPath)
+            );
+            if (!metadataResult.success || !metadataResult.metadata) {
+                return;
+            }
+
+            const rawList = metadataResult.metadata.meta?.initiateRemoteUpdatingFor;
+            if (!Array.isArray(rawList) || rawList.length === 0) {
+                return;
+            }
+
+            const entries = rawList.map((e: any) => normalizeUpdateEntry(e));
+            const hasActiveEntry = entries.some(
+                (e) => e.userToUpdate === currentUsername && !e.executed && !isEffectivelyCancelled(e)
+            );
+
+            if (!hasActiveEntry) {
+                return;
+            }
+
+            debug("[SyncManager] Post-sync: active update entry found in local metadata, blocking");
+
+            try {
+                await markPendingUpdateRequired(
+                    vscode.Uri.file(projectPath),
+                    "Detected after sync from local metadata"
+                );
+            } catch (e) {
+                console.warn("Failed to persist pending update flag after sync:", e);
+            }
+
+            const selection = await vscode.window.showWarningMessage(
+                "Project Update Required\n\nAn administrator has made changes that require updating your project. Syncing is paused until the update is applied.\n\nThe project needs to be closed to complete the update.",
+                { modal: true },
+                "Update Project"
+            );
+
+            if (selection === "Update Project") {
+                await vscode.commands.executeCommand("workbench.action.closeFolder");
+            }
+        } catch (error) {
+            debug("[SyncManager] Post-sync update check error (non-fatal):", error);
         }
     }
 
@@ -278,6 +473,22 @@ export class SyncManager {
             SyncManager.instance = new SyncManager();
         }
         return SyncManager.instance;
+    }
+
+    /**
+     * Clean up all timers and subscriptions. Call on extension deactivation.
+     */
+    public dispose(): void {
+        if (this.updatingCheckInterval) {
+            clearInterval(this.updatingCheckInterval);
+            this.updatingCheckInterval = null;
+        }
+        if (this.pendingSyncTimeout) {
+            clearTimeout(this.pendingSyncTimeout as NodeJS.Timeout);
+            this.pendingSyncTimeout = null;
+        }
+        this.frontierSyncSubscription?.dispose();
+        this.frontierSyncSubscription = undefined;
     }
 
     /**
@@ -328,11 +539,54 @@ export class SyncManager {
         });
     }
 
-    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean; } {
+    private audioProcessingCount: number = 0;
+    private audioProcessingListeners: Array<(inProgress: boolean) => void> = [];
+
+    public beginAudioProcessing(): void {
+        this.audioProcessingCount++;
+        debug("Audio processing started (count=%d)", this.audioProcessingCount);
+        this.notifyAudioProcessingListeners();
+    }
+
+    public endAudioProcessing(): void {
+        if (this.audioProcessingCount > 0) {
+            this.audioProcessingCount--;
+            debug("Audio processing ended (count=%d)", this.audioProcessingCount);
+            this.notifyAudioProcessingListeners();
+        }
+    }
+
+    public isAudioProcessingInProgress(): boolean {
+        return this.audioProcessingCount > 0;
+    }
+
+    public addAudioProcessingListener(listener: (inProgress: boolean) => void): vscode.Disposable {
+        this.audioProcessingListeners.push(listener);
+        return new vscode.Disposable(() => {
+            const index = this.audioProcessingListeners.indexOf(listener);
+            if (index !== -1) {
+                this.audioProcessingListeners.splice(index, 1);
+            }
+        });
+    }
+
+    private notifyAudioProcessingListeners(): void {
+        const inProgress = this.isAudioProcessingInProgress();
+        this.audioProcessingListeners.forEach((listener) => {
+            try {
+                listener(inProgress);
+            } catch (error) {
+                console.error("Error notifying audio processing listener:", error);
+            }
+        });
+    }
+
+    public getSyncStatus(): { isSyncInProgress: boolean; syncStage: string; isImportInProgress: boolean; isAudioProcessingInProgress: boolean } {
         return {
             isSyncInProgress: this.isSyncInProgress,
             syncStage: this.currentSyncStage,
             isImportInProgress: this.isImportInProgress(),
+            isAudioProcessingInProgress: this.isAudioProcessingInProgress(),
         };
     }
 
@@ -365,6 +619,23 @@ export class SyncManager {
                 console.error("Error notifying sync status listener:", error);
             }
         });
+    }
+
+    /**
+     * Schedule any queued pending changes for sync.
+     * Called when an external sync (e.g. publish) completes so that
+     * changes made during that sync are eventually synced.
+     */
+    private drainPendingChanges(): void {
+        if (this.pendingChanges.length === 0) {
+            return;
+        }
+        debug(`Draining ${this.pendingChanges.length} pending change(s) after external sync`);
+        const message = this.pendingChanges.length === 1
+            ? this.pendingChanges[0]
+            : `changes to ${this.pendingChanges.length} files`;
+        this.pendingChanges = [];
+        this.scheduleSyncOperation(message);
     }
 
     // Subscribe to Frontier sync events to keep UI in sync
@@ -431,52 +702,51 @@ export class SyncManager {
                         break;
                     case 'completed':
                         debug('[Sync] ✅ Sync completed successfully');
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                            // Let executeSyncInBackground own the final state
+                            break;
+                        }
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync complete';
                         this.notifySyncStatusListeners();
-                        // Resolve the progress notification to complete it (if it exists)
                         if (this.frontierSyncProgressResolver) {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
-                        // Decrement counter if we have Codex-initiated syncs
-                        if (this.codexInitiatedSyncCount > 0) {
-                            this.codexInitiatedSyncCount--;
-                        }
-                        // Post-sync swap check: after sync completes, check if a swap is required
-                        // This handles the case where the admin just initiated a swap and synced with bypass,
-                        // or when another user pushes swap info that gets pulled during sync
+                        this.reconcileAndCheckUpdatingAfterSync();
                         this.checkProjectSwapAfterSync();
+                        this.drainPendingChanges();
                         break;
                     case 'error':
                         console.error(`[Sync] ❌ Sync failed: ${status.message || 'Unknown error'}`);
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                            break;
+                        }
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync failed';
                         this.notifySyncStatusListeners();
-                        // Resolve the progress notification to complete it (if it exists)
                         if (this.frontierSyncProgressResolver) {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
-                        // Decrement counter if we have Codex-initiated syncs
-                        if (this.codexInitiatedSyncCount > 0) {
-                            this.codexInitiatedSyncCount--;
-                        }
+                        this.drainPendingChanges();
                         break;
                     case 'skipped':
                         console.warn(`[Sync] ⏭️  Sync skipped: ${status.message || 'Another sync in progress'}`);
+                        if (this.codexInitiatedSyncCount > 0) {
+                            this.codexInitiatedSyncCount--;
+                            break;
+                        }
                         this.isSyncInProgress = false;
                         this.currentSyncStage = status.message || 'Sync skipped';
                         this.notifySyncStatusListeners();
-                        // Resolve the progress notification to complete it (if it exists)
                         if (this.frontierSyncProgressResolver) {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
-                        // Decrement counter if we have Codex-initiated syncs
-                        if (this.codexInitiatedSyncCount > 0) {
-                            this.codexInitiatedSyncCount--;
-                        }
+                        this.drainPendingChanges();
                         break;
                 }
             });
@@ -506,7 +776,7 @@ export class SyncManager {
                 // Initial progress
                 progress.report({
                     increment: 0,
-                    message: "Checking files are up to date..."
+                    message: "Checking for updates..."
                 });
 
                 // Create a promise that we can resolve from outside
@@ -593,8 +863,15 @@ export class SyncManager {
         const delayMs = syncDelayMinutes * 60 * 1000;
         debug(`Scheduling sync operation in ${syncDelayMinutes} minutes`);
 
-        // Schedule the new sync
-        this.pendingSyncTimeout = setTimeout(() => {
+        // Schedule the new sync (check connectivity before firing)
+        this.pendingSyncTimeout = setTimeout(async () => {
+            if (!(await isOnline())) {
+                debug("Auto-sync timer fired but device is offline, rescheduling in 60s");
+                this.pendingSyncTimeout = setTimeout(() => {
+                    this.scheduleSyncOperation(commitMessage);
+                }, 60_000);
+                return;
+            }
             this.executeSync(commitMessage, true, undefined, false); // Auto-sync
         }, delayMs);
     }
@@ -621,6 +898,36 @@ export class SyncManager {
         }
 
         const projectPath = hasWorkspace ? vscode.workspace.workspaceFolders![0].uri.fsPath : undefined;
+
+        // Skip sync if the project has no git remote (not published yet)
+        if (projectPath) {
+            try {
+                const remotes = await dugiteGit.listRemotes(projectPath);
+                if (remotes.length === 0) {
+                    debug("Project has no git remote (not published), skipping sync");
+                    if (isManualSync) {
+                        vscode.window.showInformationMessage(
+                            "This project hasn't been published yet. Please publish your project before syncing."
+                        );
+                    }
+                    return;
+                }
+            } catch {
+                debug("Could not check git remotes, skipping sync");
+                return;
+            }
+        }
+
+        // Fast-fail if offline to avoid unnecessary local work
+        if (!(await isOnline())) {
+            debug("Device is offline, skipping sync");
+            if (showInfoOnConnectionIssues) {
+                this.showConnectionIssueMessage(
+                    "Sync skipped: No internet connection. Will retry when back online."
+                );
+            }
+            return;
+        }
 
         // Check for updating requirement before proceeding (unless explicitly bypassed)
         if (projectPath && !bypassUpdatingCheck) {
@@ -651,13 +958,13 @@ export class SyncManager {
                 vscode.window.withProgress(
                     {
                         location: vscode.ProgressLocation.Notification,
-                        title: "Sync in Progress",
+                        title: "Sync Already in Progress",
                         cancellable: false,
                     },
                     async (progress) => {
                         progress.report({
                             increment: 0,
-                            message: "Your changes will sync automatically after completion."
+                            message: "Your changes will be included when the current sync finishes."
                         });
                         // Wait for sync to complete
                         while (this.isSyncInProgress) {
@@ -680,30 +987,27 @@ export class SyncManager {
         try {
             // Check filesystem lock (for crash/restart/multi-window scenarios)
 
-            if (authApi && 'checkSyncLock' in authApi) {
+            if (authApi?.checkSyncLock) {
                 try {
-                    const lockStatus = await (authApi as any).checkSyncLock();
+                    const lockStatus = await authApi.checkSyncLock();
 
                     if (lockStatus.exists && !lockStatus.isDead && !lockStatus.isStuck) {
                         const ageMinutes = Math.floor((lockStatus.age || 0) / 60000);
                         debug(`Filesystem lock exists (${ageMinutes}m old, PID: ${lockStatus.pid}), releasing claim and queuing`);
-
-                        // Release our in-memory claim
-                        this.isSyncInProgress = false;
 
                         // Track as pending
                         if (!this.pendingChanges.includes(commitMessage)) {
                             this.pendingChanges.push(commitMessage);
                         }
 
-                        if (showInfoOnConnectionIssues) {
-                            const progressInfo = lockStatus.progress
-                                ? ` - ${lockStatus.progress.description || `${lockStatus.phase} in progress`}`
-                                : '';
-                            vscode.window.showInformationMessage(
-                                `Sync in progress (started ${ageMinutes} minute${ageMinutes !== 1 ? 's' : ''} ago${progressInfo}). Your changes will sync after completion.`
-                            );
-                        }
+                        // Show syncing state in the UI (greyed button, spinning icon).
+                        // The onSyncStatusChange subscription will push progress updates
+                        // and clear this state when the external sync completes.
+                        const initialStage = lockStatus.progress?.description
+                            || (lockStatus.phase ? `${lockStatus.phase} in progress` : 'Syncing...');
+                        this.currentSyncStage = initialStage;
+                        this.notifySyncStatusListeners();
+
                         return;
                     }
 
@@ -761,7 +1065,7 @@ export class SyncManager {
             console.error("Error checking authentication status:", error);
             if (showInfoOnConnectionIssues) {
                 this.showConnectionIssueMessage(
-                    "Unable to sync: Could not verify authentication status"
+                    "Unable to sync: Could not verify your login status"
                 );
             }
             return;
@@ -773,8 +1077,8 @@ export class SyncManager {
             this.isSyncInProgress = false;
             debug("Frontier version requirement not met. Blocking sync operation.");
             const details = versionStatus.installedVersion
-                ? `Frontier Authentication version ${versionStatus.requiredVersion} or newer is required to sync.`
-                : `Frontier Authentication not found. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
+                ? `Frontier Authentication ${versionStatus.installedVersion} is installed, but version ${versionStatus.requiredVersion} or newer is needed to sync. Please update the extension.`
+                : `Frontier Authentication is not installed. Version ${versionStatus.requiredVersion} or newer is required to sync.`;
             await vscode.window.showWarningMessage(details, { modal: true });
             return;
         }
@@ -799,6 +1103,7 @@ export class SyncManager {
         // Set sync state and show feedback
         this.currentSyncStage = "Starting sync...";
         this.codexInitiatedSyncCount++;
+
         this.notifySyncStatusListeners();
         debug("Sync operation in background with message:", commitMessage);
 
@@ -808,21 +1113,40 @@ export class SyncManager {
         }
 
         // Update splash screen with initial sync status
-        updateSplashScreenSync(30, "Checking files are up to date...");
+        updateSplashScreenSync(30, "Preparing to sync...");
 
         // Run the actual sync operation in the background (truly async)
-        this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues);
+        this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues, isManualSync);
 
         // Return immediately - don't wait for sync to complete
         debug("🔄 Sync operation started in background, UI is free to continue");
     }
 
-    // Execute the actual sync operation in the background
     private async executeSyncInBackground(
         commitMessage: string,
-        showInfoOnConnectionIssues: boolean
+        showInfoOnConnectionIssues: boolean,
+        isManualSync: boolean = false
     ): Promise<void> {
         try {
+            // Pre-check extension version compatibility with project metadata.
+            // Runs in the background to avoid blocking extension activation
+            // (the frontier command may call back into codex-editor, creating
+            // a circular dependency if awaited during activation).
+            try {
+                const metadataVersionOk = await vscode.commands.executeCommand<boolean>(
+                    "frontier.checkMetadataVersionsForSync",
+                    { isManualSync }
+                );
+                if (metadataVersionOk === false) {
+                    this.currentSyncStage = "Sync blocked";
+                    this.notifySyncStatusListeners();
+                    debug("Sync blocked: extension version requirements not met (metadata pre-check)");
+                    return;
+                }
+            } catch {
+                debug("Could not run metadata version pre-check; will check during sync");
+            }
+
             // Log sync timing for performance analysis
             const syncStartTime = performance.now();
             debug("🔄 Starting background sync operation...");
@@ -830,7 +1154,7 @@ export class SyncManager {
             // Update sync stage and splash screen
             this.currentSyncStage = "Preparing sync...";
             this.notifySyncStatusListeners();
-            updateSplashScreenSync(60, this.currentSyncStage);
+            updateSplashScreenSync(60, "Preparing sync...");
 
             // Legacy comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
             // Pre-sync repair still runs to fix any corrupted data before syncing
@@ -842,7 +1166,7 @@ export class SyncManager {
                 if (commentsHasLocalChanges) {
                     this.currentSyncStage = "Cleaning up comment data...";
                     this.notifySyncStatusListeners();
-                    updateSplashScreenSync(67, this.currentSyncStage);
+                    updateSplashScreenSync(67, "Preparing comments...");
 
                     try {
                         const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
@@ -853,20 +1177,41 @@ export class SyncManager {
                 }
             }
 
+            // Pre-sync: reconcile remote updating entries into local metadata
+            // so that entries removed locally are restored before they get committed and pushed
+            try {
+                const projectPath = workspaceFolders?.[0]?.uri.fsPath;
+                if (projectPath) {
+                    const { reconcileUpdatingEntriesWithRemote } = await import("../utils/remoteUpdatingManager");
+                    await reconcileUpdatingEntriesWithRemote(projectPath);
+                }
+            } catch (error) {
+                debug("[SyncManager] Pre-sync reconciliation error (non-fatal):", error);
+            }
+
             // Sync all changes in background
             this.currentSyncStage = "Starting sync...";
             this.notifySyncStatusListeners();
             const syncResult = await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
             if (syncResult.offline) {
-                this.currentSyncStage = "Synchronization skipped! (offline)";
+                this.currentSyncStage = "Sync skipped (offline)";
                 this.notifySyncStatusListeners();
-                updateSplashScreenSync(100, "Synchronization skipped (offline)");
+                updateSplashScreenSync(100, "Sync skipped (offline)");
+                return;
+            }
+            if (!syncResult.success && syncResult.totalChanges === 0) {
+                this.currentSyncStage = "Sync blocked";
+                this.notifySyncStatusListeners();
+                updateSplashScreenSync(100, "Sync blocked");
                 return;
             }
 
             const syncEndTime = performance.now();
             const syncDuration = syncEndTime - syncStartTime;
             debug(`✅ Background sync completed in ${syncDuration.toFixed(2)}ms`);
+
+            this.currentSyncStage = "Finishing up...";
+            this.notifySyncStatusListeners();
 
             // Check if comments.json was affected by the sync - if so, run targeted repair
             const commentsWasChanged = syncResult.changedFiles.includes('.project/comments.json') ||
@@ -879,6 +1224,9 @@ export class SyncManager {
                     await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
                 } catch (error) {
                     console.error('[SyncManager] Error during post-sync comment repair:', error);
+                    vscode.window.showWarningMessage(
+                        "Some synced comments may have minor formatting issues."
+                    );
                 }
             }
 
@@ -939,9 +1287,13 @@ export class SyncManager {
             }
 
             // Update sync stage and splash screen
-            this.currentSyncStage = "Synchronization complete!";
-            this.notifySyncStatusListeners();
-            updateSplashScreenSync(100, "Synchronization complete");
+        this.currentSyncStage = "Sync complete!";
+        this.notifySyncStatusListeners();
+        updateSplashScreenSync(100, "Sync complete!");
+
+            // Post-sync checks (handled here instead of Frontier callback for Codex-initiated syncs)
+            this.reconcileAndCheckUpdatingAfterSync();
+            this.checkProjectSwapAfterSync();
 
             // Clear local update completion flag now that sync has pushed changes to remote
             try {
@@ -977,6 +1329,16 @@ export class SyncManager {
                 // Don't fail sync if webview refresh fails
             }
 
+            // Record current user's Codex version after a successful sync
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                try {
+                    const { MetadataManager } = await import("../utils/metadataManager");
+                    await MetadataManager.ensureCurrentUserVersionRecorded(workspaceFolders[0].uri);
+                } catch (error) {
+                    console.warn("[SyncManager] Error recording user codex version after sync:", error);
+                }
+            }
+
         } catch (error) {
             console.error("Error during background sync operation:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -984,7 +1346,7 @@ export class SyncManager {
             // Update sync stage and splash screen
             this.currentSyncStage = "Sync failed";
             this.notifySyncStatusListeners();
-            updateSplashScreenSync(100, `Sync failed: ${errorMessage}`);
+            updateSplashScreenSync(100, "Sync failed");
 
             // Show error messages to user
             if (
@@ -995,15 +1357,17 @@ export class SyncManager {
             ) {
                 if (showInfoOnConnectionIssues) {
                     this.showConnectionIssueMessage(
-                        "Sync failed: Please check your internet connection or login status"
+                        "Sync failed. Please check your internet connection and try again."
                     );
                 }
             } else {
                 // For other errors, show an error message
-                vscode.window.showErrorMessage(`Sync failed: ${errorMessage}`);
+                vscode.window.showErrorMessage(`Sync failed. Please try again or contact support if the problem persists.`);
             }
         } finally {
-            this.currentSyncStage = "";
+            // Don't clear currentSyncStage here — let the progress poller read
+            // the value set by the try ("Synchronization complete!") or catch ("Sync failed") block.
+            // The next sync cycle will overwrite it when it starts.
             this.isSyncInProgress = false;
             this.notifySyncStatusListeners();
 
@@ -1164,11 +1528,16 @@ export class SyncManager {
 
     // Fallback method for basic index rebuild (original logic as backup)
     private async fallbackIndexRebuild(): Promise<void> {
+        if (!isDatabaseReady()) {
+            console.warn("[SyncManager] Skipping index rebuild — no SQLite backend available");
+            return;
+        }
+
         const { getSQLiteIndexManager } = await import("../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
         const indexManager = getSQLiteIndexManager();
 
         if (indexManager) {
-            const currentDocCount = indexManager.documentCount;
+            const currentDocCount = await indexManager.getDocumentCount();
             debug(`[FallbackSync] Current index has ${currentDocCount} documents`);
 
             if (currentDocCount > 0) {
@@ -1273,63 +1642,126 @@ export class SyncManager {
                 let lastStage = '';
                 let currentProgress = 0;
 
-                // Map sync stages to progress percentages
-                const getProgressForStage = (stage: string): number => {
-                    // Handle dynamic Git progress messages with counts
-                    if (stage.includes('Receiving objects:')) {
+                    // Map sync stages to progress percentages and user-friendly labels
+                const friendlyStageLabel = (stage: string): string => {
+                    if (stage.includes('Receiving objects:') || stage.includes('Resolving deltas:')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map receiving to 30-55% range
-                            return 30 + Math.floor((current / total) * 25);
+                            const percent = Math.round((parseInt(match[1]) / parseInt(match[2])) * 100);
+                            return `Downloading changes... ${percent}%`;
+                        }
+                        return 'Downloading changes...';
+                    }
+                    if (stage.includes('Counting objects:') || stage.includes('Compressing objects:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const percent = Math.round((parseInt(match[1]) / parseInt(match[2])) * 100);
+                            return `Preparing upload... ${percent}%`;
+                        }
+                        return 'Preparing upload...';
+                    }
+                    if (stage.includes('Writing objects:')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            const percent = Math.round((parseInt(match[1]) / parseInt(match[2])) * 100);
+                            return `Uploading changes... ${percent}%`;
+                        }
+                        return 'Uploading changes...';
+                    }
+                    if (stage.includes('Uploading media')) {
+                        const pctMatch = stage.match(/(\d+)%/);
+                        if (pctMatch) {
+                            return `Uploading media... ${pctMatch[1]}%`;
+                        }
+                        return 'Uploading media...';
+                    }
+
+                    const phaseMap: Record<string, string> = {
+                        'committing': 'Saving your changes...',
+                        'fetching': 'Downloading updates...',
+                        'pushing': 'Uploading changes...',
+                        'merging': 'Combining changes...',
+                        'Committing local changes': 'Saving your changes...',
+                        'Local changes committed': 'Changes saved',
+                        'Checking for remote changes': 'Checking for updates...',
+                        'Remote check complete': 'Up to date',
+                        'Merging remote changes': 'Merging updates...',
+                        'Uploading changes': 'Uploading changes...',
+                        'Finishing upload': 'Almost done...',
+                        'Upload complete': 'Upload complete',
+                        'Finishing up': 'Finishing up...',
+                        'Cleaning up legacy files': 'Cleaning up...',
+                        'Synchronization complete': 'Sync complete!',
+                        'Synchronization complete!': 'Sync complete!',
+                    };
+
+                    for (const [key, label] of Object.entries(phaseMap)) {
+                        if (stage === key || stage.startsWith(`${key}:`)) {
+                            const countMatch = stage.match(/(\d+)\/(\d+)/);
+                            if (countMatch) {
+                                const percent = Math.round((parseInt(countMatch[1]) / parseInt(countMatch[2])) * 100);
+                                return `${label.replace('...', '')}... ${percent}%`;
+                            }
+                            return label;
+                        }
+                    }
+
+                    return stage;
+                };
+
+                const getProgressForStage = (stage: string): number => {
+                    if (stage.includes('Receiving objects:') || stage.includes('Downloading changes')) {
+                        const match = stage.match(/(\d+)\/(\d+)/);
+                        if (match) {
+                            return 30 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 25);
                         }
                         return 35;
                     }
                     if (stage.includes('Resolving deltas:')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map resolving to 55-65% range
-                            return 55 + Math.floor((current / total) * 10);
+                            return 55 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 10);
                         }
                         return 60;
                     }
-                    if (stage.includes('Counting objects:') || stage.includes('Compressing objects:')) {
+                    if (stage.includes('Counting objects:') || stage.includes('Compressing objects:') || stage.includes('Preparing upload')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map counting/compressing to 75-85% range
-                            return 75 + Math.floor((current / total) * 10);
+                            return 75 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 10);
                         }
                         return 80;
                     }
-                    if (stage.includes('Writing objects:')) {
+                    if (stage.includes('Writing objects:') || stage.includes('Uploading changes')) {
                         const match = stage.match(/(\d+)\/(\d+)/);
                         if (match) {
-                            const current = parseInt(match[1]);
-                            const total = parseInt(match[2]);
-                            // Map writing to 85-98% range
-                            return 85 + Math.floor((current / total) * 13);
+                            return 85 + Math.floor((parseInt(match[1]) / parseInt(match[2])) * 13);
                         }
                         return 90;
                     }
+                    if (stage.includes('Uploading media')) {
+                        const pctMatch = stage.match(/(\d+)%/);
+                        if (pctMatch) {
+                            return 10 + Math.floor((parseInt(pctMatch[1]) / 100) * 10);
+                        }
+                        return 10;
+                    }
 
-                    // Static stage mappings
                     const staticProgress: Record<string, number> = {
                         'Starting sync': 5,
                         'Preparing sync': 5,
-                        'Committing local changes': 10,
-                        'Local changes committed': 20,
-                        'Checking for remote changes': 25,
-                        'Remote check complete': 65,
-                        'Merging remote changes': 68,
+                        'Saving your changes': 10,
+                        'Changes saved': 20,
+                        'Checking for updates': 25,
+                        'Up to date': 65,
+                        'Merging updates': 68,
                         'Merge complete': 72,
                         'Already up to date': 75,
                         'Uploading changes': 75,
-                        'Upload complete': 98,
+                        'Almost done': 92,
+                        'Upload complete': 93,
+                        'Finishing up': 95,
+                        'Cleaning up': 96,
+                        'Sync complete!': 100,
                     };
 
                     for (const [key, value] of Object.entries(staticProgress)) {
@@ -1349,28 +1781,26 @@ export class SyncManager {
 
                 // Wait for sync to complete by polling the sync status
                 while (this.isSyncInProgress) {
-                    await new Promise(resolve => setTimeout(resolve, 200)); // Check every 200ms for smooth updates
+                    await new Promise(resolve => setTimeout(resolve, 200));
 
-                    // Update progress when stage changes
                     if (this.isSyncInProgress && this.currentSyncStage && this.currentSyncStage !== lastStage) {
                         lastStage = this.currentSyncStage;
 
+                        const displayMessage = friendlyStageLabel(this.currentSyncStage);
                         const targetProgress = getProgressForStage(this.currentSyncStage);
 
-                        // Only increment, never go backwards
                         if (targetProgress > currentProgress) {
                             const increment = targetProgress - currentProgress;
                             currentProgress = targetProgress;
 
                             progress.report({
                                 increment,
-                                message: this.currentSyncStage
+                                message: displayMessage
                             });
                         } else {
-                            // Just update message without changing progress
                             progress.report({
                                 increment: 0,
-                                message: this.currentSyncStage
+                                message: displayMessage
                             });
                         }
                     }
@@ -1380,7 +1810,7 @@ export class SyncManager {
                 if (currentProgress < 100) {
                     progress.report({
                         increment: 100 - currentProgress,
-                        message: this.currentSyncStage || "Synchronization complete!"
+                        message: this.currentSyncStage || "Sync complete!"
                     });
                 }
 
@@ -1396,6 +1826,9 @@ export class SyncManager {
 // Register the command to trigger sync
 export function registerSyncCommands(context: vscode.ExtensionContext): void {
     const syncManager = SyncManager.getInstance();
+
+    // Ensure cleanup on extension deactivation
+    context.subscriptions.push(new vscode.Disposable(() => syncManager.dispose()));
 
     // Command to trigger immediate sync
     context.subscriptions.push(
