@@ -19,6 +19,16 @@ export interface DocxCellMetadataParams {
     paragraph: DocxParagraph;
     docxDoc: DocxDocument;
     fileName: string;
+    /**
+     * When a paragraph is split into multiple cells, this is the 0-based index
+     * of this cell within that paragraph.  Undefined for unsplit paragraphs.
+     */
+    segmentIndex?: number;
+    /**
+     * Total number of cells this paragraph was split into.
+     * Undefined for unsplit paragraphs.
+     */
+    segmentCount?: number;
 }
 
 /**
@@ -26,7 +36,7 @@ export interface DocxCellMetadataParams {
  * Generates a UUID for the cell ID
  */
 export function createDocxCellMetadata(params: DocxCellMetadataParams): { metadata: any; cellId: string; } {
-    const { paragraphId, paragraphIndex, originalContent, paragraph, docxDoc, fileName } = params;
+    const { paragraphId, paragraphIndex, originalContent, segmentIndex, segmentCount } = params;
 
     // Generate UUID for cell ID
     const cellId = uuidv4();
@@ -39,6 +49,10 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
      *
      * To keep `.source`/`.codex` small, we only persist what we need to map a Codex cell
      * back to a paragraph in `word/document.xml`.
+     *
+     * For split paragraphs, segmentIndex/segmentCount allow the exporter to
+     * recombine the translated segments in order before writing them back to
+     * the original <w:p>.
      */
     const cellMetadata = {
         id: cellId,
@@ -46,6 +60,10 @@ export function createDocxCellMetadata(params: DocxCellMetadataParams): { metada
         edits: [],
         paragraphId,
         paragraphIndex,
+
+        // Present only when the paragraph was split into multiple cells
+        ...(segmentIndex !== undefined && { segmentIndex }),
+        ...(segmentCount !== undefined && { segmentCount }),
 
         // Data object for consistency with other importers
         data: {
