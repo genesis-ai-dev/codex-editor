@@ -2,7 +2,6 @@ import {
     EditorCellContent,
     EditorPostMessages,
     QuillCellContent,
-    SpellCheckResponse,
     MilestoneIndex,
 } from "../../../../types";
 import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
@@ -18,12 +17,13 @@ import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import SourceCellContext from "./contextProviders/SourceCellContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
+import { compareHtmlStructure, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
 
 export interface CellListProps {
-    spellCheckResponse: SpellCheckResponse | null;
     translationUnits: QuillCellContent[];
     fullDocumentTranslationUnits: QuillCellContent[]; // Full document for global line numbering
     contentBeingUpdated: EditorCellContent;
@@ -35,7 +35,6 @@ export interface CellListProps {
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
-    alertColorCodes: { [cellId: string]: number };
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
     translationQueue?: string[]; // Queue of cells waiting for translation
@@ -69,6 +68,7 @@ export interface CellListProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslationsMap?: Map<string, any>;
+    enforceHtmlStructure?: boolean;
     // Milestone-based pagination props for global line numbering
     milestoneIndex?: MilestoneIndex | null;
     currentMilestoneIndex?: number;
@@ -95,8 +95,6 @@ const CellList: React.FC<CellListProps> = ({
     isSourceText,
     windowHeight,
     headerHeight,
-    spellCheckResponse,
-    alertColorCodes,
     highlightedCellId,
     scrollSyncEnabled,
     translationQueue = [],
@@ -120,6 +118,7 @@ const CellList: React.FC<CellListProps> = ({
     showInlineBacktranslations = false,
     backtranslationsMap = new Map(),
     isAuthenticated = false,
+    enforceHtmlStructure = false,
     milestoneIndex = null,
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
@@ -127,6 +126,7 @@ const CellList: React.FC<CellListProps> = ({
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+    const { sourceCellMap } = useContext(SourceCellContext);
     // Add state to track completed translations
     const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
     const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
@@ -273,6 +273,24 @@ const CellList: React.FC<CellListProps> = ({
 
         return duplicates;
     }, [workingTranslationUnits]);
+
+    const htmlStructureErrors = useMemo(() => {
+        const errors = new Map<string, string>();
+        if (!enforceHtmlStructure || isSourceText) return errors;
+
+        for (const cell of workingTranslationUnits) {
+            const cellId = cell.cellMarkers[0];
+            const sourceHtml = sourceCellMap[cellId]?.content;
+            const targetHtml = cell.cellContent;
+            if (!sourceHtml || !targetHtml) continue;
+
+            const diff = compareHtmlStructure(sourceHtml, targetHtml);
+            if (!diff.isMatch) {
+                errors.set(cellId, getStructureMismatchDescription(diff));
+            }
+        }
+        return errors;
+    }, [workingTranslationUnits, enforceHtmlStructure, isSourceText, sourceCellMap]);
 
     // Convert arrays to Sets for faster lookups
     const translationQueueSet = useMemo(() => new Set(translationQueue), [translationQueue]);
@@ -823,7 +841,6 @@ const CellList: React.FC<CellListProps> = ({
                                 textDirection={textDirection}
                                 isSourceText={isSourceText}
                                 hasDuplicateId={hasDuplicateId}
-                                alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -844,6 +861,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -859,7 +877,6 @@ const CellList: React.FC<CellListProps> = ({
             duplicateCellIds,
             highlightedCellId,
             scrollSyncEnabled,
-            alertColorCodes,
             generateLineNumber,
             isCellInTranslationProcess,
             getCellTranslationState,
@@ -878,6 +895,7 @@ const CellList: React.FC<CellListProps> = ({
             userAccessLevel,
             isAudioOnly,
             lineNumbersEnabled,
+            htmlStructureErrors,
         ]
     );
 
@@ -921,7 +939,6 @@ const CellList: React.FC<CellListProps> = ({
                         <CellEditor
                             cell={workingTranslationUnits[i]}
                             editHistory={editHistory}
-                            spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}
                             cellContent={sanitizeQuillHtml(cellContent)}
@@ -992,7 +1009,6 @@ const CellList: React.FC<CellListProps> = ({
                                 textDirection={textDirection}
                                 isSourceText={isSourceText}
                                 hasDuplicateId={false}
-                                alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -1013,6 +1029,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -1035,7 +1052,6 @@ const CellList: React.FC<CellListProps> = ({
         isCorrectionEditorMode,
         contentBeingUpdated,
         generateLineNumber,
-        spellCheckResponse,
         setContentBeingUpdated,
         handleCloseEditor,
         handleSaveHtml,
@@ -1048,7 +1064,6 @@ const CellList: React.FC<CellListProps> = ({
         renderCellGroup,
         lineNumbersEnabled,
         vscode,
-        alertColorCodes,
         scrollSyncEnabled,
         isCellInTranslationProcess,
         getCellTranslationState,

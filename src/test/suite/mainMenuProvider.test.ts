@@ -114,7 +114,7 @@ suite("MainMenuProvider - Project Name Change Tests", () => {
 
         // Verify error message was shown
         assert.strictEqual(showErrorStub.calledOnce, true);
-        assert.ok(showErrorStub.firstCall.args[0].includes("No workspace folder found"));
+        assert.ok(showErrorStub.firstCall.args[0].includes("No project folder found"));
     });
 
     test("should handle metadata update failure", async () => {

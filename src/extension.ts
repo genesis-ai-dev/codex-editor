@@ -2,12 +2,7 @@ import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
 import { GlobalProvider } from "./globalProvider";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
-import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { registerLanguageServer } from "./tsServer/registerLanguageServer";
-import { registerClientCommands } from "./tsServer/registerClientCommands";
-import registerClientOnRequests from "./tsServer/registerClientOnRequests";
-import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
-import { LanguageClient } from "vscode-languageclient/node";
+import { registerBacktranslationCommands } from "./smartEdits/registerBacktranslationCommands";
 import { registerProjectManager } from "./projectManager";
 import {
     temporaryMigrationScript_checkMatthewNotebook,
@@ -25,13 +20,11 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { StatusBarItem } from "vscode";
-import { Database } from "fts5-sql-bundle";
-import {
-    importWiktionaryJSONL,
-    ingestJsonlDictionaryEntries,
-    initializeSqlJs,
-    registerLookupWordCommand,
-} from "./sqldb";
+import { initNativeSqlite } from "./utils/nativeSqlite";
+import { ensureSqliteNativeBinary } from "./utils/sqliteNativeBinaryManager";
+import { initFts5Sqlite } from "./utils/fts5Sqlite";
+import { isDatabaseReady } from "./utils/sqliteDatabaseFactory";
+import { isOnline } from "./utils/connectivityChecker";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
@@ -56,7 +49,7 @@ import { openCodexMigrationTool } from "./codexMigrationTool/codexMigrationTool"
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { fileExists } from "./utils/webviewUtils";
-import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
+import { checkIfProjectIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { initializeABTesting } from "./utils/abTestingSetup";
 import {
@@ -68,6 +61,13 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { initializeAudioProcessor } from "./utils/audioProcessor";
 import { initializeAudioMerger } from "./utils/audioMerger";
+import { initializeAudioExtractor } from "./utils/audioExtractor";
+import { initializeAudioExporter } from "./exportHandler/audioExporter";
+import { checkTools, getUnavailableTools } from "./utils/toolsManager";
+import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
+import { downloadFFmpeg } from "./utils/ffmpegManager";
+import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
+import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
 import * as fs from "fs";
 import * as os from "os";
@@ -205,14 +205,6 @@ async function failsPinMatchGate(activationStart: number): Promise<boolean> {
     trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
     return true;
 }
-
-declare global {
-    // eslint-disable-next-line
-    var db: Database | undefined;
-}
-
-let client: LanguageClient | undefined;
-let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 // let commitTimeout: any;
 // const COMMIT_DELAY = 5000; // Delay in milliseconds
@@ -353,6 +345,8 @@ export async function activate(context: vscode.ExtensionContext) {
         console.warn("[Extension] Could not ensure temp directory exists:", e);
     }
 
+    initToolPreferences(context);
+
     // Save tab layout and close all editors before showing splash screen
     try {
         await saveTabLayout(context);
@@ -361,10 +355,12 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error saving/closing tabs before splash screen:", e);
     }
 
-    // Initialize audio processor for on-demand FFmpeg downloads
+    // Initialize audio utilities with the extension context so they can
+    // resolve the extension-owned FFmpeg binary path on demand.
     initializeAudioProcessor(context);
-    // Initialize audio merger for merging audio files
     initializeAudioMerger(context);
+    initializeAudioExtractor(context);
+    initializeAudioExporter(context);
 
     // Register and show splash screen immediately before anything else
     try {
@@ -434,25 +430,66 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = trackTiming("Repairing Comments", migrationStart);
 
-        // Initialize Frontier API first - needed before startup flow
-        const authStart = globalThis.performance.now();
-        const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
+        // Initialize Frontier API first - needed before startup flow.
+        // This is a realtime step because frontier-auth downloads the Git runtime
+        // on first activation, which can take significant time on slow connections.
+        startRealtimeStep("Downloading Git Runtime");
+        const extension = await waitForExtensionActivation(
+            "frontier-rnd.frontier-authentication",
+            120_000, // 2 minutes — the Git binary download can be slow
+        );
         if (extension?.isActive) {
             authApi = extension.exports;
         }
-        stepStart = trackTiming("Connecting Authentication Service", authStart);
+        const gitAvailable = authApi?.isGitBinaryAvailable?.() ?? false;
+        setNativeGitAvailable(gitAvailable);
+        const gitMode = getGitToolMode();
+        const effectiveBackend = gitMode === "builtin" ? "isomorphic-git (forced)" : gitAvailable ? "dugite (native)" : "isomorphic-git (no binary)";
+        console.log(`[codex] Git backend mode: ${gitMode}, effective: ${effectiveBackend}`);
+        stepStart = finishRealtimeStep();
 
-        // Update git configuration files after Frontier auth is connected
-        // This ensures .gitignore and .gitattributes are current when extension starts
+        // If metadata.json is missing but the workspace has a .git with a remote,
+        // try to recover metadata.json from git history / remote.
+        if (!metadataExists && workspaceFolders && workspaceFolders.length > 0) {
+            const recoveryStart = globalThis.performance.now();
+            try {
+                const wsPath = workspaceFolders[0].uri.fsPath;
+                const gitFolderUri = vscode.Uri.joinPath(workspaceFolders[0].uri, ".git");
+                await vscode.workspace.fs.stat(gitFolderUri);
+
+                const { listRemotes } = await import("./utils/dugiteGit");
+                const remotes = await listRemotes(wsPath);
+                if (remotes.length > 0) {
+                    const { recoverMetadataFromGit } = await import("./projectManager/utils/projectUtils");
+                    const recovered = await recoverMetadataFromGit(wsPath);
+                    if (recovered) {
+                        metadataExists = true;
+                        console.log("[Extension] Recovered metadata.json from git — startup flow will handle UI");
+                    } else {
+                        console.warn(
+                            "[Extension] metadata.json is missing and could not be recovered from the remote repository. " +
+                            "The startup flow will prompt the user to re-create the project configuration."
+                        );
+                    }
+                }
+            } catch {
+                // No .git folder or git binary unavailable — skip recovery
+            }
+            trackTiming("Metadata Recovery Check", recoveryStart);
+        }
+
+        // Ensure git repo exists and config files are up-to-date.
+        // If metadata.json exists but .git doesn't (e.g., project created while git was
+        // unavailable), auto-initialize git now that the binary may be available.
         const gitConfigStart = globalThis.performance.now();
         if (metadataExists) {
             try {
-                const { ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+                const { ensureGitRepoInitialized, ensureGitConfigsAreUpToDate } = await import("./projectManager/utils/projectUtils");
+                await ensureGitRepoInitialized();
                 await ensureGitConfigsAreUpToDate();
                 console.log("[Extension] Git configuration files updated on startup");
             } catch (error) {
                 console.error("[Extension] Error updating git config files on startup:", error);
-                // Don't fail startup due to git config update errors
             }
         }
         stepStart = trackTiming("Updating Git Configuration", gitConfigStart);
@@ -482,34 +519,166 @@ export async function activate(context: vscode.ExtensionContext) {
 
         stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
-        // Initialize SqlJs with real-time progress since it loads WASM files
-        // Only initialize database if we have a workspace with a Codex project
+        // Check connectivity once so we can skip network-dependent downloads when offline.
+        const networkAvailable = await isOnline();
+        if (!networkAvailable) {
+            console.log("[Extension] Offline — will skip tool downloads and use cached binaries if available");
+        }
 
-        // Check for pending swap downloads (after workspace is ready)
+        // Set up the SQLite backend.
+        // Always try to load the native binary (so it's available if the user
+        // toggles back to "auto").  Then, if the preference is "builtin" OR if
+        // native failed, also initialize fts5-sql-bundle so the active backend
+        // is ready to go.
+        const sqliteBinaryStart = globalThis.performance.now();
+        const sqliteMode = getSqliteToolMode();
+        let nativeLoaded = false;
+        try {
+            const binaryPath = await ensureSqliteNativeBinary(context);
+            if (binaryPath) {
+                initNativeSqlite(binaryPath);
+                console.log("[SQLite] Native module initialized successfully");
+                nativeLoaded = true;
+            }
+        } catch (nativeError: any) {
+            console.warn("[SQLite] Failed to set up native binary:", nativeError?.message || nativeError);
+        }
+
+        if (sqliteMode === "builtin" || !nativeLoaded) {
+            try {
+                await initFts5Sqlite(context);
+                const reason = sqliteMode === "builtin" ? "user preference" : "native unavailable";
+                console.log(`[SQLite] fts5-sql-bundle (WASM) initialized (${reason})`);
+            } catch (fallbackError: any) {
+                if (!nativeLoaded) {
+                    console.error("[SQLite] Both native and fts5 fallback failed:", fallbackError?.message || fallbackError);
+                } else {
+                    console.warn("[SQLite] fts5-sql-bundle init failed (native available as fallback):", fallbackError?.message || fallbackError);
+                }
+            }
+        }
+        stepStart = trackTiming("Setting up search tools", sqliteBinaryStart);
+
+        // Download FFmpeg if not already present.
+        // downloadFFmpeg checks local cache first, only
+        // hitting the network if the binary isn't present on disk.
+        const audioToolsStart = globalThis.performance.now();
+        try {
+            updateSplashScreenSync(0, "Setting up audio tools...");
+            await downloadFFmpeg(context);
+        } catch (error) {
+            if (!networkAvailable) {
+                console.log("[Extension] Offline — audio tools not cached locally, audio features unavailable until online");
+            } else {
+                console.error("[Extension] Error downloading audio tools:", error);
+            }
+        }
+        stepStart = trackTiming("Setting up audio tools", audioToolsStart);
+
+        // Run a fresh tool availability check after all download attempts
+        const toolCheckStart = globalThis.performance.now();
+        let toolCheckResult: Awaited<ReturnType<typeof checkTools>>;
+        let unavailableTools: string[];
+        try {
+            toolCheckResult = await checkTools(context, authApi);
+            unavailableTools = getUnavailableTools(toolCheckResult);
+        } catch (error) {
+            console.error("[Extension] checkTools() threw unexpectedly:", error);
+            toolCheckResult = { git: false, nativeGitAvailable: false, sqlite: false, nativeSqliteAvailable: false, ffmpeg: false };
+            unavailableTools = getUnavailableTools(toolCheckResult);
+        }
+        stepStart = trackTiming("Checking tool availability", toolCheckStart);
+
+        const ok = (v: boolean) => v ? "ok" : "MISSING";
+        console.info(
+            `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}`
+        );
+
+        // When offline, non-critical tools (git, audio) being unavailable is
+        // expected and not actionable -- skip the blocking warning panel.
+        const hasCriticalMissing = !toolCheckResult.sqlite;
+        const showWarningPanel =
+            unavailableTools.length > 0 && (networkAvailable || hasCriticalMissing);
+
+        if (unavailableTools.length > 0 && !showWarningPanel) {
+            console.log(
+                "[Extension] Offline -- non-critical tools unavailable (%s), continuing without warning panel",
+                unavailableTools.join(", ")
+            );
+        }
+
+        if (showWarningPanel) {
+            console.warn(
+                "[Extension] Unavailable tools after download attempts:",
+                unavailableTools.join(", ")
+            );
+
+            const warningProvider = new MissingToolsWarningProvider(context);
+            context.subscriptions.push(warningProvider);
+
+            // Start showing the warning panel (creates the tab synchronously),
+            // then close the splash. This ensures a visible tab exists at all
+            // times, preventing the WelcomeView from flashing during the gap.
+            const userActionPromise = warningProvider.show(
+                toolCheckResult,
+                async () => {
+                    const retryOnline = await isOnline();
+                    if (!retryOnline) {
+                        console.warn("[Extension] Offline — cannot retry tool downloads");
+                        return checkTools(context, authApi).catch(() => toolCheckResult);
+                    }
+
+                    const current = await checkTools(context, authApi).catch(() => toolCheckResult);
+
+                    if (!current.git) {
+                        try {
+                            await authApi?.retryGitBinaryDownload?.();
+                        } catch (e) {
+                            console.error("[Extension] Git binary retry failed:", e);
+                        }
+                    }
+                    if (!current.sqlite) {
+                        try {
+                            const binaryPath = await ensureSqliteNativeBinary(context);
+                            if (binaryPath) {
+                                initNativeSqlite(binaryPath);
+                            } else {
+                                await initFts5Sqlite(context);
+                            }
+                        } catch {
+                            try {
+                                await initFts5Sqlite(context);
+                            } catch (e) {
+                                console.error("[Extension] SQLite retry failed (both native and fts5):", e);
+                            }
+                        }
+                    }
+                    if (!current.ffmpeg) {
+                        try { await downloadFFmpeg(context); } catch (e) {
+                            console.error("[Extension] FFmpeg retry failed:", e);
+                        }
+                    }
+                    return checkTools(context, authApi).catch(() => current);
+                }
+            );
+
+            // Now that the warning tab exists, close the splash screen.
+            closeSplashScreen();
+
+            const userAction = await userActionPromise;
+
+            if (userAction === "blocked" && !toolCheckResult.sqlite) {
+                // SQLite is missing and the user closed the panel without
+                // continuing. The extension cannot function without SQLite.
+                return;
+            }
+        }
+
+        // Check for pending update (swap) downloads (after workspace is ready)
         if (workspaceFolders && workspaceFolders.length > 0) {
             checkPendingSwapDownloads(workspaceFolders[0].uri).catch(err => {
-                console.error("[Extension] Error checking pending swap downloads:", err);
+                console.error("[Extension] Error checking pending update (swap) downloads:", err);
             });
-        }
-        if (metadataExists) {
-            startRealtimeStep("AI preparing search capabilities");
-            try {
-                global.db = await initializeSqlJs(context);
-            } catch (error) {
-                console.error("Error initializing SqlJs:", error);
-            }
-            stepStart = finishRealtimeStep();
-            if (global.db) {
-                const importCommand = vscode.commands.registerCommand(
-                    "extension.importWiktionaryJSONL",
-                    () => global.db && importWiktionaryJSONL(global.db)
-                );
-                context.subscriptions.push(importCommand);
-                registerLookupWordCommand(global.db, context);
-                ingestJsonlDictionaryEntries(global.db);
-            }
-        } else {
-            stepStart = trackTiming("AI search capabilities (skipped - no Codex project)", globalThis.performance.now());
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -544,8 +713,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     context.globalState.get<string>("pendingProjectCreateCategory") || "Translation";
                 console.debug("[Extension] Resuming project creation for:", pendingName, "with projectId:", pendingProjectId);
 
-                // Clear flags
-                await context.globalState.update("pendingOpenSourceUploader", undefined);
+                // Clear flags immediately to prevent re-triggering on subsequent reloads
                 await context.globalState.update("pendingProjectCreate", undefined);
                 await context.globalState.update("pendingProjectCreateName", undefined);
                 await context.globalState.update("pendingProjectCreateId", undefined);
@@ -554,22 +722,70 @@ export async function activate(context: vscode.ExtensionContext) {
                 await context.globalState.update("pendingProjectCreateCategory", undefined);
                 await context.globalState.update("pendingOpenSourceUploader", undefined);
 
+                // Only create the project if metadata.json doesn't already exist.
+                // A stale pendingProjectCreate flag (e.g. from a failed folder creation or
+                // multi-window race) should NOT re-trigger creation on an existing project.
+                const pendingMetadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+                let pendingMetadataExists = false;
                 try {
-                    // We are in the new folder. Initialize it.
-                    const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
-                    const sourceLanguage = pendingSourceLangStr ? JSON.parse(pendingSourceLangStr) : undefined;
-                    const targetLanguage = pendingTargetLangStr ? JSON.parse(pendingTargetLangStr) : undefined;
-                    await createNewProject({
-                        projectName: pendingName,
-                        projectId: pendingProjectId,
-                        sourceLanguage,
-                        targetLanguage,
-                        projectCategory: pendingCategory,
-                    });
-                } catch (error) {
-                    console.error("Failed to resume project creation:", error);
-                    vscode.window.showErrorMessage("Failed to create project after reload.");
+                    await vscode.workspace.fs.stat(pendingMetadataUri);
+                    pendingMetadataExists = true;
+                } catch {
+                    // metadata.json doesn't exist, safe to create
                 }
+
+                if (pendingMetadataExists) {
+                    console.debug("[Extension] Skipping pending project creation — metadata.json already exists (stale flag)");
+                } else {
+                    try {
+                        const { createNewProject } = await import("./utils/projectCreationUtils/projectCreationUtils");
+                        const sourceLanguage = pendingSourceLangStr ? JSON.parse(pendingSourceLangStr) : undefined;
+                        const targetLanguage = pendingTargetLangStr ? JSON.parse(pendingTargetLangStr) : undefined;
+                        await createNewProject({
+                            projectName: pendingName,
+                            projectId: pendingProjectId,
+                            sourceLanguage,
+                            targetLanguage,
+                            projectCategory: pendingCategory,
+                        });
+
+                        if (sourceLanguage?.refName && targetLanguage?.refName) {
+                            const workspaceUri = workspaceFolders[0].uri;
+                            import("./copilotSettings/copilotSettings").then(({ generateChatSystemMessage }) =>
+                                generateChatSystemMessage(sourceLanguage, targetLanguage, workspaceUri).then(async (msg) => {
+                                    if (msg) {
+                                        const { MetadataManager } = await import("./utils/metadataManager");
+                                        await MetadataManager.setChatSystemMessage(msg, workspaceUri);
+                                        console.debug("[Extension] Pre-generated chat system message during project creation");
+                                    }
+                                })
+                            ).catch((err) => {
+                                console.debug("[Extension] Background system message generation failed (non-critical):", err);
+                            });
+                        }
+                    } catch (error) {
+                        console.error("Failed to resume project creation:", error);
+                        vscode.window.showErrorMessage("Failed to create project after reload.");
+                    }
+                }
+
+                // Re-check metadataExists after pending project creation so downstream
+                // initialization (indexes, backtranslation commands, etc.) uses the correct value.
+                if (!metadataExists) {
+                    const freshMetadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+                    try {
+                        await vscode.workspace.fs.stat(freshMetadataUri);
+                        metadataExists = true;
+                    } catch {
+                        // still doesn't exist
+                    }
+                }
+
+                // The Startup Flow panel may have opened (via preflight) before the
+                // pending project was created, leaving it stuck on the "Restore
+                // Project Configuration" screen with stale state.  Tell it to
+                // re-read metadata.json and auto-close if the project is now ready.
+                vscode.commands.executeCommand("codex-project-manager.refreshStartupFlowState");
             }
 
             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
@@ -593,7 +809,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
             trackTiming("Initializing Workspace", workspaceStart);
 
-            // Always initialize extension to ensure language server is available before webviews
             await initializeExtension(context, metadataExists);
 
             // Ensure local project settings exist when a Codex project is open
@@ -628,12 +843,11 @@ export async function activate(context: vscode.ExtensionContext) {
         const coreComponentsStart = globalThis.performance.now();
 
         if (metadataExists) {
-            registerSmartEditCommands(context);
+            registerBacktranslationCommands(context);
         }
         await Promise.all([
             registerProviders(context),
             registerCommands(context),
-            initializeWebviews(context),
         ]);
 
         // Register metadata commands for frontier-authentication to call
@@ -660,6 +874,22 @@ export async function activate(context: vscode.ExtensionContext) {
         autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
         autoCompleteStatusBarItem.hide();
         context.subscriptions.push(autoCompleteStatusBarItem);
+
+        if (!toolCheckResult.git) {
+            const gitStatusBarItem = vscode.window.createStatusBarItem(
+                vscode.StatusBarAlignment.Left,
+                0
+            );
+            gitStatusBarItem.text = "$(warning) Offline (missing sync tools)";
+            gitStatusBarItem.tooltip =
+                "Git sync tools could not be downloaded. Sync and collaboration features are unavailable. Download the Codex application from codexeditor.app for full support.";
+            gitStatusBarItem.backgroundColor = new vscode.ThemeColor(
+                "statusBarItem.warningBackground"
+            );
+            gitStatusBarItem.show();
+            context.subscriptions.push(gitStatusBarItem);
+        }
+
         stepStart = trackTiming("Initializing Status Bar", statusBarStart);
 
         // Show activation summary
@@ -702,10 +932,13 @@ export async function activate(context: vscode.ExtensionContext) {
             await migration_recoverTempFilesAndMergeDuplicates(context);
         }
 
+        // Remove leftover files from features that have been removed
+        await cleanupOrphanedProjectFiles();
+
         // After migrations complete, trigger sync directly
         // (All migrations have finished executing since they're awaited sequentially)
         try {
-            const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+            const hasCodexProject = await checkIfProjectIsInitialized();
             if (hasCodexProject) {
                 const workspaceFolderPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
@@ -793,6 +1026,28 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand("codex-editor.openCodexMigrationTool", () =>
             openCodexMigrationTool(context)
         )
+    );
+    let toolsStatusProvider: MissingToolsWarningProvider | undefined;
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openToolsStatus", async () => {
+            if (!toolsStatusProvider) {
+                toolsStatusProvider = new MissingToolsWarningProvider(context, () => {
+                    toolsStatusProvider = undefined;
+                });
+            }
+            await toolsStatusProvider.showToolsStatus();
+        })
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.advancedToolSettings", async () => {
+            if (!toolsStatusProvider) {
+                vscode.window.showInformationMessage(
+                    "Open the Status panel first (Codex Editor: Status), then run this command."
+                );
+                return;
+            }
+            toolsStatusProvider.enableReinstallMode();
+        })
     );
 
     // Command: Migrate validations for user edits across project
@@ -975,58 +1230,18 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
     debug("Initializing extension");
 
     if (metadataExists) {
-        // Break down language server initialization
-        const totalLsStart = globalThis.performance.now();
-
-        startRealtimeStep("Initializing Language Server");
-        const lsStart = globalThis.performance.now();
-        client = await registerLanguageServer(context);
-        const lsDuration = globalThis.performance.now() - lsStart;
-        debug(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
-
-        // Always register client commands to prevent "command not found" errors
-        // If language server failed, commands will return appropriate fallbacks
-        const regServicesStart = globalThis.performance.now();
-        clientCommandsDisposable = registerClientCommands(context, client);
-        context.subscriptions.push(clientCommandsDisposable);
-        const regServicesDuration = globalThis.performance.now() - regServicesStart;
-        debug(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
-
-        if (client && global.db) {
-            const optimizeStart = globalThis.performance.now();
-            try {
-                await registerClientOnRequests(client, global.db);
-                await client.start();
-            } catch (error) {
-                console.error("Error registering client requests:", error);
-            }
-            const optimizeDuration = globalThis.performance.now() - optimizeStart;
-            debug(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
-        } else {
-            if (!client) {
-                console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
-            }
-            if (!global.db) {
-                console.info("[Database] Dictionary not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
-            }
-        }
-        finishRealtimeStep();
-        const totalLsDuration = globalThis.performance.now() - totalLsStart;
-        debug(`[Activation] Language Server Ready: ${totalLsDuration.toFixed(2)}ms`);
-
-        // Break down index creation  
+        // Break down index creation
         const totalIndexStart = globalThis.performance.now();
-
-        const verseRefsStart = globalThis.performance.now();
-        // Index verse refs would go here, but it seems to be missing from this section
-        const verseRefsDuration = globalThis.performance.now() - verseRefsStart;
-        debug(`[Activation]  Index Verse Refs: ${verseRefsDuration.toFixed(2)}ms`);
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
-        startRealtimeStep("AI learning your project structure");
-        await createIndexWithContext(context);
-        finishRealtimeStep();
+        if (isDatabaseReady()) {
+            startRealtimeStep("AI learning your project structure");
+            await createIndexWithContext(context);
+            finishRealtimeStep();
+        } else {
+            console.warn("[Extension] Skipping content index creation — no SQLite backend available");
+        }
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
@@ -1064,6 +1279,7 @@ async function watchForInitialization(context: vscode.ExtensionContext, metadata
         if (metadataExists) {
             watcher?.dispose();
             await initializeExtension(context, metadataExists);
+            registerBacktranslationCommands(context);
         }
     };
 
@@ -1119,10 +1335,6 @@ async function executeCommandsAfter(
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
 
-    await vscode.workspace
-        .getConfiguration()
-        .update("codex-project-manager.spellcheckIsEnabled", false, vscode.ConfigurationTarget.Global);
-
     // Final splash screen update and close
     updateSplashScreenSync(100, "Finalizing setup...");
 
@@ -1151,7 +1363,7 @@ async function executeCommandsAfter(
 }
 
 /**
- * Check if there are pending swap downloads and automatically download files
+ * Check if there are pending update (swap) downloads and automatically download files
  * This runs when a project opens that was previously paused for downloads
  */
 async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> {
@@ -1162,10 +1374,10 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
         const pendingState = await getSwapPendingState(projectUri.fsPath);
 
         if (!pendingState || pendingState.swapState !== "pending_downloads") {
-            return; // No pending swap downloads
+            return; // No pending update (swap) downloads
         }
 
-        console.log("[Extension] Found pending swap downloads, starting automatic download...");
+        console.log("[Extension] Found pending update (swap) downloads, starting automatic download...");
 
         // Check if downloads are already complete
         const { complete: alreadyComplete, remaining } = await checkPendingDownloadsComplete(projectUri.fsPath);
@@ -1181,7 +1393,7 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "Downloading media for swap...",
+            title: "Downloading media for project update...",
             cancellable: true
         }, async (progress, token) => {
             // Show initial count in message
@@ -1206,17 +1418,17 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
             if (result.failed.length > 0) {
                 // Some downloads failed - show warning and let user decide
                 const action = await vscode.window.showWarningMessage(
-                    `Downloaded ${result.downloaded}/${result.total} files. ${result.failed.length} file(s) failed to download. Continue with swap anyway?`,
+                    `Downloaded ${result.downloaded}/${result.total} files. ${result.failed.length} file(s) failed to download. Continue with update anyway?`,
                     { modal: true },
-                    "Continue Swap",
+                    "Continue Update",
                     "Retry",
-                    "Cancel Swap"
+                    "Cancel Update"
                 );
 
                 if (action === "Retry") {
                     // Reopen to retry
                     vscode.commands.executeCommand("workbench.action.reloadWindow");
-                } else if (action === "Continue Swap") {
+                } else if (action === "Continue Update") {
                     await promptContinueSwap(projectUri, pendingState);
                 } else {
                     await cancelSwap(projectUri, pendingState);
@@ -1228,12 +1440,12 @@ async function checkPendingSwapDownloads(projectUri: vscode.Uri): Promise<void> 
         });
 
     } catch (error) {
-        console.error("[Extension] Error checking pending swap downloads:", error);
+        console.error("[Extension] Error checking pending update (swap) downloads:", error);
     }
 }
 
 /**
- * Show modal to continue or cancel swap after downloads complete
+ * Show modal to continue or cancel update (swap) after downloads complete
  */
 async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Promise<void> {
     const { saveSwapPendingState, performProjectSwap, clearSwapPendingState } =
@@ -1242,37 +1454,37 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
     const newProjectName = pendingState.newProjectUrl.split('/').pop()?.replace('.git', '') || 'new project';
 
     const action = await vscode.window.showInformationMessage(
-        `All required media files have been downloaded. Ready to continue the project swap to "${newProjectName}".`,
+        `All required media files have been downloaded. Ready to continue the project update to "${newProjectName}".`,
         { modal: true },
-        "Continue Swap"
+        "Continue Update"
     );
 
-    if (action === "Continue Swap") {
-        // Re-validate swap is still active before executing
+    if (action === "Continue Update") {
+        // Re-validate update (swap) is still active before executing
         try {
             const { checkProjectSwapRequired } = await import("./utils/projectSwapManager");
             const recheck = await checkProjectSwapRequired(projectUri.fsPath, undefined, true);
             if (recheck.remoteUnreachable) {
                 await vscode.window.showWarningMessage(
                     "Server Unreachable\n\n" +
-                    "The swap cannot be completed because the server is not reachable. " +
+                    "The update cannot be completed because the server is not reachable. " +
                     "Please check your internet connection or try again later.\n\n" +
-                    "The pending swap state has been preserved and will resume when connectivity is restored.",
+                    "The pending update state has been preserved and will resume when connectivity is restored.",
                     { modal: true },
                     "OK"
                 );
                 return; // Don't clear pending state - preserve for when connectivity returns
             }
             if (recheck.userAlreadySwapped && recheck.activeEntry) {
-                // User already completed this swap - clear pending state and inform
+                // User already completed this update (swap) - clear pending state and inform
                 const { clearSwapPendingState: clearPending } = await import("./providers/StartupFlow/performProjectSwap");
                 await clearPending(projectUri.fsPath);
 
                 const swapTargetLabel =
                     recheck.activeEntry.newProjectName || recheck.activeEntry.newProjectUrl || "the new project";
                 await vscode.window.showWarningMessage(
-                    `Already Swapped\n\n` +
-                    `You have already swapped to ${swapTargetLabel}.\n\n` +
+                    `Already Updated\n\n` +
+                    `You have already updated to ${swapTargetLabel}.\n\n` +
                     `This project is deprecated but can still be opened.`,
                     { modal: true },
                     "OK"
@@ -1306,29 +1518,29 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
                 await clearSwapPendingState(projectUri.fsPath);
 
                 await vscode.window.showWarningMessage(
-                    "Swap Cancelled\n\n" +
-                    "The project swap has been cancelled or is no longer required.",
+                    "Update Cancelled\n\n" +
+                    "The project update has been cancelled or is no longer required.",
                     { modal: true },
                     "OK"
                 );
                 return;
             }
         } catch {
-            // Non-fatal - proceed with swap if re-check fails
+            // Non-fatal - proceed with update (swap) if re-check fails
         }
 
-        // Mark as ready and trigger swap
+        // Mark as ready and trigger update (swap)
         await saveSwapPendingState(projectUri.fsPath, {
             ...pendingState,
             swapState: "ready_to_swap"
         });
 
-        // Perform the swap
+        // Perform the update (swap)
         const projectName = projectUri.fsPath.split(/[\\/]/).pop() || "project";
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "Completing project swap...",
+            title: "Completing project update...",
             cancellable: false
         }, async (progress) => {
             const newPath = await performProjectSwap(
@@ -1342,7 +1554,7 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
                 pendingState.swapReason
             );
 
-            progress.report({ message: "Opening swapped project..." });
+            progress.report({ message: "Opening updated project..." });
             const { MetadataManager } = await import("./utils/metadataManager");
             await MetadataManager.safeOpenFolder(
                 vscode.Uri.file(newPath),
@@ -1356,38 +1568,31 @@ async function promptContinueSwap(projectUri: vscode.Uri, pendingState: any): Pr
 }
 
 /**
- * Cancel a pending swap.
- * Since we no longer change media strategy during swap, just clear the pending state.
+ * Cancel a pending update (swap).
+ * Since we no longer change media strategy during update (swap), just clear the pending state.
  */
 async function cancelSwap(projectUri: vscode.Uri, _pendingState: any): Promise<void> {
     const { clearSwapPendingState } = await import("./providers/StartupFlow/performProjectSwap");
     await clearSwapPendingState(projectUri.fsPath);
-    vscode.window.showInformationMessage("Project swap cancelled.");
+    vscode.window.showInformationMessage("Project update cancelled.");
 }
 
-export function deactivate() {
+export async function deactivate() {
     // Clean up real-time progress timer
     if (currentStepTimer) {
         clearInterval(currentStepTimer);
         currentStepTimer = null;
     }
 
-    if (clientCommandsDisposable) {
-        clientCommandsDisposable.dispose();
+    // Close the index manager's database connection and clear the global reference
+    try {
+        const { clearSQLiteIndexManager } = await import(
+            "./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+        );
+        await clearSQLiteIndexManager();
+    } catch (e) {
+        console.error("[Deactivate] Error clearing index manager:", e);
     }
-    if (client) {
-        return client.stop();
-    }
-    if (global.db) {
-        global.db.close();
-    }
-
-    // Clean up the global index manager
-    import("./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager").then(
-        ({ clearSQLiteIndexManager }) => {
-            clearSQLiteIndexManager();
-        }
-    ).catch(console.error);
 }
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {

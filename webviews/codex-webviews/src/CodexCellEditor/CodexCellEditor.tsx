@@ -5,7 +5,6 @@ import {
     QuillCellContent,
     EditorPostMessages,
     EditorCellContent,
-    SpellCheckResponse,
     CustomNotebookMetadata,
     EditorReceiveMessages,
     CellIdGlobalState,
@@ -17,8 +16,6 @@ import CellList from "./CellList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
-import registerQuillSpellChecker from "./react-quill-spellcheck";
-import { getCleanedHtml } from "./react-quill-spellcheck/SuggestionBoxes";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
@@ -137,9 +134,6 @@ const CodexCellEditor: React.FC = () => {
     const [allCellsInCurrentMilestone, setAllCellsInCurrentMilestone] = useState<
         QuillCellContent[]
     >([]);
-    const [alertColorCodes, setAlertColorCodes] = useState<{
-        [cellId: string]: number;
-    }>({});
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
@@ -228,7 +222,6 @@ const CodexCellEditor: React.FC = () => {
     const singleCellProgress = singleCellTranslationState.progress;
 
     // Required state variables that were removed
-    const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
         {} as EditorCellContent
     );
@@ -631,12 +624,18 @@ const CodexCellEditor: React.FC = () => {
         [vscode]
     );
 
-    // Handle navigation to cell from search
+    // Handle navigation to cell from search — also tell the extension
+    // so the other editor panel scrolls to the same cell.
     const handleSearchNavigateToCell = useCallback(
         (cellId: string) => {
-            setContentToScrollTo(cellId);
+            setContentToScrollTo(null);
+            setTimeout(() => setContentToScrollTo(cellId), 0);
+            vscode.postMessage({
+                command: "searchNavigateToCell",
+                content: cellId,
+            } as EditorPostMessages);
         },
-        [setContentToScrollTo]
+        [setContentToScrollTo, vscode]
     );
 
     // Handle replace in cell from search
@@ -805,6 +804,11 @@ const CodexCellEditor: React.FC = () => {
                     setLastHighlightedChapter(null);
                     setChapterWhenHighlighted(null);
                 }
+            }
+
+            if (message.type === "scrollToCell") {
+                setContentToScrollTo(null);
+                setTimeout(() => setContentToScrollTo(message.cellId), 0);
             }
 
             // Add handler for pending validations updates
@@ -1153,32 +1157,6 @@ const CodexCellEditor: React.FC = () => {
         setCurrentEditingCellId(content.cellMarkers?.[0] || null);
     };
 
-    // Add the removeHtmlTags function
-    const removeHtmlTags = (text: string) => {
-        const temp = document.createElement("div");
-        temp.innerHTML = text;
-        return temp.textContent || temp.innerText || "";
-    };
-
-    // Function to check alert codes
-    const checkAlertCodes = () => {
-        const cellContentAndId = translationUnits.map((unit) => ({
-            text: removeHtmlTags(unit.cellContent),
-            cellId: unit.cellMarkers[0],
-        }));
-
-        debug("alerts", "Checking alert codes for cells:", { count: cellContentAndId.length });
-        vscode.postMessage({
-            command: "getAlertCodes",
-            content: cellContentAndId,
-        } as EditorPostMessages);
-    };
-
-    // useEffect(() => {
-    // // TODO: we are removing spell check for now until someone needs it
-    //     checkAlertCodes();
-    // }, [translationUnits]);
-
     // Clear successful completions after a delay when all translations are complete
     useEffect(() => {
         const noActiveTranslations =
@@ -1295,7 +1273,6 @@ const CodexCellEditor: React.FC = () => {
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
         },
-        setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
             if (!cellId) return;
 
@@ -1307,7 +1284,9 @@ const CodexCellEditor: React.FC = () => {
             let targetMilestoneIdx = 0;
             if (milestoneIndex && milestoneIndex.milestones.length > 0) {
                 const foundIdx = milestoneIndex.milestones.findIndex((milestone) => {
-                    const milestoneChapter = extractChapterNumberFromMilestoneValue(milestone.value);
+                    const milestoneChapter = extractChapterNumberFromMilestoneValue(
+                        milestone.value
+                    );
                     return milestoneChapter === newChapterNumber;
                 });
                 if (foundIdx >= 0) {
@@ -1330,7 +1309,9 @@ const CodexCellEditor: React.FC = () => {
                         const verseNumber = parseInt(verseMatch[1], 10);
                         // Verse numbers are 1-based, calculate 0-based cell index within milestone
                         const cellIndexInMilestone = Math.max(0, verseNumber - 1);
-                        targetSubsectionIdx = Math.floor(cellIndexInMilestone / effectiveCellsPerPage);
+                        targetSubsectionIdx = Math.floor(
+                            cellIndexInMilestone / effectiveCellsPerPage
+                        );
                     }
                 }
             }
@@ -1523,10 +1504,6 @@ const CodexCellEditor: React.FC = () => {
         },
         updateVideoUrl: (url: string) => {
             setTempVideoUrl(url);
-        },
-        setAlertColorCodes: setAlertColorCodes,
-        recheckAlertCodes: () => {
-            // checkAlertCodes(); // TODO: we are removing spell check for now until someone needs it
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
@@ -1800,11 +1777,6 @@ const CodexCellEditor: React.FC = () => {
         return () => window.removeEventListener("focus", () => {});
     }, []);
 
-    useEffect(() => {
-        // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill as any, vscode);
-    }, []);
-
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
         const sectionSet = new Set<string>();
         units.forEach((unit) => {
@@ -1917,7 +1889,9 @@ const CodexCellEditor: React.FC = () => {
             // Validate milestone index to prevent invalid requests
             const milestoneCount = milestoneIndex?.milestones.length ?? 0;
             if (milestoneIdx < 0 || (milestoneCount > 0 && milestoneIdx >= milestoneCount)) {
-                console.warn(`[requestCellsForMilestone] Invalid milestone index: ${milestoneIdx}, total: ${milestoneCount}`);
+                console.warn(
+                    `[requestCellsForMilestone] Invalid milestone index: ${milestoneIdx}, total: ${milestoneCount}`
+                );
                 return;
             }
 
@@ -2282,7 +2256,6 @@ const CodexCellEditor: React.FC = () => {
             requestId,
             content: content,
         } as EditorPostMessages);
-        checkAlertCodes();
     };
 
     // Provider ack: only mark the save as complete once the provider confirms the file write finished.
@@ -3297,7 +3270,6 @@ const CodexCellEditor: React.FC = () => {
                 >
                     <div className="editor-container max-w-full overflow-hidden">
                         <CellList
-                            spellCheckResponse={spellCheckResponse}
                             translationUnits={translationUnitsForSection}
                             fullDocumentTranslationUnits={
                                 allCellsInCurrentMilestone.length > 0
@@ -3313,7 +3285,6 @@ const CodexCellEditor: React.FC = () => {
                             isSourceText={isSourceText}
                             windowHeight={windowHeight}
                             headerHeight={headerHeight}
-                            alertColorCodes={alertColorCodes}
                             highlightedCellId={highlightedCellId}
                             scrollSyncEnabled={scrollSyncEnabled}
                             translationQueue={translationQueue}
@@ -3340,6 +3311,7 @@ const CodexCellEditor: React.FC = () => {
                                 tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
                             }
                             lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
+                            enforceHtmlStructure={metadata?.enforceHtmlStructure ?? false}
                             currentUsername={username}
                             requiredValidations={requiredValidations ?? undefined}
                             requiredAudioValidations={requiredAudioValidations ?? undefined}

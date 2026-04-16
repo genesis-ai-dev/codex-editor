@@ -159,15 +159,41 @@ export interface FrontierAPI {
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
         offline?: boolean;
+        blocked?: boolean;
+        allChangedFilePaths?: string[];
+        remoteChangedFilePaths?: string[];
+        uploadedLfsFiles?: string[];
     }>;
     completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
     onSyncStatusChange: (
         callback: (status: { status: 'started' | 'completed' | 'error' | 'skipped', message?: string; }) => void
     ) => vscode.Disposable;
 
+    checkSyncLock?: () => Promise<{
+        exists: boolean;
+        isDead: boolean;
+        isStuck: boolean;
+        age: number;
+        progressAge: number;
+        pid?: number;
+        ownedByUs: boolean;
+        phase?: string;
+        progress?: { current: number; total: number; description?: string; };
+        status: "active" | "stuck" | "dead";
+    }>;
+    cleanupStaleLock?: () => Promise<void>;
+
     downloadLFSFile: (
         projectPath: string,
         oid: string,
         size: number
     ) => Promise<Buffer>;
+
+    getGitBinaryPath?: () => { localGitDir: string; execPath: string; } | undefined;
+    isGitBinaryAvailable?: () => boolean;
+    /** Returns true when git operations can succeed (native binary OR isomorphic-git fallback). */
+    isGitAvailable?: () => boolean;
+    retryGitBinaryDownload?: () => Promise<boolean>;
+    /** Delete the downloaded git binary directory so it is re-downloaded on next reload. */
+    deleteGitBinary?: () => Promise<boolean>;
 }

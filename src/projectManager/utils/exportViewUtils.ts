@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData } from "../../../types";
 
+export {
+    EXPORT_OPTIONS_BY_FILE_TYPE,
+    isExportCategoryVisibleForGroup,
+    IMPORTER_PLUGIN_ID_TO_EXPORT_GROUP_KEY,
+    getExportGroupKeyForImporterPlugin,
+} from "../../../sharedUtils/exportOptionsEligibility";
+
 /** Display name for each file type group in the export view */
 export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     audio: "Audio Files",
@@ -17,6 +24,7 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     reach4life: "Reach4Life",
     spreadsheet: "Spreadsheet with Audio data",
     pdf: "PDF Files",
+    paratext: "Paratext Projects",
     unknown: "Other Files",
 };
 
@@ -25,32 +33,6 @@ export interface FileGroup {
     displayName: string;
     files: Array<{ path: string; name: string; displayName: string }>;
 }
-
-/**
- * Config for which file types see which export options.
- * - roundTrip: file types that support round-trip export
- * - usfm: eBible, USFM, and Macula Bible files
- * - html: eBible, USFM, and Macula Bible files
- * - subtitles: only subtitle files (shown at top, expanded)
- * - All others (plaintext, html, xliff, audio, backtranslations, dataExport): all file types
- */
-export const EXPORT_OPTIONS_BY_FILE_TYPE: Record<string, string[]> = {
-    roundTrip: [
-        "docx",
-        "indesign",
-        "biblica",
-        "reach4life",
-        "pdf",
-        "obs",
-        "tms",
-        "usfm",
-        "spreadsheet",
-    ],
-    // USFM and HTML generation for eBible, USFM, Macula Bible, and unknown (older projects without importer type)
-    usfm: ["ebible", "usfm", "maculabible", "unknown"],
-    html: ["ebible", "usfm", "maculabible", "unknown"],
-    subtitles: ["subtitles", "unknown"],
-};
 
 async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     const fileData = await vscode.workspace.fs.readFile(uri);
@@ -161,6 +143,11 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         corpusMarker === "maculabible"
     ) {
         return "maculabible";
+    }
+
+    // Paratext scripture projects (USFM-like; subtitle export gating differs from generic "unknown")
+    if (importerType === "paratext" || fileType === "paratext") {
+        return "paratext";
     }
 
     // USFM Files (usfm, sfm)
