@@ -32,7 +32,7 @@ const XML_PARSER_OPTIONS = {
     processEntities: true,
     ignoreDeclaration: false,
     ignorePiTags: false,
-    isArray: (name: string, jpath: string) => {
+    isArray: (name: string, _jpath: unknown, _isLeafNode: boolean, _isAttribute: boolean) => {
         // Treat these elements as arrays even if there's only one
         return ['w:p', 'w:r', 'w:t', 'w:tab', 'w:br', 'w:drawing'].includes(name);
     },
