@@ -613,6 +613,19 @@ export class SyncManager {
             return;
         }
 
+        // Block auto-sync when admin pin intent is active — admin is sanity-testing a pinned version
+        if (!isManualSync) {
+            try {
+                const hasAdminPinIntent = await vscode.commands.executeCommand<boolean>('codex.conductor.hasAdminPinIntent');
+                if (hasAdminPinIntent) {
+                    debug("Admin pin intent active — skipping auto-sync. Use explicit sync to push pin.");
+                    return;
+                }
+            } catch {
+                // Conductor not available (non-Codex environment); proceed normally
+            }
+        }
+
         // Check if there's a workspace folder open (unless it's a manual sync which user explicitly requested)
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace && !isManualSync) {
