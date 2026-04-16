@@ -42,7 +42,7 @@ export async function exportCodexContentAsXliff(
         debug("Starting exportCodexContentAsXliff function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -50,15 +50,15 @@ export async function exportCodexContentAsXliff(
             "codex-project-manager"
         );
         const sourceLanguage = projectConfig.get("sourceLanguage") as
-            | { refName: string }
+            | { refName: string; }
             | undefined;
         const targetLanguage = projectConfig.get("targetLanguage") as
-            | { refName: string }
+            | { refName: string; }
             | undefined;
 
         if (!sourceLanguage?.refName || !targetLanguage?.refName) {
             vscode.window.showErrorMessage(
-                "Source and target languages must be configured before exporting to XLIFF."
+                "Source and target languages must be set in project settings before exporting to XLIFF."
             );
             return;
         }

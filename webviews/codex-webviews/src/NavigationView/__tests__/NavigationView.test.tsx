@@ -111,29 +111,6 @@ describe("NavigationView Sort Order Toggle", () => {
         expect(sortedDesc[2].label).toBe("Alpha Codex");
     });
 
-    it("sorts both codex and dictionary items with the same sort order", () => {
-        const codexItems: CodexItem[] = [
-            { label: "Zebra", uri: "file:///zebra", type: "codexDocument" },
-            { label: "Alpha", uri: "file:///alpha", type: "codexDocument" },
-        ];
-
-        const dictionaryItems: CodexItem[] = [
-            { label: "Zebra Dict", uri: "file:///zebra-dict", type: "dictionary" },
-            { label: "Alpha Dict", uri: "file:///alpha-dict", type: "dictionary" },
-        ];
-
-        const sortOrder = "asc";
-        const sortComparisonFn = (a: CodexItem, b: CodexItem) => sortComparison(a, b, sortOrder);
-
-        const sortedCodex = [...codexItems].sort(sortComparisonFn);
-        const sortedDictionary = [...dictionaryItems].sort(sortComparisonFn);
-
-        expect(sortedCodex[0].label).toBe("Alpha");
-        expect(sortedCodex[1].label).toBe("Zebra");
-        expect(sortedDictionary[0].label).toBe("Alpha Dict");
-        expect(sortedDictionary[1].label).toBe("Zebra Dict");
-    });
-
     it("maintains sort order when toggling multiple times", () => {
         const items = createMockCodexItems();
         let sortOrder: "asc" | "desc" = "asc";

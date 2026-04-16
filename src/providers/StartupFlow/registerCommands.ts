@@ -26,7 +26,7 @@ export const registerStartupFlowCommands = (context: vscode.ExtensionContext) =>
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-project-manager.openStartupFlow", (options?: { forceLogin?: boolean }) => {
+        vscode.commands.registerCommand("codex-project-manager.openStartupFlow", (options?: { forceLogin?: boolean; }) => {
             // Default to forcing login if options are undefined (manual invocation)
             // If options are provided, respect the flag
             const shouldForce = options?.forceLogin ?? true;
@@ -45,5 +45,15 @@ export const registerStartupFlowCommands = (context: vscode.ExtensionContext) =>
                 StartupFlowProvider.viewType
             );
         })
+    );
+
+    // Allow other parts of the extension (e.g. pending project creation in
+    // extension.ts) to tell the Startup Flow to re-check metadata.json and
+    // auto-close if the project is now fully set up.
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-project-manager.refreshStartupFlowState",
+            () => startupFlowProvider.refreshProjectState()
+        )
     );
 };
