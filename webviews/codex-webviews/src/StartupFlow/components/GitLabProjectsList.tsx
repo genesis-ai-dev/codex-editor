@@ -242,13 +242,14 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 return { groups, cleanName, displayUrl, uniqueId };
             }
         } catch (error) {
-            console.warn("Failed to parse project URL:", url, error);
+            console.warn("Failed to parse project URL:", error);
         }
 
+        const safeDisplay = url.replace(/\/\/[^@]*@/, "//***@");
         return {
             groups: [],
             cleanName: "",
-            displayUrl: url,
+            displayUrl: safeDisplay,
             uniqueId: "",
         };
     };

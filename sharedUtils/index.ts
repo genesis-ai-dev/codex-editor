@@ -308,3 +308,4 @@ export const deriveTargetPathFromSource = (sourcePath: string): string => {
 
 // Re-export corpus utilities
 export * from "./corpusUtils";
+export * from "./exportOptionsEligibility";

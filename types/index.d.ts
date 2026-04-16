@@ -175,7 +175,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsListFromGitLab"; }
     | { command: "forceRefreshProjectsList"; }
     | { command: "getProjectsSyncStatus"; }
-    | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; }
+    | { command: "project.open"; projectPath: string; mediaStrategy?: MediaFilesStrategy; skipUpdateCheck?: boolean; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
     | { command: "project.createForUpload"; projectName: string; projectType?: string; sourceLanguage: LanguageMetadata; targetLanguage: LanguageMetadata; }
     | { command: "project.checkNameExists"; projectName: string; }
@@ -979,6 +979,15 @@ interface ProjectOverview extends Project {
     };
 }
 
+/** A snapshot of a single user's Codex app (host IDE) version, recorded on project open and after sync */
+type ProjectUserVersionEntry = {
+    userName: string;
+    /** Host IDE / app binary version (vscode.version), e.g. "1.108.11148" */
+    codexVersion: string;
+    /** Epoch milliseconds when this entry was last written */
+    updatedAt: number;
+};
+
 /* This is the project metadata that is saved in the metadata.json file */
 type ProjectMetadata = {
     projectName?: string;
@@ -991,6 +1000,8 @@ type ProjectMetadata = {
         fileNameToHash: { [fileName: string]: string; };
     };
     edits?: ProjectEditHistory[];
+    /** Per-user Codex editor version tracking for deploy compatibility checks */
+    users?: ProjectUserVersionEntry[];
     meta: {
         version: string;
         category: string;

@@ -9,7 +9,7 @@ import * as dugiteGit from "../utils/dugiteGit";
 import { getFrontierVersionStatus, checkVSCodeVersion } from "./utils/versionChecks";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 import { checkRemoteUpdatingRequired } from "../utils/remoteUpdatingManager";
-import { markPendingUpdateRequired } from "../utils/localProjectSettings";
+import { markPendingUpdateRequired, clearPendingUpdate, readLocalProjectSettings } from "../utils/localProjectSettings";
 import { isDatabaseReady } from "../utils/sqliteDatabaseFactory";
 import { isOnline } from "../utils/connectivityChecker";
 
@@ -96,11 +96,75 @@ export class SyncManager {
     // Check if updating is required and notify/block if so
     private async checkUpdating(projectPath: string): Promise<boolean> {
         try {
-            // Check if updating is required
-            // We force bypass cache to ensure we get the latest state from server
+            // Check local sticky flag first — instant, no network needed.
+            // This covers cases where the remote API call fails but the flag
+            // was already set by a prior sync, project list load, or admin action.
+            try {
+                const localSettings = await readLocalProjectSettings(vscode.Uri.file(projectPath));
+                if (localSettings.pendingUpdate?.required) {
+                    debug("Pending update flag set in localProjectSettings — verifying with remote before blocking");
+
+                    // Verify with remote before blocking: admin may have cancelled
+                    let clearedByRemote = false;
+                    try {
+                        const remoteVerify = await checkRemoteUpdatingRequired(projectPath, undefined, true);
+                        if (
+                            !remoteVerify.required
+                            && remoteVerify.remoteReachable
+                            && (remoteVerify.entryStatus === "cancelled" || remoteVerify.entryStatus === "executed")
+                        ) {
+                            debug("Remote confirms entry is no longer active, clearing stale local flag");
+                            await clearPendingUpdate(vscode.Uri.file(projectPath));
+                            clearedByRemote = true;
+                        }
+                    } catch {
+                        debug("Remote verification failed (non-fatal), will check local metadata");
+                    }
+
+                    // If remote didn't clear, check local metadata.json as fallback.
+                    // Covers the case where the admin cancelled locally but hasn't synced yet.
+                    if (!clearedByRemote) {
+                        const clearedByLocal = await this.checkLocalMetadataForCancellation(projectPath);
+                        if (clearedByLocal) {
+                            debug("Local metadata confirms all entries cancelled/executed, clearing stale flag");
+                            await clearPendingUpdate(vscode.Uri.file(projectPath));
+                            // Fully resolved — skip the second remote check and allow sync
+                            return false;
+                        } else {
+                            debug("Update still required (remote and local checks), blocking sync");
+                            const selection = await vscode.window.showWarningMessage(
+                                "Project Update Required\n\nAn administrator has made changes that require updating your project. Syncing is paused until the update is applied.\n\nThe project needs to be closed to complete the update.",
+                                { modal: true },
+                                "Update Project"
+                            );
+                            if (selection === "Update Project") {
+                                await vscode.commands.executeCommand("workbench.action.closeFolder");
+                            }
+                            return true;
+                        }
+                    }
+                }
+            } catch {
+                debug("Could not read localProjectSettings for pre-check (non-fatal)");
+            }
+
+            // Also check remote for the latest state (catches newly-set entries)
             const result = await checkRemoteUpdatingRequired(projectPath, undefined, true);
 
             if (result.required) {
+                // Remote says required — but local metadata may have a newer
+                // cancellation/execution that hasn't been pushed yet.
+                const localOverride = await this.checkLocalMetadataForCancellation(projectPath);
+                if (localOverride) {
+                    debug("Remote says required but local metadata has newer cancellation/execution — allowing sync");
+                    try {
+                        await clearPendingUpdate(vscode.Uri.file(projectPath));
+                    } catch (e) {
+                        console.warn("Failed to clear pending update flag:", e);
+                    }
+                    return false;
+                }
+
                 debug("Updating required for user, blocking sync and notifying");
 
                 // Persist pending update flag so the projects list can surface it after close
@@ -121,14 +185,71 @@ export class SyncManager {
                 if (selection === "Update Project") {
                     await vscode.commands.executeCommand("workbench.action.closeFolder");
                 }
-                // If user clicks Cancel (default button) or Escape, selection will be undefined - stay in project
 
                 return true;
+            } else if (
+                result.remoteReachable
+                && (result.entryStatus === "cancelled" || result.entryStatus === "executed")
+            ) {
+                // Remote confirms the entry is no longer active — clear any stale flag immediately
+                // so the user doesn't need to wait for a project-list reload.
+                try {
+                    await clearPendingUpdate(vscode.Uri.file(projectPath));
+                } catch (e) {
+                    console.warn("Failed to clear pending update flag:", e);
+                }
             }
         } catch (error) {
             console.error("Error checking updating requirement:", error);
         }
         return false;
+    }
+
+    /**
+     * Check local metadata.json for cancellation/execution evidence.
+     * Returns true if all entries for the current user are inactive
+     * (cancelled with newer updatedAt, or executed), meaning sync can proceed.
+     */
+    private async checkLocalMetadataForCancellation(projectPath: string): Promise<boolean> {
+        try {
+            const { getCurrentUsername, normalizeUpdateEntry, isEffectivelyCancelled } = await import("../utils/remoteUpdatingManager");
+            const { MetadataManager } = await import("../utils/metadataManager");
+
+            const currentUsername = await getCurrentUsername();
+            if (!currentUsername) {
+                return false;
+            }
+
+            const projectUri = vscode.Uri.file(projectPath);
+            const metaResult = await MetadataManager.safeReadMetadata(projectUri);
+            if (!metaResult.success || !metaResult.metadata) {
+                return false;
+            }
+
+            const rawEntries = (metaResult.metadata as any).meta?.initiateRemoteUpdatingFor;
+            if (!Array.isArray(rawEntries) || rawEntries.length === 0) {
+                return false;
+            }
+
+            const entries = rawEntries.map((e: any) => normalizeUpdateEntry(e));
+            const userEntries = entries.filter((e) => e.userToUpdate === currentUsername);
+
+            if (userEntries.length === 0) {
+                return false;
+            }
+
+            const allInactive = userEntries.every(
+                (e) => e.executed || isEffectivelyCancelled(e)
+            );
+
+            if (allInactive) {
+                debug("Local metadata: all entries for user are cancelled/executed");
+            }
+            return allInactive;
+        } catch (e) {
+            debug("checkLocalMetadataForCancellation error (non-fatal):", e);
+            return false;
+        }
     }
 
     // Check if project update (swap) is required and notify/block if so
@@ -259,6 +380,91 @@ export class SyncManager {
         } catch (error) {
             // Non-fatal - don't disrupt the user if this check fails
             debug("[SyncManager] Post-sync update (swap) check error (non-fatal):", error);
+        }
+    }
+
+    /**
+     * Reconcile remote updating entries into local metadata, then run the
+     * existing post-sync active-entry check.  Reconciliation fetches the
+     * remote `initiateRemoteUpdatingFor` list and unions it with the local
+     * list so that entries silently dropped by Git's auto-merge are restored.
+     */
+    private async reconcileAndCheckUpdatingAfterSync(): Promise<void> {
+        try {
+            const projectPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (projectPath) {
+                const { reconcileUpdatingEntriesWithRemote } = await import("../utils/remoteUpdatingManager");
+                await reconcileUpdatingEntriesWithRemote(projectPath);
+            }
+        } catch (error) {
+            debug("[SyncManager] Reconciliation error (non-fatal):", error);
+        }
+        await this.checkUpdatingAfterSync();
+    }
+
+    /**
+     * Post-sync update check: after git pull, the local metadata.json may now
+     * contain an active initiateRemoteUpdatingFor entry that wasn't visible
+     * to the pre-sync remote API check. Read local metadata and block if needed.
+     */
+    private async checkUpdatingAfterSync(): Promise<void> {
+        try {
+            const projectPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!projectPath) {
+                return;
+            }
+
+            const { MetadataManager } = await import("../utils/metadataManager");
+            const { getCurrentUsername, normalizeUpdateEntry, isEffectivelyCancelled } = await import("../utils/remoteUpdatingManager");
+
+            const currentUsername = await getCurrentUsername();
+            if (!currentUsername) {
+                return;
+            }
+
+            const metadataResult = await MetadataManager.safeReadMetadata(
+                vscode.Uri.file(projectPath)
+            );
+            if (!metadataResult.success || !metadataResult.metadata) {
+                return;
+            }
+
+            const rawList = metadataResult.metadata.meta?.initiateRemoteUpdatingFor;
+            if (!Array.isArray(rawList) || rawList.length === 0) {
+                return;
+            }
+
+            const entries = rawList.map((e: any) => normalizeUpdateEntry(e));
+            const hasActiveEntry = entries.some(
+                (e) => e.userToUpdate === currentUsername && !e.executed && !isEffectivelyCancelled(e)
+            );
+
+            if (!hasActiveEntry) {
+                return;
+            }
+
+            debug("[SyncManager] Post-sync: active update entry found in local metadata, blocking");
+
+            try {
+                await markPendingUpdateRequired(
+                    vscode.Uri.file(projectPath),
+                    "Detected after sync from local metadata"
+                );
+            } catch (e) {
+                console.warn("Failed to persist pending update flag after sync:", e);
+            }
+
+            const selection = await vscode.window.showWarningMessage(
+                "Project Update Required\n\nAn administrator has made changes that require updating your project. Syncing is paused until the update is applied.\n\nThe project needs to be closed to complete the update.",
+                { modal: true },
+                "Update Project"
+            );
+
+            if (selection === "Update Project") {
+                await vscode.commands.executeCommand("workbench.action.closeFolder");
+            }
+        } catch (error) {
+            debug("[SyncManager] Post-sync update check error (non-fatal):", error);
         }
     }
 
@@ -508,6 +714,7 @@ export class SyncManager {
                             this.frontierSyncProgressResolver();
                             this.frontierSyncProgressResolver = undefined;
                         }
+                        this.reconcileAndCheckUpdatingAfterSync();
                         this.checkProjectSwapAfterSync();
                         this.drainPendingChanges();
                         break;
@@ -970,6 +1177,18 @@ export class SyncManager {
                 }
             }
 
+            // Pre-sync: reconcile remote updating entries into local metadata
+            // so that entries removed locally are restored before they get committed and pushed
+            try {
+                const projectPath = workspaceFolders?.[0]?.uri.fsPath;
+                if (projectPath) {
+                    const { reconcileUpdatingEntriesWithRemote } = await import("../utils/remoteUpdatingManager");
+                    await reconcileUpdatingEntriesWithRemote(projectPath);
+                }
+            } catch (error) {
+                debug("[SyncManager] Pre-sync reconciliation error (non-fatal):", error);
+            }
+
             // Sync all changes in background
             this.currentSyncStage = "Starting sync...";
             this.notifySyncStatusListeners();
@@ -1072,7 +1291,8 @@ export class SyncManager {
         this.notifySyncStatusListeners();
         updateSplashScreenSync(100, "Sync complete!");
 
-            // Post-sync swap check (handled here instead of Frontier callback for Codex-initiated syncs)
+            // Post-sync checks (handled here instead of Frontier callback for Codex-initiated syncs)
+            this.reconcileAndCheckUpdatingAfterSync();
             this.checkProjectSwapAfterSync();
 
             // Clear local update completion flag now that sync has pushed changes to remote
@@ -1107,6 +1327,16 @@ export class SyncManager {
             } catch (error) {
                 console.error("[SyncManager] Error refreshing webviews after sync:", error);
                 // Don't fail sync if webview refresh fails
+            }
+
+            // Record current user's Codex version after a successful sync
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                try {
+                    const { MetadataManager } = await import("../utils/metadataManager");
+                    await MetadataManager.ensureCurrentUserVersionRecorded(workspaceFolders[0].uri);
+                } catch (error) {
+                    console.warn("[SyncManager] Error recording user codex version after sync:", error);
+                }
             }
 
         } catch (error) {

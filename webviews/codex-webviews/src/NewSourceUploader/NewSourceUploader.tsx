@@ -35,6 +35,8 @@ import { SystemMessageStep } from "../StartupFlow/components/SystemMessageStep";
 import { deriveTargetPathFromSource } from "../../../../sharedUtils";
 import { createDownloadHelper } from "./utils/downloadHelper";
 import { notifyImportEnded } from "./utils/importProgress";
+import { Button } from "../components/ui/button";
+import { ArrowLeft } from "lucide-react";
 import "./App.css";
 import "../tailwind.css";
 
@@ -465,6 +467,14 @@ const NewSourceUploader: React.FC = () => {
         [wizardState]
     );
 
+    const handleBackToImporters = useCallback(() => {
+        setWizardState((prev) => ({
+            ...prev,
+            selectedPlugin: undefined,
+        }));
+        setIsDirty(false);
+    }, []);
+
     const handleCancel = useCallback(() => {
         setWizardState((prev) => ({
             ...prev,
@@ -624,7 +634,24 @@ const NewSourceUploader: React.FC = () => {
                   }),
         };
 
-        return <PluginComponent {...componentProps} />;
+        return (
+            <div className="flex flex-col h-full">
+                <div className="p-4 pb-0">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleBackToImporters}
+                        className="gap-2"
+                    >
+                        <ArrowLeft className="h-4 w-4" />
+                        Back to importers
+                    </Button>
+                </div>
+                <div className="flex-1 min-h-0">
+                    <PluginComponent {...componentProps} />
+                </div>
+            </div>
+        );
     }
 
     // Render wizard steps

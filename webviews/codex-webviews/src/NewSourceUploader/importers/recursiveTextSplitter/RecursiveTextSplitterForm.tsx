@@ -637,14 +637,6 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                             <Sparkles className="h-6 w-6" />
                             Smart Segmenter
                         </h1>
-                        <Button
-                            variant="ghost"
-                            onClick={handleCancel}
-                            className="flex items-center gap-2"
-                        >
-                            <ArrowLeft className="h-4 w-4" />
-                            Back to Home
-                        </Button>
                     </div>
 
                     <Card>
