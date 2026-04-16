@@ -276,6 +276,13 @@ export interface DocxParseConfig {
     extractTables: boolean;
     segmentationStrategy: 'paragraph' | 'sentence' | 'run';
     validateStructure: boolean;
+    /**
+     * Ideal cell length in characters.
+     * Paragraphs longer than ~N*1.1 are recursively split at sentence
+     * boundaries (L1), then sub-sentence stops (L2), then whitespace (L3).
+     * Defaults to 160. Set to 0 to disable splitting.
+     */
+    targetCellLength: number;
 }
 
 // Error types

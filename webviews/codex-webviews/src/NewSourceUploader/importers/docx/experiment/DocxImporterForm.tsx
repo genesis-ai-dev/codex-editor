@@ -11,8 +11,9 @@ import {
 } from "../../../components/ui/card";
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Info } from "lucide-react";
+import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Info, ChevronDown } from "lucide-react";
 import { validateFile, parseFile } from "./index";
+import { DEFAULT_IDEAL_CELL_LENGTH } from "../../../utils/textSplitter";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
 import { notifyImportStarted, notifyImportEnded } from "../../../utils/importProgress";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
@@ -29,6 +30,8 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
         alignContent;
     const selectedSource = wizardContext?.selectedSource;
 
+    const [targetCellLength, setTargetCellLength] = useState<number>(DEFAULT_IDEAL_CELL_LENGTH);
+    const [showAdvanced, setShowAdvanced] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [isDirty, setIsDirty] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -90,7 +93,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 }
 
                 // Parse file
-                const importResult = await parseFile(file, onProgress);
+                const importResult = await parseFile(file, onProgress, { targetCellLength });
 
                 if (!importResult.success || !importResult.notebookPair) {
                     throw new Error(importResult.error || `Failed to parse ${file.name}`);
@@ -281,6 +284,49 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                                 Click to select DOCX files
                             </span>
                         </label>
+                    </div>
+
+                    {/* Advanced settings — expandable */}
+                    <div className="border border-border rounded-md">
+                        <button
+                            type="button"
+                            onClick={() => setShowAdvanced((v) => !v)}
+                            className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <span>Advanced Settings</span>
+                            <ChevronDown
+                                className={`h-4 w-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+                            />
+                        </button>
+                        {showAdvanced && (
+                            <div className="px-3 pb-3 pt-1 space-y-2">
+                                <div className="flex items-center gap-3">
+                                    <label
+                                        htmlFor="ideal-cell-length"
+                                        className="text-sm font-medium whitespace-nowrap"
+                                    >
+                                        Ideal cell length (in characters)
+                                    </label>
+                                    <input
+                                        id="ideal-cell-length"
+                                        type="number"
+                                        min={0}
+                                        step={10}
+                                        value={targetCellLength}
+                                        onChange={(e) => {
+                                            const v = parseInt(e.target.value, 10);
+                                            if (!isNaN(v) && v >= 0) setTargetCellLength(v);
+                                        }}
+                                        disabled={isProcessing}
+                                        className="w-24 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                                    />
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Long paragraphs are split into smaller cells at sentence
+                                    boundaries. Set to 0 to disable splitting.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {selectedFiles.length > 0 && (

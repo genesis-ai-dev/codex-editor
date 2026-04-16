@@ -24,6 +24,8 @@ import { DocxParser } from './docxParser';
 import type { DocxDocument, DocxParagraph, DocxRun } from './docxTypes';
 import { createDocxCellMetadata, createDocxTableCellMetadata } from './cellMetadata';
 import { extractTableCellParagraphGroups } from './utils/tableSegmentation';
+import { splitTextIntoRanges, DEFAULT_IDEAL_CELL_LENGTH } from '../../../utils/textSplitter';
+import type { TextRange } from '../../../utils/textSplitter';
 import { ProcessedNotebook } from '../../../types/common';
 const SUPPORTED_EXTENSIONS = ['docx'];
 
@@ -77,8 +79,11 @@ export const validateFile = async (file: File): Promise<FileValidationResult> =>
  */
 export const parseFile = async (
     file: File,
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    options?: { targetCellLength?: number }
 ): Promise<ImportResult> => {
+    const targetCellLength = options?.targetCellLength ?? DEFAULT_IDEAL_CELL_LENGTH;
+
     try {
         onProgress?.(createProgress('Reading File', 'Reading DOCX file...', 10));
 
@@ -89,6 +94,7 @@ export const parseFile = async (
             extractFootnotes: true,
             segmentationStrategy: 'paragraph',
             validateStructure: true,
+            targetCellLength,
         });
 
         // Set up debug logging - pass through to progress callback
@@ -106,7 +112,7 @@ export const parseFile = async (
         onProgress?.(createProgress('Creating Cells', 'Converting paragraphs to cells...', 60));
 
         // Convert document content to cells (paragraphs + table cells)
-        const cells = createCellsFromDocx(docxDoc, file.name);
+        const cells = createCellsFromDocx(docxDoc, file.name, targetCellLength);
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 80));
 
@@ -204,9 +210,16 @@ export const parseFile = async (
 };
 
 /**
- * Convert DOCX paragraphs to Codex cells with complete metadata for round-trip
+ * Convert DOCX paragraphs to Codex cells with complete metadata for round-trip.
+ * Paragraphs whose plain text exceeds targetCellLength are split into multiple
+ * cells (one per segment).  Each segment's cell carries segmentIndex/segmentCount
+ * so the exporter can recombine translations before writing them back.
  */
-const createCellsFromDocx = (docxDoc: DocxDocument, fileName: string): any[] => {
+const createCellsFromDocx = (
+    docxDoc: DocxDocument,
+    fileName: string,
+    targetCellLength: number = DEFAULT_IDEAL_CELL_LENGTH
+): any[] => {
     const cells: any[] = [];
 
     // Group paragraph indices by <w:tc> (table cells), using XML order to match exporter indices.
@@ -268,22 +281,33 @@ const createCellsFromDocx = (docxDoc: DocxDocument, fileName: string): any[] => 
         const fullText = paragraph.runs.map((r) => r.content).join('');
         if (!fullText.trim()) continue;
 
-        const htmlContent = convertParagraphToHtml(paragraph);
-        const { cellId, metadata: cellMetadata } = createDocxCellMetadata({
-            paragraphId: paragraph.id,
-            paragraphIndex: paragraph.paragraphIndex,
-            originalContent: fullText,
-            paragraph,
-            docxDoc,
-            fileName,
-        });
+        const ranges = splitTextIntoRanges(fullText, targetCellLength);
+        const charRanges = buildRunCharRanges(paragraph.runs);
+        const isMultiSegment = ranges.length > 1;
 
-        cells.push(
-            createProcessedCell(cellId, htmlContent, {
-                ...cellMetadata,
-                type: 'text',
-            })
-        );
+        for (let segIdx = 0; segIdx < ranges.length; segIdx++) {
+            const segmentRuns = sliceRunsForRange(charRanges, ranges[segIdx]);
+            const segmentText = segmentRuns.map((r) => r.content).join('');
+
+            const htmlContent = convertRunGroupToHtml(segmentRuns, paragraph);
+            const { cellId, metadata: cellMetadata } = createDocxCellMetadata({
+                paragraphId: paragraph.id,
+                paragraphIndex: paragraph.paragraphIndex,
+                originalContent: segmentText,
+                paragraph,
+                docxDoc,
+                fileName,
+                segmentIndex: isMultiSegment ? segIdx : undefined,
+                segmentCount: isMultiSegment ? ranges.length : undefined,
+            });
+
+            cells.push(
+                createProcessedCell(cellId, htmlContent, {
+                    ...cellMetadata,
+                    type: 'text',
+                })
+            );
+        }
     }
 
     console.log(
@@ -293,13 +317,52 @@ const createCellsFromDocx = (docxDoc: DocxDocument, fileName: string): any[] => 
     return cells;
 };
 
+// ---------------------------------------------------------------------------
+// Run-slicing helpers (DOCX-specific, used to map text ranges back to runs)
+// ---------------------------------------------------------------------------
+
+interface RunCharRange {
+    run: DocxRun;
+    charStart: number;
+    charEnd: number;
+}
+
+const buildRunCharRanges = (runs: DocxRun[]): RunCharRange[] => {
+    const ranges: RunCharRange[] = [];
+    let pos = 0;
+    for (const run of runs) {
+        ranges.push({ run, charStart: pos, charEnd: pos + run.content.length });
+        pos += run.content.length;
+    }
+    return ranges;
+};
+
+const sliceRunsForRange = (charRanges: RunCharRange[], range: TextRange): DocxRun[] => {
+    const result: DocxRun[] = [];
+    for (const { run, charStart, charEnd } of charRanges) {
+        if (charEnd <= range.start || charStart >= range.end) continue;
+        const localStart = Math.max(charStart, range.start) - charStart;
+        const localEnd = Math.min(charEnd, range.end) - charStart;
+        const slicedContent = run.content.slice(localStart, localEnd);
+        if (slicedContent.length === 0) continue;
+        result.push({
+            ...run,
+            id: `${run.id}:${range.start}-${range.end}`,
+            content: slicedContent,
+        });
+    }
+    return result;
+};
+
 /**
- * Convert a DOCX paragraph to HTML for display in Codex
+ * Convert a specific set of runs (a segment) to HTML, applying the parent
+ * paragraph's block-level properties (style, alignment, indentation, spacing).
+ * Used both for whole paragraphs and for sub-segments after splitting.
  */
-const convertParagraphToHtml = (paragraph: DocxParagraph): string => {
+const convertRunGroupToHtml = (runs: DocxRun[], paragraph: DocxParagraph): string => {
     let html = '<p';
 
-    // Add data attributes for paragraph properties
+    // Block-level attributes from the parent paragraph
     if (paragraph.paragraphProperties.styleId) {
         html += ` data-style-id="${escapeHtml(paragraph.paragraphProperties.styleId)}"`;
     }
@@ -307,7 +370,6 @@ const convertParagraphToHtml = (paragraph: DocxParagraph): string => {
         html += ` data-alignment="${paragraph.paragraphProperties.alignment}"`;
     }
 
-    // Add inline styles
     const styles: string[] = [];
     if (paragraph.paragraphProperties.alignment) {
         styles.push(`text-align: ${paragraph.paragraphProperties.alignment}`);
@@ -331,15 +393,20 @@ const convertParagraphToHtml = (paragraph: DocxParagraph): string => {
 
     html += '>';
 
-    // Add runs
-    for (const run of paragraph.runs) {
+    for (const run of runs) {
         html += convertRunToHtml(run);
     }
 
     html += '</p>';
-
     return html;
 };
+
+/**
+ * Convert a DOCX paragraph to HTML for display in Codex.
+ * Used by the table-cell path where no splitting is applied.
+ */
+const convertParagraphToHtml = (paragraph: DocxParagraph): string =>
+    convertRunGroupToHtml(paragraph.runs, paragraph);
 
 /**
  * Convert a DOCX run to HTML
