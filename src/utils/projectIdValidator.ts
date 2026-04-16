@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import git from "isomorphic-git";
-import fs from "fs";
+import * as dugiteGit from "./dugiteGit";
 import { extractProjectIdFromFolderName, sanitizeProjectName } from "../projectManager/utils/projectUtils";
 import { MetadataManager } from "./metadataManager";
+import { sanitizeGitUrl } from "./projectSwapManager";
 
 const DEBUG = false;
 const debug = DEBUG ? (...args: any[]) => console.log("[ProjectIdValidator]", ...args) : () => { };
@@ -55,14 +55,11 @@ export async function detectProjectIdMismatch(
     // Try to get Git remote URL (no API call needed - just reads local .git config)
     let gitRemoteProjectId: string | undefined;
     try {
-        const remotes = await git.listRemotes({
-            fs,
-            dir: workspaceFolder.fsPath,
-        });
+        const remotes = await dugiteGit.listRemotes(workspaceFolder.fsPath);
         const origin = remotes.find((r) => r.remote === "origin");
         if (origin?.url) {
             gitRemoteProjectId = extractProjectIdFromGitUrl(origin.url);
-            debug("Git remote URL:", origin.url);
+            debug("Git remote URL:", sanitizeGitUrl(origin.url));
             debug("Git remote projectId:", gitRemoteProjectId);
         }
     } catch (error) {
@@ -134,14 +131,10 @@ export async function fixProjectIdMismatch(
 
         // Check if metadata.json has uncommitted changes
         try {
-            const status = await git.status({
-                fs,
-                dir: workspaceFolder.fsPath,
-                filepath: "metadata.json",
-            });
+            const statusOutput = await dugiteGit.status(workspaceFolder.fsPath, "metadata.json");
 
             // If file is modified locally, log it but proceed with update
-            if (status !== "unmodified" && status !== "*absent") {
+            if (statusOutput !== undefined) {
                 debug("metadata.json has local changes, proceeding with auto-fix anyway");
                 // We used to block here, but for ID fixes it's better to proceed
                 // as MetadataManager handles JSON merging safely.
@@ -225,11 +218,11 @@ export async function validateAndFixProjectId(
                 if (result.success) {
                     const source = info.gitRemoteProjectId ? "remote repository" : "folder name";
                     vscode.window.showInformationMessage(
-                        `Updated project information in metadata.json to match ${source}`
+                        `Project information has been updated.`
                     );
                 } else if (result.error) {
                     vscode.window.showWarningMessage(
-                        `Could not auto-fix project information: ${result.error}`
+                        `Could not automatically fix project information. ${result.error}`
                     );
                 }
             } else {

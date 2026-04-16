@@ -196,7 +196,7 @@ export async function checkSwapPrerequisites(
     } catch (error) {
         debugLog("Error checking swap prerequisites:", error);
         result.error = error instanceof Error ? error.message : String(error);
-        // On error, allow proceed but log warning
+        result.canProceed = false;
         return result;
     }
 }
@@ -440,7 +440,20 @@ export async function performProjectSwap(
     swapInitiatedBy?: string,
     swapReason?: string
 ): Promise<string> {
-    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl, swapUUID, swapInitiatedAt, swapInitiatedBy });
+    debugLog("Starting project swap:", { projectName, oldProjectPath, newProjectUrl: sanitizeGitUrl(newProjectUrl), swapUUID, swapInitiatedAt, swapInitiatedBy });
+
+    // Close the SQLite index database before any file operations to prevent
+    // writing to an orphaned file descriptor after the project folder is moved/deleted.
+    try {
+        const { clearSQLiteIndexManager } = await import(
+            "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+        );
+        await clearSQLiteIndexManager();
+        debugLog("SQLite index manager closed before swap");
+    } catch (e) {
+        debugLog("Warning: could not close SQLite index manager before swap:", e);
+    }
+
     const targetFolderName = extractProjectNameFromUrl(newProjectUrl) || projectName;
     const targetProjectPath = path.join(path.dirname(oldProjectPath), targetFolderName);
 
@@ -473,20 +486,20 @@ export async function performProjectSwap(
         debugLog("Backup created at:", backupPath);
 
         // Step 2: Move old project to a temporary path
-        progress.report({ increment: 5, message: "Preparing temporary snapshot..." });
+        progress.report({ increment: 5, message: "Preparing update..." });
         const parentDir = path.dirname(oldProjectPath);
         const tmpPath = path.join(parentDir, `${projectName}_tmp_${Date.now()}`);
         fs.renameSync(oldProjectPath, tmpPath);
         debugLog("Old project moved to tmp:", tmpPath);
 
         // Step 3: Create temporary workspace for cloning
-        progress.report({ increment: 5, message: "Creating temporary workspace..." });
+        progress.report({ increment: 5, message: "Setting up project..." });
         const tempDir = await createTempWorkspace();
         debugLog("Temp workspace created:", tempDir);
 
         try {
             // Step 4: Get the new project - either from existing local copy or by cloning
-            progress.report({ increment: 15, message: "Preparing new project..." });
+            progress.report({ increment: 15, message: "Downloading new project..." });
             const newProjectPath = await getOrCloneNewProject(
                 newProjectUrl,
                 tempDir,
@@ -496,15 +509,15 @@ export async function performProjectSwap(
             debugLog("New project ready at:", newProjectPath);
 
             // Step 5: Verify structure compatibility
-            progress.report({ increment: 5, message: "Verifying project structure..." });
+            progress.report({ increment: 5, message: "Checking project files..." });
             await verifyStructureCompatibility(tmpPath, newProjectPath);
 
             // Step 6: Merge tmp snapshot into the newly-cloned project using resolvers
-            progress.report({ increment: 20, message: "Merging project files..." });
+            progress.report({ increment: 20, message: "Combining your changes with the update..." });
             await mergeProjectFiles(tmpPath, newProjectPath, progress);
 
             // Step 7: Update metadata with swap completion
-            progress.report({ increment: 5, message: "Updating project metadata..." });
+            progress.report({ increment: 5, message: "Updating project details..." });
             const oldOriginUrl = await getGitOriginUrl(tmpPath);
             // Sanitize URLs to remove any embedded credentials (tokens/passwords)
             await updateSwapMetadata(newProjectPath, swapUUID, false, {
@@ -558,14 +571,14 @@ export async function performProjectSwap(
 
             // Step 8b: Promote cloned project to canonical location (new name)
             // This will also attempt to delete the old _tmp folder
-            progress.report({ increment: 15, message: "Swapping project directories..." });
+            progress.report({ increment: 15, message: "Finalizing update..." });
             await swapDirectories(tmpPath, newProjectPath, targetProjectPath);
 
             // Step 9: Finalize local settings on the NEW project
             // Clear projectSwap entirely - it tracked the swap execution which is now complete.
             // The NEW project doesn't need the old project's swap execution state (swapUUID, backupPath, etc.)
             // IMPORTANT: Read existing settings first to preserve media strategy that was set by copyLocalProjectSettings
-            progress.report({ increment: 5, message: "Finalizing swap..." });
+            progress.report({ increment: 5, message: "Wrapping up..." });
             const finalProjectUri = vscode.Uri.file(targetProjectPath);
             const existingSettings = await readLocalProjectSettings(finalProjectUri);
             await writeLocalProjectSettings({
@@ -596,7 +609,7 @@ export async function performProjectSwap(
             // Step 10: Cleanup temp directory (the system temp used for cloning)
             await cleanupTempDirectory(tempDir);
 
-            progress.report({ increment: 15, message: "Swap complete!" });
+            progress.report({ increment: 15, message: "Update complete! Opening project..." });
             debugLog("Project swap completed successfully");
 
             return targetProjectPath;
@@ -655,6 +668,7 @@ async function backupOldProject(projectPath: string, projectName: string): Promi
             });
 
             archive.on("error", (err: Error) => {
+                output.close();
                 reject(err);
             });
 
@@ -696,7 +710,7 @@ async function getOrCloneNewProject(
     // Check if the NEW project already exists locally
     if (fs.existsSync(existingLocalPath) && fs.existsSync(path.join(existingLocalPath, "metadata.json"))) {
         debugLog("Found existing local copy of new project at:", existingLocalPath);
-        progress.report({ message: "Using existing local project (preserving local changes)..." });
+        progress.report({ message: "Found a local copy — using it to preserve your changes..." });
 
         // Copy the existing local project to temp (preserving all local changes)
         await copyDirectory(existingLocalPath, targetPath);
@@ -707,7 +721,7 @@ async function getOrCloneNewProject(
 
     // No local copy found - clone from remote
     debugLog("No existing local copy found, cloning from remote");
-    progress.report({ message: "Cloning new project repository..." });
+    progress.report({ message: "Downloading the new project..." });
     return await cloneNewProject(gitUrl, tempDir, progress);
 }
 
@@ -863,6 +877,16 @@ async function mergeProjectFiles(
     // 3. Copy localProjectSettings.json (preserving media settings, adding forceClose flag)
     const reconcileResult = await reconcileAndCopyAttachments(oldPath, newPath, progress);
 
+    if (reconcileResult.failed > 0) {
+        const failedList = reconcileResult.failedDownloads.slice(0, 5).map((f) => f.relPath).join(", ");
+        vscode.window.showWarningMessage(
+            `${reconcileResult.failed} attachment(s) could not be transferred to the new project` +
+            (failedList ? `: ${failedList}` : "") +
+            (reconcileResult.failedDownloads.length > 5 ? ` (+${reconcileResult.failedDownloads.length - 5} more)` : "") +
+            `. These will be retried on next sync.`
+        );
+    }
+
     // Copy local project settings from old to new (preserving media strategy as-is)
     await copyLocalProjectSettings(oldPath, newPath, reconcileResult.failedDownloads);
 }
@@ -916,8 +940,12 @@ async function copyLocalProjectSettings(
         await clearSwapPendingState(oldPath);
 
     } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
         debugLog("Error copying local project settings:", error);
-        // Non-fatal - continue with swap
+        vscode.window.showWarningMessage(
+            `Could not copy project settings to the new project: ${detail}. ` +
+            `Media strategy and pending downloads may need to be reconfigured.`
+        );
     }
 }
 
@@ -1077,11 +1105,13 @@ async function reconcileAndCopyAttachments(
 
                 await Promise.all(batch.map(async ({ relPath, pointer }) => {
                     try {
-                        // Download TO OLD project's directories (not new)
+                        // Download TO OLD project's directories (not new).
+                        // Pass oldPath (local filesystem path) — downloadLFSFile
+                        // expects a local repo path and discovers the remote internally.
                         const success = await downloadFromOldLfs(
                             relPath,
                             pointer,
-                            oldProjectRemoteUrl,
+                            oldPath,
                             oldFilesDir,  // Download TO old project
                             oldPointersDir,
                             frontierApi,
@@ -1243,12 +1273,16 @@ async function reconcileAndCopyAttachments(
 }
 
 /**
- * Download a file from the old project's LFS and save to new project
+ * Download a file from the old project's LFS and save to the target directories.
+ *
+ * @param oldProjectPath Local filesystem path to the old project's git repo.
+ *   downloadLFSFile expects a local path and discovers the remote URL internally
+ *   via `git remote -v`.
  */
 async function downloadFromOldLfs(
     relPath: string,
     pointer: { oid: string; size: number; },
-    oldProjectRemoteUrl: string,
+    oldProjectPath: string,
     newFilesDir: string,
     newPointersDir: string,
     frontierApi: any,
@@ -1273,8 +1307,8 @@ async function downloadFromOldLfs(
     }
 
     try {
-        // Download from old project's LFS
-        const content = await frontierApi.downloadLFSFile(oldProjectRemoteUrl, pointer.oid, pointer.size);
+        // Download from old project's LFS (pass local path, not URL)
+        const content = await frontierApi.downloadLFSFile(oldProjectPath, pointer.oid, pointer.size);
 
         if (!content) {
             debugLog(`Failed to download LFS content for ${relPath} - empty response`);
@@ -1593,7 +1627,7 @@ async function archiveExistingTarget(targetPath: string): Promise<void> {
             const zip = archiver("zip", { zlib: { level: 9 } });
 
             output.on("close", () => resolve());
-            zip.on("error", (err: any) => reject(err));
+            zip.on("error", (err: any) => { output.close(); reject(err); });
 
             zip.pipe(output);
             zip.directory(targetPath, false);

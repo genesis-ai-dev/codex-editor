@@ -3,8 +3,8 @@ import * as fs from "fs";
 import * as path from "path";
 import JSZip from "jszip";
 
-import { parseFile as parseDocxRoundtrip } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/experiment/index";
-import { exportDocxWithTranslations } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/experiment/docxExporter";
+import { parseFile as parseDocxRoundtrip } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/index";
+import { exportDocxWithTranslations } from "../../../webviews/codex-webviews/src/NewSourceUploader/importers/docx/docxExporter";
 
 type FileLike = {
     name: string;

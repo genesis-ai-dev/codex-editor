@@ -20,9 +20,8 @@ export async function checkProjectAdminPermissions(): Promise<{ hasPermission: b
         // Get git origin URL
         let gitOriginUrl: string;
         try {
-            const git = await import("isomorphic-git");
-            const fs = await import("fs");
-            const remotes = await git.listRemotes({ fs, dir: workspacePath });
+            const dugiteGitModule = await import("./dugiteGit");
+            const remotes = await dugiteGitModule.listRemotes(workspacePath);
             const origin = remotes.find((r) => r.remote === "origin");
 
             if (!origin) {

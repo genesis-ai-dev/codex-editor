@@ -9,7 +9,9 @@ import { CodexContentSerializer } from "../../serializer";
 // as these operations cause the extension host to exit unexpectedly in CI environments.
 // See: https://github.com/microsoft/vscode/issues/224593
 
-suite("NotebookMetadataManager Test Suite", () => {
+suite("NotebookMetadataManager Test Suite", function () {
+    this.timeout(5000);
+
     let manager: NotebookMetadataManager;
     let testMetadata: CustomNotebookMetadata;
     let tempUri: vscode.Uri;
@@ -204,13 +206,13 @@ suite("NotebookMetadataManager Test Suite", () => {
         }
     });
 
-    suite("fileDisplayName migration tests", () => {
+    suite("fileDisplayName migration tests", function () {
+        this.timeout(10000);
+
         let workspaceFolder: vscode.WorkspaceFolder | undefined;
         let tempFiles: vscode.Uri[] = [];
 
         setup(async function () {
-            // Increase timeout for file system operations
-            this.timeout(10000);
             workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (!workspaceFolder) {
                 return; // Skip tests if no workspace folder

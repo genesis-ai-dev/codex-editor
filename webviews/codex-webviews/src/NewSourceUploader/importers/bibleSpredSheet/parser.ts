@@ -1,6 +1,68 @@
 import { ParsedSpreadsheet, SpreadsheetColumn, SpreadsheetRow } from './types';
 
 /**
+ * Lightweight analysis for UI stats (no full row normalization).
+ */
+export interface SpreadsheetQuickAnalysis {
+    delimiterLabel: string;
+    dataRowCount: number;
+    columnCount: number;
+    columnNames: string[];
+}
+
+export function quickAnalyzeSpreadsheet(content: string): SpreadsheetQuickAnalysis {
+    if (!content.trim()) {
+        return {
+            delimiterLabel: "—",
+            dataRowCount: 0,
+            columnCount: 0,
+            columnNames: [],
+        };
+    }
+
+    const delimiter = detectDelimiter(content);
+    const allLines = content.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+
+    if (allLines.length === 0) {
+        return {
+            delimiterLabel: "—",
+            dataRowCount: 0,
+            columnCount: 0,
+            columnNames: [],
+        };
+    }
+
+    const parsedLines = allLines.map((line) => parseCSVLine(line, delimiter));
+    const firstLine = parsedLines[0];
+    const hasHeader = firstLine.some(
+        (value) =>
+            isNaN(Number(value)) &&
+            value.length > 0 &&
+            /^[a-zA-Z][a-zA-Z0-9_\s]*$/.test(value)
+    );
+    const headers = hasHeader ? firstLine : firstLine.map((_, i) => `Column ${i + 1}`);
+    const dataRowCount = hasHeader ? parsedLines.length - 1 : parsedLines.length;
+
+    const delimiterLabel =
+        delimiter === "\t"
+            ? "Tab"
+            : delimiter === ","
+              ? "Comma"
+              : delimiter === ";"
+                ? "Semicolon"
+                : delimiter === "|"
+                  ? "Pipe"
+                  : delimiter;
+
+    return {
+        delimiterLabel,
+        dataRowCount,
+        columnCount: headers.length,
+        columnNames: headers.map((name) => cleanCellContent(name)),
+    };
+}
+
+/**
  * Detect the delimiter used in a CSV/TSV file
  */
 function detectDelimiter(content: string): string {

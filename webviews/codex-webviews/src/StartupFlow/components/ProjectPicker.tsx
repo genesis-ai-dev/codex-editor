@@ -47,7 +47,7 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
                         appearance={selectedType === "clone" ? "primary" : "secondary"}
                         onClick={() => setSelectedType("clone")}
                     >
-                        Clone Remote Project
+                        Download Project
                     </VSCodeButton>
 
                     {selectedType === "clone" && (
@@ -55,7 +55,7 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
                             <VSCodeTextField
                                 value={repoUrl}
                                 onChange={(e) => setRepoUrl((e.target as HTMLInputElement).value)}
-                                placeholder="Enter repository URL"
+                                placeholder="Enter project URL"
                                 style={{ width: "100%" }}
                             />
                             <VSCodeButton
@@ -63,7 +63,7 @@ export const ProjectPicker: React.FC<ProjectPickerProps> = ({
                                 disabled={!repoUrl}
                                 onClick={handleCloneProject}
                             >
-                                Clone Repository
+                                Download
                             </VSCodeButton>
                         </div>
                     )}

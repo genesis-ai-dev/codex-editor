@@ -6,11 +6,16 @@ import * as os from "os";
 import * as path from "path";
 import { MetadataManager } from "../../utils/metadataManager";
 import { markUserAsUpdatedInRemoteList } from "../../utils/remoteUpdatingManager";
+import * as dugiteGit from "../../utils/dugiteGit";
 
 suite("Remote Updating - Deleted Entry Handling", () => {
     let tempDir: string;
     let projectUri: vscode.Uri;
     let sandbox: sinon.SinonSandbox;
+
+    suiteSetup(() => {
+        dugiteGit.useEmbeddedGitBinary();
+    });
 
     setup(() => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-update-deleted-"));
@@ -63,10 +68,9 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
         // Mock git operations
-        const gitModule = await import("isomorphic-git");
-        sandbox.stub(gitModule, "listRemotes").resolves([
+        sandbox.stub(dugiteGit, "listRemotes").resolves([
             { remote: "origin", url: "https://example.com/group/project.git" },
-        ] as any);
+        ]);
 
         // Mock sync command (bypass actual sync)
         sandbox.stub(vscode.commands, "executeCommand").resolves();
@@ -121,10 +125,9 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
         // Mock git operations
-        const gitModule = await import("isomorphic-git");
-        sandbox.stub(gitModule, "listRemotes").resolves([
+        sandbox.stub(dugiteGit, "listRemotes").resolves([
             { remote: "origin", url: "https://example.com/group/project.git" },
-        ] as any);
+        ]);
 
         // Mock sync command
         sandbox.stub(vscode.commands, "executeCommand").resolves();
@@ -187,10 +190,9 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
         // Mock git operations
-        const gitModule = await import("isomorphic-git");
-        sandbox.stub(gitModule, "listRemotes").resolves([
+        sandbox.stub(dugiteGit, "listRemotes").resolves([
             { remote: "origin", url: "https://example.com/group/project.git" },
-        ] as any);
+        ]);
 
         // Mock sync command
         sandbox.stub(vscode.commands, "executeCommand").resolves();
@@ -252,10 +254,9 @@ suite("Remote Updating - Deleted Entry Handling", () => {
         fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
         // Mock git operations
-        const gitModule = await import("isomorphic-git");
-        sandbox.stub(gitModule, "listRemotes").resolves([
+        sandbox.stub(dugiteGit, "listRemotes").resolves([
             { remote: "origin", url: "https://example.com/group/project.git" },
-        ] as any);
+        ]);
 
         // Mock sync command - should NOT be called
         const executeCommandStub = sandbox.stub(vscode.commands, "executeCommand");
