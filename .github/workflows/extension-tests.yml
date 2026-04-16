@@ -2,80 +2,46 @@ name: VS Code Extension – Tests
 
 on:
     push:
-        branches: [main]
+        branches: [main, dev]
     pull_request:
-        branches: [main]
+        branches: [main, dev]
+
+concurrency:
+    group: tests-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
 
 jobs:
     test:
         name: Node ${{ matrix.node }} • ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
+        timeout-minutes: 20
         defaults:
             run:
                 shell: bash
-                working-directory: ${{ github.workspace }}
         strategy:
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, macos-latest, windows-latest]
-                node: [20] # VS Code currently builds against Node 20; adjust if needed.
+                node: [20]
 
         steps:
-            - name: Checkout (manual)
-              run: |
-                  set -euo pipefail
-                  REPO_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-                  git init .
-                  git config --global --add safe.directory "$PWD"
-                  git remote add origin "$REPO_URL"
-                  if [ "${{ github.event_name }}" = "pull_request" ]; then
-                    echo "Fetching PR merge ref: refs/pull/${{ github.event.pull_request.number }}/merge"
-                    git fetch --no-tags --prune --progress --depth=1 origin "refs/pull/${{ github.event.pull_request.number }}/merge"
-                    git checkout --progress --force FETCH_HEAD
-                  else
-                    echo "Fetching ref: ${{ github.ref }} (sha: ${{ github.sha }})"
-                    git fetch --no-tags --prune --progress --depth=1 origin "${{ github.ref }}"
-                    git checkout --progress --force ${{ github.sha }}
-                  fi
+            - name: Checkout
+              uses: actions/checkout@v4
 
-            # Use preinstalled Node on GitHub-hosted runners (Node ${{ matrix.node }} available on latest images)
-            - name: Use Node 20 (Linux/macOS)
-              if: runner.os != 'Windows'
-              run: |
-                  set -euo pipefail
-                  export NVM_DIR="$HOME/.nvm"
-                  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-                    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-                  fi
-                  . "$NVM_DIR/nvm.sh"
-                  nvm install 20
-                  nvm use 20
-                  node -v
-                  npm -v
-                  echo "$(dirname $(which node))" >> "$GITHUB_PATH"
-
-            - name: Show Node (Windows)
-              if: runner.os == 'Windows'
-              shell: pwsh
-              run: |
-                  node -v
-                  npm -v
+            - name: Setup Node ${{ matrix.node }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node }}
+                  cache: npm
 
             - name: Install deps
-              run: |
-                  set -euo pipefail
-                  echo "Working directory: $(pwd)"
-                  echo "Git status:"
-                  git status --porcelain=v1 || true
-                  echo "Top-level files:"
-                  ls -la
-                  if [ -f package-lock.json ]; then
-                    echo "Found package-lock.json; running npm ci"
-                    npm ci --no-audit --no-fund
-                  else
-                    echo "package-lock.json missing; running npm install as fallback"
-                    npm install --no-audit --no-fund
-                  fi
+              run: npm ci --no-audit --no-fund
+
+            - name: Lint
+              run: npm run lint
 
             # Build is handled by npm pretest (compile + lint); no separate build step needed
 
@@ -86,19 +52,8 @@ jobs:
                   NODE_OPTIONS: --max_old_space_size=4096
               run: xvfb-run -a npm test
 
-            # On macOS/Windows, just run tests
             - name: Test (macOS/Windows)
               if: runner.os != 'Linux'
               env:
                   NODE_OPTIONS: --max_old_space_size=4096
               run: npm test
-
-            # (Optional) Upload screenshots/logs/artifacts if your tests produce them
-            # - name: Upload test logs
-            #   if: always()
-            #   uses: actions/upload-artifact@v4
-            #   with:
-            #     name: test-output-${{ matrix.os }}
-            #     path: |
-            #       ./**/test-output/**
-            #       ./**/logs/**

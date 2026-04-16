@@ -58,7 +58,7 @@ describe("ProjectCard - Clean Media visibility", () => {
 });
 
 describe("ProjectCard - Swap Project functionality", () => {
-    it("shows 'Swap Project' button when swap is pending on old project", () => {
+    it("shows 'Update Project' button when update (swap) is pending on old project", () => {
         renderCard({
             projectSwap: {
                 swapStatus: "active",
@@ -74,7 +74,7 @@ describe("ProjectCard - Swap Project functionality", () => {
                 ],
             },
         });
-        const btn = screen.getByRole("button", { name: /Swap Project/i });
+        const btn = screen.getByRole("button", { name: /Update Project/i });
         expect(btn).toBeTruthy();
     });
 
@@ -94,7 +94,7 @@ describe("ProjectCard - Swap Project functionality", () => {
         });
         const btn = screen.getByRole("button", { name: /Open/i });
         expect(btn).toBeTruthy();
-        expect(screen.queryByRole("button", { name: /Swap Project/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /Update Project/i })).toBeNull();
     });
 
     it("shows 'Open' button when swap is cancelled", () => {
@@ -115,10 +115,10 @@ describe("ProjectCard - Swap Project functionality", () => {
         });
         const btn = screen.getByRole("button", { name: /Open/i });
         expect(btn).toBeTruthy();
-        expect(screen.queryByRole("button", { name: /Swap Project/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /Update Project/i })).toBeNull();
     });
 
-    it("shows new project name subtitle when swap is pending", () => {
+    it("shows updated project name subtitle when update (swap) is pending", () => {
         renderCard({
             projectSwap: {
                 swapStatus: "active",
@@ -133,11 +133,11 @@ describe("ProjectCard - Swap Project functionality", () => {
                 ],
             },
         });
-        const subtitle = screen.getByText(/New project: new-project-name/i);
+        const subtitle = screen.getByText(/Updated project: new-project-name/i);
         expect(subtitle).toBeTruthy();
     });
 
-    it("sends correct message when swap button is clicked", () => {
+    it("sends correct message when update (swap) button is clicked", () => {
         const { vscode } = renderCard({
             projectSwap: {
                 swapStatus: "active",
@@ -153,7 +153,7 @@ describe("ProjectCard - Swap Project functionality", () => {
             },
         });
 
-        const btn = screen.getByRole("button", { name: /Swap Project/i });
+        const btn = screen.getByRole("button", { name: /Update Project/i });
         fireEvent.click(btn);
 
         expect(vscode.postMessage).toHaveBeenCalledWith({

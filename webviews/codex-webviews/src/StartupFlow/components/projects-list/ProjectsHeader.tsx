@@ -103,7 +103,7 @@ export const ProjectsHeader: React.FC<ProjectsHeaderProps> = ({
                             Available Locally ({getFilterCount("local")})
                         </SelectItem>
                         <SelectItem value="remote">
-                            Remote Only ({getFilterCount("remote")})
+                            Online Only ({getFilterCount("remote")})
                         </SelectItem>
                         <SelectItem value="synced">
                             Synced Projects ({getFilterCount("synced")})

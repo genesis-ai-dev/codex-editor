@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import * as git from "isomorphic-git";
+import * as dugiteGit from "../../../utils/dugiteGit";
 
 suite("Integration: Project updating", () => {
     let tempDir: string;
@@ -11,6 +11,7 @@ suite("Integration: Project updating", () => {
     let originalFetch: any;
 
     suiteSetup(() => {
+        dugiteGit.useEmbeddedGitBinary();
         // Stub fetch to avoid actual network calls
         originalFetch = (globalThis as any).fetch;
         (globalThis as any).fetch = async (input: any, init?: any) => {
@@ -37,35 +38,19 @@ suite("Integration: Project updating", () => {
         projectUri = vscode.Uri.file(tempDir);
         
         // Initialize a git repository
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         
         // Add a remote
-        await git.addRemote({
-            fs,
-            dir: tempDir,
-            remote: "origin",
-            url: "https://example.com/test-repo.git",
-        });
+        await dugiteGit.addRemote(tempDir, "origin", "https://example.com/test-repo.git");
         
         // Create a commit
         const testFile = path.join(tempDir, "test.txt");
         fs.writeFileSync(testFile, "test content", "utf8");
-        await git.add({ fs, dir: tempDir, filepath: "test.txt" });
-        const commitSha = await git.commit({
-            fs,
-            dir: tempDir,
-            message: "initial commit",
-            author: { name: "Test", email: "test@example.com" },
-        });
+        await dugiteGit.add(tempDir, "test.txt");
+        const commitSha = await dugiteGit.commit(tempDir, "initial commit", { name: "Test", email: "test@example.com" });
         
         // Set up remote tracking
-        await git.writeRef({
-            fs,
-            dir: tempDir,
-            ref: "refs/remotes/origin/main",
-            value: commitSha,
-            force: true,
-        });
+        await dugiteGit.updateRef(tempDir, "refs/remotes/origin/main", commitSha);
         
         // Create project structure
         const projectDir = path.join(tempDir, ".project");
@@ -130,8 +115,8 @@ suite("Integration: Project updating", () => {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // Restore from fresh clone + merge temp files back
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
-        await git.addRemote({ fs, dir: tempDir, remote: "origin", url: "https://example.com/test-repo.git" });
+        await dugiteGit.init(tempDir);
+        await dugiteGit.addRemote(tempDir, "origin", "https://example.com/test-repo.git");
         
         // Merge temp files back
         fs.cpSync(tempBackupDir, tempDir, { recursive: true });
@@ -176,7 +161,7 @@ suite("Integration: Project updating", () => {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // Re-clone
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         
         // Merge temp files back
         fs.cpSync(tempBackupDir, tempDir, { recursive: true });
@@ -207,7 +192,7 @@ suite("Integration: Project updating", () => {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // Re-clone (just init for test)
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         
         // Merge temp back
         fs.cpSync(tempBackupDir, tempDir, { recursive: true });
@@ -240,7 +225,7 @@ suite("Integration: Project updating", () => {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // Re-clone
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         
         // Merge uncommitted changes back from temp
         fs.cpSync(tempBackupDir, tempDir, { recursive: true });
@@ -266,13 +251,8 @@ suite("Integration: Project updating", () => {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // Re-clone
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
-        await git.addRemote({
-            fs,
-            dir: tempDir,
-            remote: "origin",
-            url: "https://example.com/test-repo.git",
-        });
+        await dugiteGit.init(tempDir);
+        await dugiteGit.addRemote(tempDir, "origin", "https://example.com/test-repo.git");
         
         // Merge back local files
         fs.cpSync(tempBackupDir, tempDir, { recursive: true });
@@ -281,7 +261,7 @@ suite("Integration: Project updating", () => {
         assert.ok(fs.existsSync(gitDir), ".git should exist after full updating");
         
         // Verify remote is set
-        const remotes = await git.listRemotes({ fs, dir: tempDir });
+        const remotes = await dugiteGit.listRemotes(tempDir);
         const origin = remotes.find(r => r.remote === "origin");
         assert.ok(origin, "origin remote should be set");
         assert.strictEqual(origin?.url, "https://example.com/test-repo.git");
@@ -294,25 +274,20 @@ suite("Integration: Project updating", () => {
         // Create a file and commit it
         const committedFile = path.join(tempDir, "committed.txt");
         fs.writeFileSync(committedFile, "original content", "utf8");
-        await git.add({ fs, dir: tempDir, filepath: "committed.txt" });
-        await git.commit({
-            fs,
-            dir: tempDir,
-            message: "add committed file",
-            author: { name: "Test", email: "test@example.com" },
-        });
+        await dugiteGit.add(tempDir, "committed.txt");
+        await dugiteGit.commit(tempDir, "add committed file", { name: "Test", email: "test@example.com" });
         
         // Modify the file (local changes)
         fs.writeFileSync(committedFile, "modified content", "utf8");
         
         // Verify file is modified
-        const status = await git.statusMatrix({ fs, dir: tempDir });
+        const status = await dugiteGit.statusMatrix(tempDir);
         const committedStatus = status.find(([filepath]) => filepath === "committed.txt");
         assert.ok(committedStatus, "committed.txt should be in status");
         
         // Simulate sync updating and re-init
         fs.rmSync(path.join(tempDir, ".git"), { recursive: true, force: true });
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         
         // Local changes should still exist
         const content = fs.readFileSync(committedFile, "utf8");
@@ -329,13 +304,8 @@ suite("Integration: Project updating", () => {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // Re-clone
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
-        await git.addRemote({
-            fs,
-            dir: tempDir,
-            remote: "origin",
-            url: "https://example.com/test-repo.git",
-        });
+        await dugiteGit.init(tempDir);
+        await dugiteGit.addRemote(tempDir, "origin", "https://example.com/test-repo.git");
         
         // Merge back
         fs.cpSync(tempBackupDir, tempDir, { recursive: true });
@@ -344,13 +314,8 @@ suite("Integration: Project updating", () => {
         const newFile = path.join(tempDir, "new.txt");
         fs.writeFileSync(newFile, "new content", "utf8");
         
-        await git.add({ fs, dir: tempDir, filepath: "new.txt" });
-        const commitSha = await git.commit({
-            fs,
-            dir: tempDir,
-            message: "new commit after full updating",
-            author: { name: "Test", email: "test@example.com" },
-        });
+        await dugiteGit.add(tempDir, "new.txt");
+        const commitSha = await dugiteGit.commit(tempDir, "new commit after full updating", { name: "Test", email: "test@example.com" });
         
         assert.ok(commitSha, "Should be able to commit after full updating");
         assert.strictEqual(typeof commitSha, "string");
@@ -378,7 +343,7 @@ suite("Integration: Project updating", () => {
         fs.mkdirSync(tempDir, { recursive: true });
         
         // Re-clone
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         
         // Merge back
         fs.cpSync(tempBackupDir, tempDir, { recursive: true });
@@ -404,7 +369,7 @@ suite("Integration: Project updating", () => {
         fs.cpSync(tempDir, tempBackup1, { recursive: true, filter: (src) => !src.includes(".git") });
         fs.rmSync(tempDir, { recursive: true, force: true });
         fs.mkdirSync(tempDir, { recursive: true });
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         fs.cpSync(tempBackup1, tempDir, { recursive: true });
         
         assert.ok(fs.existsSync(gitDir), ".git should exist after first updating");
@@ -416,7 +381,7 @@ suite("Integration: Project updating", () => {
         fs.cpSync(tempDir, tempBackup2, { recursive: true, filter: (src) => !src.includes(".git") });
         fs.rmSync(tempDir, { recursive: true, force: true });
         fs.mkdirSync(tempDir, { recursive: true });
-        await git.init({ fs, dir: tempDir, defaultBranch: "main" });
+        await dugiteGit.init(tempDir);
         fs.cpSync(tempBackup2, tempDir, { recursive: true });
         
         assert.ok(fs.existsSync(gitDir), ".git should exist after second updating");

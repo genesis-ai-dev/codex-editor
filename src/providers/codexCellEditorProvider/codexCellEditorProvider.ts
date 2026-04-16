@@ -20,13 +20,14 @@ import {
     handleGlobalMessage,
     handleMessages,
     performLLMCompletion,
+    sendMilestoneRefreshToWebview,
 } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getNonce } from "../../utils/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 import * as fs from "fs";
@@ -130,18 +131,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return this.documentRevisions.get(documentUri) ?? 0;
     }
 
-    // Translation queue system
+    // Translation queue system - for AI translation requests only (batch and individual)
     private translationQueue: {
         cellId: string;
         document: CodexCellDocument;
         shouldUpdateValue: boolean;
-        validationRequest?: boolean;
-        audioValidationRequest?: boolean;
         shouldValidate: boolean;
         resolve: (result: any) => void;
         reject: (error: any) => void;
     }[] = [];
     private isProcessingQueue: boolean = false;
+
+    // Separate validation queue - runs independently so validations don't wait for AI translation
+    private validationQueue: {
+        cellId: string;
+        document: CodexCellDocument;
+        shouldValidate: boolean;
+        isAudioValidation: boolean;
+        resolve: (result: any) => void;
+        reject: (error: any) => void;
+    }[] = [];
+    private isProcessingValidationQueue: boolean = false;
 
     // New state for autocompletion process
     public autocompletionState: {
@@ -707,7 +717,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
 
-            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string } | undefined)?.fileDisplayName;
+            const fileDisplayName = (notebookData?.metadata as { fileDisplayName?: string; } | undefined)?.fileDisplayName;
             const fallbackName = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
             const namePart = (fileDisplayName ?? fallbackName).replace(/\s+/g, "");
             webviewPanel.title = namePart + (isSourceText ? ".source" : ".codex");
@@ -835,9 +845,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                         if (ws) {
                             const { extractProjectIdFromUrl, fetchProjectMembers } = await import("../../utils/remoteUpdatingManager");
-                            const git = await import("isomorphic-git");
-                            const fs = await import("fs");
-                            const remotes = await git.listRemotes({ fs, dir: ws.uri.fsPath });
+                            const dugiteGitModule = await import("../../utils/dugiteGit");
+                            const remotes = await dugiteGitModule.listRemotes(ws.uri.fsPath);
                             const origin = remotes.find((r) => r.remote === "origin");
 
                             if (origin?.url) {
@@ -946,17 +955,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 }
                             }
                         }
-                        // Determine provisional state before version gate.
-                        // If the user's selected audio is missing, show missing icon regardless of other attachments.
                         const selectedId = cell?.metadata?.selectedAudioId;
                         const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                         const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
+                        // Prefer showing available when a valid file exists,
+                        // even if the user's explicit selection points to a missing file.
                         let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                        if (selectedIsMissing) state = "missing";
-                        else if (hasAvailable) state = "available-local";
+                        if (hasAvailable) state = "available-local";
                         else if (hasAvailablePointer) state = "available-pointer";
-                        else if (hasMissing) state = "missing";
+                        else if (selectedIsMissing || hasMissing) state = "missing";
                         else if (hasDeleted) state = "deletedOnly";
                         else state = "none";
 
@@ -1024,28 +1032,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     if (ws && url) {
                                         const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                                         const abs = path.join(ws.uri.fsPath, filesRel);
+                                        await vscode.workspace.fs.stat(vscode.Uri.file(abs));
                                         const { isPointerFile } = await import("../../utils/lfsHelpers");
                                         const isPtr = await isPointerFile(abs).catch(() => false);
                                         if (isPtr) hasAvailablePointer = true; else hasAvailable = true;
                                     } else {
-                                        hasAvailable = true;
+                                        hasMissing = true;
                                     }
-                                } catch { hasAvailable = true; }
+                                } catch { hasMissing = true; }
                             }
                         }
                     }
 
-                    // If the user's selected audio is missing, show missing icon regardless of other attachments.
                     const selectedId = cell?.metadata?.selectedAudioId;
                     const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
                     const selectedIsMissing = selectedAtt?.type === "audio" && selectedAtt?.isMissing === true;
 
-                    // Determine provisional state, then apply version gate
+                    // Prefer showing available when a valid file exists,
+                    // even if the user's explicit selection points to a missing file.
                     let state: "available" | "available-local" | "available-pointer" | "missing" | "deletedOnly" | "none";
-                    if (selectedIsMissing) state = "missing";
-                    else if (hasAvailable) state = "available-local";
+                    if (hasAvailable) state = "available-local";
                     else if (hasAvailablePointer) state = "available-pointer";
-                    else if (hasMissing) state = "missing";
+                    else if (selectedIsMissing || hasMissing) state = "missing";
                     else if (hasDeleted) state = "deletedOnly";
                     else state = "none";
 
@@ -1113,7 +1121,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             debug("Jump to cell event received:", value);
-            navigateToSection(value);
+            // Pre-populate the target position so that updateWebview() — which runs before
+            // navigateToSection in the pending queue — sends a refreshCurrentPage at the
+            // correct milestone instead of resetting to chapter 1 for newly-opened files.
+            const position = document.findMilestoneAndSubsectionForCell(value, this.CELLS_PER_PAGE);
+            if (position) {
+                this.currentMilestoneSubsectionMap.set(document.uri.toString(), position);
+            }
+            this.scheduleWebviewUpdate(document.uri.toString(), () => {
+                navigateToSection(value);
+            });
         });
 
         // Set up document change listeners
@@ -2410,6 +2427,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
+    public scrollOtherPanelsToCell(cellId: string, senderPanel: vscode.WebviewPanel) {
+        for (const [, panel] of this.webviewPanels.entries()) {
+            if (panel !== senderPanel) {
+                safePostMessageToPanel(panel, {
+                    type: "scrollToCell",
+                    cellId,
+                } as any);
+            }
+        }
+    }
+
     public async refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
@@ -3212,12 +3240,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Create a new promise for this request
         return new Promise((resolve, reject) => {
-            // Add the request to the queue
+            // Add the request to the queue (translation only - validations use validationQueue)
             this.translationQueue.push({
                 cellId,
                 document,
                 shouldUpdateValue,
-                validationRequest: false,
                 shouldValidate: false,
                 resolve,
                 reject,
@@ -3249,142 +3276,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 const request = this.translationQueue[0];
 
-                // Handle audio validation request first if that's what it is
-                if (request.audioValidationRequest) {
-                    try {
-                        debug(`Processing audio validation for cell ${request.cellId}`);
-
-                        // Start audio validation with UI notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "audioValidationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: true,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Perform the audio validation
-                        await request.document.validateCellAudio(
-                            request.cellId,
-                            request.shouldValidate
-                        );
-
-                        // Send completion notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "audioValidationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove the processed request from the queue and resolve
-                        this.translationQueue.shift();
-                        request.resolve(true);
-
-                        // Update milestone progress after audio validation
-                        this.updateMilestoneProgressForDocument(request.document);
-                    } catch (error) {
-                        debug(`Error processing audio validation for cell ${request.cellId}:`, error);
-
-                        // Send audio validation error notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "audioValidationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false, // Mark as complete even on error
-                                        error:
-                                            error instanceof Error ? error.message : String(error),
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove from queue and reject the promise
-                        this.translationQueue.shift();
-                        request.reject(error);
-                    }
-                    continue;
-                }
-
-                // Handle validation request if that's what it is
-                if (request.validationRequest) {
-                    try {
-                        debug(`Processing validation for cell ${request.cellId}`);
-
-                        // Start validation with UI notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "validationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: true,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Perform the validation
-                        await request.document.validateCellContent(
-                            request.cellId,
-                            request.shouldValidate
-                        );
-
-                        // Send completion notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "validationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false,
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove the processed request from the queue and resolve
-                        this.translationQueue.shift();
-                        request.resolve(true);
-
-                        // Update milestone progress after validation
-                        this.updateMilestoneProgressForDocument(request.document);
-                    } catch (error) {
-                        debug(`Error processing validation for cell ${request.cellId}:`, error);
-
-                        // Send validation error notification
-                        this.webviewPanels.forEach((panel, docUri) => {
-                            if (docUri === request.document.uri.toString()) {
-                                this.postMessageToWebview(panel, {
-                                    type: "validationInProgress" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        inProgress: false, // Mark as complete even on error
-                                        error:
-                                            error instanceof Error ? error.message : String(error),
-                                    },
-                                });
-                            }
-                        });
-
-                        // Remove from queue and reject the promise
-                        this.translationQueue.shift();
-                        request.reject(error);
-                    }
-                    continue;
-                }
-
+                // Translation queue only handles AI translation - validations use validationQueue
                 // Update the current cell being processed in the provider state
                 if (this.autocompletionState.isProcessing) {
                     this.autocompletionState.currentCellId = request.cellId;
@@ -3601,7 +3493,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     currentCellId,
                                     singleCompletion,
                                     EditType.LLM_GENERATION,
-                                    shouldUpdateValue
+                                    shouldUpdateValue,
+                                    false,
+                                    false,
+                                    completionResult.generationId
                                 );
                                 this.updateSingleCellTranslation(1.0);
                                 debug("LLM completion result (identical variants)", { completion: singleCompletion?.slice?.(0, 80) });
@@ -3660,7 +3555,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         currentCellId,
                         singleCompletion,
                         EditType.LLM_GENERATION,
-                        shouldUpdateValue
+                        shouldUpdateValue,
+                        false,
+                        false,
+                        completionResult.generationId
                     );
 
                     // If this was a preview-only update, persist the edit to disk immediately so edit history is saved
@@ -3992,7 +3890,98 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         );
     }
 
-    // Add method to enqueue a validation
+    // Process validation queue independently from translation - validations don't wait for AI
+    private async processValidationQueue(): Promise<void> {
+        if (this.isProcessingValidationQueue || this.validationQueue.length === 0) {
+            return;
+        }
+
+        debug("Started processing validation queue");
+        this.isProcessingValidationQueue = true;
+
+        try {
+            while (this.validationQueue.length > 0) {
+                const request = this.validationQueue.shift()!;
+
+                try {
+                    if (request.isAudioValidation) {
+                        debug(`Processing audio validation for cell ${request.cellId}`);
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "audioValidationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: true },
+                                });
+                            }
+                        });
+                        await request.document.validateCellAudio(
+                            request.cellId,
+                            request.shouldValidate
+                        );
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "audioValidationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: false },
+                                });
+                            }
+                        });
+                    } else {
+                        debug(`Processing validation for cell ${request.cellId}`);
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "validationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: true },
+                                });
+                            }
+                        });
+                        await request.document.validateCellContent(
+                            request.cellId,
+                            request.shouldValidate
+                        );
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
+                                this.postMessageToWebview(panel, {
+                                    type: "validationInProgress" as any,
+                                    content: { cellId: request.cellId, inProgress: false },
+                                });
+                            }
+                        });
+                    }
+                    this.updateMilestoneProgressForDocument(request.document);
+                    request.resolve(true);
+                } catch (error) {
+                    debug(`Error processing validation for cell ${request.cellId}:`, error);
+                    const inProgressType = request.isAudioValidation
+                        ? "audioValidationInProgress"
+                        : "validationInProgress";
+                    this.webviewPanels.forEach((panel, docUri) => {
+                        if (docUri === request.document.uri.toString()) {
+                            this.postMessageToWebview(panel, {
+                                type: inProgressType as any,
+                                content: {
+                                    cellId: request.cellId,
+                                    inProgress: false,
+                                    error: error instanceof Error ? error.message : String(error),
+                                },
+                            });
+                        }
+                    });
+                    request.reject(error);
+                }
+            }
+        } finally {
+            this.isProcessingValidationQueue = false;
+            debug("Finished processing validation queue");
+            // Process any validations added while we were running
+            if (this.validationQueue.length > 0) {
+                this.processValidationQueue();
+            }
+        }
+    }
+
+    // Add validation to the separate validation queue (does not wait for AI translation)
     public enqueueValidation(
         cellId: string,
         document: CodexCellDocument,
@@ -4000,27 +3989,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<any> {
         debug(`Enqueueing validation for cell ${cellId}, validate: ${shouldValidate}`);
 
-        // Create a new promise for this request
         return new Promise((resolve, reject) => {
-            // Add the request to the queue with a special validation type
-            this.translationQueue.push({
+            this.validationQueue.push({
                 cellId,
                 document,
-                shouldUpdateValue: false,
-                validationRequest: true, // Flag to identify validation requests
                 shouldValidate,
+                isAudioValidation: false,
                 resolve,
                 reject,
             });
-
-            // Start processing the queue if it's not already in progress
-            if (!this.isProcessingQueue) {
-                this.processTranslationQueue();
+            if (!this.isProcessingValidationQueue) {
+                this.processValidationQueue();
             }
         });
     }
 
-    // Add method to enqueue a validation
+    // Add audio validation to the separate validation queue (does not wait for AI translation)
     public enqueueAudioValidation(
         cellId: string,
         document: CodexCellDocument,
@@ -4028,22 +4012,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<any> {
         debug(`Enqueueing audio validation for cell ${cellId}, validate: ${shouldValidate}`);
 
-        // Create a new promise for this request
         return new Promise((resolve, reject) => {
-            // Add the request to the queue with a special validation type
-            this.translationQueue.push({
+            this.validationQueue.push({
                 cellId,
                 document,
-                shouldUpdateValue: false,
-                audioValidationRequest: true, // Flag to identify validation requests
                 shouldValidate,
+                isAudioValidation: true,
                 resolve,
                 reject,
             });
-
-            // Start processing the queue if it's not already in progress
-            if (!this.isProcessingQueue) {
-                this.processTranslationQueue();
+            if (!this.isProcessingValidationQueue) {
+                this.processValidationQueue();
             }
         });
     }
@@ -4327,11 +4306,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         try {
             const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
             const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
+            await vscode.workspace.fs.stat(vscode.Uri.file(abs));
             const { isPointerFile } = await import("../../utils/lfsHelpers");
             const isPtr = await isPointerFile(abs).catch(() => false);
             return isPtr ? "available-pointer" : "available-local";
         } catch {
-            // If file doesn't exist, check for pointer file
+            // File doesn't exist at files/ path, check for pointer
             try {
                 const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
                 const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
@@ -4420,8 +4400,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      * This is used after sync to ensure webviews show newly added cells.
      * Forces open, non-dirty documents to reload from disk before refreshing to ensure latest data.
      * @param filePaths Array of file paths (workspace-relative or absolute) to refresh
+     * @param options.sourceFilesOnly When true (e.g. after verse range migration), only refresh .source files, not .codex
      */
-    public async refreshWebviewsForFiles(filePaths: string[]): Promise<void> {
+    public async refreshWebviewsForFiles(
+        filePaths: string[],
+        options?: { isSourceAndCodexFiles?: boolean }
+    ): Promise<void> {
         if (!filePaths || filePaths.length === 0) {
             return;
         }
@@ -4433,14 +4417,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             debug("No workspace folder found; will only refresh absolute file paths");
         }
 
-        // Filter to only .codex files
-        const codexFiles = filePaths.filter(path => path.endsWith('.codex'));
-        if (codexFiles.length === 0) {
-            debug("No .codex files to refresh");
+        // Filter to notebook files: .source only when isSourceAndCodexFiles, otherwise both .codex and .source
+        const notebookFiles = filePaths.filter((p) =>
+            options?.isSourceAndCodexFiles ? p.endsWith(".source") : p.endsWith(".codex") || p.endsWith(".source")
+        );
+        if (notebookFiles.length === 0) {
+            debug(
+                options?.isSourceAndCodexFiles
+                    ? "No .source files to refresh"
+                    : "No notebook files (.codex or .source) to refresh"
+            );
             return;
         }
 
-        debug(`Refreshing webviews for ${codexFiles.length} codex file(s)`);
+        debug(`Refreshing webviews for ${notebookFiles.length} notebook file(s)`);
 
         // Build sets for both URI strings and normalized file paths for flexible matching
         const fileUriStrings = new Set<string>();
@@ -4448,10 +4438,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const normalizeFsPath = (fsPath: string) =>
             path.normalize(fsPath).replace(/\\/g, "/").toLowerCase();
 
-        for (const filePath of codexFiles) {
+        for (const filePath of notebookFiles) {
             try {
                 let uri: vscode.Uri;
-                if (path.isAbsolute(filePath)) {
+                if (filePath.startsWith("file:")) {
+                    // Accept URI strings directly for reliable matching (e.g. document.uri.toString())
+                    uri = vscode.Uri.parse(filePath);
+                } else if (path.isAbsolute(filePath)) {
                     uri = vscode.Uri.file(filePath);
                 } else {
                     if (!workspaceFolder) {
@@ -4507,14 +4500,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
+                        // Send full milestone index and cells so webview has correct structure after migration/sync
+                        await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
                         debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                        safePostMessageToPanel(panel, { type: "refreshCurrentPage" });
                     }
 
-                    debug(`Sending refreshCurrentPage to webview for ${docUri} (URI match)`);
-                    safePostMessageToPanel(panel, {
-                        type: "refreshCurrentPage",
-                    });
+                    debug(`Refreshed webview for ${docUri} (URI match)`);
                     refreshedCount++;
                     continue;
                 }
@@ -4544,14 +4537,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } else {
                             debug(`Skipping revert before refresh (document is dirty): ${docUri}`);
                         }
+                        // Send full milestone index and cells so webview has correct structure after migration/sync
+                        await sendMilestoneRefreshToWebview(document, panel, this);
                     } else {
                         debug(`No cached document found for panel; sending refresh without revert: ${docUri}`);
+                        safePostMessageToPanel(panel, { type: "refreshCurrentPage" });
                     }
 
-                    debug(`Sending refreshCurrentPage to webview for ${docUri} (path match)`);
-                    safePostMessageToPanel(panel, {
-                        type: "refreshCurrentPage",
-                    });
+                    debug(`Refreshed webview for ${docUri} (path match)`);
                     refreshedCount++;
                 }
             } catch (error) {

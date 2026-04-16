@@ -14,10 +14,6 @@ export const removeHtmlTags = (content: string) => {
             const footnotes = tempDiv.querySelectorAll('sup.footnote-marker, sup[data-footnote], sup');
             footnotes.forEach(footnote => footnote.remove());
 
-            // Remove spell check markup
-            const spellCheckElements = tempDiv.querySelectorAll('.spell-check-error, .spell-check-suggestion, [class*="spell-check"]');
-            spellCheckElements.forEach(el => el.remove());
-
             // Replace paragraph end tags with spaces to preserve word boundaries
             tempDiv.innerHTML = tempDiv.innerHTML.replace(/<\/p>/gi, ' ');
 
@@ -217,10 +213,10 @@ export type CellForProgressCheck = {
  */
 export function shouldExcludeCellFromProgress(cell: CellForProgressCheck): boolean {
     const md = cell.metadata;
-    const cellData = md?.data as { merged?: boolean; parentId?: string; type?: string; } | undefined;
+    const cellData = md?.data as { merged?: boolean; parentId?: string; type?: string; deleted?: boolean; } | undefined;
     const cellId = (md?.id ?? "").toString();
 
-    if (md?.type === "milestone" || cellData?.merged) {
+    if (md?.type === "milestone" || cellData?.merged || cellData?.deleted) {
         return true;
     }
     const isParatext =
@@ -249,7 +245,7 @@ export function shouldExcludeQuillCellFromProgress(cell: QuillCellContent): bool
     if (!cellId || cellId.trim() === "") {
         return true;
     }
-    if (cell.merged) {
+    if (cell.merged || cell.deleted) {
         return true;
     }
     const typeLower = (cell.cellType ?? "").toString().toLowerCase();
@@ -290,5 +286,17 @@ export const computeProgressPercents = (
     };
 };
 
+/**
+ * Derives the target .codex file path from a .source file path.
+ * Normalizes path separators so the replacement works on both Windows and POSIX.
+ */
+export const deriveTargetPathFromSource = (sourcePath: string): string => {
+    const normalized = sourcePath.replace(/\\/g, "/");
+    return normalized
+        .replace(/\.source$/, ".codex")
+        .replace(/\/\.project\/sourceTexts\//, "/files/target/");
+};
+
 // Re-export corpus utilities
 export * from "./corpusUtils";
+export * from "./exportOptionsEligibility";

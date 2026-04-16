@@ -185,7 +185,7 @@
 
     .button-outline:hover {
         background-color: var(--accent);
-        color: var(--accent-foreground);
+        color: var(--foreground);
         box-shadow: none;
         transform: none;
     }
@@ -340,6 +340,33 @@
     --color-charts-blue: var(--charts-blue);
     --color-charts-blue-dark: var(--charts-blue-dark);
     --color-charts-green: var(--charts-green);
+}
+
+@theme {
+    --animate-nsu-export-panel-from-right: nsu-export-panel-from-right 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+    --animate-nsu-export-panel-from-bottom: nsu-export-panel-from-bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+    @keyframes nsu-export-panel-from-right {
+        from {
+            opacity: 0;
+            transform: translate3d(2rem, 0, 0);
+        }
+        to {
+            opacity: 1;
+            transform: translate3d(0, 0, 0);
+        }
+    }
+
+    @keyframes nsu-export-panel-from-bottom {
+        from {
+            opacity: 0;
+            transform: translate3d(0, 0.75rem, 0);
+        }
+        to {
+            opacity: 1;
+            transform: translate3d(0, 0, 0);
+        }
+    }
 }
 
 /* Dark theme adjustments for better VSCode integration */

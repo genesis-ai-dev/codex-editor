@@ -9,6 +9,9 @@ import {
     TextDisplaySettingsModal,
     type TextDisplaySettings,
 } from "../components/TextDisplaySettingsModal";
+import { getVSCodeAPI } from "../shared/vscodeApi";
+
+const vscode = getVSCodeAPI();
 import "../tailwind.css";
 
 // Inline editable field component
@@ -61,17 +64,33 @@ function EditableField({
     };
 
     if (isEditing) {
+        const showPrivacyWarning = editValue.trim() !== "" && !/^\d+$/.test(editValue.trim());
+        const showEmptyError = editValue.trim() === "";
         return (
-            <input
-                ref={inputRef}
-                type="text"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onBlur={handleSave}
-                onKeyDown={handleKeyDown}
-                placeholder={placeholder}
-                className={`bg-transparent border-b border-primary outline-none text-sm py-0.5 w-full min-w-0 ${inputClassName}`}
-            />
+            <div className="flex flex-col gap-2 w-full min-w-0">
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={handleSave}
+                    onKeyDown={handleKeyDown}
+                    placeholder={placeholder}
+                    className={`bg-transparent border border-primary outline-none text-sm px-3 py-1 w-full min-w-0 rounded-md ${inputClassName}`}
+                />
+                {showPrivacyWarning && (
+                    <div className="rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2 text-sm text-yellow-800 font-normal">
+                        Your project name may appear in publicly available bug reports. Please do
+                        not name your project anything that could pose a security or IP risk to your
+                        team.
+                    </div>
+                )}
+                {showEmptyError && (
+                    <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700 font-normal">
+                        Project name cannot be empty
+                    </div>
+                )}
+            </div>
         );
     }
 
@@ -89,9 +108,6 @@ function EditableField({
 const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
 const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
 
-// Declare the acquireVsCodeApi function and acquire the VS Code API
-declare function acquireVsCodeApi(): any;
-const vscode = acquireVsCodeApi();
 
 interface ProjectManagerState {
     projectOverview: any | null;
@@ -105,6 +121,7 @@ interface ProjectManagerState {
     isInitializing: boolean;
     isSyncInProgress: boolean;
     syncStage: string;
+    isImportInProgress: boolean;
     isPublishingInProgress: boolean;
     publishingStage: string;
     updateState:
@@ -129,6 +146,7 @@ interface State {
     syncDelayMinutes: number;
     isFrontierExtensionEnabled: boolean;
     isAuthenticated: boolean;
+    isGitAvailable: boolean;
 }
 
 function MainMenu() {
@@ -150,6 +168,7 @@ function MainMenu() {
             appVersion: null,
             isSyncInProgress: false,
             syncStage: "",
+            isImportInProgress: false,
             isPublishingInProgress: false,
             publishingStage: "",
         },
@@ -157,12 +176,113 @@ function MainMenu() {
         syncDelayMinutes: 5,
         isFrontierExtensionEnabled: true,
         isAuthenticated: false,
+        isGitAvailable: true,
     });
 
     const network = useNetworkState();
     const isOnline = network?.online ?? true;
 
-    const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
+    // Optimistic local state for validation counters so rapid clicks work correctly.
+    // Without this, each click reads from the stale server-confirmed state (which
+    // hasn't round-tripped yet), causing lost increments and UI bouncing.
+    const [localValidationCount, setLocalValidationCount] = useState<number | null>(null);
+    const [localValidationCountAudio, setLocalValidationCountAudio] = useState<number | null>(
+        null
+    );
+    const validationCountDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const validationCountAudioDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const localCountFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const localCountAudioFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const displayValidationCount =
+        localValidationCount ??
+        state.projectState.projectOverview?.validationCount ??
+        1;
+    const displayValidationCountAudio =
+        localValidationCountAudio ??
+        state.projectState.projectOverview?.validationCountAudio ??
+        1;
+
+    // Clear optimistic override once the server has caught up to the local value
+    useEffect(() => {
+        const serverCount = state.projectState.projectOverview?.validationCount;
+        if (localValidationCount !== null && serverCount === localValidationCount) {
+            setLocalValidationCount(null);
+        }
+    }, [state.projectState.projectOverview?.validationCount, localValidationCount]);
+
+    useEffect(() => {
+        const serverCount = state.projectState.projectOverview?.validationCountAudio;
+        if (localValidationCountAudio !== null && serverCount === localValidationCountAudio) {
+            setLocalValidationCountAudio(null);
+        }
+    }, [state.projectState.projectOverview?.validationCountAudio, localValidationCountAudio]);
+
+    // Clean up debounce timers on unmount
+    useEffect(() => {
+        return () => {
+            if (validationCountDebounceRef.current) clearTimeout(validationCountDebounceRef.current);
+            if (validationCountAudioDebounceRef.current)
+                clearTimeout(validationCountAudioDebounceRef.current);
+            if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
+            if (localCountAudioFallbackRef.current)
+                clearTimeout(localCountAudioFallbackRef.current);
+        };
+    }, []);
+
+    const handleValidationCountChange = useCallback(
+        (newCount: number) => {
+            setLocalValidationCount(newCount);
+
+            if (validationCountDebounceRef.current)
+                clearTimeout(validationCountDebounceRef.current);
+            if (localCountFallbackRef.current) clearTimeout(localCountFallbackRef.current);
+
+            validationCountDebounceRef.current = setTimeout(() => {
+                try {
+                    vscode.postMessage({
+                        command: "setValidationCountDirect",
+                        data: { count: newCount },
+                    });
+                } catch (error) {
+                    console.error("Could not send validation count:", error);
+                }
+            }, 150);
+
+            // Safety net: clear optimistic state after 5s in case server never confirms
+            localCountFallbackRef.current = setTimeout(() => {
+                setLocalValidationCount(null);
+            }, 5000);
+        },
+        []
+    );
+
+    const handleValidationCountAudioChange = useCallback(
+        (newCount: number) => {
+            setLocalValidationCountAudio(newCount);
+
+            if (validationCountAudioDebounceRef.current)
+                clearTimeout(validationCountAudioDebounceRef.current);
+            if (localCountAudioFallbackRef.current)
+                clearTimeout(localCountAudioFallbackRef.current);
+
+            validationCountAudioDebounceRef.current = setTimeout(() => {
+                try {
+                    vscode.postMessage({
+                        command: "setValidationCountAudioDirect",
+                        data: { count: newCount },
+                    });
+                } catch (error) {
+                    console.error("Could not send audio validation count:", error);
+                }
+            }, 150);
+
+            localCountAudioFallbackRef.current = setTimeout(() => {
+                setLocalValidationCountAudio(null);
+            }, 5000);
+        },
+        []
+    );
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -191,6 +311,7 @@ function MainMenu() {
                             message.data.isFrontierExtensionEnabled ??
                             prevState.isFrontierExtensionEnabled,
                         isAuthenticated: message.data.isAuthenticated ?? prevState.isAuthenticated,
+                        isGitAvailable: message.data.isGitAvailable ?? prevState.isGitAvailable,
                     }));
                     break;
                 case "updateStateChanged":
@@ -213,6 +334,9 @@ function MainMenu() {
                                 message.data.isSyncInProgress ??
                                 prevState.projectState.isSyncInProgress,
                             syncStage: message.data.syncStage ?? prevState.projectState.syncStage,
+                            isImportInProgress:
+                                message.data.isImportInProgress ??
+                                prevState.projectState.isImportInProgress,
                         },
                     }));
                     break;
@@ -230,7 +354,6 @@ function MainMenu() {
                         },
                     }));
                     break;
-                // Speech-to-text settings moved to Copilot Settings panel
             }
         };
 
@@ -316,18 +439,11 @@ function MainMenu() {
         handleProjectAction("triggerSync");
     };
 
-    // Speech-to-text settings controls moved to Copilot Settings panel
-
-    const handleApplyTextDisplaySettings = (settings: TextDisplaySettings) => {
-        try {
-            vscode.postMessage({
-                command: "applyTextDisplaySettings",
-                data: settings,
-            });
-        } catch (error) {
-            console.error("Could not apply text display settings:", error);
-        }
+    const handleDownloadSyncRuntime = () => {
+        handleProjectAction("downloadSyncRuntime");
     };
+
+    // Speech-to-text settings controls moved to Copilot Settings panel
 
     const getLanguageDisplay = (languageObj: any): string => {
         if (!languageObj) return "Missing";
@@ -615,13 +731,9 @@ function MainMenu() {
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCount || 1;
-                                                                    if (current > 1)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountDirect",
-                                                                            { count: current - 1 }
+                                                                    if (displayValidationCount > 1)
+                                                                        handleValidationCountChange(
+                                                                            displayValidationCount - 1
                                                                         );
                                                                 }}
                                                                 title="Decrease"
@@ -629,19 +741,14 @@ function MainMenu() {
                                                                 -
                                                             </button>
                                                             <span className="w-5 text-center font-semibold">
-                                                                {projectState.projectOverview
-                                                                    .validationCount || 1}
+                                                                {displayValidationCount}
                                                             </span>
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCount || 1;
-                                                                    if (current < 15)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountDirect",
-                                                                            { count: current + 1 }
+                                                                    if (displayValidationCount < 15)
+                                                                        handleValidationCountChange(
+                                                                            displayValidationCount + 1
                                                                         );
                                                                 }}
                                                                 title="Increase"
@@ -658,14 +765,13 @@ function MainMenu() {
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCountAudio ||
-                                                                        1;
-                                                                    if (current > 1)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountAudioDirect",
-                                                                            { count: current - 1 }
+                                                                    if (
+                                                                        displayValidationCountAudio >
+                                                                        1
+                                                                    )
+                                                                        handleValidationCountAudioChange(
+                                                                            displayValidationCountAudio -
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Decrease"
@@ -673,20 +779,18 @@ function MainMenu() {
                                                                 -
                                                             </button>
                                                             <span className="w-5 text-center font-semibold">
-                                                                {projectState.projectOverview
-                                                                    .validationCountAudio || 1}
+                                                                {displayValidationCountAudio}
                                                             </span>
                                                             <button
                                                                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent transition-colors text-xs font-bold cursor-pointer"
                                                                 onClick={() => {
-                                                                    const current =
-                                                                        projectState.projectOverview
-                                                                            .validationCountAudio ||
-                                                                        1;
-                                                                    if (current < 15)
-                                                                        handleProjectAction(
-                                                                            "setValidationCountAudioDirect",
-                                                                            { count: current + 1 }
+                                                                    if (
+                                                                        displayValidationCountAudio <
+                                                                        15
+                                                                    )
+                                                                        handleValidationCountAudioChange(
+                                                                            displayValidationCountAudio +
+                                                                                1
                                                                         );
                                                                 }}
                                                                 title="Increase"
@@ -719,6 +823,72 @@ function MainMenu() {
                                 </CardContent>
                             </Card>
 
+                            {/* Publish Card - only show if project doesn't have remote */}
+                            {!projectState.repoHasRemote && (
+                                <Card className="border shadow-sm bg-muted/20">
+                                    <CardContent className="p-4">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex-shrink-0">
+                                                <i
+                                                    className="codicon codicon-cloud-upload text-2xl"
+                                                    style={{ color: "var(--ring)" }}
+                                                />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-semibold text-sm">
+                                                    Publish to Cloud
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Enable syncing and collaboration
+                                                </div>
+                                            </div>
+                                            <Button
+                                                onClick={() => {
+                                                    if (!state.isAuthenticated) {
+                                                        handleProjectAction("openLoginFlow");
+                                                    } else {
+                                                        handleProjectAction("publishProject");
+                                                    }
+                                                }}
+                                                disabled={
+                                                    !state.isGitAvailable ||
+                                                    projectState.isPublishingInProgress ||
+                                                    projectState.isImportInProgress ||
+                                                    !isOnline ||
+                                                    !state.isFrontierExtensionEnabled
+                                                }
+                                                title={!state.isGitAvailable ? "Sync unavailable — missing sync tools" : undefined}
+                                                size="sm"
+                                                className="flex-shrink-0"
+                                            >
+                                                {!state.isGitAvailable ? (
+                                                    "Sync Unavailable"
+                                                ) : projectState.isPublishingInProgress ? (
+                                                    <>
+                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                                        {projectState.publishingStage ||
+                                                            "Publishing..."}
+                                                    </>
+                                                ) : projectState.isImportInProgress ? (
+                                                    <>
+                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
+                                                        Importing...
+                                                    </>
+                                                ) : !isOnline ? (
+                                                    "Offline"
+                                                ) : !state.isFrontierExtensionEnabled ? (
+                                                    "Extension Required"
+                                                ) : !state.isAuthenticated ? (
+                                                    "Log in"
+                                                ) : (
+                                                    "Publish"
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
                             {/* Sync Settings - only show if project has remote */}
                             {projectState.repoHasRemote && (
                                 <SyncSettings
@@ -726,12 +896,15 @@ function MainMenu() {
                                     syncDelayMinutes={state.syncDelayMinutes}
                                     isSyncInProgress={projectState.isSyncInProgress}
                                     syncStage={projectState.syncStage}
+                                    isImportInProgress={projectState.isImportInProgress ?? false}
                                     isFrontierExtensionEnabled={state.isFrontierExtensionEnabled}
                                     isAuthenticated={state.isAuthenticated}
+                                    isGitAvailable={state.isGitAvailable}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
                                     onLogin={handleLogin}
+                                    onDownloadSyncRuntime={handleDownloadSyncRuntime}
                                 />
                             )}
 
@@ -767,8 +940,9 @@ function MainMenu() {
                                             },
                                             {
                                                 icon: "codicon-text-size",
-                                                label: "Text Display",
-                                                action: () => setIsTextDisplaySettingsOpen(true),
+                                                label: "Interface Settings",
+                                                action: () =>
+                                                    handleProjectAction("openInterfaceSettings"),
                                             },
                                             {
                                                 icon: "codicon-symbol-array",
@@ -833,62 +1007,6 @@ function MainMenu() {
                                     </div>
                                 </CardContent>
                             </Card>
-
-                            {/* Publish Card - at the bottom, only show if project doesn't have remote */}
-                            {!projectState.repoHasRemote && (
-                                <Card className="border shadow-sm bg-muted/20">
-                                    <CardContent className="p-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-shrink-0">
-                                                <i
-                                                    className="codicon codicon-cloud-upload text-2xl"
-                                                    style={{ color: "var(--ring)" }}
-                                                />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-sm">
-                                                    Publish to Cloud
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Enable syncing and collaboration
-                                                </div>
-                                            </div>
-                                            <Button
-                                                onClick={() => {
-                                                    if (!state.isAuthenticated) {
-                                                        handleProjectAction("openLoginFlow");
-                                                    } else {
-                                                        handleProjectAction("publishProject");
-                                                    }
-                                                }}
-                                                disabled={
-                                                    projectState.isPublishingInProgress ||
-                                                    !isOnline ||
-                                                    !state.isFrontierExtensionEnabled
-                                                }
-                                                size="sm"
-                                                className="flex-shrink-0"
-                                            >
-                                                {projectState.isPublishingInProgress ? (
-                                                    <>
-                                                        <i className="codicon codicon-loading codicon-modifier-spin mr-2" />
-                                                        {projectState.publishingStage ||
-                                                            "Publishing..."}
-                                                    </>
-                                                ) : !isOnline ? (
-                                                    "Offline"
-                                                ) : !state.isFrontierExtensionEnabled ? (
-                                                    "Extension Required"
-                                                ) : !state.isAuthenticated ? (
-                                                    "Log in"
-                                                ) : (
-                                                    "Publish"
-                                                )}
-                                            </Button>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            )}
                         </div>
                     ) : projectState.canInitializeProject ? (
                         <Card
@@ -965,12 +1083,6 @@ function MainMenu() {
                 Codex Editor {projectState.appVersion ? `v${projectState.appVersion}` : ""}
             </div>
 
-            {/* Text Display Settings Modal */}
-            <TextDisplaySettingsModal
-                isOpen={isTextDisplaySettingsOpen}
-                onClose={() => setIsTextDisplaySettingsOpen(false)}
-                onApply={handleApplyTextDisplaySettings}
-            />
         </div>
     );
 }

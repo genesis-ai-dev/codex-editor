@@ -1,23 +1,15 @@
 import React from "react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { FileInput, ArrowLeft, AlertCircle } from "lucide-react";
+import { FileInput, AlertCircle } from "lucide-react";
 
 interface EmptySourceStateProps {
     onImportSources: () => void;
-    onBack: () => void;
 }
 
-export const EmptySourceState: React.FC<EmptySourceStateProps> = ({ onImportSources, onBack }) => {
+export const EmptySourceState: React.FC<EmptySourceStateProps> = ({ onImportSources }) => {
     return (
         <div className="container mx-auto p-6 max-w-3xl">
-            {/* Header */}
-            <div className="flex items-center gap-4 mb-6">
-                <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                </Button>
-            </div>
 
             <Card className="mt-12">
                 <CardContent className="p-12 text-center space-y-6">

@@ -27,12 +27,16 @@ import {
     TargetFileResponseMessage,
     TargetFileErrorMessage,
 } from "./types/wizard";
-import { IntentSelection } from "./components/IntentSelection";
 import { SourceFileSelection } from "./components/SourceFileSelection";
 import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
+import { ImportProgressView } from "./components/ImportProgressView";
 import { SystemMessageStep } from "../StartupFlow/components/SystemMessageStep";
+import { deriveTargetPathFromSource } from "../../../../sharedUtils";
 import { createDownloadHelper } from "./utils/downloadHelper";
+import { notifyImportEnded } from "./utils/importProgress";
+import { Button } from "../components/ui/button";
+import { ArrowLeft } from "lucide-react";
 import "./App.css";
 import "../tailwind.css";
 
@@ -42,8 +46,8 @@ const vscode: { postMessage: (message: any) => void } = (window as any).vscodeAp
 const NewSourceUploader: React.FC = () => {
     // Wizard state
     const [wizardState, setWizardState] = useState<WizardState>({
-        currentStep: "intent-selection",
-        selectedIntent: null,
+        currentStep: "source-import",
+        selectedIntent: "source",
         selectedSourceForTarget: undefined,
         selectedSourceDetails: undefined,
         selectedPlugin: undefined,
@@ -60,6 +64,7 @@ const NewSourceUploader: React.FC = () => {
     const [isDirty, setIsDirty] = useState(false);
     const [systemMessage, setSystemMessage] = useState<string>("");
     const [isWaitingForMessage, setIsWaitingForMessage] = useState(false);
+    const [importComplete, setImportComplete] = useState(false);
 
     // State for managing alignment requests
     const [alignmentRequests, setAlignmentRequests] = useState<
@@ -70,6 +75,7 @@ const NewSourceUploader: React.FC = () => {
                 reject: (error: Error) => void;
                 importedContent: ImportedContent[];
                 customAligner?: CellAligner;
+                sourceFilePath: string;
             }
         >
     >(new Map());
@@ -82,7 +88,6 @@ const NewSourceUploader: React.FC = () => {
             customAligner?: CellAligner
         ): Promise<AlignedCell[]> => {
             return new Promise((resolve, reject) => {
-                // Store the request with a unique key
                 const requestKey = `${sourceFilePath}-${Date.now()}`;
                 setAlignmentRequests(
                     (prev) =>
@@ -92,18 +97,17 @@ const NewSourceUploader: React.FC = () => {
                                 reject,
                                 importedContent,
                                 customAligner,
+                                sourceFilePath,
                             })
                         )
                 );
 
-                // Request target file content from provider
                 const message: FetchTargetFileMessage = {
                     command: "fetchTargetFile",
                     sourceFilePath,
                 };
                 vscode.postMessage(message);
 
-                // Set up timeout to avoid hanging requests
                 setTimeout(() => {
                     setAlignmentRequests((prev) => {
                         const newMap = new Map(prev);
@@ -113,7 +117,7 @@ const NewSourceUploader: React.FC = () => {
                         }
                         return newMap;
                     });
-                }, 30000); // 30 second timeout
+                }, 30000);
             });
         },
         []
@@ -124,18 +128,47 @@ const NewSourceUploader: React.FC = () => {
         const handleGlobalMessage = (event: MessageEvent) => {
             const message = event.data;
 
-            if (message.command === "notification") {
-                // Handle notifications from the provider
+            if (message.command === "importProgress") {
+                setWizardState((prev) => {
+                    if (prev.currentStep !== "importing") return prev;
+                    return {
+                        ...prev,
+                        importProgress: {
+                            ...prev.importProgress!,
+                            stage: message.stage,
+                            detail: message.detail,
+                        },
+                    };
+                });
+            } else if (message.command === "importComplete") {
+                setImportComplete(true);
+                setWizardState((prev) => {
+                    if (prev.currentStep !== "importing") return prev;
+                    return {
+                        ...prev,
+                        importProgress: {
+                            ...prev.importProgress!,
+                            stage: "complete",
+                        },
+                    };
+                });
+            } else if (message.command === "importCancelled") {
+                setImportComplete(false);
+                setWizardState((prev) => ({
+                    ...prev,
+                    currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
+                    selectedSourceForTarget: undefined,
+                    selectedSourceDetails: undefined,
+                    selectedPlugin: undefined,
+                    importProgress: undefined,
+                }));
+            } else if (message.command === "notification") {
                 const { type, message: notificationMessage } = message;
-
-                // You can implement a toast notification system here
-                // For now, using console and alert as fallback
                 console.log(`${type.toUpperCase()}: ${notificationMessage}`);
 
                 if (type === "error") {
                     alert(`Error: ${notificationMessage}`);
                 } else if (type === "success") {
-                    // Could show a success toast instead of alert
                     console.log(`Success: ${notificationMessage}`);
                 } else if (type === "warning") {
                     console.warn(`Warning: ${notificationMessage}`);
@@ -166,19 +199,17 @@ const NewSourceUploader: React.FC = () => {
                 const response = message as TargetFileResponseMessage;
                 console.log("Received target file content:", response);
 
-                // Find and complete pending alignment requests for this source file
                 setAlignmentRequests((prev) => {
                     const newMap = new Map(prev);
                     const completedRequests: string[] = [];
 
                     for (const [requestKey, request] of newMap.entries()) {
-                        if (requestKey.startsWith(response.sourceFilePath)) {
-                            // Run the alignment algorithm
+                        if (request.sourceFilePath === response.sourceFilePath) {
                             const aligner = request.customAligner || defaultCellAligner;
 
                             aligner(
                                 response.targetCells,
-                                [], // Source cells not currently used
+                                [],
                                 request.importedContent
                             )
                                 .then((alignedCells) => {
@@ -192,21 +223,24 @@ const NewSourceUploader: React.FC = () => {
                         }
                     }
 
-                    // Remove completed requests
                     completedRequests.forEach((key) => newMap.delete(key));
                     return newMap;
                 });
             } else if (message.command === "metadata.checkResponse") {
-                // Load system message from metadata when navigating to system-message step
                 const chatSystemMessage = message.data?.chatSystemMessage;
                 if (chatSystemMessage) {
                     setSystemMessage(chatSystemMessage);
+                    setIsWaitingForMessage(false);
+                } else {
+                    // No system message in metadata yet — auto-trigger generation
+                    // so the user sees a "Generating..." state instead of an empty field
+                    vscode.postMessage({ command: "systemMessage.generate" });
                 }
-                setIsWaitingForMessage(false); // Clear waiting flag when we get response
             } else if (message.command === "systemMessage.generated") {
-                // Handle generated system message
                 setSystemMessage(message.message || "");
-                setIsWaitingForMessage(false); // Clear waiting flag when generation completes
+                setIsWaitingForMessage(false);
+            } else if (message.command === "systemMessage.generateError") {
+                setIsWaitingForMessage(false);
             } else if (message.command === "targetFileError") {
                 // Handle target file error
                 const response = message as TargetFileErrorMessage;
@@ -250,13 +284,38 @@ const NewSourceUploader: React.FC = () => {
                     translationPairs: [],
                 };
 
-                console.log("Received project inventory:", inventory);
+                const initialIntent: ImportIntent | undefined = message.initialIntent;
 
-                setWizardState((prev) => ({
-                    ...prev,
-                    projectInventory: inventory,
-                    isLoadingInventory: false,
-                }));
+                console.log("Received project inventory:", inventory, "initialIntent:", initialIntent);
+
+                setWizardState((prev) => {
+                    const base = {
+                        ...prev,
+                        projectInventory: inventory,
+                        isLoadingInventory: false,
+                    };
+
+                    // Auto-navigate based on initial intent from provider
+                    if (initialIntent === "source") {
+                        return {
+                            ...base,
+                            selectedIntent: "source" as ImportIntent,
+                            currentStep: "source-import" as WizardStep,
+                        };
+                    }
+                    if (initialIntent === "target") {
+                        const hasSourceFiles = inventory.sourceFiles.length > 0;
+                        return {
+                            ...base,
+                            selectedIntent: "target" as ImportIntent,
+                            currentStep: hasSourceFiles
+                                ? ("target-selection" as WizardStep)
+                                : ("target-selection" as WizardStep),
+                        };
+                    }
+
+                    return base;
+                });
             }
         };
 
@@ -330,10 +389,24 @@ const NewSourceUploader: React.FC = () => {
 
     const handleComplete = useCallback(
         (notebooks: NotebookPair | NotebookPair[]) => {
-            // Normalize to array format
             const notebookPairs = Array.isArray(notebooks) ? notebooks : [notebooks];
 
-            // Send notebooks to provider for writing
+            const firstNotebookName = notebookPairs[0]?.source.name || "unknown";
+
+            // Switch to importing view before sending the message
+            setImportComplete(false);
+            setWizardState((prev) => ({
+                ...prev,
+                currentStep: "importing",
+                selectedPlugin: undefined,
+                importProgress: {
+                    stage: "preparing",
+                    count: notebookPairs.length,
+                    importName: firstNotebookName,
+                },
+            }));
+            setIsDirty(false);
+
             const message: ProviderMessage = {
                 command: "writeNotebooks",
                 notebookPairs,
@@ -348,18 +421,7 @@ const NewSourceUploader: React.FC = () => {
             };
 
             vscode.postMessage(message);
-
-            // Reset wizard
-            setWizardState((prev) => ({
-                ...prev,
-                currentStep: "intent-selection",
-                selectedIntent: null,
-                selectedSourceForTarget: undefined,
-                selectedPlugin: undefined,
-            }));
-            setIsDirty(false);
-
-            // No need to manually refresh inventory - provider will send updated inventory
+            notifyImportEnded();
         },
         [wizardState]
     );
@@ -371,10 +433,7 @@ const NewSourceUploader: React.FC = () => {
                 return;
             }
 
-            // Derive target file path from source file path
-            const targetFilePath = sourceFilePath
-                .replace(/\.source$/, ".codex")
-                .replace(/\/\.project\/sourceTexts\//, "/files/target/");
+            const targetFilePath = deriveTargetPathFromSource(sourceFilePath);
 
             // Send translation to provider for writing
             const message: WriteTranslationMessage = {
@@ -393,12 +452,12 @@ const NewSourceUploader: React.FC = () => {
             };
 
             vscode.postMessage(message);
+            notifyImportEnded();
 
             // Reset wizard
             setWizardState((prev) => ({
                 ...prev,
-                currentStep: "intent-selection",
-                selectedIntent: null,
+                currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
                 selectedSourceForTarget: undefined,
                 selectedSourceDetails: undefined,
                 selectedPlugin: undefined,
@@ -408,28 +467,32 @@ const NewSourceUploader: React.FC = () => {
         [wizardState]
     );
 
+    const handleBackToImporters = useCallback(() => {
+        setWizardState((prev) => ({
+            ...prev,
+            selectedPlugin: undefined,
+        }));
+        setIsDirty(false);
+    }, []);
+
     const handleCancel = useCallback(() => {
-        // Note: VS Code webviews don't support window.confirm() due to sandboxing
-        // Skip confirmation dialog - user action is explicit enough
         setWizardState((prev) => ({
             ...prev,
             currentStep:
                 prev.selectedIntent === "target" && prev.selectedSourceForTarget
                     ? "target-selection"
-                    : "intent-selection",
+                    : prev.selectedIntent === "target"
+                        ? "target-selection"
+                        : "source-import",
             selectedPlugin: undefined,
         }));
         setIsDirty(false);
     }, [isDirty]);
 
     const handleCancelImport = useCallback(() => {
-        // Reset entire wizard state to beginning
-        // Note: VS Code webviews don't support window.confirm() due to sandboxing
-        // The "Cancel Import" button text makes the action clear enough
         setWizardState((prev) => ({
             ...prev,
-            currentStep: "intent-selection",
-            selectedIntent: null,
+            currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
             selectedSourceForTarget: undefined,
             selectedSourceDetails: undefined,
             selectedPlugin: undefined,
@@ -467,9 +530,6 @@ const NewSourceUploader: React.FC = () => {
     const handleBack = useCallback(() => {
         setWizardState((prev) => {
             switch (prev.currentStep) {
-                case "source-import":
-                case "target-selection":
-                    return { ...prev, currentStep: "intent-selection", selectedIntent: null };
                 case "target-import":
                     return {
                         ...prev,
@@ -574,22 +634,28 @@ const NewSourceUploader: React.FC = () => {
                   }),
         };
 
-        return <PluginComponent {...componentProps} />;
+        return (
+            <div className="flex flex-col h-full">
+                <div className="p-4 pb-0">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleBackToImporters}
+                        className="gap-2"
+                    >
+                        <ArrowLeft className="h-4 w-4" />
+                        Back to importers
+                    </Button>
+                </div>
+                <div className="flex-1 min-h-0">
+                    <PluginComponent {...componentProps} />
+                </div>
+            </div>
+        );
     }
 
     // Render wizard steps
     switch (wizardState.currentStep) {
-        case "intent-selection":
-            return (
-                <IntentSelection
-                    onSelectIntent={handleSelectIntent}
-                    onStartTranslating={handleStartTranslating}
-                    sourceFileCount={wizardState.projectInventory.sourceFiles.length}
-                    targetFileCount={wizardState.projectInventory.targetFiles.length}
-                    translationPairCount={wizardState.projectInventory.translationPairs.length}
-                />
-            );
-
         case "source-import":
             return (
                 <PluginSelection
@@ -597,7 +663,6 @@ const NewSourceUploader: React.FC = () => {
                     intent="source"
                     existingSourceCount={wizardState.projectInventory.sourceFiles.length}
                     onSelectPlugin={handleSelectPlugin}
-                    onBack={handleBack}
                 />
             );
 
@@ -607,7 +672,6 @@ const NewSourceUploader: React.FC = () => {
                 return (
                     <EmptySourceState
                         onImportSources={() => handleSelectIntent("source")}
-                        onBack={handleBack}
                     />
                 );
             }
@@ -615,7 +679,6 @@ const NewSourceUploader: React.FC = () => {
                 <SourceFileSelection
                     sourceFiles={wizardState.projectInventory.sourceFiles}
                     onSelectSource={handleSelectSource}
-                    onBack={handleBack}
                 />
             );
 
@@ -628,6 +691,30 @@ const NewSourceUploader: React.FC = () => {
                     existingSourceCount={wizardState.projectInventory.sourceFiles.length}
                     onSelectPlugin={handleSelectPlugin}
                     onBack={handleBack}
+                />
+            );
+
+        case "importing":
+            return (
+                <ImportProgressView
+                    stage={wizardState.importProgress?.stage ?? "preparing"}
+                    detail={wizardState.importProgress?.detail}
+                    count={wizardState.importProgress?.count ?? 0}
+                    importName={wizardState.importProgress?.importName ?? ""}
+                    isComplete={importComplete}
+                    onStartTranslating={handleStartTranslating}
+                    onImportMore={() => {
+                        setImportComplete(false);
+                        setWizardState((prev) => ({
+                            ...prev,
+                            currentStep: prev.selectedIntent === "target" ? "target-selection" : "source-import",
+                            selectedSourceForTarget: undefined,
+                            selectedSourceDetails: undefined,
+                            selectedPlugin: undefined,
+                            importProgress: undefined,
+                        }));
+                    }}
+                    sourceFileCount={wizardState.projectInventory.sourceFiles.length}
                 />
             );
 

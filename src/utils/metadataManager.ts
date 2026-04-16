@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { ProjectUserVersionEntry } from "@types";
 import { addProjectMetadataEdit } from "./editMapUtils";
 
 /**
@@ -17,9 +18,11 @@ interface ProjectMetadata {
             codexEditor?: string;
             frontierAuthentication?: string;
         };
+        pinnedExtensions?: Record<string, { version: string; url: string }>;
         [key: string]: unknown;
     };
     edits?: any[];
+    users?: ProjectUserVersionEntry[];
     chatSystemMessage?: string;
     [key: string]: unknown;
 }
@@ -55,6 +58,14 @@ export class MetadataManager {
     private static pendingWrites = new Map<string, Set<Promise<any>>>();
 
     /**
+     * Write queue to serialize concurrent read-modify-write cycles per workspace.
+     * Without this, concurrent calls to safeUpdateMetadata race with each other:
+     * writeFile truncates the file before writing, so a concurrent readFile
+     * during that window sees an empty file, producing "metadata.json is empty".
+     */
+    private static writeQueue = new Map<string, Promise<any>>();
+
+    /**
      * Register a pending write operation
      * This can be called by other modules to track their write operations
      */
@@ -65,7 +76,6 @@ export class MetadataManager {
         const writes = this.pendingWrites.get(workspacePath)!;
         writes.add(writePromise);
 
-        // Auto-cleanup when the write completes
         writePromise.finally(() => {
             writes.delete(writePromise);
             if (writes.size === 0) {
@@ -125,16 +135,34 @@ export class MetadataManager {
     }
 
     /**
-     * Safely update metadata.json with DIRECT WRITES (like every other file)
-     * No locks, no backups, no temp files - simple and reliable
+     * Safely update metadata.json with serialized writes.
+     * Concurrent calls for the same workspace are queued so that only one
+     * read-modify-write cycle runs at a time, preventing race conditions
+     * where writeFile truncation causes concurrent reads to see an empty file.
      */
     static async safeUpdateMetadata<T = ProjectMetadata>(
         workspaceUri: vscode.Uri,
         updateFunction: (metadata: T) => T | Promise<T>,
         options: MetadataUpdateOptions = {}
     ): Promise<{ success: boolean; metadata?: T; error?: string }> {
-        const updatePromise = this.safeUpdateMetadataInternal<T>(workspaceUri, updateFunction, options);
-        this.registerPendingWrite(workspaceUri.fsPath, updatePromise);
+        const key = workspaceUri.fsPath;
+        const previousWrite = this.writeQueue.get(key) ?? Promise.resolve();
+
+        const updatePromise = previousWrite
+            .catch(() => {
+                // Don't let a failed previous write block the queue
+            })
+            .then(() => this.safeUpdateMetadataInternal<T>(workspaceUri, updateFunction, options));
+
+        this.writeQueue.set(key, updatePromise);
+        this.registerPendingWrite(key, updatePromise);
+
+        updatePromise.finally(() => {
+            if (this.writeQueue.get(key) === updatePromise) {
+                this.writeQueue.delete(key);
+            }
+        });
+
         return updatePromise;
     }
 
@@ -149,8 +177,8 @@ export class MetadataManager {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
 
         try {
-            // Step 1: Read current metadata
-            const readResult = await this.safeReadMetadata<T>(workspaceUri);
+            // Step 1: Read current metadata (using direct disk read since we hold the queue slot)
+            const readResult = await this.readMetadataFromDisk<T>(workspaceUri);
             if (!readResult.success) {
                 return { success: false, error: readResult.error };
             }
@@ -191,9 +219,30 @@ export class MetadataManager {
     }
 
     /**
-     * Safely read metadata - simple read with validation
+     * Safely read metadata with validation.
+     * Waits for any in-flight write to complete first so we don't read
+     * a partially-truncated file.
      */
     static async safeReadMetadata<T = ProjectMetadata>(
+        workspaceUri: vscode.Uri
+    ): Promise<{ success: boolean; metadata?: T; error?: string }> {
+        const pendingWrite = this.writeQueue.get(workspaceUri.fsPath);
+        if (pendingWrite) {
+            try {
+                await pendingWrite;
+            } catch {
+                // Previous write failed; proceed with the read anyway
+            }
+        }
+
+        return this.readMetadataFromDisk<T>(workspaceUri);
+    }
+
+    /**
+     * Low-level read that goes straight to disk (no queue waiting).
+     * Used internally by safeUpdateMetadataInternal which already holds the queue slot.
+     */
+    private static async readMetadataFromDisk<T = ProjectMetadata>(
         workspaceUri: vscode.Uri
     ): Promise<{ success: boolean; metadata?: T; error?: string }> {
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
@@ -280,19 +329,28 @@ export class MetadataManager {
                     metadata.meta.requiredExtensions = {};
                 }
 
-                // Only update codexEditor if new version is greater or missing
+                const pinnedExtensions: Record<string, { version: string; url: string }> =
+                    metadata.meta.pinnedExtensions ?? {};
+
+                // Only update codexEditor if new version is greater or missing,
+                // AND no codex-editor pin is active (the Conductor owns the floor while active).
                 if (versions.codexEditor !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.codexEditor;
-                    if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                    if (!pinnedExtensions["project-accelerate.codex-editor-extension"]) {
+                        const existingVersion = metadata.meta.requiredExtensions.codexEditor;
+                        if (!existingVersion || compareVersions(versions.codexEditor, existingVersion) >= 0) {
+                            metadata.meta.requiredExtensions.codexEditor = versions.codexEditor;
+                        }
                     }
                 }
-                
-                // Only update frontierAuthentication if new version is greater or missing
+
+                // Only update frontierAuthentication if new version is greater or missing,
+                // AND no frontier-authentication pin is active.
                 if (versions.frontierAuthentication !== undefined) {
-                    const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
-                    if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
-                        metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                    if (!pinnedExtensions["frontier-rnd.frontier-authentication"]) {
+                        const existingVersion = metadata.meta.requiredExtensions.frontierAuthentication;
+                        if (!existingVersion || compareVersions(versions.frontierAuthentication, existingVersion) >= 0) {
+                            metadata.meta.requiredExtensions.frontierAuthentication = versions.frontierAuthentication;
+                        }
                     }
                 }
 
@@ -350,17 +408,20 @@ export class MetadataManager {
             const codexEditorVersion = this.getCurrentExtensionVersion("project-accelerate.codex-editor-extension");
             const frontierAuthVersion = this.getCurrentExtensionVersion("frontier-rnd.frontier-authentication");
 
-            // Read current metadata versions
-            const currentVersions = await this.getExtensionVersions(workspaceUri);
-            if (!currentVersions.success) {
+            // Read current metadata (single read for both versions and pins)
+            const result = await this.safeReadMetadata<ProjectMetadata>(workspaceUri);
+            if (!result.success) {
                 return; // No metadata file yet, or can't read it
             }
 
-            const existingVersions = currentVersions.versions || {};
+            const existingVersions = result.metadata?.meta?.requiredExtensions || {};
             const versionsToUpdate: { codexEditor?: string; frontierAuthentication?: string } = {};
 
+            // Suppress ratchet if a pin exists (The Conductor is in charge)
+            const pinnedExtensions = result.metadata?.meta?.pinnedExtensions || {};
+
             // Check codexEditor - update if missing or if installed version is newer
-            if (codexEditorVersion) {
+            if (codexEditorVersion && !pinnedExtensions['project-accelerate.codex-editor-extension']) {
                 if (!existingVersions.codexEditor) {
                     versionsToUpdate.codexEditor = codexEditorVersion;
                 } else if (compareVersions(codexEditorVersion, existingVersions.codexEditor) > 0) {
@@ -369,7 +430,7 @@ export class MetadataManager {
             }
 
             // Check frontierAuthentication - update if missing or if installed version is newer
-            if (frontierAuthVersion) {
+            if (frontierAuthVersion && !pinnedExtensions['frontier-rnd.frontier-authentication']) {
                 if (!existingVersions.frontierAuthentication) {
                     versionsToUpdate.frontierAuthentication = frontierAuthVersion;
                 } else if (compareVersions(frontierAuthVersion, existingVersions.frontierAuthentication) > 0) {
@@ -385,6 +446,59 @@ export class MetadataManager {
         } catch (error) {
             console.warn("[MetadataManager] Failed to ensure extension versions:", error);
             // Non-fatal - don't block project opening
+        }
+    }
+
+    /**
+     * Record the current user's Codex editor version in the metadata `users` array.
+     * Called on project open and after sync so deploy-compatibility checks can see
+     * which binary each collaborator is running.
+     */
+    static async ensureCurrentUserVersionRecorded(workspaceUri: vscode.Uri): Promise<void> {
+        try {
+            const codexVersion = vscode.version;
+            if (!codexVersion) {
+                return;
+            }
+
+            let userName: string | undefined;
+            try {
+                const { getAuthApi } = await import("../extension");
+                const authApi = getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                userName = userInfo?.username;
+            } catch {
+                // Auth not available — fall through to config
+            }
+            if (!userName) {
+                userName =
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userName") || undefined;
+            }
+            if (!userName) {
+                return;
+            }
+
+            await this.safeUpdateMetadata<ProjectMetadata>(workspaceUri, (metadata) => {
+                const users: ProjectUserVersionEntry[] = metadata.users ?? [];
+                const existing = users.find((u) => u.userName === userName);
+
+                if (existing) {
+                    if (existing.codexVersion === codexVersion) {
+                        return metadata; // nothing changed — skip write
+                    }
+                    existing.codexVersion = codexVersion;
+                    existing.updatedAt = Date.now();
+                } else {
+                    users.push({ userName, codexVersion, updatedAt: Date.now() });
+                }
+
+                metadata.users = users;
+                return metadata;
+            });
+        } catch (error) {
+            console.warn("[MetadataManager] Failed to record user version:", error);
         }
     }
 
@@ -412,8 +526,8 @@ export class MetadataManager {
 
         if (result.success && result.metadata) {
             const metadata = result.metadata as any;
-            sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            sourceLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "source");
+            targetLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "target");
         }
 
         if (!sourceLanguage || !targetLanguage) {
@@ -506,9 +620,20 @@ export class MetadataManager {
     }
 
     /**
-     * Ensure metadata.json exists and is valid (simplified version)
+     * Ensure metadata.json exists and is valid (simplified version).
+     * Waits for any in-flight write before checking so we don't
+     * incorrectly report an empty file mid-write.
      */
     static async ensureMetadataIntegrity(workspaceUri: vscode.Uri): Promise<{ success: boolean; recovered?: boolean; error?: string }> {
+        const pendingWrite = this.writeQueue.get(workspaceUri.fsPath);
+        if (pendingWrite) {
+            try {
+                await pendingWrite;
+            } catch {
+                // Previous write failed; proceed with the check anyway
+            }
+        }
+
         const metadataPath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
 
         try {
@@ -534,25 +659,10 @@ export class MetadataManager {
 }
 
 /**
- * Register commands that frontier-authentication can call to write to metadata.json
- * This implements the "single writer" principle - only codex-editor writes to metadata.json
+ * Register commands that frontier-authentication can call to read metadata.json.
+ * All writes to metadata.json happen internally via MetadataManager (single-writer principle).
  */
 export function registerMetadataCommands(context: vscode.ExtensionContext): void {
-    // Command for frontier-authentication to update extension versions
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor.updateMetadataExtensionVersions",
-            async (versions: { codexEditor?: string; frontierAuthentication?: string }): Promise<{ success: boolean; error?: string }> => {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (!workspaceFolder) {
-                    return { success: false, error: "No workspace folder open" };
-                }
-
-                return MetadataManager.updateExtensionVersions(workspaceFolder.uri, versions);
-            }
-        )
-    );
-
     // Command for frontier-authentication to read extension versions
     context.subscriptions.push(
         vscode.commands.registerCommand(

@@ -6,7 +6,7 @@ import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
 import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
-import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs } from "./shared";
+import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs, parseFinalAnswer } from "./shared";
 import { abTestingRegistry } from "../../utils/abTestingRegistry";
 
 // Helper function to build A/B test context object
@@ -18,9 +18,9 @@ function buildABTestContext(
     completionConfig: CompletionConfig,
     fewShotExampleFormat: string,
     targetLanguage: string | null,
-    systemMessage: string,
-    userMessageInstructions: string,
+    chatSystemMessage: string,
     precedingTranslationPairs: any[],
+    sourceLanguage: string | null,
     token: vscode.CancellationToken
 ): any {
     return {
@@ -33,8 +33,8 @@ function buildABTestContext(
         allowHtmlPredictions: Boolean(completionConfig.allowHtmlPredictions),
         fewShotExampleFormat: fewShotExampleFormat || "source-and-target",
         targetLanguage,
-        systemMessage,
-        userMessageInstructions,
+        chatSystemMessage,
+        sourceLanguage,
         precedingTranslationPairs,
         completionConfig,
         token,
@@ -47,9 +47,10 @@ function postProcessABTestResult(
     allowHtml: boolean,
     returnHTML: boolean
 ): string {
-    const lines = (txt || "").split(/\r?\n/);
-    const processed = lines.map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
-    return allowHtml ? (returnHTML ? processed : processed) : (returnHTML ? `<span>${processed}</span>` : processed);
+    const parsed = parseFinalAnswer(txt || "");
+    const lines = parsed.split(/\r?\n/);
+    const processed = lines.map((line) => line.trimEnd()).join(allowHtml || returnHTML ? "<br/>" : "\n");
+    return allowHtml ? processed : (returnHTML ? `<span>${processed}</span>` : processed);
 }
 
 // Helper function to handle A/B test result
@@ -90,6 +91,7 @@ export interface LLMCompletionResult {
     isAttentionCheck?: boolean;
     correctIndex?: number;
     decoyCellId?: string;
+    generationId?: string;
 }
 
 export async function llmCompletion(
@@ -212,31 +214,12 @@ export async function llmCompletion(
             );
             console.log(`[llmCompletion] Built few-shot examples text (${fewShotExamples.length} chars, format: ${fewShotExampleFormat}):`, fewShotExamples.substring(0, 200) + '...');
 
-            // Create the prompt
-            const userMessageInstructions = [
-                "1. Analyze the provided reference data to understand the translation patterns and style.",
-                "2. Complete the partial or complete translation of the line.",
-                "3. Ensure your translation fits seamlessly with the existing partial translation.",
-                "4. Provide only the completed translation without any additional commentary or metadata.",
-                `5. Translate only into the target language ${targetLanguage}.`,
-                "6. Pay careful attention to the provided reference data.",
-                "7. If in doubt, err on the side of literalness.",
-                (completionConfig.allowHtmlPredictions ? "8. If the project has any styles, return HTML with the appropriate tags or classes as per the examples in the translation memory." : null)
-            ].join("\n");
-
-            let systemMessage = chatSystemMessage || `You are a helpful assistant`;
-            systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
-            systemMessage += `\n\n${userMessageInstructions}`;
-            // Note: Do not attempt to reduce reasoning via prompt text to avoid unintended behavior
-
-            // Note: Validation filtering is now implemented via the useOnlyValidatedExamples setting
-            // This controls whether only validated translation pairs are used in few-shot examples
-            // The setting can be toggled in the copilot settings UI
-
+            // Build messages — buildMessages is the single source of truth for
+            // system message construction. Pass the raw chatSystemMessage and let
+            // buildMessages append instructions exactly once.
             const messages = buildMessages(
                 targetLanguage,
-                systemMessage,
-                userMessageInstructions.split("\n"),
+                chatSystemMessage,
                 fewShotExamples,
                 precedingTranslationPairs,
                 currentCellSourceContent,
@@ -285,9 +268,9 @@ export async function llmCompletion(
                         completionConfig,
                         fewShotExampleFormat || "source-and-target",
                         targetLanguage,
-                        systemMessage,
-                        userMessageInstructions,
+                        chatSystemMessage,
                         precedingTranslationPairs,
+                        sourceLanguage,
                         token
                     );
 
@@ -314,17 +297,19 @@ export async function llmCompletion(
             }
 
             // A/B testing not triggered (or failed): call LLM once, return two identical variants
-            const completion = await callLLM(messages, completionConfig, token);
+            const llmResult = await callLLM(messages, completionConfig, token);
+            const completion = llmResult.content;
             const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
 
-            // Preserve multi-line completions: strip any leading "->" markers per line, then join with <br/>
-            const lines = (completion || "").split(/\r?\n/);
+            // Extract translation from <final_answer> tags, fallback to full response
+            const parsed = parseFinalAnswer(completion || "");
+            const lines = parsed.split(/\r?\n/);
             const processed = lines
-                .map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd())
+                .map((line) => line.trimEnd())
                 .join(allowHtml || returnHTML ? "<br/>" : "\n");
 
             const singleVariant = allowHtml
-                ? (returnHTML ? processed : processed)
+                ? processed
                 : (returnHTML ? `<span>${processed}</span>` : processed);
             const variants = [singleVariant, singleVariant];
 
@@ -335,6 +320,7 @@ export async function llmCompletion(
             return {
                 variants,
                 isABTest: false, // Identical variants – UI should hide A/B controls
+                generationId: llmResult.generationId,
             };
         } catch (error) {
             // Check if this is a cancellation error and re-throw as-is

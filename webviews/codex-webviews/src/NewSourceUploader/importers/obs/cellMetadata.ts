@@ -20,7 +20,7 @@ export interface ObsTextCellMetadataParams {
     documentId: string;
     sectionId: string;
     cellIndex: number;
-    cellLabel: string;
+    cellLabel?: string;
     sourceReference?: string; // Bible reference like "Genesis 1-2" or "Matthew 5:1-10"
 }
 
@@ -35,7 +35,7 @@ export interface ObsImageCellMetadataParams {
     documentId: string;
     sectionId: string;
     cellIndex: number;
-    cellLabel: string;
+    cellLabel?: string;
     imageAlt?: string;
     imageTitle?: string;
     originalImageSrc: string;

@@ -8,9 +8,9 @@ import {
 } from "types";
 import { GitLabProjectsList } from "./GitLabProjectsList";
 import { WebviewApi } from "vscode-webview";
+import { ProjectCreationModal } from "./ProjectCreationModal";
 
 export interface ProjectSetupStepProps {
-    onCreateEmpty: () => void;
     onCloneRepo: (repoUrl: string) => void;
     gitlabInfo?: GitLabInfo;
     vscode: WebviewApi<any>;
@@ -21,7 +21,6 @@ export interface ProjectSetupStepProps {
 }
 
 export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
-    onCreateEmpty,
     onCloneRepo,
     onOpenProject,
     gitlabInfo,
@@ -44,6 +43,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     } | null>(null);
     const [isCloningDeprecated, setIsCloningDeprecated] = useState(false);
     const [currentUsername, setCurrentUsername] = useState<string | undefined>(undefined);
+    const [showCreationModal, setShowCreationModal] = useState(false);
 
     useEffect(() => {
         let wasOffline = !navigator.onLine;
@@ -248,17 +248,17 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         </div>
                     </span>
                     <div style={{ display: "flex", gap: "8px" }}>
-                        <VSCodeButton
-                            appearance="secondary"
-                            disabled={isCloningDeprecated}
-                            onClick={() => {
-                                setSwapCloneWarning(null);
-                                setDisableAllActions(false);
-                                setIsCloningDeprecated(false);
-                            }}
-                        >
-                            Cancel
-                        </VSCodeButton>
+                        {!isCloningDeprecated && (
+                            <VSCodeButton
+                                appearance="secondary"
+                                onClick={() => {
+                                    setSwapCloneWarning(null);
+                                    setDisableAllActions(false);
+                                }}
+                            >
+                                Cancel
+                            </VSCodeButton>
+                        )}
                         {swapCloneWarning.repoUrl && (
                             <VSCodeButton
                                 appearance="primary"
@@ -332,7 +332,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 
                     <VSCodeButton
                         appearance="primary"
-                        onClick={onCreateEmpty}
+                        onClick={() => setShowCreationModal(true)}
                         title="Create New Project from Scratch"
                         disabled={disableAllActions || isRefreshing}
                         className={`create-button ${isAnyApplying || disableAllActions || isRefreshing ? "opacity-50 pointer-events-none cursor-default" : ""}`}
@@ -369,6 +369,11 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 vscode={vscode}
                 disableAllActions={disableAllActions || isRefreshing}
                 currentUsername={currentUsername}
+            />
+            <ProjectCreationModal
+                open={showCreationModal}
+                onClose={() => setShowCreationModal(false)}
+                vscode={vscode}
             />
         </div>
     );

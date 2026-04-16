@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
-import { getProjectOverview, findAllCodexProjects, checkIfMetadataAndGitIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
+import { getProjectOverview, findAllCodexProjects, checkIfProjectIsInitialized, extractProjectIdFromFolderName, disableSyncTemporarily } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
+import { openInterfaceSettings } from "../../interfaceSettings/interfaceSettings";
+import { applyTextDisplaySettings } from "../../utils/textDisplaySettingsUtils";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { MetadataManager } from "../../utils/metadataManager";
@@ -13,22 +15,13 @@ import {
     ProjectManagerState,
 } from "../../../types";
 import { createNewWorkspaceAndProject, openProject, createNewProject } from "../../utils/projectCreationUtils/projectCreationUtils";
-import git from "isomorphic-git";
-// Note: avoid top-level http(s) imports to keep test bundling simple
-import * as fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
-import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import * as path from "path";
 import { PublishProjectView } from "../publishProjectView/PublishProjectView";
-const DEBUG_MODE = false; // Set to true to enable debug logging
-
-function debugLog(...args: any[]): void {
-    if (DEBUG_MODE) {
-        console.log("[MainMenuProvider]", ...args);
-    }
-}
+import { shouldUseNativeGit } from "../../utils/toolPreferences";
 
 class ProjectManagerStore {
     private preflightState: ProjectManagerState = {
@@ -43,6 +36,7 @@ class ProjectManagerStore {
         isInitializing: false,
         isSyncInProgress: false,
         syncStage: "",
+        isImportInProgress: false,
         isPublishingInProgress: false,
         publishingStage: "",
         updateState: null,
@@ -259,7 +253,7 @@ class ProjectManagerStore {
             this.isRefreshing = true;
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
-            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
+            const hasMetadata = hasWorkspace ? await checkIfProjectIsInitialized() : false;
 
             const canInitializeProject = hasWorkspace && !hasMetadata;
             const workspaceIsOpen = hasWorkspace;
@@ -302,10 +296,7 @@ class ProjectManagerStore {
                 return false;
             }
 
-            const remotes = await git.listRemotes({
-                fs,
-                dir: workspacePath,
-            });
+            const remotes = await dugiteGit.listRemotes(workspacePath);
 
             // Send publish status message
             if (this._view) {
@@ -344,7 +335,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.setupSyncStatusListener();
 
         // Subscribe to state changes to update webview
-        this.store.subscribe((state) => {
+        const unsubscribe = this.store.subscribe((state) => {
             if (this._view) {
                 safePostMessageToView(this._view, {
                     command: "stateUpdate",
@@ -352,6 +343,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 }, "MainMenu");
             }
         });
+        this.disposables.push(new vscode.Disposable(unsubscribe));
     }
 
     protected getWebviewId(): string {
@@ -384,15 +376,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.disposables.push(
             vscode.workspace.onDidChangeWorkspaceFolders(async () => {
                 this.store.refreshState();
-
-                // Trigger migration when workspace changes
-                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                    try {
-                        await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
-                    } catch (error) {
-                        console.error("[MainMenu] Error during workspace change migration:", error);
-                    }
-                }
             })
         );
 
@@ -413,10 +396,19 @@ export class MainMenuProvider extends BaseWebviewProvider {
         // Register listener for sync status updates from SyncManager
         const syncManager = SyncManager.getInstance();
         const syncStatusListener = (isSyncInProgress: boolean, syncStage: string) => {
-            this.sendSyncStatusUpdate(isSyncInProgress, syncStage);
+            const status = syncManager.getSyncStatus();
+            this.sendSyncStatusUpdate(status.isSyncInProgress, status.syncStage, status.isImportInProgress);
         };
 
         syncManager.addSyncStatusListener(syncStatusListener);
+
+        // Register listener for import-in-progress updates (disables sync button during NewSourceUploader imports)
+        const importInProgressListener = () => {
+            const status = syncManager.getSyncStatus();
+            this.sendSyncStatusUpdate(status.isSyncInProgress, status.syncStage, status.isImportInProgress);
+        };
+
+        this.disposables.push(syncManager.addImportInProgressListener(importInProgressListener));
 
         // Store the listener reference for cleanup
         this.disposables.push({
@@ -467,6 +459,17 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         // Get app version
         this.updateAppVersion();
+
+        // Re-push current state when webview becomes visible again
+        // (catches sync status changes that occurred while hidden)
+        this.disposables.push(
+            webviewView.onDidChangeVisibility(() => {
+                if (webviewView.visible) {
+                    this.sendProjectStateToWebview();
+                    this.sendSyncSettings();
+                }
+            })
+        );
     }
 
     protected onWebviewReady(): void {
@@ -480,36 +483,37 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 
     private async sendSyncSettings() {
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
-
-        // Ensure minimum sync delay is 5 minutes
-        if (syncDelayMinutes < 5) {
-            syncDelayMinutes = 5;
-            // Update the configuration to persist the corrected value
-            await config.update(
-                "syncDelayMinutes",
-                syncDelayMinutes,
-                vscode.ConfigurationTarget.Workspace
-            );
-        }
+        const { getSyncSettings } = await import("../../utils/localProjectSettings");
+        const { autoSyncEnabled, syncDelayMinutes } = await getSyncSettings();
 
         // Check if Frontier Authentication extension is enabled
         const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
         const isFrontierExtensionEnabled = frontierExtension !== undefined && frontierExtension.isActive === true;
 
-        // Check authentication status
+        // Check authentication and git binary status independently so a
+        // failure in one doesn't zero out the other.
         let isAuthenticated = false;
-        try {
-            const frontierApi = getAuthApi();
-            if (frontierApi) {
+        let frontierReportsSyncCapable = false;
+        const frontierApi = getAuthApi();
+        if (frontierApi) {
+            try {
                 const authStatus = frontierApi.getAuthStatus();
                 isAuthenticated = authStatus?.isAuthenticated ?? false;
+            } catch (error) {
+                console.debug("Could not get authentication status:", error);
             }
-        } catch (error) {
-            console.debug("Could not get authentication status:", error);
+            try {
+                const general = frontierApi.isGitAvailable?.();
+                const binary = frontierApi.isGitBinaryAvailable?.() ?? false;
+                // Do not use ?? between these: false from isGitAvailable must not skip the binary check.
+                frontierReportsSyncCapable = general === true || binary;
+            } catch (error) {
+                console.debug("Could not get git availability:", error);
+            }
         }
+        // Main menu "sync available" matches the actual git backend: isomorphic-git when
+        // shouldUseNativeGit() is false, otherwise we need Frontier's dugite binary.
+        const isGitAvailable = !shouldUseNativeGit() || frontierReportsSyncCapable;
 
         if (this._view) {
             safePostMessageToView(this._view, {
@@ -519,10 +523,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     syncDelayMinutes,
                     isFrontierExtensionEnabled,
                     isAuthenticated,
+                    isGitAvailable,
                 },
             } as ProjectManagerMessageToWebview, "MainMenu");
         }
     }
+
 
     protected async handleMessage(message: any): Promise<void> {
         // Handle main menu messages
@@ -577,6 +583,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "refreshState":
                 await this.store.refreshState();
                 break;
+            case "publishStatusUpdate":
+                this.sendPublishStatusUpdate(
+                    message.data?.isPublishingInProgress ?? false,
+                    message.data?.publishingStage ?? "",
+                );
+                break;
             case "webviewReady":
                 await this.updateProjectOverview();
                 await this.updateWebviewState();
@@ -603,9 +615,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "downloadSourceText":
             case "openAISettings":
             case "openSourceUpload":
-            case "toggleSpellcheck":
             case "openExportView":
             case "openLicenseSettings":
+            case "openInterfaceSettings":
                 await this.executeCommandAndNotify(message.command);
                 break;
             case "openLoginFlow":
@@ -791,20 +803,28 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     baseUrl.search = '';
                     const urlStr = baseUrl.toString();
 
-                    // Prefer global fetch (available in recent VS Code/Node); fallback to http(s)
+                    const ASR_FETCH_TIMEOUT_MS = 10_000;
                     let res: string;
                     if (typeof (globalThis as any).fetch === 'function') {
-                        const r = await (globalThis as any).fetch(urlStr);
-                        res = await r.text();
+                        const controller = new AbortController();
+                        const timer = setTimeout(() => controller.abort(), ASR_FETCH_TIMEOUT_MS);
+                        try {
+                            const r = await (globalThis as any).fetch(urlStr, { signal: controller.signal });
+                            res = await r.text();
+                        } finally {
+                            clearTimeout(timer);
+                        }
                     } else {
-                        // Lazy-require to avoid bundler resolving node: scheme
                         const lib = urlStr.startsWith('https') ? require('https') : require('http');
                         res = await new Promise<string>((resolve, reject) => {
-                            lib.get(urlStr, (resp: any) => {
+                            const req = lib.get(urlStr, (resp: any) => {
                                 let data = '';
                                 resp.on('data', (chunk: any) => (data += chunk));
                                 resp.on('end', () => resolve(data));
                             }).on('error', (err: any) => reject(err));
+                            req.setTimeout(ASR_FETCH_TIMEOUT_MS, () => {
+                                req.destroy(new Error('ASR models request timed out'));
+                            });
                         });
                     }
                     let models: any[] = [];
@@ -831,31 +851,39 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "updateSyncSettings": {
                 const { autoSyncEnabled, syncDelayMinutes } = message.data;
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
 
-                // Update configuration
-                await config.update(
-                    "autoSyncEnabled",
-                    autoSyncEnabled,
-                    vscode.ConfigurationTarget.Workspace
-                );
-
-                await config.update(
-                    "syncDelayMinutes",
-                    syncDelayMinutes,
-                    vscode.ConfigurationTarget.Workspace
-                );
+                const { setSyncSettings } = await import("../../utils/localProjectSettings");
+                await setSyncSettings(autoSyncEnabled, syncDelayMinutes);
 
                 // Notify SyncManager about the changes
                 const syncManager = SyncManager.getInstance();
-                syncManager.updateFromConfiguration();
+                await syncManager.updateFromConfiguration();
 
+                await this.sendSyncSettings();
                 break;
             }
             case "triggerSync": {
                 const syncManager = SyncManager.getInstance();
-                // Don't manually set sync status - let SyncManager handle it through listeners
                 await syncManager.executeSync("Manual sync triggered from main menu", true, undefined, true);
+                break;
+            }
+            case "downloadSyncRuntime": {
+                const frontierApi = getAuthApi();
+                if (frontierApi?.retryGitBinaryDownload) {
+                    const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
+                    const { setNativeGitAvailable } = await import("../../utils/toolPreferences");
+                    resetGitBinaryPath();
+                    const success = await frontierApi.retryGitBinaryDownload();
+                    if (success) {
+                        setNativeGitAvailable(true);
+                        vscode.window.showInformationMessage("Sync setup completed successfully.");
+                    }
+                    await this.sendSyncSettings();
+                } else {
+                    vscode.window.showErrorMessage(
+                        "Cannot set up sync — please make sure Frontier Authentication is installed and enabled."
+                    );
+                }
                 break;
             }
             case "openCellLabelImporter":
@@ -901,6 +929,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "openAISettings":
                 await openSystemMessageEditor();
                 break;
+            case "openInterfaceSettings":
+                await openInterfaceSettings();
+                break;
             case "openExportView":
                 await openProjectExportView(this._context);
                 break;
@@ -915,6 +946,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openCodexMigrationTool":
                 await vscode.commands.executeCommand("codex-editor.openCodexMigrationTool");
+                break;
+            case "openToolsStatus":
+                await vscode.commands.executeCommand("codex-editor.openToolsStatus");
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();
@@ -941,8 +975,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             const answer = await vscode.window.showWarningMessage(
                 "Are you sure you want to close this project?",
                 { modal: true },
-                "Yes",
-                "No"
+                "Yes"
             );
 
             if (answer === "Yes") {
@@ -966,11 +999,16 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
     }
 
-    private sendSyncStatusUpdate(isSyncInProgress: boolean, syncStage: string = ""): void {
+    private sendSyncStatusUpdate(isSyncInProgress: boolean, syncStage: string = "", isImportInProgress?: boolean): void {
+        const syncManager = SyncManager.getInstance();
+        const status = syncManager.getSyncStatus();
+        const importInProgress = isImportInProgress ?? status.isImportInProgress;
+
         // Update the store state
         this.store.setState({
             isSyncInProgress,
             syncStage,
+            isImportInProgress: importInProgress,
         });
 
         // Send update to webview
@@ -980,6 +1018,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 data: {
                     isSyncInProgress,
                     syncStage,
+                    isImportInProgress: importInProgress,
                 },
             } as ProjectManagerMessageToWebview, "MainMenu");
         }
@@ -1708,7 +1747,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private async handleChangeProjectName(newProjectName: string): Promise<void> {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceFolder) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -1760,7 +1799,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             if (!result.success) {
                 console.error("Failed to update metadata:", result.error);
                 vscode.window.showErrorMessage(
-                    `Failed to update project name in metadata.json: ${result.error}`
+                    `Failed to update project name. Please try again.`
                 );
                 return;
             }
@@ -1838,162 +1877,11 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 
     private async handleApplyTextDisplaySettings(settings: any): Promise<void> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            throw new Error("No workspace folder found");
-        }
+        await applyTextDisplaySettings(settings);
 
-        // Show progress
-        await vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Applying Text Display Settings",
-                cancellable: false
-            },
-            async (progress) => {
-                try {
-                    // Find files based on scope
-                    const filesToUpdate: vscode.Uri[] = [];
-
-                    if (settings.fileScope === "source" || settings.fileScope === "both") {
-                        const sourceFiles = await vscode.workspace.findFiles(
-                            new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source")
-                        );
-                        filesToUpdate.push(...sourceFiles);
-                    }
-
-                    if (settings.fileScope === "target" || settings.fileScope === "both") {
-                        const targetFiles = await vscode.workspace.findFiles(
-                            new vscode.RelativePattern(workspaceFolder, "files/target/*.codex")
-                        );
-                        filesToUpdate.push(...targetFiles);
-                    }
-
-                    progress.report({ message: `Found ${filesToUpdate.length} files to process` });
-
-                    let updatedCount = 0;
-                    let skippedCount = 0;
-                    const appliedSettings: string[] = [];
-
-                    if (settings.fontSize !== undefined) appliedSettings.push(`font size to ${settings.fontSize}px`);
-                    if (settings.enableLineNumbers !== undefined) appliedSettings.push(`line numbers ${settings.enableLineNumbers ? 'enabled' : 'disabled'}`);
-                    if (settings.textDirection !== undefined) appliedSettings.push(`text direction to ${settings.textDirection.toUpperCase()}`);
-
-                    for (let i = 0; i < filesToUpdate.length; i++) {
-                        const file = filesToUpdate[i];
-                        progress.report({
-                            message: `Processing ${path.basename(file.fsPath)} (${i + 1}/${filesToUpdate.length})`,
-                            increment: (100 / filesToUpdate.length)
-                        });
-
-                        try {
-                            const updated = await this.updateFileTextDisplaySettings(file, settings);
-                            if (updated) {
-                                updatedCount++;
-                            } else {
-                                skippedCount++;
-                            }
-                        } catch (error) {
-                            console.error(`Error updating text display settings for ${file.fsPath}:`, error);
-                        }
-                    }
-
-                    // Show completion message
-                    const settingsText = appliedSettings.join(', ');
-                    const message = `Text display settings applied (${settingsText}): ${updatedCount} files updated, ${skippedCount} files skipped`;
-                    vscode.window.showInformationMessage(message);
-
-                    // Refresh webviews to show the updated settings immediately
-                    await this.refreshWebviewsAfterTextDisplayUpdate();
-
-                } catch (error) {
-                    console.error("Error during text display settings update:", error);
-                    throw error;
-                }
-            }
-        );
-    }
-
-    private async updateFileTextDisplaySettings(fileUri: vscode.Uri, settings: any): Promise<boolean> {
-        try {
-            // Read the file content
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
-            const fileData = JSON.parse(fileContent.toString());
-
-            // Check existing settings to determine if we should skip
-            let shouldSkip = false;
-
-            if (settings.updateBehavior === "skip") {
-                // Check each setting individually
-                if (settings.fontSize !== undefined &&
-                    fileData.metadata?.fontSize !== undefined &&
-                    fileData.metadata?.fontSizeSource === "local") {
-                    shouldSkip = true;
-                }
-                if (settings.enableLineNumbers !== undefined &&
-                    fileData.metadata?.lineNumbersEnabled !== undefined &&
-                    fileData.metadata?.lineNumbersEnabledSource === "local") {
-                    shouldSkip = true;
-                }
-                if (settings.textDirection !== undefined &&
-                    fileData.metadata?.textDirection !== undefined &&
-                    fileData.metadata?.textDirectionSource === "local") {
-                    shouldSkip = true;
-                }
-            }
-
-            if (shouldSkip) {
-                return false; // Skip this file
-            }
-
-            // Ensure metadata object exists
-            if (!fileData.metadata) {
-                fileData.metadata = {};
-            }
-
-            // Apply the settings
-            if (settings.fontSize !== undefined) {
-                fileData.metadata.fontSize = settings.fontSize;
-                fileData.metadata.fontSizeSource = "global";
-            }
-            if (settings.enableLineNumbers !== undefined) {
-                fileData.metadata.lineNumbersEnabled = settings.enableLineNumbers;
-                fileData.metadata.lineNumbersEnabledSource = "global";
-            }
-            if (settings.textDirection !== undefined) {
-                fileData.metadata.textDirection = settings.textDirection;
-                fileData.metadata.textDirectionSource = "global";
-            }
-
-            // Write the updated content back to the file
-            const updatedContent = JSON.stringify(fileData, null, 2);
-            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(updatedContent, 'utf8'));
-
-            return true; // File was updated
-
-        } catch (error) {
-            console.error(`Error updating text display settings for ${fileUri.fsPath}:`, error);
-            return false;
-        }
-    }
-
-    private async refreshWebviewsAfterTextDisplayUpdate() {
-        try {
-            // Refresh the main menu webview
-            if (this._view) {
-                await this.store.refreshState();
-                this.sendProjectStateToWebview();
-            }
-
-            // Notify other webviews that display settings have changed
-            vscode.commands.executeCommand("codex-editor.refreshAllWebviews");
-
-            // Also refresh the metadata manager to ensure all webviews get updated data
-            const metadataManager = getNotebookMetadataManager();
-            await metadataManager.loadMetadata();
-
-        } catch (error) {
-            console.error("Error refreshing webviews after text display settings update:", error);
+        if (this._view) {
+            await this.store.refreshState();
+            this.sendProjectStateToWebview();
         }
     }
 

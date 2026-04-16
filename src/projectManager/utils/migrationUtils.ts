@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { randomUUID } from "crypto";
-import git from "isomorphic-git";
-import fs from "fs";
+import * as dugiteGit from "../../utils/dugiteGit";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
 import { EditMapUtils } from "@/utils/editMapUtils";
@@ -12,6 +11,11 @@ import { getAuthApi } from "../../extension";
 import { extractParentCellIdFromParatext } from "../../providers/codexCellEditorProvider/utils/cellUtils";
 import { generateCellIdFromHash, isUuidFormat } from "../../utils/uuidUtils";
 import { getCorrespondingSourceUri, getCorrespondingCodexUri } from "../../utils/codexNotebookUtils";
+import {
+    parseVerseRef,
+    getSortKeyFromParsedRef,
+    type ParsedVerseRef,
+} from "../../utils/verseRefUtils";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { resolveCodexCustomMerge, mergeDuplicateCellsUsingResolverLogic } from "./merge/resolvers";
 import { atomicWriteUriText } from "../../utils/notebookSafeSaveUtils";
@@ -33,7 +37,7 @@ async function stageAndCommitAllWithMessage(
     try {
         let hasGit = false;
         try {
-            await git.resolveRef({ fs, dir: workspacePath, ref: "HEAD" });
+            await dugiteGit.resolveRef(workspacePath, "HEAD");
             hasGit = true;
         } catch {
             // No git repo or no commits; skip commit step
@@ -43,8 +47,8 @@ async function stageAndCommitAllWithMessage(
             return;
         }
 
-        const statusMatrix = await git.statusMatrix({ fs, dir: workspacePath });
-        const hasChanges = statusMatrix.some(([_, head, workdir, stage]) => {
+        const matrix = await dugiteGit.statusMatrix(workspacePath);
+        const hasChanges = matrix.some(([_, head, workdir, stage]) => {
             return !(head === 1 && workdir === 1 && stage === 1);
         });
 
@@ -52,7 +56,7 @@ async function stageAndCommitAllWithMessage(
             return;
         }
 
-        await git.add({ fs, dir: workspacePath, filepath: "." });
+        await dugiteGit.add(workspacePath, ".");
         const authApi = getAuthApi();
         let userInfo;
         try {
@@ -79,12 +83,7 @@ async function stageAndCommitAllWithMessage(
                 "unknown",
         };
 
-        await git.commit({
-            fs,
-            dir: workspacePath,
-            message,
-            author,
-        });
+        await dugiteGit.commit(workspacePath, message, { name: author.name, email: author.email });
     } catch (error) {
         console.warn("[Cleanup] Unable to stage/commit changes (non-critical):", error);
     }
@@ -1126,13 +1125,17 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
         const allNotebookFiles = [...codexFiles, ...sourceFiles];
 
         if (allNotebookFiles.length === 0) {
-            debug("No codex or source files found, skipping migration");
+            debug("No codex or source files found, marking line numbers migration as done");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
         let processedFiles = 0;
 
-        // Process files with progress
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -1189,7 +1192,30 @@ export const migration_lineNumbersSettings = async (context?: vscode.ExtensionCo
 // Gently migrate A/B testing probability from older explicit 25% to 5% with user consent
 // (removed) migration_abTestingProbabilityDefault — intentionally deleted for now
 
-async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
+/**
+ * Process newly imported files through line-number and importerType setup.
+ * Called after import (before indexing) so files are ready for sync immediately.
+ * Unlike the one-shot startup migrations, this runs on every import.
+ */
+export async function processNewlyImportedFiles(fileUris: vscode.Uri[]): Promise<void> {
+    for (const fileUri of fileUris) {
+        try {
+            const probablyBible = await isBibleBook(fileUri);
+            if (probablyBible) {
+                await addCellLabelsToBibleBook(fileUri);
+            }
+
+            const shouldShowLineNumbers = await analyzeFileForLineNumbers(fileUri);
+            await updateFileLineNumbers(fileUri, shouldShowLineNumbers);
+
+            await migrateImporterTypeForFile(fileUri);
+        } catch (error) {
+            console.error(`Error processing imported file ${fileUri.fsPath}:`, error);
+        }
+    }
+}
+
+export async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
     try {
         // Read the file content using serializer for proper deserialization
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -1287,7 +1313,7 @@ function getRandomSample<T>(array: T[], sampleSize: number): T[] {
     return sample;
 }
 
-async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean): Promise<boolean> {
+export async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean): Promise<boolean> {
     try {
         // Read the file content
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -1432,9 +1458,6 @@ function standardizeImporterType(importerType: string | undefined): string | und
     const normalized = importerType.toLowerCase().trim();
 
     // Standardization rules
-    if (normalized === "ebiblecorpus") {
-        return "ebible";
-    }
     if (normalized === "macula-bible") {
         return "macula";
     }
@@ -1446,7 +1469,7 @@ function standardizeImporterType(importerType: string | undefined): string | und
     const validTypes: string[] = [
         "smart-segmenter",
         "audio",
-        "docx-roundtrip",
+        "docx",
         "markdown",
         "subtitles",
         "spreadsheet",
@@ -1456,6 +1479,7 @@ function standardizeImporterType(importerType: string | undefined): string | und
         "usfm",
         "paratext",
         "ebible",
+        "ebibleCorpus",
         "macula",
         "biblica",
         "obs",
@@ -1493,14 +1517,14 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
         "usfm": "usfm",
         "paratext": "paratext",
         "ebible": "ebible",
-        "ebiblecorpus": "ebible", // Special case
+        "ebiblecorpus": "ebibleCorpus",
         "macula": "macula",
         "macula-bible": "macula", // Special case
         "biblica": "biblica",
         "audio": "audio",
         "smart-segmenter": "smart-segmenter",
-        "docx-roundtrip": "docx-roundtrip",
-        "docx": "docx-roundtrip", // Common alias
+        "docx": "docx",
+        "docx-roundtrip": "docx", // Legacy alias
         "obs-story": "obs", // Special case
     };
 
@@ -1510,7 +1534,7 @@ function inferImporterTypeFromCorpusMarker(corpusMarker: string | undefined): st
 /**
  * Migrates importerType for a single notebook file
  */
-async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean> {
+export async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean> {
     try {
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
         const serializer = new CodexContentSerializer();
@@ -1578,7 +1602,7 @@ async function migrateImporterTypeForFile(fileUri: vscode.Uri): Promise<boolean>
  * Migration: Add importerType to notebook metadata by inferring from corpusMarker
  * and standardizing old values to match current FileImporterType definition.
  * - Idempotent
- * - Standardizes old values: "ebibleCorpus" → "ebible", "macula-bible" → "macula", "obs-story" → "obs"
+ * - Standardizes old values: "macula-bible" → "macula", "obs-story" → "obs"; preserves "ebibleCorpus" as its own FileImporterType
  * - Infers importerType from corpusMarker when missing
  */
 export const migration_addImporterTypeToMetadata = async (context?: vscode.ExtensionContext) => {
@@ -1620,14 +1644,18 @@ export const migration_addImporterTypeToMetadata = async (context?: vscode.Exten
         const allFiles = [...codexFiles, ...sourceFiles];
 
         if (allFiles.length === 0) {
-            debug("No codex or source files found, skipping importerType migration");
+            debug("No codex or source files found, marking importerType migration as done");
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
             return;
         }
 
         let processedFiles = 0;
         let migratedFiles = 0;
 
-        // Process files with progress
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -2078,6 +2106,21 @@ function getLocalizedBookName(bookAbbr: string): string {
 
     const bookInfo = (bibleData as any[]).find((book) => book.abbr === bookAbbr);
     return bookInfo?.name || bookAbbr;
+}
+
+/**
+ * Extracts chapter number from a milestone value (e.g. "John 4", "4", "GEN 2").
+ * Used for verse-range migration to associate milestones with content chapters.
+ */
+function extractChapterNumberFromMilestoneValue(value: string | undefined): number | null {
+    if (value == null || typeof value !== "string") return null;
+    const matches = value.match(/(\d+)(?!.*\d)/);
+    if (matches?.[1]) {
+        const n = parseInt(matches[1], 10);
+        return !isNaN(n) && n > 0 ? n : null;
+    }
+    const parsed = parseInt(value, 10);
+    return !isNaN(parsed) && parsed > 0 ? parsed : null;
 }
 
 /**
@@ -2940,6 +2983,261 @@ export async function migrateGlobalReferencesForFile(fileUri: vscode.Uri): Promi
 }
 
 /**
+ * Processes a single file: reorders content cells so verse-range cells appear after the correct
+ * chapter milestone and in verse order, and sets cellLabel (and optional chapterNumber) for
+ * verse-range refs. Combines reorder and labelling in one pass. Idempotent.
+ * Returns true if the file was modified, false otherwise.
+ */
+export async function migrateVerseRangeLabelsAndPositionsForFile(
+    fileUri: vscode.Uri
+): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        const milestones: Array<{ cell: any; chapter: number | null; }> = [];
+        const contentWithRef: Array<{
+            cell: any;
+            parsed: ParsedVerseRef;
+            sortKey: { book: string; chapter: number; verse: number; };
+        }> = [];
+        const contentWithoutRef: any[] = [];
+        const paratextByParentId = new Map<string, any[]>();
+        const styleOrOther: any[] = [];
+
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            const md = cell.metadata || {};
+            const cellType = md.type;
+            const cellId = md.id;
+
+            if (cellType === CodexCellTypes.MILESTONE) {
+                const milestoneValue = typeof cell?.value === "string" ? cell.value : "";
+                const chapter = extractChapterNumberFromMilestoneValue(milestoneValue);
+                milestones.push({ cell, chapter });
+                continue;
+            }
+
+            if (cellType === CodexCellTypes.PARATEXT && cellId) {
+                const parentId = extractParentCellIdFromParatext(
+                    typeof cellId === "string" ? cellId : String(cellId),
+                    md
+                );
+                if (parentId) {
+                    if (!paratextByParentId.has(parentId)) paratextByParentId.set(parentId, []);
+                    paratextByParentId.get(parentId)!.push(cell);
+                } else {
+                    styleOrOther.push(cell);
+                }
+                continue;
+            }
+
+            if (cellType === CodexCellTypes.STYLE) {
+                styleOrOther.push(cell);
+                continue;
+            }
+
+            const ref = md.data?.globalReferences?.[0];
+            const parsed = typeof ref === "string" ? parseVerseRef(ref) : null;
+            if (parsed) {
+                const sortKey = getSortKeyFromParsedRef(parsed);
+                contentWithRef.push({ cell, parsed, sortKey });
+            } else {
+                contentWithoutRef.push(cell);
+            }
+        }
+
+        // Partition content-with-ref by (book, chapter), sort each by verse
+        const contentByChapter = new Map<string, typeof contentWithRef>();
+        for (const item of contentWithRef) {
+            const key = `${item.sortKey.book}\t${item.sortKey.chapter}`;
+            if (!contentByChapter.has(key)) contentByChapter.set(key, []);
+            contentByChapter.get(key)!.push(item);
+        }
+        for (const arr of contentByChapter.values()) {
+            arr.sort((a, b) => a.sortKey.verse - b.sortKey.verse);
+        }
+
+        const newCells: any[] = [];
+        let hasChanges = false;
+
+        const emitContentCell = (item: (typeof contentWithRef)[0]) => {
+            const { cell, parsed } = item;
+            const md = cell.metadata || {};
+            const parentId = md.id;
+
+            if (parsed.kind === "range") {
+                if (md.cellLabel !== parsed.cellLabel) {
+                    md.cellLabel = parsed.cellLabel;
+                    hasChanges = true;
+                }
+                if (md.chapterNumber === undefined || md.chapterNumber === null) {
+                    md.chapterNumber = String(parsed.chapter);
+                    hasChanges = true;
+                }
+                cell.metadata = md;
+            }
+            newCells.push(cell);
+            if (parentId) {
+                const paratextCells = paratextByParentId.get(parentId);
+                if (paratextCells) {
+                    for (const pt of paratextCells) newCells.push(pt);
+                }
+            }
+        };
+
+        for (const { cell, chapter } of milestones) {
+            newCells.push(cell);
+            if (chapter != null) {
+                const keysToDelete: string[] = [];
+                for (const [key, items] of contentByChapter.entries()) {
+                    const [, chapStr] = key.split("\t");
+                    if (parseInt(chapStr, 10) === chapter) {
+                        for (const item of items) emitContentCell(item);
+                        keysToDelete.push(key);
+                    }
+                }
+                for (const k of keysToDelete) contentByChapter.delete(k);
+            }
+        }
+
+        // Emit remaining content-with-ref (chapter not matched to any milestone) in deterministic order
+        const remaining: typeof contentWithRef = [];
+        for (const items of contentByChapter.values()) remaining.push(...items);
+        remaining.sort(
+            (a, b) =>
+                a.sortKey.book.localeCompare(b.sortKey.book) ||
+                a.sortKey.chapter - b.sortKey.chapter ||
+                a.sortKey.verse - b.sortKey.verse
+        );
+        for (const item of remaining) emitContentCell(item);
+
+        for (const cell of contentWithoutRef) {
+            newCells.push(cell);
+            const parentId = cell.metadata?.id;
+            if (parentId) {
+                const paratextCells = paratextByParentId.get(parentId);
+                if (paratextCells) {
+                    for (const pt of paratextCells) newCells.push(pt);
+                }
+            }
+        }
+        for (const cell of styleOrOther) newCells.push(cell);
+
+        const oldIds = cells.map((c) => c.metadata?.id ?? "").join(",");
+        const newIds = newCells.map((c) => c.metadata?.id ?? "").join(",");
+        const orderChanged = oldIds !== newIds;
+        if (orderChanged || hasChanges) {
+            notebookData.cells = newCells;
+            const updatedContent = await serializer.serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error(`Error migrating verse range labels/positions for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Migration: Fix verse-range cell positions (after chapter milestone, in verse order) and set
+ * cellLabel for verse-range refs. Runs on both .codex and .source files. Idempotent.
+ * Invoked manually via command palette (Codex: Fix Verse Range Labels and Positions).
+ */
+export const migration_verseRangeLabelsAndPositions = async (): Promise<void> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+        debug("Running verse range labels/positions migration...");
+        const workspaceFolder = workspaceFolders[0];
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+        const sourceFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.source")
+        );
+        const allFiles = [...codexFiles, ...sourceFiles];
+
+        if (allFiles.length === 0) return;
+
+        let processedFiles = 0;
+        let migratedFiles = 0;
+        const migratedFilePaths: string[] = [];
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Fixing verse range labels and positions",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < allFiles.length; i++) {
+                    const file = allFiles[i];
+                    progress.report({
+                        message: path.basename(file.fsPath),
+                        increment: 100 / allFiles.length,
+                    });
+                    try {
+                        const wasMigrated = await migrateVerseRangeLabelsAndPositionsForFile(file);
+                        const hadRedundantMilestones =
+                            await removeRedundantDuplicateMilestonesInFile(file);
+                        processedFiles++;
+                        if (wasMigrated || hadRedundantMilestones) {
+                            migratedFiles++;
+                            migratedFilePaths.push(file.fsPath);
+                        }
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        debug(
+            `Verse range labels/positions migration completed: ${processedFiles} files processed, ${migratedFiles} migrated`
+        );
+        if (migratedFiles > 0) {
+            vscode.window.showInformationMessage(
+                `Verse range migration complete: ${migratedFiles} files updated`
+            );
+            // Refresh any open webviews for migrated files so they show updated content
+            if (migratedFilePaths.length > 0) {
+                try {
+                    const { GlobalProvider } = await import("../../globalProvider");
+                    const provider = GlobalProvider.getInstance().getProvider(
+                        "codex-cell-editor"
+                    ) as {
+                        refreshWebviewsForFiles?: (
+                            paths: string[],
+                            options?: { isSourceAndCodexFiles?: boolean; }
+                        ) => Promise<void>;
+                    };
+                    if (provider?.refreshWebviewsForFiles) {
+                        await provider.refreshWebviewsForFiles(migratedFilePaths);
+                    }
+                } catch (error) {
+                    console.warn("Failed to refresh webviews after migration:", error);
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Error running verse range labels/positions migration:", error);
+        throw error;
+    }
+};
+
+/**
  * Migration: Convert all cell IDs to UUID format using SHA-256 hash of original ID.
  * For child cells (those with IDs containing ':' separators), adds metadata.parentId field.
  * Preserves metadata.data.globalReferences array unchanged.
@@ -3296,6 +3594,74 @@ async function migrateCellIdsWithSpacesToUuidForFile(fileUri: vscode.Uri): Promi
         return false;
     } catch (error) {
         console.error(`Error migrating spaced cell IDs to UUID for ${fileUri.fsPath}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Removes redundant duplicate milestones from a notebook file.
+ * A milestone is redundant when: (1) we've already seen a milestone with the same value earlier,
+ * and (2) the next cell is also a milestone (so there's no content between this duplicate and the next chapter).
+ * E.g. [Luke 1] [content] [Luke 1 dup] [Luke 2] -> [Luke 1] [content] [Luke 2]
+ * Returns true if any cells were removed.
+ */
+async function removeRedundantDuplicateMilestonesInFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData: any = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells: any[] = notebookData.cells || [];
+        if (cells.length === 0) return false;
+
+        const seenMilestoneValues = new Set<string>();
+        const filteredCells: any[] = [];
+        let removedCount = 0;
+
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            const isMilestone = cell?.metadata?.type === CodexCellTypes.MILESTONE;
+            const nextCell = i + 1 < cells.length ? cells[i + 1] : null;
+            const nextIsMilestone = nextCell?.metadata?.type === CodexCellTypes.MILESTONE;
+            const milestoneValue = typeof cell?.value === "string" ? cell.value : "";
+
+            if (isMilestone) {
+                const isRedundant =
+                    seenMilestoneValues.has(milestoneValue) && nextIsMilestone;
+                if (isRedundant) {
+                    removedCount++;
+                    debug(
+                        `[Cleanup] Removing redundant duplicate milestone "${milestoneValue}" (id: ${cell?.metadata?.id}) in ${fileUri.fsPath}`
+                    );
+                    continue;
+                }
+                seenMilestoneValues.add(milestoneValue);
+            }
+
+            filteredCells.push(cell);
+        }
+
+        if (removedCount === 0) return false;
+
+        const updatedNotebook = {
+            ...notebookData,
+            cells: filteredCells,
+        };
+        const finalContent = formatJsonForNotebookFile(updatedNotebook);
+        await atomicWriteUriText(fileUri, normalizeNotebookFileText(finalContent));
+
+        debug(
+            `[Cleanup] Removed ${removedCount} redundant duplicate milestone(s) in ${fileUri.fsPath}`
+        );
+        return true;
+    } catch (error) {
+        console.error(
+            `[Cleanup] Error removing redundant milestones in ${fileUri.fsPath}:`,
+            error
+        );
         return false;
     }
 }

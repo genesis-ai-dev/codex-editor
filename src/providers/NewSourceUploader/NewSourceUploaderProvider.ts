@@ -5,13 +5,14 @@ import { promisify } from "util";
 import { exec } from "child_process";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage, SelectAudioFileMessage, ReprocessAudioFileMessage, RequestAudioSegmentMessage, FinalizeAudioImportMessage, UpdateAudioSegmentsMessage, SaveFileMessage, AudioProcessingCompleteMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import {
     handleSelectAudioFile,
     handleReprocessAudioFile,
     handleRequestAudioSegment,
     handleUpdateAudioSegments,
     handleFinalizeAudioImport,
+    handleAudioProcessingComplete,
 } from "./importers/audioSplitter";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import type { SpreadsheetNotebookMetadata } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/processedNotebookMetadata";
@@ -23,7 +24,10 @@ import { createStandardizedFilename, extractUsfmCodeFromFilename, getBookDisplay
 import { formatJsonForNotebookFile } from "../../utils/notebookFileFormattingUtils";
 import { CodexContentSerializer } from "../../serializer";
 import { getCorpusMarkerForBook } from "../../../sharedUtils/corpusUtils";
+import { deriveTargetPathFromSource } from "../../../sharedUtils";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { SyncManager } from "../../projectManager/syncManager";
+import { processNewlyImportedFiles } from "../../projectManager/utils/migrationUtils";
 import { migrateLocalizedBooksToMetadata as migrateLocalizedBooks } from "./localizedBooksMigration/localizedBooksMigration";
 import { removeLocalizedBooksJsonIfPresent as removeLocalizedBooksJson } from "./localizedBooksMigration/removeLocalizedBooksJson";
 import { getAttachmentDocumentSegmentFromUri } from "../../utils/attachmentFolderUtils";
@@ -116,12 +120,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         webviewPanel.webview.onDidReceiveMessage(async (message: any) => {
             try {
                 if (message.command === "webviewReady") {
-                    // Webview is ready, send current project inventory
                     const inventory = await this.fetchProjectInventory();
+
+                    // Extract initial intent from URI query params (e.g. ?intent=source or ?intent=target)
+                    const uriQuery = document.uri.query || "";
+                    const intentMatch = uriQuery.match(/intent=(source|target)/);
+                    const initialIntent = intentMatch ? intentMatch[1] : undefined;
 
                     webviewPanel.webview.postMessage({
                         command: "projectInventory",
                         inventory: inventory,
+                        initialIntent,
                     });
                 } else if (message.command === "metadata.check") {
                     // Handle metadata check request
@@ -179,26 +188,51 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             },
                         });
                     }
+                } else if (message.command === "importStarted") {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                } else if (message.command === "importEnded") {
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.endImportInProgress();
                 } else if (message.command === "writeNotebooks") {
-                    await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                    try {
+                        await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
+                    } finally {
+                        syncManager.endImportInProgress();
+                    }
                 } else if (message.command === "writeNotebooksWithAttachments") {
-                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, document, token, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                    try {
+                        await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, document, token, webviewPanel);
+                    } finally {
+                        syncManager.endImportInProgress();
+                    }
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
                     const response = message as OverwriteResponseMessage;
                     if (response.confirmed) {
-                        // User confirmed overwrite, proceed with the original write operation
-                        await this.handleWriteNotebooksForced(response.originalMessage, token, webviewPanel);
+                        const syncManager = SyncManager.getInstance();
+                        syncManager.beginImportInProgress();
+                        try {
+                            // User confirmed overwrite, proceed with the original write operation
+                            await this.handleWriteNotebooksForced(response.originalMessage, token, webviewPanel);
+                        } finally {
+                            syncManager.endImportInProgress();
+                        }
                     } else {
-                        // User cancelled, send cancellation message
-                        webviewPanel.webview.postMessage({
-                            command: "notification",
-                            type: "info",
-                            message: "Import cancelled by user"
-                        });
+                        webviewPanel.webview.postMessage({ command: "importCancelled" });
                     }
                 } else if (message.command === "writeTranslation") {
-                    await this.handleWriteTranslation(message as WriteTranslationMessage, token);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginImportInProgress();
+                    try {
+                        await this.handleWriteTranslation(message as WriteTranslationMessage, token);
+                    } finally {
+                        syncManager.endImportInProgress();
+                    }
 
                     // Send success notification
                     webviewPanel.webview.postMessage({
@@ -647,14 +681,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "fetchTargetFile") {
-                    // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
 
                     try {
-                        const targetFilePath = sourceFilePath
-                            .replace(/\.source$/, ".codex")
-                            .replace(/\/\.project\/sourceTexts\//, "/files/target/");
-
+                        const targetFilePath = deriveTargetPathFromSource(sourceFilePath);
                         const targetUri = vscode.Uri.file(targetFilePath);
                         const targetContent = await vscode.workspace.fs.readFile(targetUri);
                         const targetNotebook = JSON.parse(new TextDecoder().decode(targetContent));
@@ -691,22 +721,49 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         });
                     }
                 } else if (message.command === "selectAudioFile") {
-                    await handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginAudioProcessing();
+                    try {
+                        await handleSelectAudioFile(message as SelectAudioFileMessage, webviewPanel);
+                    } finally {
+                        syncManager.endAudioProcessing();
+                    }
                 } else if (message.command === "reprocessAudioFile") {
-                    await handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginAudioProcessing();
+                    try {
+                        await handleReprocessAudioFile(message as ReprocessAudioFileMessage, webviewPanel);
+                    } finally {
+                        syncManager.endAudioProcessing();
+                    }
                 } else if (message.command === "requestAudioSegment") {
                     await handleRequestAudioSegment(message as RequestAudioSegmentMessage, webviewPanel);
                 } else if (message.command === "updateAudioSegments") {
                     await handleUpdateAudioSegments(message as UpdateAudioSegmentsMessage, webviewPanel);
+                } else if (message.command === "audioProcessingComplete") {
+                    handleAudioProcessingComplete(message as AudioProcessingCompleteMessage);
                 } else if (message.command === "finalizeAudioImport") {
-                    await handleFinalizeAudioImport(
-                        message as FinalizeAudioImportMessage,
-                        token,
-                        webviewPanel,
-                        async (msg, tok, pan) => {
-                            await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
-                        }
-                    );
+                    const syncManager = SyncManager.getInstance();
+                    syncManager.beginAudioProcessing();
+                    try {
+                        await handleFinalizeAudioImport(
+                            message as FinalizeAudioImportMessage,
+                            token,
+                            webviewPanel,
+                            async (msg, tok, pan) => {
+                                syncManager.beginImportInProgress();
+                                try {
+                                    await this.handleWriteNotebooks(msg as WriteNotebooksMessage, tok, pan);
+                                } finally {
+                                    syncManager.endImportInProgress();
+                                }
+                            }
+                        );
+                    } finally {
+                        syncManager.endAudioProcessing();
+                    }
+                } else if (message.command === "openDownloadPage") {
+                    vscode.env.openExternal(vscode.Uri.parse("https://codexeditor.app"));
                 } else if (message.command === "saveFile") {
                     await this.handleSaveFile(message as SaveFileMessage, webviewPanel);
                 } else if (message.command === "systemMessage.generate") {
@@ -912,6 +969,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: trimmedCorpusMarker,
             textDirection: (processedNotebook.metadata.textDirection as "ltr" | "rtl" | undefined) || "ltr",
+            lineNumbersEnabled: true,
+            lineNumbersEnabledSource: "global",
             ...(fileDisplayName ? { fileDisplayName } : {}),
             ...(processedNotebook.metadata.videoUrl ? { videoUrl: processedNotebook.metadata.videoUrl } : {}),
             ...(processedNotebook.metadata)?.audioOnly !== undefined
@@ -959,6 +1018,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             ...('structureMetadata' in processedNotebook.metadata && processedNotebook.metadata.structureMetadata
                 ? { structureMetadata: processedNotebook.metadata.structureMetadata as CustomNotebookMetadata['structureMetadata'] }
                 : {}),
+            // Preserve HTML structure enforcement flag for round-trip importers
+            ...('enforceHtmlStructure' in processedNotebook.metadata &&
+                processedNotebook.metadata.enforceHtmlStructure !== undefined
+                ? { enforceHtmlStructure: processedNotebook.metadata.enforceHtmlStructure as boolean }
+                : {}),
         };
 
         return {
@@ -983,11 +1047,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             if (conflicts.length > 0) {
                 const confirmed = await this.confirmOverwriteWithTruncation(conflicts);
                 if (!confirmed) {
-                    webviewPanel.webview.postMessage({
-                        command: "notification",
-                        type: "info",
-                        message: "Import cancelled by user"
-                    });
+                    webviewPanel.webview.postMessage({ command: "importCancelled" });
                     return;
                 }
             }
@@ -1002,22 +1062,64 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
+        const reportProgress = (stage: string) => {
+            webviewPanel.webview.postMessage({ command: "importProgress", stage });
+        };
+
+        reportProgress("preparing");
+
         // Import the original file utilities
         const { saveOriginalFileWithDeduplication } = await import('./originalFileUtils');
 
         // Save original files if provided in metadata (with hash-based deduplication)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const pairsWithOriginalFiles = new Set<number>();
         if (workspaceFolder) {
-            for (const pair of message.notebookPairs) {
+            for (let pairIdx = 0; pairIdx < message.notebookPairs.length; pairIdx++) {
+                const pair = message.notebookPairs[pairIdx];
                 if ("originalFileData" in pair.source.metadata && pair.source.metadata.originalFileData) {
+                    pairsWithOriginalFiles.add(pairIdx);
                     // Save the original file with deduplication
                     const requestedFileName = pair.source.metadata.originalFileName || 'document.docx';
-                    const fileData = pair.source.metadata.originalFileData;
+                    const fileData: unknown = pair.source.metadata.originalFileData;
 
                     // Convert to Uint8Array if needed
-                    const buffer = fileData instanceof ArrayBuffer
-                        ? new Uint8Array(fileData)
-                        : Buffer.from(fileData);
+                    // Handle various data types that may arrive via webview postMessage:
+                    // - ArrayBuffer: from structured clone
+                    // - Uint8Array/Buffer: already typed arrays
+                    // - Object with numeric keys: from JSON-serialized typed array
+                    let buffer: Uint8Array;
+                    if (fileData instanceof ArrayBuffer) {
+                        buffer = new Uint8Array(fileData);
+                    } else if (fileData instanceof Uint8Array || Buffer.isBuffer(fileData)) {
+                        buffer = fileData instanceof Uint8Array ? fileData : new Uint8Array(fileData);
+                    } else if (typeof fileData === 'object' && fileData !== null && !Array.isArray(fileData)) {
+                        // Handle case where ArrayBuffer was serialized as object with numeric keys
+                        // This can happen when message passing serializes binary data as JSON
+                        const keys = Object.keys(fileData);
+                        if (keys.length > 0 && keys.every(k => !isNaN(Number(k)))) {
+                            const arr = new Uint8Array(keys.length);
+                            for (let i = 0; i < keys.length; i++) {
+                                arr[i] = (fileData as Record<string, number>)[String(i)] ?? 0;
+                            }
+                            buffer = arr;
+                            console.warn(`[NewSourceUploader] originalFileData was serialized as object with numeric keys (${keys.length} entries) - converted to Uint8Array`);
+                        } else {
+                            buffer = Buffer.from(fileData as any);
+                        }
+                    } else if (Array.isArray(fileData)) {
+                        buffer = new Uint8Array(fileData);
+                    } else {
+                        buffer = Buffer.from(fileData as any);
+                    }
+
+                    // Validate the saved buffer looks like a valid file
+                    if (buffer.length < 4) {
+                        console.warn(`[NewSourceUploader] originalFileData is very small (${buffer.length} bytes) for "${requestedFileName}"`);
+                    } else {
+                        const isZip = buffer[0] === 0x50 && buffer[1] === 0x4B;
+                        console.log(`[NewSourceUploader] originalFileData: ${buffer.length} bytes, ${isZip ? 'valid ZIP signature' : 'not a ZIP (first bytes: ' + Array.from(buffer.slice(0, 4)).map(b => '0x' + b.toString(16)).join(' ') + ')'}`);
+                    }
 
                     // Use hash-based deduplication to save the file
                     // This handles:
@@ -1040,7 +1142,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
                     // IMPORTANT: Preserve user's original filename as fileDisplayName before updating originalFileName
                     // This ensures the display name reflects what the user imported, while originalFileName
-                    // points to the actual deduplicated file in attachments/originals
+                    // points to the actual deduplicated file in attachments/files/originals
                     if (result.fileName !== requestedFileName) {
                         // Set fileDisplayName to user's original name (without extension) if not already set
                         if (!pair.source.metadata.fileDisplayName) {
@@ -1062,7 +1164,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     }
 
                     // CRITICAL: Do not persist original binary content into JSON notebooks.
-                    // The original template is stored in `.project/attachments/originals/<actualFileName>`.
+                    // The original template is stored in `.project/attachments/files/originals/<actualFileName>`.
                     delete pair.source.metadata.originalFileData;
                 }
 
@@ -1114,6 +1216,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        reportProgress("creating");
+
         // Convert ProcessedNotebooks to NotebookPreview format
         const sourceNotebooks = await Promise.all(
             message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source))
@@ -1138,18 +1242,21 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         });
 
         // Register notebook references in the original files registry
-        // This tracks which notebooks use each original file, so we know when it's safe to delete
-        if (workspaceFolder) {
+        // Only for pairs that had an actual original file saved via deduplication
+        // (Bible imports from eBible/Macula set originalName to the book code, not a stored file)
+        if (workspaceFolder && pairsWithOriginalFiles.size > 0) {
             const { addNotebookReference } = await import('./originalFileUtils');
-            for (const createdFile of createdFiles) {
+            for (let i = 0; i < createdFiles.length; i++) {
+                if (!pairsWithOriginalFiles.has(i)) {
+                    continue;
+                }
+                const createdFile = createdFiles[i];
                 try {
-                    // Read the source notebook to get originalFileName from metadata
                     const sourceContent = await vscode.workspace.fs.readFile(createdFile.sourceUri);
                     const sourceNotebook = JSON.parse(new TextDecoder().decode(sourceContent));
                     const originalFileName = sourceNotebook?.metadata?.originalName || sourceNotebook?.metadata?.originalFileName;
 
                     if (originalFileName) {
-                        // Use the source filename (without extension) as the notebook base name
                         const notebookBaseName = path.basename(createdFile.sourceUri.fsPath).replace(/\.[^/.]+$/, '');
                         await addNotebookReference(workspaceFolder, originalFileName, notebookBaseName);
                     }
@@ -1159,6 +1266,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
         }
 
+        reportProgress("metadata");
+
         // Migrate localized-books.json to codex metadata before deleting the file
         // Pass the newly created codex URIs directly to avoid search issues
         const createdCodexUris = createdFiles.map(f => f.codexUri);
@@ -1166,24 +1275,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         // Remove any localized book overrides to ensure fresh defaults after new source import
         await this.removeLocalizedBooksJsonIfPresent();
-
-        // Show success message
-        const count = message.notebookPairs.length;
-        const notebooksText = count === 1 ? "notebook" : "notebooks";
-        const firstNotebookName = message.notebookPairs[0]?.source.name || "unknown";
-
-        vscode.window.showInformationMessage(
-            count === 1
-                ? `Successfully imported "${firstNotebookName}"!`
-                : `Successfully imported ${count} ${notebooksText}!`
-        );
-
-        // Send success notification to webview
-        webviewPanel.webview.postMessage({
-            command: "notification",
-            type: "success",
-            message: "Notebooks created successfully!"
-        });
 
         // Send updated inventory after successful import
         const inventory = await this.fetchProjectInventory();
@@ -1196,18 +1287,36 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const metadataManager = getNotebookMetadataManager();
         await metadataManager.loadMetadata();
 
-        // Use incremental indexing for just the newly created files
+        // Process newly imported files (line numbers, importerType) before indexing
         if (createdFiles && createdFiles.length > 0) {
-            // Extract file paths from the created URIs
+            reportProgress("processing");
+
+            const allCreatedUris = createdFiles.flatMap(f => [f.sourceUri, f.codexUri]);
+            await processNewlyImportedFiles(allCreatedUris);
+
             const filePaths: string[] = [];
             for (const result of createdFiles) {
                 filePaths.push(result.sourceUri.fsPath);
                 filePaths.push(result.codexUri.fsPath);
             }
 
-            // Index only these specific files
-            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", filePaths);
+            reportProgress("indexing");
+            await vscode.commands.executeCommand(
+                "codex-editor-extension.indexSpecificFiles",
+                filePaths,
+                {
+                    externalProgressCallback: (message: string) => {
+                        webviewPanel.webview.postMessage({
+                            command: "importProgress",
+                            stage: "indexing",
+                            detail: message,
+                        });
+                    },
+                }
+            );
         }
+
+        webviewPanel.webview.postMessage({ command: "importComplete" });
     }
 
     /**
@@ -1532,41 +1641,27 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken
     ): Promise<void> {
         try {
-            // The aligned content is already provided by the plugin's custom alignment algorithm
-            // We just need to merge it into the existing target notebook
-
-            // Load the existing target notebook
             const targetFileUri = vscode.Uri.file(message.targetFilePath);
             const existingContent = await vscode.workspace.fs.readFile(targetFileUri);
             const existingNotebook = JSON.parse(new TextDecoder().decode(existingContent));
 
-            // Create a map of existing cells for quick lookup
-            const existingCellsMap = new Map<string, any>();
-            existingNotebook.cells.forEach((cell: any) => {
-                if (cell.metadata?.id) {
-                    existingCellsMap.set(cell.metadata.id, cell);
-                }
-            });
+            // Build a map of aligned updates keyed by the TARGET cell's ID (not the imported content's ID)
+            const updatesMap = new Map<string, { alignedCell: any; updatedCell: any }>();
+            const paratextCells: Array<{ cell: any; parentId?: string }> = [];
 
-            // Track statistics
             let insertedCount = 0;
             let skippedCount = 0;
             let paratextCount = 0;
             let childCellCount = 0;
 
-            // Process aligned cells and update the notebook
-            const processedCells = new Map<string, any>();
-            const processedSourceCells = new Set<string>();
-
             for (const alignedCell of message.alignedContent) {
                 if (alignedCell.isParatext) {
-                    // Add paratext cells
                     const paratextId = alignedCell.importedContent.id;
                     const importedData = alignedCell.importedContent.data;
                     const paratextData =
                         typeof importedData === "object" && importedData !== null ? importedData : {};
                     const paratextCell = {
-                        kind: 1, // vscode.NotebookCellKind.Code
+                        kind: 1,
                         languageId: "html",
                         value: alignedCell.importedContent.content,
                         metadata: {
@@ -1580,35 +1675,54 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             parentId: alignedCell.importedContent.parentId,
                         },
                     };
-                    processedCells.set(paratextId, paratextCell);
+                    paratextCells.push({
+                        cell: paratextCell,
+                        parentId: alignedCell.importedContent.parentId,
+                    });
                     paratextCount++;
                 } else if (alignedCell.notebookCell) {
-                    const targetId = alignedCell.importedContent.id;
-                    const existingCell = existingCellsMap.get(targetId);
+                    const targetId =
+                        alignedCell.notebookCell?.metadata?.id ?? alignedCell.importedContent.id;
+
+                    const existingCell = existingNotebook.cells.find(
+                        (c: any) => c.metadata?.id === targetId
+                    );
+
+                    // Never overwrite milestone cells — they are structural markers
+                    const isMilestone =
+                        existingCell?.metadata?.type === CodexCellTypes.MILESTONE ||
+                        alignedCell.notebookCell?.metadata?.type === CodexCellTypes.MILESTONE;
+                    if (isMilestone) {
+                        skippedCount++;
+                        continue;
+                    }
+
                     const existingValue = existingCell?.value ?? alignedCell.notebookCell.value ?? "";
 
                     if (existingValue && existingValue.trim() !== "") {
-                        // Keep existing content if cell already has content
-                        processedCells.set(targetId, existingCell || alignedCell.notebookCell);
+                        updatesMap.set(targetId, {
+                            alignedCell,
+                            updatedCell: existingCell || alignedCell.notebookCell,
+                        });
                         skippedCount++;
                     } else {
-                        // Update empty cell with new content
                         const updatedCell = {
-                            kind: 1, // vscode.NotebookCellKind.Code
+                            kind: 1,
                             languageId: "html",
                             value: alignedCell.importedContent.content,
                             metadata: {
-                                ...alignedCell.notebookCell.metadata,
+                                ...(existingCell?.metadata ?? alignedCell.notebookCell.metadata),
                                 type: CodexCellTypes.TEXT,
                                 id: targetId,
                                 data: {
-                                    ...alignedCell.notebookCell.metadata.data,
+                                    ...(existingCell?.metadata?.data ??
+                                        alignedCell.notebookCell.metadata?.data),
                                     startTime: alignedCell.importedContent.startTime,
                                     endTime: alignedCell.importedContent.endTime,
                                 },
                             },
                         };
-                        processedCells.set(targetId, updatedCell);
+                        updatesMap.set(targetId, { alignedCell, updatedCell });
 
                         if (alignedCell.isAdditionalOverlap) {
                             childCellCount++;
@@ -1619,53 +1733,64 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 }
             }
 
-            // Build the final cell array, preserving the temporal order from alignedContent
+            // Preserve original notebook cell order: iterate existing cells, apply updates in-place
             const newCells: any[] = [];
-            const usedExistingCellIds = new Set<string>();
+            const usedCellIds = new Set<string>();
 
-            // Process cells in the order they appear in alignedContent (temporal order)
-            for (const alignedCell of message.alignedContent) {
-                if (alignedCell.isParatext) {
-                    // Add paratext cell
-                    const paratextId = alignedCell.importedContent.id;
-                    const paratextCell = processedCells.get(paratextId);
-                    if (paratextCell) {
-                        newCells.push(paratextCell);
-                    }
-                } else if (alignedCell.notebookCell) {
-                    const targetId = alignedCell.importedContent.id;
-                    const processedCell = processedCells.get(targetId);
-
-                    if (processedCell) {
-                        newCells.push(processedCell);
-                        usedExistingCellIds.add(targetId);
-                    }
-                }
-            }
-
-            // Add any existing cells that weren't in the aligned content (shouldn't happen normally)
             for (const cell of existingNotebook.cells) {
                 const cellId = cell.metadata?.id;
-                if (!cellId || usedExistingCellIds.has(cellId)) {
-                    continue;
+                if (cellId && updatesMap.has(cellId)) {
+                    newCells.push(updatesMap.get(cellId)!.updatedCell);
+                    usedCellIds.add(cellId);
+                } else {
+                    newCells.push(cell);
+                    if (cellId) {
+                        usedCellIds.add(cellId);
+                    }
                 }
-                console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
-                newCells.push(cell);
+
+                // Insert paratext cells that reference this cell as their parent
+                if (cellId) {
+                    const childParatexts = paratextCells.filter((p) => p.parentId === cellId);
+                    for (const pt of childParatexts) {
+                        newCells.push(pt.cell);
+                    }
+                }
             }
 
-            // Update the notebook
+            // Append paratext cells without a parent (or whose parent wasn't found)
+            for (const pt of paratextCells) {
+                const alreadyInserted =
+                    pt.parentId && newCells.some((c) => c.metadata?.id === pt.cell.metadata?.id);
+                if (!alreadyInserted) {
+                    newCells.push(pt.cell);
+                }
+            }
+
             const updatedNotebook = {
                 ...existingNotebook,
                 cells: newCells,
+                metadata: {
+                    ...existingNotebook.metadata,
+                    importerType: message.importerType || existingNotebook.metadata?.importerType,
+                    importTimestamp: new Date().toISOString(),
+                    importContext: {
+                        ...(existingNotebook.metadata?.importContext ?? {}),
+                        lastTranslationImport: {
+                            importerType: message.importerType,
+                            timestamp: new Date().toISOString(),
+                            sourceFilePath: message.sourceFilePath,
+                            stats: { insertedCount, skippedCount, paratextCount, childCellCount },
+                        },
+                    },
+                },
             };
 
-            // Write the updated notebook back to disk
             await vscode.workspace.fs.writeFile(
                 targetFileUri,
                 Buffer.from(formatJsonForNotebookFile(updatedNotebook))
             );
 
-            // Show success message with statistics
             vscode.window.showInformationMessage(
                 `Translation imported: ${insertedCount} translations, ${paratextCount} paratext cells, ${childCellCount} child cells, ${skippedCount} skipped.`
             );
@@ -2312,36 +2437,18 @@ async function confirmOverwriteWithDetails(
         return `• ${c.displayName ? `${c.displayName} [${c.name}]` : c.name} (${parts.join(", ")})`;
     };
 
-    const fullList = items.map(makeLine).join("\n");
     const truncatedList = items.slice(0, maxItems).map(makeLine).join("\n");
     const hasMore = items.length > maxItems;
 
-    const baseMessage = hasMore
+    const message = hasMore
         ? `The following files already exist and will be overwritten (showing first ${maxItems} of ${items.length}):\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`
         : `The following files already exist and will be overwritten:\n\n${truncatedList}\n\nThis will permanently delete any existing translations for these files. Continue?`;
 
-    const choices = hasMore ? ["Overwrite Files", "View Details", "Abort Import"] : ["Overwrite Files", "Abort Import"];
     const action = await vscode.window.showWarningMessage<string>(
-        baseMessage,
+        message,
         { modal: true },
-        ...choices
+        "Overwrite Files"
     );
-
-    if (action === "View Details") {
-        const channel = vscode.window.createOutputChannel("Codex Import Conflicts");
-        channel.clear();
-        channel.appendLine("The following files already exist and will be overwritten:\n");
-        channel.appendLine(fullList);
-        channel.show(true);
-
-        const confirmAfterView = await vscode.window.showWarningMessage<string>(
-            "Proceed with overwriting the files listed in the 'Codex Import Conflicts' output?",
-            { modal: true },
-            "Overwrite Files",
-            "Abort Import"
-        );
-        return confirmAfterView === "Overwrite Files";
-    }
 
     return action === "Overwrite Files";
 }

@@ -111,3 +111,19 @@
     animation: lockButtonFlash 0.5s ease-in-out;
     border-radius: 4px;
 }
+
+@keyframes scrollHighlightFlash {
+    0% {
+        background-color: var(--vscode-editor-selectionBackground);
+        box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+    }
+    100% {
+        background-color: transparent;
+        box-shadow: 0 0 0 2px transparent;
+    }
+}
+
+.cell-scroll-highlight {
+    animation: scrollHighlightFlash 1.5s ease-out;
+    border-radius: 4px;
+}

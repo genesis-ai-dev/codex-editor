@@ -134,8 +134,8 @@ export class WelcomeViewProvider {
             const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
             const metadata = JSON.parse(metadataContent.toString());
 
-            const sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
-            const targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+            const sourceLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "source");
+            const targetLanguage = metadata.languages?.find((l: any) => l?.projectStatus === "target");
 
             if (sourceLanguage && targetLanguage) {
                 debug("[WelcomeView] Project is properly set up, redirecting to project manager");
@@ -321,9 +321,20 @@ export class WelcomeViewProvider {
                     break;
 
                 case "navigateToMainMenu":
-                    // Navigate to main menu using the registered command
-                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
                     break;
+
+                case "closeProject": {
+                    const answer = await vscode.window.showWarningMessage(
+                        "Are you sure you want to close this project?",
+                        { modal: true },
+                        "Yes"
+                    );
+                    if (answer === "Yes") {
+                        await vscode.commands.executeCommand("workbench.action.closeFolder");
+                    }
+                    break;
+                }
             }
         });
 
@@ -620,7 +631,21 @@ export class WelcomeViewProvider {
                         vscode.postMessage({ command: 'viewProjects' });
                     });
                 }
-                
+
+                const openMainMenu = document.getElementById('openMainMenu');
+                if (openMainMenu) {
+                    openMainMenu.addEventListener('click', () => {
+                        vscode.postMessage({ command: 'navigateToMainMenu' });
+                    });
+                }
+
+                const closeProject = document.getElementById('closeProject');
+                if (closeProject) {
+                    closeProject.addEventListener('click', () => {
+                        vscode.postMessage({ command: 'closeProject' });
+                    });
+                }
+
                 // Login link handler
                 const loginLink = document.getElementById('login-link');
                 if (loginLink) {
@@ -759,8 +784,24 @@ export class WelcomeViewProvider {
                     <div class="card-title">Open Translation File</div>
                     <div class="card-description">Browse and select a file to edit</div>
                 </div>
+
+                <div class="action-card" id="openMainMenu">
+                    <div class="icon-container">
+                        <i class="codicon codicon-menu"></i>
+                    </div>
+                    <div class="card-title">Open Main Menu</div>
+                    <div class="card-description">Access all project features and settings</div>
+                </div>
+
+                <div class="action-card" id="closeProject">
+                    <div class="icon-container">
+                        <i class="codicon codicon-close"></i>
+                    </div>
+                    <div class="card-title">Close Project</div>
+                    <div class="card-description">Close the current project</div>
+                </div>
             </div>
-            
+
             <div class="secondary-actions" style="display:none;">
                 <button class="secondary-button" id="openExistingProject">
                     <i class="codicon codicon-folder-opened"></i>

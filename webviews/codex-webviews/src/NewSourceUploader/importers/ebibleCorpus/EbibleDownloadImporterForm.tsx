@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
     ImporterComponentProps,
     AlignedCell,
@@ -60,6 +60,7 @@ import {
 } from "./components/translationUtils";
 import { downloadEbibleCorpus } from "./download";
 import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { notifyImportStarted, notifyImportEnded } from "../../utils/importProgress";
 import { EbibleDownloadForm } from "../../components/EbibleDownloadForm";
 import { ebibleCorpusImporter } from "./index";
 import { AlignmentPreview } from "../../components/AlignmentPreview";
@@ -111,6 +112,8 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
     const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
     const [targetCells, setTargetCells] = useState<any[]>([]);
 
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
     const isTranslationImport = wizardContext?.intent === "target";
     const selectedSource = wizardContext?.selectedSource;
 
@@ -142,6 +145,11 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
         return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
     }, [filteredTranslations]);
 
+    useEffect(() => {
+        window.scrollTo(0, 0);
+        searchInputRef.current?.focus();
+    }, []);
+
     const handleSelectTranslation = useCallback((translation: EbibleTranslation) => {
         setSelectedTranslation(translation);
         setError(null);
@@ -153,6 +161,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
             return;
         }
 
+        notifyImportStarted();
         setIsProcessing(true);
         setError(null);
         setProgress([]);
@@ -251,6 +260,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                                 setError(
                                     err instanceof Error ? err.message : "Failed to complete import"
                                 );
+                                notifyImportEnded();
                             }
                         }, 2000);
                     } else {
@@ -264,6 +274,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                             setError(
                                 err instanceof Error ? err.message : "Failed to complete import"
                             );
+                            notifyImportEnded();
                         }
                     }
                 }
@@ -273,6 +284,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
         } catch (err) {
             setError(err instanceof Error ? err.message : "Download failed");
             setIsProcessing(false);
+            notifyImportEnded();
         }
     }, [selectedTranslation, props]);
 
@@ -302,6 +314,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
             if (!window.confirm("Cancel download in progress?")) {
                 return;
             }
+            notifyImportEnded();
         }
         onCancel();
     };
@@ -343,14 +356,6 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                             <span className="font-medium">{selectedSource.name}</span>
                         </p>
                     )}
-                    <Button
-                        variant="ghost"
-                        onClick={handleCancel}
-                        className="flex items-center gap-2"
-                    >
-                        <ArrowLeft className="h-4 w-4" />
-                        Back to Home
-                    </Button>
                 </div>
 
                 <div className="space-y-4">
@@ -398,9 +403,6 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                     </Alert>
 
                     <div className="flex gap-3 justify-end">
-                        <Button variant="outline" onClick={handleCancel}>
-                            Cancel Import
-                        </Button>
                         <Button
                             variant="destructive"
                             onClick={() => setShowExistingCheck(false)}
@@ -429,10 +431,6 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                         </p>
                     )}
                 </div>
-                <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to Home
-                </Button>
             </div>
 
             {/* Search and Filters */}
@@ -450,6 +448,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                         <Input
+                            ref={searchInputRef}
                             placeholder="Search by language, code, or translation name..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}

@@ -2,7 +2,6 @@ import {
     EditorCellContent,
     EditorPostMessages,
     QuillCellContent,
-    SpellCheckResponse,
     MilestoneIndex,
 } from "../../../../types";
 import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
@@ -18,12 +17,13 @@ import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import SourceCellContext from "./contextProviders/SourceCellContext";
 import CommentsBadge from "./CommentsBadge";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { sanitizeQuillHtml } from "./utils";
+import { compareHtmlStructure, getStructureMismatchDescription } from "./utils/htmlStructureValidator";
 
 export interface CellListProps {
-    spellCheckResponse: SpellCheckResponse | null;
     translationUnits: QuillCellContent[];
     fullDocumentTranslationUnits: QuillCellContent[]; // Full document for global line numbering
     contentBeingUpdated: EditorCellContent;
@@ -35,7 +35,6 @@ export interface CellListProps {
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
-    alertColorCodes: { [cellId: string]: number };
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
     translationQueue?: string[]; // Queue of cells waiting for translation
@@ -69,6 +68,7 @@ export interface CellListProps {
     isAudioOnly?: boolean;
     showInlineBacktranslations?: boolean;
     backtranslationsMap?: Map<string, any>;
+    enforceHtmlStructure?: boolean;
     // Milestone-based pagination props for global line numbering
     milestoneIndex?: MilestoneIndex | null;
     currentMilestoneIndex?: number;
@@ -95,8 +95,6 @@ const CellList: React.FC<CellListProps> = ({
     isSourceText,
     windowHeight,
     headerHeight,
-    spellCheckResponse,
-    alertColorCodes,
     highlightedCellId,
     scrollSyncEnabled,
     translationQueue = [],
@@ -120,6 +118,7 @@ const CellList: React.FC<CellListProps> = ({
     showInlineBacktranslations = false,
     backtranslationsMap = new Map(),
     isAuthenticated = false,
+    enforceHtmlStructure = false,
     milestoneIndex = null,
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
@@ -127,6 +126,7 @@ const CellList: React.FC<CellListProps> = ({
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+    const { sourceCellMap } = useContext(SourceCellContext);
     // Add state to track completed translations
     const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
     const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
@@ -274,6 +274,24 @@ const CellList: React.FC<CellListProps> = ({
         return duplicates;
     }, [workingTranslationUnits]);
 
+    const htmlStructureErrors = useMemo(() => {
+        const errors = new Map<string, string>();
+        if (!enforceHtmlStructure || isSourceText) return errors;
+
+        for (const cell of workingTranslationUnits) {
+            const cellId = cell.cellMarkers[0];
+            const sourceHtml = sourceCellMap[cellId]?.content;
+            const targetHtml = cell.cellContent;
+            if (!sourceHtml || !targetHtml) continue;
+
+            const diff = compareHtmlStructure(sourceHtml, targetHtml);
+            if (!diff.isMatch) {
+                errors.set(cellId, getStructureMismatchDescription(diff));
+            }
+        }
+        return errors;
+    }, [workingTranslationUnits, enforceHtmlStructure, isSourceText, sourceCellMap]);
+
     // Convert arrays to Sets for faster lookups
     const translationQueueSet = useMemo(() => new Set(translationQueue), [translationQueue]);
     const autocompleteQueueSet = useMemo(
@@ -281,16 +299,21 @@ const CellList: React.FC<CellListProps> = ({
         [cellsInAutocompleteQueue]
     );
 
-    // Optimized helper function to check if a cell is in the translation queue or currently processing
+    // Check if a cell is actively being translated (waiting or in-progress).
+    // Cells that already received their translation (successfulCompletions) are excluded
+    // so their validation buttons become enabled even while the batch continues.
     const isCellInTranslationProcess = useCallback(
         (cellId: string) => {
+            if (successfulCompletions.has(cellId)) {
+                return false;
+            }
             return (
                 translationQueueSet.has(cellId) ||
                 cellId === currentProcessingCellId ||
                 autocompleteQueueSet.has(cellId)
             );
         },
-        [translationQueueSet, currentProcessingCellId, autocompleteQueueSet]
+        [translationQueueSet, currentProcessingCellId, autocompleteQueueSet, successfulCompletions]
     );
 
     // Track cells that move from processing to completed - DISABLED to prevent cancelled cells being marked as completed
@@ -566,9 +589,8 @@ const CellList: React.FC<CellListProps> = ({
         ]
     );
 
-    const generateCellLabel = useCallback(
+    const generateLineNumber = useCallback(
         (cell: QuillCellContent, currentCellsArray: QuillCellContent[]): string => {
-            // If cell already has a label, use it
             if (cell.merged) {
                 return "❌";
             }
@@ -625,16 +647,14 @@ const CellList: React.FC<CellListProps> = ({
                     );
 
                     if (parentCell) {
-                        // Get parent's label using chapter-based verse numbers (with fallback for sync issues)
                         const parentLabel =
-                            parentCell.cellLabel ||
-                            (parentCell.cellType !== CodexCellTypes.PARATEXT
+                            parentCell.cellType !== CodexCellTypes.PARATEXT
                                 ? getChapterBasedVerseNumber(
                                       parentCell,
                                       fullDocumentTranslationUnits,
                                       currentCellsArray
                                   )
-                                : "");
+                                : "";
 
                         // Find all siblings (cells with the same parent)
                         const siblings = fullDocumentTranslationUnits.filter(
@@ -661,28 +681,14 @@ const CellList: React.FC<CellListProps> = ({
                                     getCellIdentifier(sibling) === cellIdentifier
                             ) + 1;
 
-                        // Return label in format "parentLabel.childIndex"
                         return `${parentLabel}.${childIndex}`;
                     }
                 }
             }
 
-            // For cells with cellLabel but no verse-level global references (e.g., Biblica importer cells before verses),
-            // use the cellLabel instead of chapter-based verse number
-            // Biblica cells before verses have globalReferences like ["GEN"] (book only), while cells with verses have ["GEN 1:34"] (book chapter:verse)
-            const globalRefs = cell.data?.globalReferences;
-            const hasGlobalRefs = globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0;
-            const hasVerseLevelRefs = hasGlobalRefs && globalRefs.some((ref: string) => {
-                // Check if reference contains chapter:verse format (e.g., "GEN 1:34" or "GEN 1:1")
-                return typeof ref === 'string' && /\d+:\d+/.test(ref);
-            });
-
-            // If cell has a label but no verse-level references, use the label (for Biblica cells before verses)
-            if (cell.cellLabel && !hasVerseLevelRefs) {
-                return cell.cellLabel;
-            }
-
             // Get chapter-based verse number (skipping paratext cells).
+            // cellLabel is displayed separately via the `label` prop, so the line number
+            // should always be numeric.
             // Pass currentCellsArray as fallback so line numbers stay correct when fullDocumentTranslationUnits
             // is temporarily out of sync (e.g. after clicking a cell before prev/next refreshes state).
             return getChapterBasedVerseNumber(
@@ -810,8 +816,7 @@ const CellList: React.FC<CellListProps> = ({
                 {group.map((cell, index) => {
                     const cellId = cell.cellMarkers.join(" ");
                     const hasDuplicateId = duplicateCellIds.has(cellId);
-                    // Use the current translationUnits array for context, but generate global labels
-                    const generatedCellLabel = generateCellLabel(cell, workingTranslationUnits);
+                    const generatedLineNumber = generateLineNumber(cell, workingTranslationUnits);
                     const cellMarkers = cell.cellMarkers;
                     const cellIdForTranslation = cellMarkers[0];
                     const translationState = getCellTranslationState(cellIdForTranslation);
@@ -828,7 +833,7 @@ const CellList: React.FC<CellListProps> = ({
                         >
                             <CellContentDisplay
                                 cell={cell}
-                                lineNumber={generatedCellLabel}
+                                lineNumber={generatedLineNumber}
                                 label={cell.cellLabel}
                                 lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}`}
@@ -836,7 +841,6 @@ const CellList: React.FC<CellListProps> = ({
                                 textDirection={textDirection}
                                 isSourceText={isSourceText}
                                 hasDuplicateId={hasDuplicateId}
-                                alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -857,6 +861,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -872,8 +877,7 @@ const CellList: React.FC<CellListProps> = ({
             duplicateCellIds,
             highlightedCellId,
             scrollSyncEnabled,
-            alertColorCodes,
-            generateCellLabel,
+            generateLineNumber,
             isCellInTranslationProcess,
             getCellTranslationState,
             successfulCompletions,
@@ -891,6 +895,7 @@ const CellList: React.FC<CellListProps> = ({
             userAccessLevel,
             isAudioOnly,
             lineNumbersEnabled,
+            htmlStructureErrors,
         ]
     );
 
@@ -921,7 +926,7 @@ const CellList: React.FC<CellListProps> = ({
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
                 // Use global line numbering
-                const generatedCellLabel = generateCellLabel(
+                const generatedLineNumber = generateLineNumber(
                     workingTranslationUnits[i],
                     workingTranslationUnits
                 );
@@ -934,13 +939,12 @@ const CellList: React.FC<CellListProps> = ({
                         <CellEditor
                             cell={workingTranslationUnits[i]}
                             editHistory={editHistory}
-                            spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}
                             cellContent={sanitizeQuillHtml(cellContent)}
                             cellIndex={i}
                             cellType={cellType}
-                            cellLabel={cellLabel ?? generatedCellLabel}
+                            cellLabel={cellLabel}
                             cellTimestamps={timestamps}
                             prevEndTime={workingTranslationUnits[i - 1]?.timestamps?.endTime}
                             nextStartTime={workingTranslationUnits[i + 1]?.timestamps?.startTime}
@@ -979,7 +983,7 @@ const CellList: React.FC<CellListProps> = ({
                     i === 0
                 ) {
                     // Use global line numbering
-                    const generatedCellLabel = generateCellLabel(
+                    const generatedLineNumber = generateLineNumber(
                         workingTranslationUnits[i],
                         workingTranslationUnits
                     );
@@ -997,7 +1001,7 @@ const CellList: React.FC<CellListProps> = ({
                         >
                             <CellContentDisplay
                                 cell={workingTranslationUnits[i]}
-                                lineNumber={generatedCellLabel}
+                                lineNumber={generatedLineNumber}
                                 label={cellLabel}
                                 lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}:empty`}
@@ -1005,7 +1009,6 @@ const CellList: React.FC<CellListProps> = ({
                                 textDirection={textDirection}
                                 isSourceText={isSourceText}
                                 hasDuplicateId={false}
-                                alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
@@ -1026,6 +1029,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isAudioOnly={isAudioOnly}
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
+                                htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -1047,8 +1051,7 @@ const CellList: React.FC<CellListProps> = ({
         isSourceText,
         isCorrectionEditorMode,
         contentBeingUpdated,
-        generateCellLabel,
-        spellCheckResponse,
+        generateLineNumber,
         setContentBeingUpdated,
         handleCloseEditor,
         handleSaveHtml,
@@ -1061,7 +1064,6 @@ const CellList: React.FC<CellListProps> = ({
         renderCellGroup,
         lineNumbersEnabled,
         vscode,
-        alertColorCodes,
         scrollSyncEnabled,
         isCellInTranslationProcess,
         getCellTranslationState,
