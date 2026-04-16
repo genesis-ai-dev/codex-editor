@@ -167,7 +167,7 @@ export function categorizeError(error: unknown): CategorizedError {
         return {
             type: ErrorType.SERVER_UNREACHABLE,
             originalError: err,
-            userMessage: "Server is unreachable or repository not accessible. Please try again later.",
+            userMessage: "Server is unreachable or project not accessible. Please try again later.",
             canRetry: true,
             requiresConnectivity: false,
         };

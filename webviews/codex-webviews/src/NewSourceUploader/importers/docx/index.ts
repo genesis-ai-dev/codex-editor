@@ -1,5 +1,8 @@
-import mammoth from 'mammoth';
-import { XMLParser } from 'fast-xml-parser';
+/**
+ * DOCX Importer with Round-Trip Export Support
+ * Preserves complete OOXML structure for round-trip export
+ */
+
 import { v4 as uuidv4 } from 'uuid';
 import {
     ImporterPlugin,
@@ -7,38 +10,19 @@ import {
     ImportResult,
     ProcessedImage,
     ProgressCallback,
+    ProcessedNotebook,
 } from '../../types/common';
 import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
     validateFileExtension,
+    addMilestoneCellsToNotebookPair,
 } from '../../utils/workflowHelpers';
-import { processImageData, extractImagesFromHtml } from '../../utils/imageProcessor';
-import { DocxParsingOptions, DocxMammothOptions } from './types';
-import {
-    extractDocxFootnotes,
-    integrateFootnotesIntoHtml
-} from '../../utils/docxFootnoteExtractor';
-import {
-    extractAndReplaceFootnotes,
-    validateFootnotes,
-    createFootnoteChildCells
-} from '../../utils/footnoteUtils';
-import { postProcessImportedFootnotes } from '../../utils/postProcessFootnotes';
-import { processMammothFootnotes } from '../../utils/mammothFootnoteHandler';
-import { extractFootnotesFromMammothMarkdown } from '../../utils/mammothMarkdownFootnoteExtractor';
-import { integrateFootnotesBeforeCellSplit } from '../../utils/footnoteIntegration';
-import { cleanIntegrateFootnotes } from '../../utils/cleanFootnoteIntegration';
-import {
-    SegmentMetadata,
-    DocumentStructureMetadata,
-    OffsetTracker,
-    buildStructureTree,
-    generateChecksum,
-    serializeDocumentStructure,
-} from '../../utils/documentStructurePreserver';
-
+import { DocxParser } from './docxParser';
+import type { DocxDocument, DocxParagraph, DocxRun } from './docxTypes';
+import { createDocxCellMetadata, createDocxTableCellMetadata } from './cellMetadata';
+import { extractTableCellParagraphGroups } from './utils/tableSegmentation';
 const SUPPORTED_EXTENSIONS = ['docx'];
 
 /**
@@ -87,7 +71,7 @@ export const validateFile = async (file: File): Promise<FileValidationResult> =>
 };
 
 /**
- * Parses a DOCX file using mammoth.js
+ * Parses a DOCX file with complete OOXML structure preservation for round-trip export
  */
 export const parseFile = async (
     file: File,
@@ -96,296 +80,82 @@ export const parseFile = async (
     try {
         onProgress?.(createProgress('Reading File', 'Reading DOCX file...', 10));
 
+        // Create parser instance
+        const parser = new DocxParser({
+            preserveAllFormatting: true,
+            extractImages: true,
+            extractFootnotes: true,
+            segmentationStrategy: 'paragraph',
+            validateStructure: true,
+        });
+
+        // Set up debug logging - pass through to progress callback
+        parser.setDebugCallback((msg: string) => {
+            console.log(`[DOCX Round-Trip Parser] ${msg}`);
+            // Don't set progress % for debug messages, just send the message
+            onProgress?.(createProgress('Parsing', msg, undefined));
+        });
+
+        onProgress?.(createProgress('Parsing OOXML', 'Extracting document structure from DOCX...', 30));
+
+        // Parse the DOCX document
+        const docxDoc: DocxDocument = await parser.parseDocx(file);
+
+        onProgress?.(createProgress('Creating Cells', 'Converting paragraphs to cells...', 60));
+
+        // Convert document content to cells (paragraphs + table cells)
+        const cells = createCellsFromDocx(docxDoc, file.name);
+
+        onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 80));
+
+        // Read original file data for storage
         const arrayBuffer = await file.arrayBuffer();
 
-        onProgress?.(createProgress('Converting to HTML', 'Converting DOCX to HTML using mammoth.js...', 30));
-
-        // Configure mammoth.js options
-        const mammothOptions: DocxMammothOptions = {
-            arrayBuffer,
-            styleMap: [
-                "p[style-name='Normal'] => p:fresh",
-                "p[style-name='Heading 1'] => h1:fresh",
-                "p[style-name='Heading 2'] => h2:fresh",
-                "p[style-name='Heading 3'] => h3:fresh",
-                "p[style-name='Heading 4'] => h4:fresh",
-                "p[style-name='Heading 5'] => h5:fresh",
-                "p[style-name='Heading 6'] => h6:fresh",
-                "p[style-name='Quote'] => blockquote:fresh",
-                "p[style-name='Footnote Text'] => p.footnote:fresh",
-                // Footnote and endnote handling
-                "footnote-reference => sup.footnote-ref",
-                "endnote-reference => sup.endnote-ref",
-                // Run styles
-                "r[style-name='Strong'] => strong",
-                "r[style-name='Emphasis'] => em",
-                "r[style-name='Code'] => code",
-                "r[style-name='Superscript'] => sup",
-                "r[style-name='Subscript'] => sub",
-                "r[style-name='Strikethrough'] => s",
-                "r[style-name='Underline'] => u",
-                "table => table.table",
-                "tr => tr",
-                "td => td",
-                "th => th",
-                "ul => ul",
-                "ol => ol",
-                "li => li",
-            ],
-            transformDocument: (element: any) => {
-                // Add embedded styles to each section
-                if (element.type === "paragraph" || element.type === "table" || element.type === "list") {
-                    const styleProperties = element.styleProperties || {};
-                    const styleString = Object.entries(styleProperties)
-                        .map(([key, value]) => {
-                            switch (key) {
-                                case "fontSize": return `font-size: ${value}pt;`;
-                                case "fontFamily": return `font-family: ${value};`;
-                                case "color": return `color: ${value};`;
-                                case "backgroundColor": return `background-color: ${value};`;
-                                case "textAlign": return `text-align: ${value};`;
-                                case "lineHeight": return `line-height: ${value};`;
-                                default: return "";
-                            }
-                        })
-                        .filter(style => style !== "")
-                        .join(" ");
-
-                    if (styleString) {
-                        element.style = styleString;
-                    }
-                }
-                return element;
-            },
-        };
-
-        // Convert to HTML
-        const result = await mammoth.convertToHtml(mammothOptions as any);
-        let htmlContent = result.value;
-
-        onProgress?.(createProgress('Processing Footnotes', 'Converting to markdown to extract footnotes...', 45));
-
-        // Also convert to Markdown to extract footnote content properly
-        const markdownResult = await mammoth.convertToMarkdown({ arrayBuffer });
-
-        onProgress?.(createProgress('Processing Footnotes', 'Processing footnotes from markdown output...', 50));
-
-        // Use markdown-based footnote extraction (more reliable)
-        const { footnotes, processedHtml } = await extractFootnotesFromMammothMarkdown(
-            file,
-            result,
-            markdownResult
-        );
-        htmlContent = processedHtml;
-
-        // Validate footnotes and log any issues
-        const footnoteValidation = validateFootnotes(footnotes);
-        if (!footnoteValidation.isValid) {
-            console.warn('DOCX footnote validation errors:', footnoteValidation.errors);
-        }
-        if (footnoteValidation.warnings.length > 0) {
-            console.warn('DOCX footnote validation warnings:', footnoteValidation.warnings);
-        }
-
-        onProgress?.(createProgress('Integrating Footnotes', 'Cleaning and integrating footnotes...', 55));
-
-        // Use clean footnote integration approach to avoid nested/malformed footnotes
-        htmlContent = cleanIntegrateFootnotes(htmlContent, footnotes);
-
-        onProgress?.(createProgress('Parsing Structure', 'Splitting HTML into segments...', 60));
-
-        // Split HTML into segments without XML re-parsing to preserve inline markup and attributes
-        let htmlSegments = htmlContent
-            .split(/(?=<(?:h[1-6]|p|div|table|ul|ol)\b[^>]*>)/i)
-            .map(segment => segment.trim())
-            .filter(segment => segment.length > 0);
-
-        // Merge segments where a standalone <p><sup>n</sup></p> (or Codex marker) paragraph should be inline in the previous paragraph
-        const escapeAttr = (s: string) =>
-            (s || '')
-                .replace(/&/g, '&amp;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/\n/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-
-        const footnoteContentMap: Map<string, string> = new Map();
-        footnotes.forEach(fn => {
-            const m = fn.id.match(/footnote-(\d+)/);
-            const num = m ? m[1] : (fn.position ? String(fn.position) : undefined);
-            if (num) footnoteContentMap.set(num, fn.content);
-        });
-
-        const merged: string[] = [];
-        for (let i = 0; i < htmlSegments.length; i++) {
-            const seg = htmlSegments[i];
-            // Match standalone sup paragraph variants
-            const simpleSup = seg.match(/^<p>\s*(?:<a[^>]*>\s*<\/a>\s*)*<sup[^>]*>\s*(\d+)\s*<\/sup>\s*<\/p>$/i);
-            const codexSup = seg.match(/^<p>\s*(?:<a[^>]*>\s*<\/a>\s*)*<sup[^>]*class="footnote-marker"[^>]*>\s*(\d+)\s*<\/sup>\s*<\/p>$/i);
-            const nestedSup = seg.match(/^<p>\s*(?:<a[^>]*>\s*<\/a>\s*)*<sup[^>]*><a[^>]*><sup[^>]*>\s*(\d+)\s*<\/sup><\/a><\/sup>\s*<\/p>$/i);
-
-            const num = (simpleSup || codexSup || nestedSup)?.[1];
-            if (num && merged.length > 0) {
-                const prev = merged.pop() as string;
-                const content = footnoteContentMap.get(num) || '';
-                const codexMarker = `<sup class="footnote-marker" data-footnote="${escapeAttr(content)}">${num}</sup>`;
-                // Insert before trailing punctuation/quotes if present
-                const punctMatch = prev.match(/([\s\S]*?)(["'”’\)\]]*[\.,;:!?]+)<\/p>$/);
-                let updatedPrev: string;
-                if (punctMatch) {
-                    updatedPrev = `${punctMatch[1]}${codexMarker}${punctMatch[2]}</p>`;
-                } else {
-                    updatedPrev = prev.replace(/<\/p>\s*$/i, `${codexMarker}</p>`);
-                }
-                merged.push(updatedPrev);
-                continue; // drop the standalone sup segment
-            }
-            merged.push(seg);
-        }
-        htmlSegments = merged;
-
-        onProgress?.(createProgress('Processing Images', 'Processing embedded images...', 80));
-
-        // Track offsets and structure for each segment
-        const offsetTracker = new OffsetTracker();
-        const segmentToIdMap = new Map<string, string>();
-
-        // Store the original raw content from mammoth before segmentation
-        const originalRawHtml = result.value;
-
-        // Process each segment into cells with structure tracking
-        const cells = await Promise.all(
-            htmlSegments.map(async (segment, index) => {
-                const cellId = createStandardCellId(file.name, 1, index + 1);
-
-                // Find the position of this segment in the original HTML
-                const segmentStart = originalRawHtml.indexOf(segment);
-                const segmentEnd = segmentStart + segment.length;
-
-                // Record segment metadata
-                offsetTracker.recordSegment(cellId, segment, {
-                    structuralPath: `segment[${index}]`,
-                    parentContext: {
-                        tagName: 'body',
-                        attributes: {}
-                    }
-                });
-
-                segmentToIdMap.set(segment, cellId);
-
-                // Create cell with enhanced metadata including structure data
-                // Include paragraphIndex and paragraphId for DOCX exporter compatibility
-                const cell = createProcessedCell(cellId, segment, {
-                    paragraphIndex: index,
-                    paragraphId: `p-${index}`,
-                    data: {
-                        originalOffset: {
-                            start: segmentStart,
-                            end: segmentEnd
-                        },
-                        originalContent: segment,
-                        segmentIndex: index
-                    }
-                });
-
-                // Extract and process images from this cell
-                const images = await extractImagesFromHtml(segment);
-                cell.images = images;
-
-                return cell;
-            })
-        );
-
-        onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 90));
-
-        // Generate file hash for integrity checking (reuse the arrayBuffer we already have)
-        const fileHash = await generateChecksum(new Uint8Array(arrayBuffer).toString());
-
-        // Parse the HTML structure for the structure tree
-        const parser = new XMLParser({
-            ignoreAttributes: false,
-            attributeNamePrefix: "@_",
-            textNodeName: "#text",
-            parseAttributeValue: true,
-            trimValues: true,
-            preserveOrder: true,
-            allowBooleanAttributes: true,
-            parseTagValue: false,
-            processEntities: true,
-        });
-
-        let parsedStructure = [];
-        try {
-            // Parse the original HTML for structure preservation
-            const wrappedHtml = `<root>${originalRawHtml}</root>`;
-            parsedStructure = parser.parse(wrappedHtml);
-        } catch (error) {
-            console.warn('Could not parse HTML for structure tree, using simplified structure', error);
-            // Fall back to a simplified structure based on segments
-            parsedStructure = [];
-        }
-
-        // Prepare document structure metadata
-        const structureMetadata: DocumentStructureMetadata = {
-            originalFileRef: `attachments/files/originals/${file.name}`,
-            originalMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            originalFileHash: fileHash,
-            importedAt: new Date().toISOString(),
-            documentMetadata: {
-                title: file.name,
-                modifiedDate: new Date(file.lastModified).toISOString()
-            },
-            segments: offsetTracker.getSegments(),
-            structureTree: buildStructureTree(parsedStructure, segmentToIdMap),
-            preservationFormatVersion: '1.0.0'
-        };
-
-        // Create notebook pair directly
+        // Create notebook pair
         const baseName = file.name.replace(/\.[^/.]+$/, '');
-        const sourceNotebook = {
-            name: baseName, // Just the base name, no extension
+        const nowIso = new Date().toISOString();
+        const sourceNotebook: ProcessedNotebook = {
+            name: baseName,
             cells,
             metadata: {
                 id: uuidv4(),
                 originalFileName: file.name,
                 sourceFile: file.name,
-                originalFileData: arrayBuffer, // Store original file to be saved in attachments
+                originalFileData: arrayBuffer, // Store original file for export
+                corpusMarker: 'docx',
                 importerType: 'docx',
-                createdAt: new Date().toISOString(),
+                createdAt: nowIso,
                 importContext: {
                     importerType: 'docx',
                     fileName: file.name,
                     originalFileName: file.name,
-                    fileSize: file.size,
-                    importTimestamp: new Date().toISOString(),
+                    originalHash: docxDoc.originalHash,
+                    documentId: docxDoc.id,
+                    importTimestamp: nowIso,
                 },
-                wordCount: countWordsInHtml(htmlContent),
-                mammothMessages: result.messages,
-                documentStructure: serializeDocumentStructure(structureMetadata),
+                wordCount: countWordsInDocument(docxDoc),
+                paragraphCount: docxDoc.paragraphs.length,
+                // Keep originalHash for traceability/debugging (small).
+                originalHash: docxDoc.originalHash,
             },
         };
 
         const codexCells = cells.map(sourceCell => ({
             id: sourceCell.id,
-            content: sourceCell.images.length > 0
-                ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
-                : '', // Empty for translation, preserve images
-            images: sourceCell.images,
+            content: '', // Empty for translation
+            images: sourceCell.images || [],
             metadata: {
                 ...sourceCell.metadata,
-                // Preserve the data field that contains structure info
             },
         }));
 
-        const codexNotebook = {
-            name: baseName, // Just the base name, no extension
+        const codexNotebook: ProcessedNotebook = {
+            name: baseName,
             cells: codexCells,
             metadata: {
                 ...sourceNotebook.metadata,
                 id: uuidv4(),
+                importerType: 'docx',
                 // Don't duplicate the original file data in codex
                 originalFileData: undefined,
             },
@@ -396,27 +166,33 @@ export const parseFile = async (
             codex: codexNotebook,
         };
 
+        // Add milestone cells to the notebook pair
+        const notebookPairWithMilestones = addMilestoneCellsToNotebookPair(notebookPair);
+
         // Log structure preservation info
-        console.log(`[DOCX IMPORTER] Created notebook pair for "${baseName}"`);
-        console.log(`[DOCX IMPORTER] - ${cells.length} cells processed`);
-        console.log(`[DOCX IMPORTER] - Original file data: ${sourceNotebook.metadata.originalFileData ? 'preserved' : 'missing'}`);
-        console.log(`[DOCX IMPORTER] - Document structure: ${sourceNotebook.metadata.documentStructure ? 'preserved' : 'missing'}`);
+        console.log(`[DOCX Round-Trip Importer] Created notebook pair for "${baseName}"`);
+        console.log(`[DOCX Round-Trip Importer] - ${cells.length} cells processed`);
+        console.log(`[DOCX Round-Trip Importer] - ${docxDoc.paragraphs.length} paragraphs preserved`);
+        console.log(`[DOCX Round-Trip Importer] - Original hash: ${docxDoc.originalHash}`);
+        console.log(`[DOCX Round-Trip Importer] - ImporterType: ${codexNotebook.metadata.importerType}`);
+        console.log(`[DOCX Round-Trip Importer] - Original file data: ${sourceNotebook.metadata.originalFileData ? 'preserved' : 'missing'}`);
 
         onProgress?.(createProgress('Complete', 'DOCX processing complete', 100));
 
         return {
             success: true,
-            notebookPair,
+            notebookPair: notebookPairWithMilestones,
             metadata: {
-                wordCount: countWordsInHtml(htmlContent),
+                wordCount: countWordsInDocument(docxDoc),
                 segmentCount: cells.length,
-                imageCount: cells.reduce((count, cell) => count + cell.images.length, 0),
-                footnoteCount: footnotes.length,
+                paragraphCount: docxDoc.paragraphs.length,
+                imageCount: docxDoc.resources.images.length,
             },
         };
 
     } catch (error) {
         onProgress?.(createProgress('Error', 'Failed to process DOCX file', 0));
+        console.error('[DOCX Round-Trip Importer] Error:', error);
 
         return {
             success: false,
@@ -426,123 +202,235 @@ export const parseFile = async (
 };
 
 /**
- * Parses HTML structure into logical segments
+ * Convert DOCX paragraphs to Codex cells with complete metadata for round-trip
  */
-const parseHtmlStructure = async (html: string): Promise<string[]> => {
-    const parser = new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: "@_",
-        textNodeName: "#text",
-        parseAttributeValue: true,
-        trimValues: true,
-        preserveOrder: true,
-        allowBooleanAttributes: true,
-        parseTagValue: false,
-        processEntities: true,
-    });
+const createCellsFromDocx = (docxDoc: DocxDocument, fileName: string): any[] => {
+    const cells: any[] = [];
 
-    try {
-        // Wrap HTML in root element for proper XML parsing
-        const wrappedHtml = `<root>${html}</root>`;
-        const parsedHtml = parser.parse(wrappedHtml);
-
-        // Process the parsed structure to extract segments
-        if (parsedHtml && parsedHtml[0] && parsedHtml[0].root && Array.isArray(parsedHtml[0].root)) {
-            return parsedHtml[0].root.map((item: any) => convertItemToHtml(item)).filter(Boolean);
+    // Group paragraph indices by <w:tc> (table cells), using XML order to match exporter indices.
+    const tableGroups = extractTableCellParagraphGroups(docxDoc.documentXml);
+    const paragraphIndexToTableGroup = new Map<number, number>();
+    for (const group of tableGroups) {
+        for (const idx of group.paragraphIndices) {
+            paragraphIndexToTableGroup.set(idx, group.tableCellIndex);
         }
-    } catch (error) {
-        console.warn('Failed to parse HTML structure, falling back to simple split:', error);
     }
 
-    // Fallback: simple paragraph-based splitting
-    return html
-        .split(/(?=<(?:h[1-6]|p|div|table|ul|ol)\b[^>]*>)/i)
-        .map(segment => segment.trim())
-        .filter(segment => segment.length > 0);
+    // Build quick lookup for DocxParagraph by paragraphIndex.
+    const paragraphsByIndex = new Map<number, DocxParagraph>();
+    for (const p of docxDoc.paragraphs) {
+        paragraphsByIndex.set(p.paragraphIndex, p);
+    }
+
+    // Emit cells in paragraphIndex order, collapsing paragraphs within the same table cell into one cell.
+    const emittedTableGroups = new Set<number>();
+    const sortedParagraphIndices = Array.from(paragraphsByIndex.keys()).sort((a, b) => a - b);
+
+    for (const idx of sortedParagraphIndices) {
+        const tableCellIndex = paragraphIndexToTableGroup.get(idx);
+        if (typeof tableCellIndex === 'number') {
+            if (emittedTableGroups.has(tableCellIndex)) continue;
+            emittedTableGroups.add(tableCellIndex);
+
+            const group = tableGroups.find((g) => g.tableCellIndex === tableCellIndex);
+            const groupIndices = group?.paragraphIndices ?? [idx];
+
+            const groupParagraphs = groupIndices
+                .map((pi) => paragraphsByIndex.get(pi))
+                .filter((p): p is DocxParagraph => Boolean(p));
+
+            const originalText = groupParagraphs.map((p) => p.runs.map((r) => r.content).join('')).join('\n');
+            // IMPORTANT: do not drop empty table cells.
+            // Translators may need to add content to an empty DOCX table cell, and we must preserve
+            // a stable mapping for every <w:tc>.
+            const htmlContent =
+                groupParagraphs.length > 0 ? groupParagraphs.map(convertParagraphToHtml).join('') : '<p></p>';
+
+            const { cellId, metadata } = createDocxTableCellMetadata({
+                paragraphIndices: groupIndices,
+                originalContent: originalText,
+            });
+
+            cells.push(
+                createProcessedCell(cellId, htmlContent, {
+                    ...metadata,
+                    type: 'text',
+                })
+            );
+            continue;
+        }
+
+        const paragraph = paragraphsByIndex.get(idx);
+        if (!paragraph) continue;
+
+        const fullText = paragraph.runs.map((r) => r.content).join('');
+        if (!fullText.trim()) continue;
+
+        const htmlContent = convertParagraphToHtml(paragraph);
+        const { cellId, metadata: cellMetadata } = createDocxCellMetadata({
+            paragraphId: paragraph.id,
+            paragraphIndex: paragraph.paragraphIndex,
+            originalContent: fullText,
+            paragraph,
+            docxDoc,
+            fileName,
+        });
+
+        cells.push(
+            createProcessedCell(cellId, htmlContent, {
+                ...cellMetadata,
+                type: 'text',
+            })
+        );
+    }
+
+    console.log(
+        `[createCellsFromDocx] Created ${cells.length} cells from ${docxDoc.paragraphs.length} paragraphs (${tableGroups.length} table cells)`
+    );
+
+    return cells;
 };
 
 /**
- * Converts parsed XML item back to HTML
+ * Convert a DOCX paragraph to HTML for display in Codex
  */
-const convertItemToHtml = (item: any): string => {
-    if (typeof item === "string") return item;
-    if (!item || typeof item !== "object") return String(item || "");
-    if (item["#text"]) return item["#text"];
+const convertParagraphToHtml = (paragraph: DocxParagraph): string => {
+    let html = '<p';
 
-    let html = "";
-    for (const [tagName, content] of Object.entries(item)) {
-        if (tagName.startsWith(":@")) continue; // Skip invalid tags
+    // Add data attributes for paragraph properties
+    if (paragraph.paragraphProperties.styleId) {
+        html += ` data-style-id="${escapeHtml(paragraph.paragraphProperties.styleId)}"`;
+    }
+    if (paragraph.paragraphProperties.alignment) {
+        html += ` data-alignment="${paragraph.paragraphProperties.alignment}"`;
+    }
 
-        if (tagName === "#text") {
-            html += content;
-        } else if (Array.isArray(content)) {
-            if (content.length === 0) {
-                html += `<${tagName}></${tagName}>`;
-            } else {
-                for (const subItem of content) {
-                    if (typeof subItem === "object" && subItem !== null) {
-                        const attributes: string[] = [];
-                        const children: any[] = [];
+    // Add inline styles
+    const styles: string[] = [];
+    if (paragraph.paragraphProperties.alignment) {
+        styles.push(`text-align: ${paragraph.paragraphProperties.alignment}`);
+    }
+    if (paragraph.paragraphProperties.indentation) {
+        const ind = paragraph.paragraphProperties.indentation;
+        if (ind.left) styles.push(`margin-left: ${ind.left / 20}pt`);
+        if (ind.right) styles.push(`margin-right: ${ind.right / 20}pt`);
+        if (ind.firstLine) styles.push(`text-indent: ${ind.firstLine / 20}pt`);
+    }
+    if (paragraph.paragraphProperties.spacing) {
+        const spc = paragraph.paragraphProperties.spacing;
+        if (spc.before) styles.push(`margin-top: ${spc.before / 20}pt`);
+        if (spc.after) styles.push(`margin-bottom: ${spc.after / 20}pt`);
+        if (spc.line) styles.push(`line-height: ${spc.line / 240}`);
+    }
 
-                        for (const [key, value] of Object.entries(subItem)) {
-                            if (key.startsWith("@_")) {
-                                const attrName = key.substring(2);
-                                attributes.push(`${attrName}="${value}"`);
-                            } else if (key === "#text") {
-                                children.push(value);
-                            } else {
-                                children.push({ [key]: value });
-                            }
-                        }
+    if (styles.length > 0) {
+        html += ` style="${styles.join('; ')}"`;
+    }
 
-                        const attrString = attributes.length > 0 ? " " + attributes.join(" ") : "";
+    html += '>';
 
-                        if (children.length === 0) {
-                            html += `<${tagName}${attrString}></${tagName}>`;
-                        } else {
-                            html += `<${tagName}${attrString}>`;
-                            for (const child of children) {
-                                html += convertItemToHtml(child);
-                            }
-                            html += `</${tagName}>`;
-                        }
-                    } else {
-                        html += `<${tagName}>${subItem}</${tagName}>`;
-                    }
-                }
-            }
-        } else if (typeof content === "object" && content !== null) {
-            html += convertItemToHtml({ [tagName]: [content] });
-        } else {
-            html += `<${tagName}>${content}</${tagName}>`;
-        }
+    // Add runs
+    for (const run of paragraph.runs) {
+        html += convertRunToHtml(run);
+    }
+
+    html += '</p>';
+
+    return html;
+};
+
+/**
+ * Convert a DOCX run to HTML
+ */
+const convertRunToHtml = (run: DocxRun): string => {
+    let html = '';
+    let content = escapeHtml(run.content);
+
+    // Apply formatting
+    if (run.runProperties.bold) {
+        content = `<strong>${content}</strong>`;
+    }
+    if (run.runProperties.italic) {
+        content = `<em>${content}</em>`;
+    }
+    if (run.runProperties.underline) {
+        content = `<u>${content}</u>`;
+    }
+    if (run.runProperties.strike) {
+        content = `<s>${content}</s>`;
+    }
+    if (run.runProperties.superscript) {
+        content = `<sup>${content}</sup>`;
+    }
+    if (run.runProperties.subscript) {
+        content = `<sub>${content}</sub>`;
+    }
+
+    // Wrap in span with inline styles if needed
+    const styles: string[] = [];
+    if (run.runProperties.fontSize) {
+        styles.push(`font-size: ${run.runProperties.fontSize / 2}pt`);
+    }
+    if (run.runProperties.fontFamily) {
+        styles.push(`font-family: ${run.runProperties.fontFamily}`);
+    }
+    if (run.runProperties.color) {
+        styles.push(`color: #${run.runProperties.color}`);
+    }
+    if (run.runProperties.highlight) {
+        styles.push(`background-color: ${run.runProperties.highlight}`);
+    }
+
+    if (styles.length > 0) {
+        html = `<span style="${styles.join('; ')}">${content}</span>`;
+    } else {
+        html = content;
     }
 
     return html;
 };
 
 /**
- * Counts words in HTML content
+ * Escape HTML special characters
  */
-const countWordsInHtml = (html: string): number => {
-    const textContent = html
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    return textContent
-        .split(" ")
-        .filter((word: string) => word.length > 0).length;
+const escapeHtml = (text: string): string => {
+    // Must work in both webview (browser) and extension-test (node) contexts.
+    // Avoid relying on `document` which isn't available in node-based tests.
+    return (text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 };
 
 /**
- * DOCX Importer Plugin
+ * Count words in DOCX document
+ */
+const countWordsInDocument = (docxDoc: DocxDocument): number => {
+    let wordCount = 0;
+
+    for (const paragraph of docxDoc.paragraphs) {
+        for (const run of paragraph.runs) {
+            const words = run.content
+                .trim()
+                .split(/\s+/)
+                .filter(word => word.length > 0);
+            wordCount += words.length;
+        }
+    }
+
+    return wordCount;
+};
+
+/**
+ * DOCX Round-Trip Importer Plugin
  */
 export const docxImporter: ImporterPlugin = {
-    name: 'DOCX Importer',
+    name: 'DOCX Round-Trip Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
     supportedMimeTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-    description: 'Imports Microsoft Word DOCX files using mammoth.js',
+    description: 'Imports Microsoft Word DOCX files with complete structure preservation for round-trip export',
     validateFile,
     parseFile,
 }; 

@@ -36,12 +36,13 @@ import {
     sequentialCellAligner,
     defaultCellAligner,
 } from "../types/plugin";
+import type { CustomNotebookCellData } from "types";
 
 export interface AlignmentPreviewProps {
     alignedCells: AlignedCell[];
     importedContent: ImportedContent[];
-    targetCells: any[];
-    sourceCells: any[];
+    targetCells: CustomNotebookCellData[];
+    sourceCells: CustomNotebookCellData[];
     selectedSourceName?: string;
     onConfirm: (alignedCells: AlignedCell[]) => void;
     onCancel: () => void;

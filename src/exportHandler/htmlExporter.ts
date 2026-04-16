@@ -11,7 +11,7 @@ const VERSE_REF_REGEX = /\b[A-Z0-9]{2,4}\s+\d+:\d+\b/;
  * Gets the verse reference for a cell, from globalReferences (preferred) or metadata.id (legacy).
  * Returns null if no verse-ref format found.
  */
-function getVerseRefForCell(cell: { metadata?: any }): string | null {
+function getVerseRefForCell(cell: { metadata?: any; }): string | null {
     const meta = cell.metadata as any;
     const globalRefs = meta?.data?.globalReferences;
     if (globalRefs && Array.isArray(globalRefs) && globalRefs.length > 0) {
@@ -146,7 +146,7 @@ export async function exportCodexContentAsHtml(
         debug("Starting exportCodexContentAsHtml function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
-            vscode.window.showErrorMessage("No workspace folder found.");
+            vscode.window.showErrorMessage("No project folder found. Please open a project first.");
             return;
         }
 
@@ -211,7 +211,7 @@ export async function exportCodexContentAsHtml(
 
                     debug(`File has ${cells.length} active cells`);
 
-                    const chapters: { [key: string]: string } = {};
+                    const chapters: { [key: string]: string; } = {};
 
                     for (const cell of cells) {
                         totalCells++;
@@ -264,7 +264,7 @@ export async function exportCodexContentAsHtml(
                                     if (currentChapters.length > 0) {
                                         const lastChapter =
                                             currentChapters[
-                                                currentChapters.length - 1
+                                            currentChapters.length - 1
                                             ];
                                         chapters[lastChapter] += `
                                             <div class="paratext" x-type="paratext">${cellContent}</div>`;
@@ -364,18 +364,18 @@ export async function exportCodexContentAsHtml(
                         <h1 class="book-title">${bookCode}</h1>
                         <ul class="chapter-list">
                             ${sortedChapterEntries
-                                .map(([num, _]) => {
-                                    const href =
-                                        num === "_content"
-                                            ? `${bookCode}_content.html`
-                                            : `${bookCode}_${num.padStart(3, "0")}.html`;
-                                    const label =
-                                        num === "_content"
-                                            ? "Content"
-                                            : `Chapter ${num}`;
-                                    return `<li><a class="chapter-link" href="${href}">${label}</a></li>`;
-                                })
-                                .join("")}
+                            .map(([num, _]) => {
+                                const href =
+                                    num === "_content"
+                                        ? `${bookCode}_content.html`
+                                        : `${bookCode}_${num.padStart(3, "0")}.html`;
+                                const label =
+                                    num === "_content"
+                                        ? "Content"
+                                        : `Chapter ${num}`;
+                                return `<li><a class="chapter-link" href="${href}">${label}</a></li>`;
+                            })
+                            .join("")}
                         </ul>
                         <div class="metadata">
                             <p>Exported from Codex Translation Editor v${extensionVersion}</p>

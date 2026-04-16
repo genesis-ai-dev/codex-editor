@@ -50,7 +50,7 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
             textConflicts: [],
             binaryCopies: [],
         });
-        const resolveConflictFilesStub = sinon.stub(mergeResolvers, "resolveConflictFiles").resolves([]);
+        const resolveConflictFilesStub = sinon.stub(mergeResolvers, "resolveConflictFiles").resolves({ resolved: [], failed: [] });
 
         // Try to stub vscode.workspace.fs operations (may fail if non-configurable)
         let fsStatStub: sinon.SinonStub | undefined;
@@ -112,9 +112,14 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
         (provider as any).frontierApi = {
             cloneRepository: sinon.stub().callsFake(async (_repoUrl: string, cloneToPath?: string) => {
                 if (cloneToPath) {
-                    // Ensure directory exists for vscode.workspace.fs.stat check
                     fs.mkdirSync(cloneToPath, { recursive: true });
                     fs.writeFileSync(path.join(cloneToPath, ".gitkeep"), "", "utf8");
+                    // performProjectUpdate validates metadata.json before merging
+                    fs.writeFileSync(
+                        path.join(cloneToPath, "metadata.json"),
+                        JSON.stringify({ meta: { generator: { softwareName: "test" } } }),
+                        "utf8"
+                    );
                 }
                 return true;
             }),

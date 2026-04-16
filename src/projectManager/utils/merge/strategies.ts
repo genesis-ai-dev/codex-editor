@@ -9,28 +9,15 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     ],
 
     // Simple JSON override files - keep newest version
-    [ConflictResolutionStrategy.OVERRIDE]: [
-        "chat-threads.json",
-        "files/chat_history.jsonl",
-        "files/silver_path_memories.json",
-        "files/smart_passages_memories.json",
-        ".project/dictionary.sqlite",
-    ],
+    [ConflictResolutionStrategy.OVERRIDE]: [],
 
     // Mergeable Comment arrays on commentThread array - combine recursively and deduplicate
     [ConflictResolutionStrategy.ARRAY]: [".project/comments.json"],
 
-    // JSONL files - combine and deduplicate
-    [ConflictResolutionStrategy.JSONL]: ["files/project.dictionary"],
-
     // Special JSON merges - merge based on timestamps
     [ConflictResolutionStrategy.SPECIAL]: [
-        "files/smart_edits.json",
         "metadata.json"
     ],
-
-    // Source files - keep newest version (DEPRECATED: now using CODEX_CUSTOM_MERGE)
-    [ConflictResolutionStrategy.SOURCE]: [],
 
     // Files to ignore
     [ConflictResolutionStrategy.IGNORE]: ["complete_drafts.txt"],
@@ -72,10 +59,17 @@ export function determineStrategy(filePath: string): ConflictResolutionStrategy 
         }
     }
 
+    // No explicit pattern matched — pick the safest available strategy.
+    // JSON files get 3-way merge (preserves both sides where possible).
+    // All others get OVERRIDE (newest-by-timestamp), which is a lossy fallback.
+    const isJson = normalizedPath.endsWith(".json");
+    const fallback = isJson
+        ? ConflictResolutionStrategy.JSON_MERGE_3WAY
+        : ConflictResolutionStrategy.OVERRIDE;
+
     console.warn(
-        "No merge strategy found for file:",
-        filePath,
-        "defaulting to OVERRIDE (take the newest version)"
+        `[Merge] No explicit strategy for "${filePath}" — using ${fallback}. ` +
+        `Add a pattern to filePatternsToResolve if a different strategy is needed.`
     );
-    return ConflictResolutionStrategy.OVERRIDE;
+    return fallback;
 }
