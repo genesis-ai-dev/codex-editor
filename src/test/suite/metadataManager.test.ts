@@ -293,6 +293,115 @@ suite('MetadataManager Tests', () => {
         });
     });
 
+    suite('User version tracking (users array)', () => {
+        test('should insert a new user entry into an empty users array', async () => {
+            const initialMetadata = {
+                format: 'codex',
+                meta: { version: '0.0.1', category: 'source', generator: { softwareName: 'codex-editor', softwareVersion: '0.22.0', userName: 'test' }, defaultLocale: 'en', dateCreated: '2025-01-01', normalization: 'NFC' },
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initialMetadata, null, 4)));
+
+            await MetadataManager.safeUpdateMetadata(testWorkspaceUri, (metadata: any) => {
+                const users = metadata.users ?? [];
+                users.push({ userName: 'alice', codexVersion: '0.22.0', updatedAt: 1000 });
+                metadata.users = users;
+                return metadata;
+            });
+
+            const content = await vscode.workspace.fs.readFile(metadataPath);
+            const result = JSON.parse(new TextDecoder().decode(content));
+            assert.ok(Array.isArray(result.users));
+            assert.strictEqual(result.users.length, 1);
+            assert.strictEqual(result.users[0].userName, 'alice');
+            assert.strictEqual(result.users[0].codexVersion, '0.22.0');
+        });
+
+        test('should update an existing user entry when version changes', async () => {
+            const initialMetadata = {
+                format: 'codex',
+                users: [{ userName: 'alice', codexVersion: '0.21.0', updatedAt: 500 }],
+                meta: { version: '0.0.1', category: 'source', generator: { softwareName: 'codex-editor', softwareVersion: '0.22.0', userName: 'test' }, defaultLocale: 'en', dateCreated: '2025-01-01', normalization: 'NFC' },
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initialMetadata, null, 4)));
+
+            await MetadataManager.safeUpdateMetadata(testWorkspaceUri, (metadata: any) => {
+                const users = metadata.users ?? [];
+                const existing = users.find((u: any) => u.userName === 'alice');
+                if (existing) {
+                    existing.codexVersion = '0.22.0';
+                    existing.updatedAt = 1000;
+                }
+                metadata.users = users;
+                return metadata;
+            });
+
+            const content = await vscode.workspace.fs.readFile(metadataPath);
+            const result = JSON.parse(new TextDecoder().decode(content));
+            assert.strictEqual(result.users.length, 1);
+            assert.strictEqual(result.users[0].codexVersion, '0.22.0');
+            assert.strictEqual(result.users[0].updatedAt, 1000);
+        });
+
+        test('should not add duplicate users when upserting by userName', async () => {
+            const initialMetadata = {
+                format: 'codex',
+                users: [
+                    { userName: 'alice', codexVersion: '0.22.0', updatedAt: 500 },
+                    { userName: 'bob', codexVersion: '0.21.0', updatedAt: 400 },
+                ],
+                meta: { version: '0.0.1', category: 'source', generator: { softwareName: 'codex-editor', softwareVersion: '0.22.0', userName: 'test' }, defaultLocale: 'en', dateCreated: '2025-01-01', normalization: 'NFC' },
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initialMetadata, null, 4)));
+
+            // Upsert alice with a new version
+            await MetadataManager.safeUpdateMetadata(testWorkspaceUri, (metadata: any) => {
+                const users = metadata.users ?? [];
+                const existing = users.find((u: any) => u.userName === 'alice');
+                if (existing) {
+                    existing.codexVersion = '0.23.0';
+                    existing.updatedAt = 2000;
+                } else {
+                    users.push({ userName: 'alice', codexVersion: '0.23.0', updatedAt: 2000 });
+                }
+                metadata.users = users;
+                return metadata;
+            });
+
+            const content = await vscode.workspace.fs.readFile(metadataPath);
+            const result = JSON.parse(new TextDecoder().decode(content));
+            assert.strictEqual(result.users.length, 2);
+            const alice = result.users.find((u: any) => u.userName === 'alice');
+            assert.strictEqual(alice.codexVersion, '0.23.0');
+        });
+
+        test('should preserve other metadata fields when updating users', async () => {
+            const initialMetadata = {
+                format: 'codex',
+                projectName: 'My Project',
+                users: [{ userName: 'alice', codexVersion: '0.22.0', updatedAt: 500 }],
+                meta: { version: '0.0.1', category: 'source', generator: { softwareName: 'codex-editor', softwareVersion: '0.22.0', userName: 'test' }, defaultLocale: 'en', dateCreated: '2025-01-01', normalization: 'NFC' },
+            };
+            await vscode.workspace.fs.writeFile(metadataPath,
+                new TextEncoder().encode(JSON.stringify(initialMetadata, null, 4)));
+
+            await MetadataManager.safeUpdateMetadata(testWorkspaceUri, (metadata: any) => {
+                const users = metadata.users ?? [];
+                users.push({ userName: 'bob', codexVersion: '0.23.0', updatedAt: 1000 });
+                metadata.users = users;
+                return metadata;
+            });
+
+            const content = await vscode.workspace.fs.readFile(metadataPath);
+            const result = JSON.parse(new TextDecoder().decode(content));
+            assert.strictEqual(result.projectName, 'My Project');
+            assert.strictEqual(result.format, 'codex');
+            assert.strictEqual(result.users.length, 2);
+        });
+    });
+
     suite('Performance', () => {
         test('should complete updates within reasonable time', async () => {
             const startTime = Date.now();
