@@ -3,7 +3,7 @@ import { CodexCellDocument } from "./codexDocument";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
-import { resolveSelectedAttachmentState } from "./codexCellEditorProvider";
+import { resolveSelectedAttachmentState, checkAttachmentAvailabilityStandalone } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages, EditHistory } from "../../../types";
 import { EditMapUtils } from "../../utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
@@ -2551,13 +2551,27 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             ? (document.getCurrentAttachment(typedEvent.content.cellId, "audio")?.attachmentId ?? null)
             : null;
 
+        // Compute per-entry availability so the history viewer shows correct Play/Download
+        const entryAvailability: Record<string, string> = {};
+        try {
+            const ws = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (ws) {
+                for (const entry of audioHistory) {
+                    entryAvailability[entry.attachmentId] = await checkAttachmentAvailabilityStandalone(
+                        entry.attachment as any, ws.uri.fsPath, true
+                    );
+                }
+            }
+        } catch { /* best-effort */ }
+
         provider.postMessageToWebview(webviewPanel, {
             type: "audioHistoryReceived",
             content: {
                 cellId: typedEvent.content.cellId,
                 audioHistory: audioHistory,
                 currentAttachmentId,
-                hasExplicitSelection: explicitSelection !== null
+                hasExplicitSelection: explicitSelection !== null,
+                entryAvailability,
             }
         });
 

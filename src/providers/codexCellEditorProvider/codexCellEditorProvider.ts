@@ -132,6 +132,56 @@ export async function resolveSelectedAttachmentState(
     return baseState;
 }
 
+/**
+ * Standalone attachment availability check usable from both the class and
+ * message handlers.  Checks the files/ path first, then falls back to the
+ * pointers/ path for custom-LFS layouts.
+ */
+export async function checkAttachmentAvailabilityStandalone(
+    attachment: { isDeleted?: boolean; isMissing?: boolean; url?: string },
+    wsPath: string,
+    ignoreMetadataFlags = false,
+): Promise<"available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly"> {
+    if (!ignoreMetadataFlags) {
+        if (attachment.isDeleted) return "deletedOnly";
+        if (attachment.isMissing) return "missing";
+    }
+
+    const url = String(attachment.url || "");
+    if (!url) return "missing";
+
+    const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
+    const filesAbs = path.join(wsPath, filesRel);
+
+    const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
+    const { getCachedLfsBytes } = await import("../../utils/mediaCache");
+
+    // Phase 1: check the files/ path
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filesAbs));
+        const isPtr = await isPointerFile(filesAbs).catch(() => false);
+        if (isPtr) {
+            const pointer = await parsePointerFile(filesAbs).catch(() => null);
+            if (pointer?.oid && getCachedLfsBytes(pointer.oid)) return "available-cached";
+            return "available-pointer";
+        }
+        return "available-local";
+    } catch { /* file not at files/ path */ }
+
+    // Phase 2: check the pointers/ path
+    try {
+        const pointerAbs = filesAbs.includes("/.project/attachments/files/")
+            ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
+            : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
+        await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
+        const ptrFallback = await parsePointerFile(pointerAbs).catch(() => null);
+        if (ptrFallback?.oid && getCachedLfsBytes(ptrFallback.oid)) return "available-cached";
+        return "available-pointer";
+    } catch {
+        return "missing";
+    }
+}
+
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     private static instance: CodexCellEditorProvider | undefined;
 
@@ -4460,53 +4510,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         attachment: any,
         workspaceFolder: vscode.WorkspaceFolder
     ): Promise<"available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly"> {
-        if (attachment.isDeleted) {
-            return "deletedOnly";
-        }
-        if (attachment.isMissing) {
-            return "missing";
-        }
-
-        const url = String(attachment.url || "");
-        if (!url) {
-            return "missing";
-        }
-
-        try {
-            const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-            const abs = path.join(workspaceFolder.uri.fsPath, filesRel);
-            await vscode.workspace.fs.stat(vscode.Uri.file(abs));
-            const { isPointerFile, parsePointerFile } = await import("../../utils/lfsHelpers");
-            const isPtr = await isPointerFile(abs).catch(() => false);
-            if (isPtr) {
-                const { getCachedLfsBytes } = await import("../../utils/mediaCache");
-                const pointer = await parsePointerFile(abs).catch(() => null);
-                if (pointer?.oid && getCachedLfsBytes(pointer.oid)) {
-                    return "available-cached";
-                }
-                return "available-pointer";
-            }
-            return "available-local";
-        } catch {
-            // File doesn't exist at files/ path, check for pointer
-            try {
-                const filesRel = url.startsWith(".project/") ? url : url.replace(/^\.?\/?/, "");
-                const filesAbs = path.join(workspaceFolder.uri.fsPath, filesRel);
-                const pointerAbs = filesAbs.includes("/.project/attachments/files/")
-                    ? filesAbs.replace("/.project/attachments/files/", "/.project/attachments/pointers/")
-                    : filesAbs.replace(".project/attachments/files/", ".project/attachments/pointers/");
-                await vscode.workspace.fs.stat(vscode.Uri.file(pointerAbs));
-                const { parsePointerFile: parsePtrFallback } = await import("../../utils/lfsHelpers");
-                const { getCachedLfsBytes: getLfsCacheFallback } = await import("../../utils/mediaCache");
-                const ptrFallback = await parsePtrFallback(pointerAbs).catch(() => null);
-                if (ptrFallback?.oid && getLfsCacheFallback(ptrFallback.oid)) {
-                    return "available-cached";
-                }
-                return "available-pointer";
-            } catch {
-                return "missing";
-            }
-        }
+        return checkAttachmentAvailabilityStandalone(attachment, workspaceFolder.uri.fsPath);
     }
 
     /**

@@ -61,6 +61,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     audioAvailability,
 }) => {
     const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>([]);
+    const [entryAvailability, setEntryAvailability] = useState<Record<string, string>>({});
     const [playingId, setPlayingId] = useState<string | null>(null);
     const [audioUrls, setAudioUrls] = useState<Map<string, string>>(new Map());
     const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
@@ -122,6 +123,9 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             const message = event.data;
             if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
                 setAudioHistory(message.content.audioHistory);
+                if (message.content.entryAvailability) {
+                    setEntryAvailability(message.content.entryAvailability);
+                }
                 // Use the currentAttachmentId from the backend (this reflects the actual selection state)
                 const currentId = message.content.currentAttachmentId;
                 setSelectedAudioId(currentId);
@@ -283,6 +287,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                         try {
                             setCachedAttachmentAudioDataUrl(audioId, audioData);
                         } catch { /* ignore */ }
+                        setEntryAvailability((prev) => ({ ...prev, [audioId]: "available-cached" }));
                         fetch(audioData)
                             .then((res) => res.blob())
                             .then((blob) => {
@@ -653,9 +658,11 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     {/* Bottom row: action buttons + metadata */}
                                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                         {(() => {
+                                            const entryState = entryAvailability[entry.attachmentId];
                                             const needsDownload = !audioUrls.has(entry.attachmentId) &&
-                                                audioAvailability !== "available-local" &&
-                                                audioAvailability !== undefined;
+                                                entryState !== "available-local" &&
+                                                entryState !== "available-cached" &&
+                                                entryState !== undefined;
                                             return (
                                                 <Button
                                                     size="sm"

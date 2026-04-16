@@ -2228,6 +2228,7 @@ type EditorReceiveMessages =
             }>;
             currentAttachmentId: string | null; // The ID of the currently selected/active attachment
             hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
+            entryAvailability?: Record<string, string>; // Per-entry file availability (available-local, available-pointer, etc.)
         };
     }
     | {
