@@ -10,6 +10,7 @@ import { createMockExtensionContext, swallowDuplicateCommandRegistrations } from
 
 import * as directoryConflicts from "../../projectManager/utils/merge/directoryConflicts";
 import * as mergeResolvers from "../../projectManager/utils/merge/resolvers";
+import * as connectivityChecker from "../../utils/connectivityChecker";
 import * as projectLocationUtils from "../../utils/projectLocationUtils";
 
 suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
@@ -44,6 +45,10 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
         const getCodexProjectsDirectoryStub = sinon.stub(projectLocationUtils, "getCodexProjectsDirectory").resolves(
             vscode.Uri.file(tempProjectsDir)
         );
+
+        // Avoid indefinite wait: performProjectUpdate calls ensureConnectivity(), which polls until
+        // isOnline() succeeds — in tests fetch often fails, so the update never finishes.
+        const ensureConnectivityStub = sinon.stub(connectivityChecker, "ensureConnectivity").resolves();
 
         // Make merge steps no-op
         const buildConflictsStub = sinon.stub(directoryConflicts, "buildConflictsFromDirectories").resolves({
@@ -156,6 +161,7 @@ suite("StartupFlowProvider Update - triggers LFS-aware sync", () => {
         initStub.restore();
         getExtensionStub.restore();
         getCodexProjectsDirectoryStub.restore();
+        ensureConnectivityStub.restore();
         buildConflictsStub.restore();
         resolveConflictFilesStub.restore();
         if (fsStatStub) {

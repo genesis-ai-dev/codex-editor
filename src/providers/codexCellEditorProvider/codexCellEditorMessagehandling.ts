@@ -315,6 +315,43 @@ async function getAudioFilePathForCell(
     return null;
 }
 
+/**
+ * True when the source notebook has a resolvable audio file for this cell (metadata or legacy paths).
+ * Used so we only show "Transcribing source audio…" when transcription can actually run — not when
+ * source text is missing from the index or empty with no audio.
+ */
+async function sourceCellHasResolvableAudioForTranscription(
+    sourceUri: vscode.Uri,
+    cellId: string,
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<boolean> {
+    const cancellationTokenSource = new vscode.CancellationTokenSource();
+    try {
+        const sourceDoc = await CodexCellDocument.create(
+            sourceUri,
+            undefined,
+            cancellationTokenSource.token
+        );
+        try {
+            const cell = sourceDoc.getCell(cellId);
+            const audioPath = await getAudioFilePathForCell(
+                cell ?? {},
+                cellId,
+                workspaceFolder,
+                sourceUri
+            );
+            return audioPath !== null;
+        } finally {
+            sourceDoc.dispose();
+        }
+    } catch (e) {
+        debug("sourceCellHasResolvableAudioForTranscription: could not read source or check audio", e);
+        return false;
+    } finally {
+        cancellationTokenSource.dispose();
+    }
+}
+
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
     webviewReady: () => { /* no-op */ },
@@ -815,6 +852,23 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     "sourceTexts",
                     sourceFileName
                 );
+
+                const hasAudioForTranscription =
+                    await sourceCellHasResolvableAudioForTranscription(
+                        sourcePath,
+                        cellId,
+                        workspaceFolder
+                    );
+                if (!hasAudioForTranscription) {
+                    const readyNoAudio = await provider.isLLMReady().catch(() => true);
+                    if (!readyNoAudio) {
+                        vscode.window.showWarningMessage(
+                            "LLM is not configured. Set an API key or sign in to generate predictions."
+                        );
+                    }
+                    await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
+                    return;
+                }
 
                 await vscode.commands.executeCommand(
                     "vscode.openWith",
