@@ -380,6 +380,7 @@ export class MissingToolsWarningProvider {
         try {
             switch (tool) {
                 case "sqlite": {
+                    await resetRetryCount(this._context, "sqlite");
                     const { ensureSqliteNativeBinary } = await import("../../utils/sqliteNativeBinaryManager");
                     const { initNativeSqlite } = await import("../../utils/nativeSqlite");
                     const binaryPath = await ensureSqliteNativeBinary(this._context);
@@ -399,6 +400,7 @@ export class MissingToolsWarningProvider {
                     break;
                 }
                 case "git": {
+                    await resetRetryCount(this._context, "git");
                     const { getAuthApi } = await import("../../extension");
                     const { resetGitBinaryPath } = await import("../../utils/dugiteGit");
                     const { setNativeGitAvailable } = await import("../../utils/toolPreferences");
@@ -413,6 +415,7 @@ export class MissingToolsWarningProvider {
                     break;
                 }
                 case "ffmpeg": {
+                    await resetRetryCount(this._context, "ffmpeg");
                     const { downloadFFmpeg } = await import("../../utils/ffmpegManager");
                     const result = await downloadFFmpeg(this._context);
                     success = result !== null;
