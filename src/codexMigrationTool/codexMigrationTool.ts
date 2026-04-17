@@ -34,6 +34,7 @@ async function getHtmlForCodexMigrationToolView(
     const codiconsUri = webview.asWebviewUri(
         vscode.Uri.joinPath(
             context.extensionUri,
+            "out",
             "node_modules",
             "@vscode/codicons",
             "dist",

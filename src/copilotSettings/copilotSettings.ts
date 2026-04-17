@@ -54,7 +54,7 @@ export async function openSystemMessageEditor() {
     const codiconsUri = panel.webview.asWebviewUri(
         vscode.Uri.joinPath(
             vscode.extensions.getExtension('project-accelerate.codex-editor-extension')!.extensionUri,
-            'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css'
+            'out', 'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css'
         )
     );
 
