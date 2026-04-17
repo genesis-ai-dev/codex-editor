@@ -41,6 +41,8 @@ import {
     updateCachedSubsection as updateCachedSubsectionUtil,
     getPreferredEditorTab as getPreferredEditorTabUtil,
     updatePreferredEditorTab as updatePreferredEditorTabUtil,
+    getPasteAsPlainText as getPasteAsPlainTextUtil,
+    updatePasteAsPlainText as updatePasteAsPlainTextUtil,
 } from "./utils/workspaceStateUtils";
 import { processVideoUrl } from "./utils/videoUtils";
 import {
@@ -612,7 +614,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
-                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
+                vscode.Uri.joinPath(this.context.extensionUri, "out", "node_modules", "@vscode", "codicons", "dist"),
                 vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
             ]
         };
@@ -1458,6 +1460,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         await updatePreferredEditorTabUtil(this.context.workspaceState, tab);
     }
 
+    public getPasteAsPlainText(): boolean {
+        return getPasteAsPlainTextUtil(this.context.workspaceState);
+    }
+
+    public async updatePasteAsPlainText(enabled: boolean) {
+        await updatePasteAsPlainTextUtil(this.context.workspaceState, enabled);
+    }
+
     private getHtmlForWebview(
         webview: vscode.Webview,
         document: CodexCellDocument,
@@ -1473,6 +1483,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
+                "out",
                 "node_modules",
                 "@vscode/codicons",
                 "dist",
