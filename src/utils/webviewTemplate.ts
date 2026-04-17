@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getNonce } from "./getNonce";
+import { getPostHogWebviewScript } from "./telemetry";
 
 interface WebviewTemplateOptions {
     title?: string;
@@ -8,6 +9,7 @@ interface WebviewTemplateOptions {
     initialData?: any;
     inlineStyles?: string;
     customScript?: string;
+    webviewName?: string;
 }
 
 export function getWebviewHtml(
@@ -33,7 +35,7 @@ export function getWebviewHtml(
         `img-src ${webview.cspSource} https: data:; ` +
         `font-src ${webview.cspSource}; ` +
         `worker-src ${webview.cspSource} blob:; ` +
-        `connect-src https://*.vscode-cdn.net https://*.frontierrnd.com; ` +
+        `connect-src https://*.vscode-cdn.net https://*.frontierrnd.com https://*.posthog.com https://*.i.posthog.com; ` +
         `media-src ${webview.cspSource} https: blob:;`;
     const csp = (options.csp || defaultCsp).replace(/\$\{nonce\}/g, nonce);
 
@@ -50,6 +52,7 @@ export function getWebviewHtml(
 </head>
 <body>
     <div id="root"></div>
+    ${getPostHogWebviewScript(nonce, options.webviewName ?? options.scriptPath[0])}
     ${options.initialData ? `<script nonce="${nonce}">window.initialData = ${JSON.stringify(options.initialData)};</script>` : ""}
     ${options.customScript ? `<script nonce="${nonce}">${options.customScript}</script>` : ""}
     <script nonce="${nonce}" src="${scriptUri}"></script>

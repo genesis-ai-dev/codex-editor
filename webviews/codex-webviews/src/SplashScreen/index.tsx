@@ -1,10 +1,11 @@
+import "../shared/posthog";
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { SplashScreen } from "./SplashScreen";
 import "../tailwind.css";
 import "./SplashScreen.css";
 
-// Initialize the app when the DOM is loaded
 document.addEventListener("DOMContentLoaded", () => {
     const rootElement = document.getElementById("root");
 
@@ -14,8 +15,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const root = createRoot(rootElement);
-    root.render(React.createElement(SplashScreen));
+    root.render(
+        <ErrorBoundary>
+            <SplashScreen />
+        </ErrorBoundary>
+    );
 });
 
-// Default export for Vite
 export default SplashScreen;

@@ -279,12 +279,7 @@ ChapterNavigationHeaderProps) {
                 setTruncatedBookName((prev) => (prev !== null ? null : prev));
             }
         });
-    }, [
-        getDisplayTitle,
-        shouldShowHamburger,
-        subsections,
-        currentSubsectionIndex,
-    ]);
+    }, [getDisplayTitle, shouldShowHamburger, subsections, currentSubsectionIndex]);
 
     // Unified resize + breakpoint handling via ResizeObserver on the header container.
     // Uses container width (not window.innerWidth) so breakpoints respond to the
@@ -336,7 +331,13 @@ ChapterNavigationHeaderProps) {
     // Re-run title truncation when content changes (resize is handled by the unified ResizeObserver above)
     useEffect(() => {
         measureAndTruncateTitle();
-    }, [getDisplayTitle, translationUnitsForSection, subsections, currentSubsectionIndex, measureAndTruncateTitle]);
+    }, [
+        getDisplayTitle,
+        translationUnitsForSection,
+        subsections,
+        currentSubsectionIndex,
+        measureAndTruncateTitle,
+    ]);
 
     // Common handler for stopping any kind of translation
     const handleStopTranslation = () => {
@@ -442,7 +443,9 @@ ChapterNavigationHeaderProps) {
             // Validate milestone index to prevent -1 or out-of-bounds requests
             const milestoneCount = milestoneIndex?.milestones.length ?? 0;
             if (newMilestoneIdx < 0 || newMilestoneIdx >= milestoneCount) {
-                console.warn(`[jumpToMilestone] Invalid milestone index: ${newMilestoneIdx}, total: ${milestoneCount}`);
+                console.warn(
+                    `[jumpToMilestone] Invalid milestone index: ${newMilestoneIdx}, total: ${milestoneCount}`
+                );
                 return;
             }
             if (
@@ -455,7 +458,13 @@ ChapterNavigationHeaderProps) {
                 requestCellsForMilestone(newMilestoneIdx, newSubsectionIdx);
             }
         },
-        [unsavedChanges, currentMilestoneIndex, currentSubsectionIndex, requestCellsForMilestone, milestoneIndex?.milestones.length]
+        [
+            unsavedChanges,
+            currentMilestoneIndex,
+            currentSubsectionIndex,
+            requestCellsForMilestone,
+            milestoneIndex?.milestones.length,
+        ]
     );
 
     // Use dynamic responsive state variables based on content overflow
@@ -662,7 +671,7 @@ ChapterNavigationHeaderProps) {
 
                 <div
                     ref={chapterTitleRef}
-                    className="chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer rounded-md transition-all duration-200 ease-in-out px-2"
+                    className="ph-mask chapter-title-container flex items-center min-w-0 max-w-full cursor-pointer rounded-md transition-all duration-200 ease-in-out px-2"
                     onClick={() => {
                         // Always allow opening the milestone accordion when there are no unsaved changes
                         if (!unsavedChanges) {
