@@ -40,6 +40,8 @@ import {
     updateCachedSubsection as updateCachedSubsectionUtil,
     getPreferredEditorTab as getPreferredEditorTabUtil,
     updatePreferredEditorTab as updatePreferredEditorTabUtil,
+    getPasteAsPlainText as getPasteAsPlainTextUtil,
+    updatePasteAsPlainText as updatePasteAsPlainTextUtil,
 } from "./utils/workspaceStateUtils";
 import { processVideoUrl } from "./utils/videoUtils";
 import {
@@ -1500,6 +1502,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         tab: "source" | "backtranslation" | "footnotes" | "timestamps" | "audio"
     ) {
         await updatePreferredEditorTabUtil(this.context.workspaceState, tab);
+    }
+
+    public getPasteAsPlainText(): boolean {
+        return getPasteAsPlainTextUtil(this.context.workspaceState);
+    }
+
+    public async updatePasteAsPlainText(enabled: boolean) {
+        await updatePasteAsPlainTextUtil(this.context.workspaceState, enabled);
     }
 
     private getHtmlForWebview(

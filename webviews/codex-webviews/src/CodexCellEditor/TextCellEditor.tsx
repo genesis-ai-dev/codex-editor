@@ -43,6 +43,7 @@ import {
     DialogTitle,
 } from "../components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Checkbox } from "../components/ui/checkbox";
 import "./TextCellEditor-overrides.css";
 import { Slider } from "../components/ui/slider";
 
@@ -310,6 +311,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Load preferred tab from provider on mount
     useEffect(() => {
         window.vscodeApi.postMessage({ command: "getPreferredEditorTab" });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const [pasteAsPlainText, setPasteAsPlainText] = useState(false);
+    const [characterCount, setCharacterCount] = useState(0);
+
+    useEffect(() => {
+        window.vscodeApi.postMessage({ command: "getPasteAsPlainText" });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -1087,6 +1096,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         },
         [cellMarkers, centerEditor]
+    );
+
+    useMessageHandler(
+        "textCellEditor-pasteAsPlainText",
+        (event: MessageEvent) => {
+            if (event.data?.type === "pasteAsPlainTextPreference") {
+                setPasteAsPlainText(event.data.enabled);
+            }
+        },
+        []
     );
 
     // Listen for storeFootnote messages
@@ -2196,8 +2215,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             setIsEditingFootnoteInline={setIsEditingFootnoteInline}
                             isEditingFootnoteInline={isEditingFootnoteInline}
                             footnoteOffset={footnoteOffset}
+                            pasteAsPlainText={pasteAsPlainText}
+                            onCharacterCountChange={setCharacterCount}
                         />
                     </div>
+                </div>
+
+                <div className="flex items-center justify-between px-1 py-1">
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <Checkbox
+                            checked={pasteAsPlainText}
+                            onCheckedChange={(checked: boolean | "indeterminate") => {
+                                const next = checked === true;
+                                setPasteAsPlainText(next);
+                                window.vscodeApi.postMessage({
+                                    command: "setPasteAsPlainText",
+                                    content: { enabled: next },
+                                });
+                            }}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                            Paste as plain text
+                        </span>
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                        {characterCount} characters
+                    </span>
                 </div>
 
                 <Tabs

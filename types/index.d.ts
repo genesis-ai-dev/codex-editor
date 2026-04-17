@@ -375,6 +375,8 @@ export type EditorPostMessages =
             | "audio";
         };
     }
+    | { command: "getPasteAsPlainText"; }
+    | { command: "setPasteAsPlainText"; content: { enabled: boolean; }; }
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
@@ -1900,6 +1902,10 @@ type EditorReceiveMessages =
         | "footnotes"
         | "timestamps"
         | "audio";
+    }
+    | {
+        type: "pasteAsPlainTextPreference";
+        enabled: boolean;
     }
     | {
         type: "providerAutocompletionState";
