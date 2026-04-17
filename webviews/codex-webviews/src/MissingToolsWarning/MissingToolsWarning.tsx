@@ -3,6 +3,7 @@ import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 
 declare function acquireVsCodeApi(): {
     postMessage: (message: unknown) => void;
@@ -415,6 +416,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         toggleLabel={git.toggleLabel}
                         onToggle={git.showToggle ? onToggleGitMode : undefined}
                         toggleDisabled={syncInProgress}
+                        toggleDisabledReason={syncInProgress ? "Cannot switch while sync is in progress" : undefined}
                         onDelete={deleteMode ? () => onDeleteTool("git") : undefined}
                         onForceBuiltin={forceBuiltinMode && !git.forced ? () => onForceBuiltinTool("git") : undefined}
                         deleted={deletedTools.has("git")}
@@ -436,6 +438,7 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                         toggleLabel={audio.toggleLabel}
                         onToggle={audio.showToggle ? onToggleAudioMode : undefined}
                         toggleDisabled={audioProcessingInProgress}
+                        toggleDisabledReason={audioProcessingInProgress ? "Cannot switch while audio is being processed" : undefined}
                         onDelete={deleteMode ? () => onDeleteTool("ffmpeg") : undefined}
                         onForceBuiltin={forceBuiltinMode && !audio.forced ? () => onForceBuiltinTool("ffmpeg") : undefined}
                         deleted={deletedTools.has("ffmpeg")}
@@ -444,14 +447,32 @@ const ToolsStatusView: React.FC<ToolsStatusViewProps> = ({
                 </div>
 
                 <div className="flex justify-center gap-3">
-                    <Button
-                        onClick={deletedTools.size > 0 ? undefined : onClose}
-                        disabled={deletedTools.size > 0}
-                        variant="outline"
-                        className="min-w-[120px]"
-                    >
-                        Close
-                    </Button>
+                    {deletedTools.size > 0 ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span>
+                                    <Button
+                                        disabled
+                                        variant="outline"
+                                        className="min-w-[120px]"
+                                    >
+                                        Close
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                                Reload the window to apply tool changes
+                            </TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        <Button
+                            onClick={onClose}
+                            variant="outline"
+                            className="min-w-[120px]"
+                        >
+                            Close
+                        </Button>
+                    )}
                     {deletedTools.size > 0 && (
                         <Button
                             onClick={onReloadWindow}
@@ -684,6 +705,7 @@ interface StatusCardProps {
     toggleLabel?: string;
     onToggle?: () => void;
     toggleDisabled?: boolean;
+    toggleDisabledReason?: string;
     onDelete?: () => void;
     onForceBuiltin?: () => void;
     deleted?: boolean;
@@ -701,6 +723,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
     toggleLabel,
     onToggle,
     toggleDisabled = false,
+    toggleDisabledReason,
     onDelete,
     onForceBuiltin,
     deleted = false,
@@ -757,42 +780,79 @@ const StatusCard: React.FC<StatusCardProps> = ({
                 </p>
                 <div className="flex items-center gap-2 flex-wrap">
                     {onDownload && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={isOnline ? onDownload : undefined}
-                            disabled={!isOnline || downloading}
-                            className="h-7 text-xs"
-                        >
-                            {downloading ? (
-                                <>
-                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1.5" />
-                                    Downloading…
-                                </>
-                            ) : !isOnline ? (
-                                <>
-                                    <i className="codicon codicon-globe mr-1.5" />
-                                    Offline
-                                </>
-                            ) : (
-                                <>
-                                    <i className="codicon codicon-cloud-download mr-1.5" />
-                                    Download and Install
-                                </>
-                            )}
-                        </Button>
+                        !isOnline && !downloading ? (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled
+                                            className="h-7 text-xs"
+                                        >
+                                            <i className="codicon codicon-globe mr-1.5" />
+                                            Offline
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">
+                                    Connect to the internet to download
+                                </TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={isOnline ? onDownload : undefined}
+                                disabled={!isOnline || downloading}
+                                className="h-7 text-xs"
+                            >
+                                {downloading ? (
+                                    <>
+                                        <i className="codicon codicon-loading codicon-modifier-spin mr-1.5" />
+                                        Downloading…
+                                    </>
+                                ) : (
+                                    <>
+                                        <i className="codicon codicon-cloud-download mr-1.5" />
+                                        Download and Install
+                                    </>
+                                )}
+                            </Button>
+                        )
                     )}
                     {onToggle && toggleLabel && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onToggle}
-                            disabled={toggleDisabled}
-                            className="h-7 text-xs"
-                        >
-                            <i className="codicon codicon-arrow-swap mr-1.5" />
-                            {toggleLabel}
-                        </Button>
+                        toggleDisabled && toggleDisabledReason ? (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled
+                                            className="h-7 text-xs"
+                                        >
+                                            <i className="codicon codicon-arrow-swap mr-1.5" />
+                                            {toggleLabel}
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">
+                                    {toggleDisabledReason}
+                                </TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={onToggle}
+                                disabled={toggleDisabled}
+                                className="h-7 text-xs"
+                            >
+                                <i className="codicon codicon-arrow-swap mr-1.5" />
+                                {toggleLabel}
+                            </Button>
+                        )
                     )}
                     {onDelete && (
                         <Button
