@@ -181,27 +181,28 @@ function finishRealtimeStep(): number {
 async function failsPinMatchGate(activationStart: number): Promise<boolean> {
     const EXTENSION_ID = "project-accelerate.codex-editor-extension";
 
-    let effectivePins: Record<string, { version: string; url: string; }> | undefined;
+    // Ask the Conductor whether the pinned version is installed in the active
+    // profile. Using getPinMismatches (which calls getInstalled()) rather than
+    // checking the running extension version means dev extensions that shadow
+    // the installed VSIX don't cause a false mismatch — the gate answers
+    // "would the right version be running if there were no dev extension?"
+    let mismatches: Array<{ extensionId: string; pinnedVersion: string; runningVersion: string | null }> | undefined;
     try {
-        effectivePins = await vscode.commands.executeCommand(
-            "codex.conductor.getEffectivePinnedExtensions"
+        mismatches = await vscode.commands.executeCommand(
+            "codex.conductor.getPinMismatches"
         );
     } catch {
         // Conductor command not available in older Codex builds
         return false;
     }
-    if (!effectivePins) return false;
+    if (!mismatches || mismatches.length === 0) return false;
 
-    const myPin = effectivePins[EXTENSION_ID];
-    if (!myPin) return false;
+    const myMismatch = mismatches.find(
+        m => m.extensionId.toLowerCase() === EXTENSION_ID.toLowerCase()
+    );
+    if (!myMismatch) return false;
 
-    const myVersion = MetadataManager.getCurrentExtensionVersion(EXTENSION_ID);
-    if (!myVersion) return false; // unknown — can't decide
-    if (myVersion === myPin.version) {
-        return false;
-    }
-
-    console.log(`[Extension] Pin mismatch: ${myVersion} != ${myPin.version}. Halting at pin-match gate.`);
+    console.log(`[Extension] Pin mismatch (conductor): installed=${myMismatch.runningVersion ?? "none"} != pinned=${myMismatch.pinnedVersion}. Halting at pin-match gate.`);
     trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
     return true;
 }
