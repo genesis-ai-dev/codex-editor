@@ -108,11 +108,17 @@ export async function resolveSelectedAttachmentState(
     const selectedId = cell?.metadata?.selectedAudioId;
     if (!selectedId) {
         const atts = cell?.metadata?.attachments || {};
-        const hasUsable = Object.values(atts).some(
+        const vals = Object.values(atts) as any[];
+        const hasUsable = vals.some(
             (att: any) => att?.type === "audio" && !att.isDeleted && !att.isMissing
         );
+        const hasDeleted = vals.some(
+            (att: any) => att?.type === "audio" && att.isDeleted
+        );
         if (hasUsable) return "unselected";
-        return baseState === "none" ? "none" : "deletedOnly";
+        if (baseState === "missing") return "missing";
+        if (hasDeleted) return "unselected";
+        return "none";
     }
     const selectedAtt = (cell?.metadata?.attachments || {} as any)[selectedId];
     if (!selectedAtt || selectedAtt.type !== "audio" || selectedAtt.isDeleted) return baseState;
@@ -4530,7 +4536,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const ws = vscode.workspace.getWorkspaceFolder(document.uri);
                 if (!ws) continue;
 
-                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; } = {};
+                const availability: { [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"; } = {};
                 // Check audio availability for all cells using getCurrentAttachment()
                 let notebookCells: any[] = [];
                 try {
@@ -4548,7 +4554,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     const currentAttachment = document.getCurrentAttachment(cellId, "audio");
 
                     if (!currentAttachment) {
-                        availability[cellId] = history.some((h: any) => h.attachment?.isDeleted) ? "deletedOnly" : "none";
+                        const hasMissingInHistory = history.some((h: any) => h.attachment?.isMissing && !h.attachment?.isDeleted);
+                        const hasDeletedInHistory = history.some((h: any) => h.attachment?.isDeleted);
+                        availability[cellId] = hasMissingInHistory
+                            ? "missing"
+                            : hasDeletedInHistory
+                                ? "unselected"
+                                : "none";
                         continue;
                     }
 

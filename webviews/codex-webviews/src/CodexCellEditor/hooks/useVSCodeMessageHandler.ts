@@ -56,7 +56,8 @@ const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
 
     if (!selectedId) {
         if (hasUsable) return "unselected";
-        if (hasMissing || hasDeleted) return "deletedOnly";
+        if (hasMissing) return "missing";
+        if (hasDeleted) return "unselected";
         return "none";
     }
 
@@ -124,7 +125,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none"; }>>;
+    setAudioAttachments: Dispatch<SetStateAction<{ [cellId: string]: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "unselected" | "none"; }>>;
 
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;

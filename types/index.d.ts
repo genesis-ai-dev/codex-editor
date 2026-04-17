@@ -2172,6 +2172,13 @@ type EditorReceiveMessages =
         content: {
             cellId: string;
             audioId: string;
+            /**
+             * The audioId the client explicitly asked for in its `requestAudioForCell` call.
+             * Undefined when the request had no explicit id (main-editor "fetch current") or when
+             * the message is a proactive provider push (e.g. after a save). The main editor uses
+             * this to distinguish history-viewer downloads from responses meant for the main waveform.
+             */
+            requestedAudioId?: string;
             audioUrl?: string; // URL to access the audio file
             audioData?: string; // base64 data if needed
             transcription?: {

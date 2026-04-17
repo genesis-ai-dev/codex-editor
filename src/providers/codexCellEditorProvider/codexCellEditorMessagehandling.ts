@@ -1982,6 +1982,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             content: {
                                 cellId: cellId,
                                 audioId: targetAttachmentId,
+                                requestedAudioId: audioId || undefined,
                                 audioData: null,
                                 error: errorMessage,
                                 transcription: targetAttachment.transcription || null
@@ -1999,6 +2000,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                         content: {
                             cellId: cellId,
                             audioId: targetAttachmentId,
+                            requestedAudioId: audioId || undefined,
                             audioData: base64Data,
                             transcription: targetAttachment.transcription || null,
                             fileModified: fileStats.mtime,
@@ -2118,6 +2120,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 content: {
                                     cellId: cellId,
                                     audioId: targetAttachmentId,
+                                    requestedAudioId: audioId || undefined,
                                     audioData: base64Data,
                                     transcription: targetAttachment.transcription || null,
                                     fileModified: pointerStats.mtime,
@@ -2140,6 +2143,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     content: {
                         cellId: cellId,
                         audioId: null,
+                        requestedAudioId: audioId || undefined,
                         audioData: null
                     }
                 });
@@ -2189,6 +2193,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             content: {
                                 cellId: cellId,
                                 audioId: audioFile.replace(/\.[^/.]+$/, ""),
+                                requestedAudioId: audioId || undefined,
                                 audioData: base64Data
                             }
                         });
@@ -2208,6 +2213,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             content: {
                 cellId: cellId,
                 audioId: audioId || null,
+                requestedAudioId: audioId || undefined,
                 audioData: null
             }
         });
@@ -2542,14 +2548,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         const audioHistory = document.getAttachmentHistory(typedEvent.content.cellId, "audio") || [];
 
-        // Check if there's an explicit selection or if we're using automatic behavior
+        // Check if there's an explicit selection or if we're using automatic behavior.
         const explicitSelection = document.getExplicitAudioSelection(typedEvent.content.cellId);
 
-        // Only report a currentAttachmentId when there's an explicit selection —
-        // otherwise send null so the webview stays in the "unselected" state.
-        const currentAttachmentId = explicitSelection
-            ? (document.getCurrentAttachment(typedEvent.content.cellId, "audio")?.attachmentId ?? null)
-            : null;
+        // Trust the explicit selection directly. After `cleanupInvalidAudioSelections` above,
+        // `explicitSelection` is either null or points to a present, non-deleted attachment
+        // (possibly `isMissing`, which is the signal we want to preserve in the viewer).
+        //
+        // We intentionally bypass `getCurrentAttachment` here: that helper deliberately falls
+        // through to the newest non-missing attachment when the selected id is missing so
+        // playback can auto-fall-back, but that would highlight the WRONG row in the history
+        // viewer (and flip `hasExplicitSelection=true` while pointing at a different id).
+        const currentAttachmentId = explicitSelection;
 
         // Compute per-entry availability so the history viewer shows correct Play/Download
         const entryAvailability: Record<string, string> = {};
@@ -2791,8 +2801,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             document.clearAudioSelection(cellId);
 
             const history = document.getAttachmentHistory(cellId, "audio");
-            const hasNonDeleted = history.some((h: any) => !h.attachment?.isDeleted);
-            const updatedState = hasNonDeleted ? "unselected" : (history.length > 0 ? "deletedOnly" : "none");
+            const hasUsable = history.some((h: any) => !h.attachment?.isDeleted && !h.attachment?.isMissing);
+            const hasMissing = history.some((h: any) => h.attachment?.isMissing && !h.attachment?.isDeleted);
+            const hasDeleted = history.some((h: any) => h.attachment?.isDeleted);
+            const updatedState = hasUsable
+                ? "unselected"
+                : hasMissing
+                    ? "missing"
+                    : hasDeleted
+                        ? "unselected"
+                        : "none";
 
             provider.postMessageToWebview(webviewPanel, {
                 type: "audioAttachmentSelected",

@@ -3054,10 +3054,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         attachment.isDeleted = true;
         attachment.updatedAt = Date.now();
 
-        // If we're deleting the selected audio, clear the selection (fall back to automatic)
+        // If we're deleting the selected audio, clear the selection (fall back to automatic).
+        // Preserve the keys with an empty string + fresh timestamp so the deselection is
+        // explicit and CRDT-mergeable rather than a silent key removal.
         if (attachment.type === "audio" && cell.metadata?.selectedAudioId === attachmentId) {
-            delete cell.metadata.selectedAudioId;
-            delete cell.metadata.selectionTimestamp;
+            cell.metadata.selectedAudioId = "";
+            cell.metadata.selectionTimestamp = Date.now();
         }
 
         // Record the edit
@@ -3273,12 +3275,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells[indexOfCellToUpdate];
 
+        // Preserve existing "nothing to clear" short-circuit: undefined AND "" both return.
+        // This avoids churning the file/edit log when deselect is called on a cell that
+        // was never selected or has already been explicitly cleared.
         if (!cell.metadata?.selectedAudioId) {
-            return; // Nothing to clear
+            return;
         }
 
-        delete cell.metadata.selectedAudioId;
-        delete cell.metadata.selectionTimestamp;
+        cell.metadata.selectedAudioId = "";
+        cell.metadata.selectionTimestamp = Date.now();
 
         // Record the edit
         this._edits.push({
@@ -3304,15 +3309,28 @@ export class CodexCellDocument implements vscode.CustomDocument {
             (cell) => cell.metadata?.id === cellId
         );
 
-        return cell?.metadata?.selectedAudioId ?? null;
+        // Treat an empty string (explicitly cleared) the same as an absent key, so callers
+        // that check for a "real" explicit selection don't get fooled by the sentinel "".
+        const val = cell?.metadata?.selectedAudioId;
+        return val ? val : null;
     }
 
     /**
-     * Cleans up invalid audio selections for all cells (safe to call during document operations)
+     * Cleans up invalid audio selections for all cells (safe to call during document operations).
      * This is separated from getCurrentAttachment to avoid modifying state during read operations.
      *
-     * When the selected audio is missing but a valid non-missing alternative exists,
-     * the selection is automatically updated to the best available attachment.
+     * A selection is considered invalid only when the pointer is semantically dead:
+     *   - the attachment id is not present in `metadata.attachments`
+     *   - the attachment is not of type `"audio"`
+     *   - the attachment is soft-deleted (`isDeleted === true`)
+     *
+     * Missing-but-present selections (`isMissing === true`) are intentionally PRESERVED
+     * so the UI can render a "missing audio" indicator for that cell/row. This matches the
+     * invariant enforced by `resolveAudioSelection` in `src/projectManager/utils/merge/resolvers.ts`,
+     * which also refuses to drop a selection purely because the file bytes are unavailable.
+     *
+     * When a selection is cleared, it is set to `""` (empty string sentinel) with a fresh
+     * `selectionTimestamp` so the clear is CRDT-mergeable rather than a silent key removal.
      */
     public cleanupInvalidAudioSelections(): void {
         try {
@@ -3329,11 +3347,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     selectedAttachment.type !== "audio" ||
                     selectedAttachment.isDeleted;
 
-                const isMissing = !isInvalid && selectedAttachment.isMissing === true;
-
-                if (isInvalid || isMissing) {
-                    delete cell.metadata.selectedAudioId;
-                    delete cell.metadata.selectionTimestamp;
+                if (isInvalid) {
+                    cell.metadata.selectedAudioId = "";
+                    cell.metadata.selectionTimestamp = Date.now();
                     hasChanges = true;
                     if (cell.metadata?.id) {
                         this._dirtyCellIds.add(cell.metadata.id);

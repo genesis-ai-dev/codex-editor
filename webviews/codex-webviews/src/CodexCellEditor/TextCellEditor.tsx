@@ -1622,43 +1622,50 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [cellMarkers, audioBlob, audioAttachments]);
 
-    // Load existing audio when component mounts
+    // Cell-switch effect: reset per-cell state and handle one-shot session flags.
+    // Keyed on the primitive cellId so it does NOT re-fire on audioBlob/audioAttachments
+    // changes. Re-firing here would wipe a freshly-set `currentSelectedAudioId`, causing
+    // the `providerSendsAudioData` response guard to drop main-waveform updates (e.g.
+    // when the user selects then downloads an entry in the audio history viewer).
     useEffect(() => {
-        // Reset selected audio ID when switching cells
+        const cellId = cellMarkers[0];
         setCurrentSelectedAudioId(null);
-        // Don't try to load from session storage or cell data directly
-        // Just request audio attachments from the provider which will send proper base64 data
-        preloadAudioForTab();
-        // Also request audio history to determine if History button should be shown
         window.vscodeApi.postMessage({
             command: "getAudioHistory",
-            content: { cellId: cellMarkers[0] },
+            content: { cellId },
         });
-        // If requested by list view, auto-record (only if cell is not locked)
         try {
-            const autoRecord = sessionStorage.getItem(`start-audio-recording-${cellMarkers[0]}`);
+            const autoRecord = sessionStorage.getItem(`start-audio-recording-${cellId}`);
             if (autoRecord && !isCellLocked) {
                 setShowRecorder(true);
                 setTimeout(() => {
                     startRecording();
-                    sessionStorage.removeItem(`start-audio-recording-${cellMarkers[0]}`);
+                    sessionStorage.removeItem(`start-audio-recording-${cellId}`);
                 }, 300);
             } else if (autoRecord && isCellLocked) {
-                sessionStorage.removeItem(`start-audio-recording-${cellMarkers[0]}`);
+                sessionStorage.removeItem(`start-audio-recording-${cellId}`);
             }
         } catch {
             // no-op
         }
         try {
-            const openHistory = sessionStorage.getItem(`open-audio-history-${cellMarkers[0]}`);
+            const openHistory = sessionStorage.getItem(`open-audio-history-${cellId}`);
             if (openHistory) {
-                sessionStorage.removeItem(`open-audio-history-${cellMarkers[0]}`);
+                sessionStorage.removeItem(`open-audio-history-${cellId}`);
                 setShowAudioHistory(true);
             }
         } catch {
             // no-op
         }
-    }, [preloadAudioForTab, cellMarkers]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cellMarkers[0]]);
+
+    // Preload effect: runs preloadAudioForTab whenever its inputs change (cell, audioBlob,
+    // audioAttachments). preloadAudioForTab is internally idempotent (short-circuits when
+    // audioBlob is set; handles none/deletedOnly/unselected states explicitly).
+    useEffect(() => {
+        preloadAudioForTab();
+    }, [preloadAudioForTab]);
 
     // When switching to a new cell, ensure the editor is fully visible
     useEffect(() => {
@@ -1824,15 +1831,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.content.cellId === cellMarkers[0]
             ) {
                 if (message.content.audioData) {
-                    // Only update the main waveform/selection when the audio matches
-                    // the currently selected recording. Audio fetched for the history
-                    // viewer (e.g. playing a deleted recording) should not leak here.
+                    // Only update the main waveform/selection when this response was not
+                    // triggered by a history-viewer request for a specific non-current audio.
+                    // The provider includes `requestedAudioId` echoing the explicit id asked
+                    // for (if any). Main-editor requests omit the id entirely, and proactive
+                    // pushes (e.g. after-save) also omit it — in both cases the response is
+                    // meant for the main waveform. A history-viewer request always specifies
+                    // an id, so we only accept it here if it matches the current selection.
                     const incomingId = message.content.audioId;
-                    const cellState = audioAttachments?.[cellMarkers[0]];
+                    const requestedAudioId = (message.content as any).requestedAudioId as
+                        | string
+                        | undefined;
                     const isForCurrentSelection =
-                        !incomingId ||
-                        incomingId === currentSelectedAudioId ||
-                        (cellState !== "unselected" && cellState !== "deletedOnly");
+                        !requestedAudioId || requestedAudioId === currentSelectedAudioId;
 
                     // Always cache the per-attachment data so the history viewer can use it
                     if (incomingId) {
