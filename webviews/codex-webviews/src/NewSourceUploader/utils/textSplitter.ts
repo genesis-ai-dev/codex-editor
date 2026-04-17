@@ -10,13 +10,18 @@
  *   and if so, finds the best boundary closest to the midpoint:
  *
  *   L1 (sentence boundaries)  — tried when length > N * THRESHOLD_SPLIT
- *   L2 (sub-sentence breaks)  — tried when length > N * THRESHOLD_L2
- *   L3 (whitespace)           — tried when length > N * THRESHOLD_L3
+ *   L2 (sub-sentence breaks)  — tried when there is no suitable L1 boundary and length > N * THRESHOLD_L2
+ *   L3 (whitespace)           — tried when there is no suitable L1 or L2 boundary and length > N * THRESHOLD_L3
  *
  *   Each split is rejected if it would leave either side shorter than N * MIN_SIDE_RATIO.
  *   After a successful split, both halves are recursively re-evaluated.
  */
 
+
+/**
+ * 160 seems to be a good default for English, but depending on the language and how it is encoded, it will surely vary.
+ * Thus, I've made it adjustable to the user.
+ */
 export const DEFAULT_IDEAL_CELL_LENGTH = 160;
 
 // ---------------------------------------------------------------------------
@@ -170,6 +175,17 @@ function splitRecursive(
             ];
         }
     }
+    /**
+     * Really, I'd like to implement some much more sophisticated techniques 
+     * for splitting L3. Whitespace is a last resort, but it's not great. 
+     * Short of making calls to an llm, a better approach might use stats to 
+     * make decent guesses at where clauses start and end, for languages that 
+     * use whitespace.
+     * 
+     * For those that don't use whitespace (e.g. CJK, Thai, Khmer, Lao, Myanmar), 
+     * even this wouldn't help at all. As it is, we should try to implement 
+     * something to prefer splitting at word boundaries rather than within compounds.
+     */
 
     // Cannot split further
     return [{ start, end }];
