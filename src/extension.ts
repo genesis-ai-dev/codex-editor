@@ -66,6 +66,7 @@ import { initializeAudioExporter } from "./exportHandler/audioExporter";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
 import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode, getAudioToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
+import { resetRetryCount } from "./utils/binaryIntegrityUtils";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 import {
@@ -175,6 +176,42 @@ function finishRealtimeStep(): number {
     return globalThis.performance.now();
 }
 
+/**
+ * Pin-match gate: returns true when the running version of codex-editor does
+ * not match the project's pinned version, meaning activation must halt at the
+ * gate while the Conductor switches profiles.
+ *
+ * Reads pins via the Conductor's effective pin resolution (admin intent →
+ * remote → local). The Conductor command is always available because
+ * workbench contributions activate before extensions.
+ */
+async function failsPinMatchGate(activationStart: number): Promise<boolean> {
+    const EXTENSION_ID = "project-accelerate.codex-editor-extension";
+
+    let effectivePins: Record<string, { version: string; url: string; }> | undefined;
+    try {
+        effectivePins = await vscode.commands.executeCommand(
+            "codex.conductor.getEffectivePinnedExtensions"
+        );
+    } catch {
+        // Conductor command not available in older Codex builds
+        return false;
+    }
+    if (!effectivePins) return false;
+
+    const myPin = effectivePins[EXTENSION_ID];
+    if (!myPin) return false;
+
+    const myVersion = MetadataManager.getCurrentExtensionVersion(EXTENSION_ID);
+    if (!myVersion) return false; // unknown — can't decide
+    if (myVersion === myPin.version) {
+        return false;
+    }
+
+    console.log(`[Extension] Pin mismatch: ${myVersion} != ${myPin.version}. Halting at pin-match gate.`);
+    trackTiming("Starting Project Synchronization (Version Pin Enforcement)", activationStart);
+    return true;
+}
 let autoCompleteStatusBarItem: StatusBarItem;
 // let commitTimeout: any;
 // const COMMIT_DELAY = 5000; // Delay in milliseconds
@@ -356,6 +393,26 @@ export async function activate(context: vscode.ExtensionContext) {
         captureException(reason, { source: "unhandledRejection" });
     });
 
+    // Check for metadata.json early — this determines if we're in a Codex project
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    let metadataExists = false;
+    if (workspaceFolders && workspaceFolders.length > 0) {
+        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+        try {
+            await vscode.workspace.fs.stat(metadataUri);
+            metadataExists = true;
+        } catch {
+            metadataExists = false;
+        }
+    }
+
+    // Pin-match gate: before heavy initialization, halt if our running version
+    // doesn't match the project's pin so the Conductor can switch profiles.
+    if (metadataExists && await failsPinMatchGate(activationStart)) {
+        updateSplashScreenSync(0, "Applying extension version pins...");
+        return;
+    }
+
     let stepStart = activationStart;
 
     try {
@@ -376,19 +433,6 @@ export async function activate(context: vscode.ExtensionContext) {
         notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         await notebookMetadataManager.initialize();
         stepStart = trackTiming("Loading Project Metadata", metadataStart);
-
-        // Check for metadata.json early — this determines if we're in a Codex project
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        let metadataExists = false;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
-            try {
-                await vscode.workspace.fs.stat(metadataUri);
-                metadataExists = true;
-            } catch {
-                metadataExists = false;
-            }
-        }
 
         // Comments migration is now manual via command palette: "Codex: Migrate Legacy Comments"
         // Repair still runs at startup to fix any corrupted data
@@ -636,6 +680,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
                     if (!current.git) {
                         try {
+                            await resetRetryCount(context, "git");
                             await authApi?.retryGitBinaryDownload?.();
                         } catch (e) {
                             console.error("[Extension] Git binary retry failed:", e);
@@ -643,6 +688,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                     if (!current.sqlite) {
                         try {
+                            await resetRetryCount(context, "sqlite");
                             const binaryPath = await ensureSqliteNativeBinary(context);
                             if (binaryPath) {
                                 initNativeSqlite(binaryPath);
@@ -658,7 +704,10 @@ export async function activate(context: vscode.ExtensionContext) {
                         }
                     }
                     if (!current.ffmpeg) {
-                        try { await downloadFFmpeg(context); } catch (e) {
+                        try {
+                            await resetRetryCount(context, "ffmpeg");
+                            await downloadFFmpeg(context);
+                        } catch (e) {
                             console.error("[Extension] FFmpeg retry failed:", e);
                         }
                     }
@@ -802,6 +851,12 @@ export async function activate(context: vscode.ExtensionContext) {
                     await MetadataManager.ensureExtensionVersionsRecorded(workspaceFolders[0].uri);
                 } catch (error) {
                     console.warn("[Extension] Error ensuring extension version requirements:", error);
+                }
+
+                try {
+                    await MetadataManager.ensureCurrentUserVersionRecorded(workspaceFolders[0].uri);
+                } catch (error) {
+                    console.warn("[Extension] Error recording user codex version:", error);
                 }
             }
 
