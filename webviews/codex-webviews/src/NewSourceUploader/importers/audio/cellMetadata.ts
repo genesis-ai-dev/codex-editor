@@ -67,6 +67,7 @@ export function createAudioCellMetadata(params: AudioCellMetadataParams): { meta
                     createdAt: Date.now(),
                     updatedAt: Date.now(),
                     isDeleted: false,
+                    audioAvailability: "available-local" as const,
                 },
             },
             selectedAudioId: params.attachmentId,

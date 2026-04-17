@@ -10,7 +10,7 @@ import {
 import { ProgressDots } from "./ProgressDots";
 import { deriveSubsectionPercentages, getProgressDisplay } from "../utils/progressUtils";
 import MicrophoneIcon from "../../components/ui/icons/MicrophoneIcon";
-import { Languages, Check, RotateCcw } from "lucide-react";
+import { Languages, Check, RotateCcw, TriangleAlert } from "lucide-react";
 import type { Subsection, ProgressPercentages } from "../../lib/types";
 import type { MilestoneIndex, MilestoneInfo } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
@@ -43,9 +43,22 @@ interface MilestoneAccordionProps {
         audioValidationLevels?: number[];
         requiredTextValidations?: number;
         requiredAudioValidations?: number;
+        cellsWithMissingAudio?: number;
     };
     requestSubsectionProgress?: (milestoneIdx: number) => void;
     vscode: any;
+    /** Audio state per cell - used to sync missing icon with CellContentDisplay */
+    audioAttachments?: {
+        [cellId: string]:
+            | "available"
+            | "available-local"
+            | "available-pointer"
+            | "missing"
+            | "deletedOnly"
+            | "none";
+    };
+    /** Cells in the current subsection - used with audioAttachments to derive missing count */
+    translationUnitsForSection?: Array<{ cellMarkers?: string[] }>;
 }
 
 export function MilestoneAccordion({
@@ -63,6 +76,8 @@ export function MilestoneAccordion({
     calculateSubsectionProgress,
     requestSubsectionProgress,
     vscode,
+    audioAttachments,
+    translationUnitsForSection,
 }: MilestoneAccordionProps) {
     // Layout constants
     const DROPDOWN_MAX_HEIGHT_VIEWPORT_PERCENT = 60; // 60vh
@@ -298,6 +313,7 @@ export function MilestoneAccordion({
                 audioValidationLevels: backendProgress.audioValidationLevels,
                 requiredTextValidations: backendProgress.requiredTextValidations,
                 requiredAudioValidations: backendProgress.requiredAudioValidations,
+                cellsWithMissingAudio: backendProgress.cellsWithMissingAudio,
             };
         }
 
@@ -319,6 +335,7 @@ export function MilestoneAccordion({
             audioValidationLevels: undefined,
             requiredTextValidations: undefined,
             requiredAudioValidations: undefined,
+            cellsWithMissingAudio: 0,
         };
     };
 
@@ -354,6 +371,14 @@ export function MilestoneAccordion({
     }, [isOpen, currentMilestoneIndex, currentSubsectionIndex]);
 
     if (!isOpen || !milestoneIndex) return null;
+
+    // Derive missing audio count from audioAttachments for current subsection (syncs with CellContentDisplay)
+    const currentSubsectionMissingFromAudio =
+        audioAttachments && translationUnitsForSection
+            ? translationUnitsForSection.filter(
+                  (unit) => audioAttachments[unit.cellMarkers?.[0] ?? ""] === "missing"
+              ).length
+            : 0;
 
     // Get milestone progress
     const getMilestoneProgress = (milestoneIdx: number) => {
@@ -764,6 +789,16 @@ export function MilestoneAccordion({
                             const isTextFullyTranslated =
                                 milestoneProgress.textCompletedPercent >= 100;
 
+                            const rawMilestoneProgress =
+                                milestoneIndex.milestoneProgress?.[milestoneIdx + 1];
+                            const backendMissing =
+                                rawMilestoneProgress?.cellsWithMissingAudio ?? 0;
+                            // Use audioAttachments-derived count when viewing this milestone so it stays in sync with CellContentDisplay
+                            const hasMissingAudio =
+                                milestoneIdx === currentMilestoneIndex
+                                    ? backendMissing > 0 || currentSubsectionMissingFromAudio > 0
+                                    : backendMissing > 0;
+
                             return (
                                 <div
                                     key={milestoneIdx}
@@ -784,6 +819,14 @@ export function MilestoneAccordion({
                                                         {displayValue}
                                                     </span>
                                                     <div className="flex items-center gap-2 flex-shrink-0">
+                                                        {hasMissingAudio && (
+                                                            <div
+                                                                className="flex items-center text-inputValidation-warningForeground"
+                                                                title="Missing audio"
+                                                            >
+                                                                <TriangleAlert className="h-[14px] w-[14px] text-red-500" />
+                                                            </div>
+                                                        )}
                                                         <div
                                                             className={`flex items-center ${audioDisplay.colorClass}`}
                                                             style={getIconStyle(
@@ -831,6 +874,10 @@ export function MilestoneAccordion({
                                                     const isActive =
                                                         isCurrentMilestone &&
                                                         currentSubsectionIndex === subsectionIdx;
+                                                    // Use audioAttachments for current subsection to sync with CellContentDisplay
+                                                    const subsectionHasMissingAudio = isActive
+                                                        ? currentSubsectionMissingFromAudio > 0
+                                                        : (progress.cellsWithMissingAudio ?? 0) > 0;
 
                                                     return (
                                                         <div
@@ -855,29 +902,39 @@ export function MilestoneAccordion({
                                                             }`}
                                                         >
                                                             <span>{subsection.label}</span>
-                                                            <ProgressDots
-                                                                className="gap-x-[14px]"
-                                                                audio={{
-                                                                    validatedPercent:
-                                                                        percentages.audioValidatedPercent,
-                                                                    completedPercent:
-                                                                        percentages.audioCompletedPercent,
-                                                                    validationLevels:
-                                                                        progress.audioValidationLevels,
-                                                                    requiredValidations:
-                                                                        progress.requiredAudioValidations,
-                                                                }}
-                                                                text={{
-                                                                    validatedPercent:
-                                                                        percentages.textValidatedPercent,
-                                                                    completedPercent:
-                                                                        percentages.textCompletedPercent,
-                                                                    validationLevels:
-                                                                        progress.textValidationLevels,
-                                                                    requiredValidations:
-                                                                        progress.requiredTextValidations,
-                                                                }}
-                                                            />
+                                                            <div className="flex items-center gap-2">
+                                                                {subsectionHasMissingAudio && (
+                                                                    <div
+                                                                        className="flex items-center text-inputValidation-warningForeground flex-shrink-0"
+                                                                        title="Missing audio"
+                                                                    >
+                                                                        <TriangleAlert className="h-[14px] w-[14px] text-red-500" />
+                                                                    </div>
+                                                                )}
+                                                                <ProgressDots
+                                                                    className="gap-x-[14px]"
+                                                                    audio={{
+                                                                        validatedPercent:
+                                                                            percentages.audioValidatedPercent,
+                                                                        completedPercent:
+                                                                            percentages.audioCompletedPercent,
+                                                                        validationLevels:
+                                                                            progress.audioValidationLevels,
+                                                                        requiredValidations:
+                                                                            progress.requiredAudioValidations,
+                                                                    }}
+                                                                    text={{
+                                                                        validatedPercent:
+                                                                            percentages.textValidatedPercent,
+                                                                        completedPercent:
+                                                                            percentages.textCompletedPercent,
+                                                                        validationLevels:
+                                                                            progress.textValidationLevels,
+                                                                        requiredValidations:
+                                                                            progress.requiredTextValidations,
+                                                                    }}
+                                                                />
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
