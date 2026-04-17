@@ -2543,23 +2543,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getAudioHistory: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getAudioHistory"; }>;
 
-        // Clean up any invalid audio selections (safe to do now that document is loaded)
-        document.cleanupInvalidAudioSelections();
-
         const audioHistory = document.getAttachmentHistory(typedEvent.content.cellId, "audio") || [];
-
-        // Check if there's an explicit selection or if we're using automatic behavior.
         const explicitSelection = document.getExplicitAudioSelection(typedEvent.content.cellId);
 
-        // Trust the explicit selection directly. After `cleanupInvalidAudioSelections` above,
-        // `explicitSelection` is either null or points to a present, non-deleted attachment
-        // (possibly `isMissing`, which is the signal we want to preserve in the viewer).
-        //
-        // We intentionally bypass `getCurrentAttachment` here: that helper deliberately falls
-        // through to the newest non-missing attachment when the selected id is missing so
-        // playback can auto-fall-back, but that would highlight the WRONG row in the history
-        // viewer (and flip `hasExplicitSelection=true` while pointing at a different id).
-        const currentAttachmentId = explicitSelection;
+        // A dangling explicit selection (id not present in attachments, or pointing to a
+        // deleted/non-audio attachment) is treated as "nothing selected" for the viewer.
+        // `selectedAudioId` is never auto-mutated on disk — this is a read-side UI decision
+        // that matches `deriveAudioAvailability` and `resolveSelectedAttachmentState`.
+        const resolves = !!explicitSelection && audioHistory.some(
+            (e) => e.attachmentId === explicitSelection && !e.attachment?.isDeleted
+        );
+        const currentAttachmentId = resolves ? explicitSelection : null;
+        const hasExplicitSelection = resolves;
 
         // Compute per-entry availability so the history viewer shows correct Play/Download
         const entryAvailability: Record<string, string> = {};
@@ -2580,7 +2575,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 cellId: typedEvent.content.cellId,
                 audioHistory: audioHistory,
                 currentAttachmentId,
-                hasExplicitSelection: explicitSelection !== null,
+                hasExplicitSelection,
                 entryAvailability,
             }
         });

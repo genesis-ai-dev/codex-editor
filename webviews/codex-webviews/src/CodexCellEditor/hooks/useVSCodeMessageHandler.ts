@@ -53,20 +53,21 @@ const deriveAudioAvailability = (unit: QuillCellContent): AudioAvailability => {
     }
 
     const selectedId = unit?.metadata?.selectedAudioId;
+    const selectedAtt = selectedId ? atts[selectedId] : undefined;
 
-    if (!selectedId) {
-        if (hasUsable) return "unselected";
-        if (hasMissing) return "missing";
-        if (hasDeleted) return "unselected";
-        return "none";
+    // Unified rule: the `missing` icon is shown ONLY when `selectedAudioId` validly
+    // resolves to an attachment with `isMissing: true`. In every other non-resolving
+    // case (no selection, empty-string deselect, invalid/dangling id) the cell icon
+    // falls back to `unselected` when any usable audio exists, else `none`. Matches
+    // `resolveSelectedAttachmentState` on the provider side.
+    const selectionResolves =
+        !!selectedAtt && selectedAtt.type === "audio" && !selectedAtt.isDeleted;
+
+    if (!selectionResolves) {
+        return hasUsable ? "unselected" : "none";
     }
 
-    const selectedAtt = atts[selectedId];
-    if (selectedAtt?.type === "audio" && selectedAtt?.isMissing) return "missing";
-    if (selectedAtt?.type === "audio" && selectedAtt?.isDeleted) {
-        return hasUsable ? "unselected" : "deletedOnly";
-    }
-
+    if (selectedAtt.isMissing) return "missing";
     if (hasUsable) return "available";
     if (hasMissing) return "missing";
     if (hasDeleted) return "deletedOnly";

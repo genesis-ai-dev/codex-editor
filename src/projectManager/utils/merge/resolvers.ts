@@ -1697,141 +1697,70 @@ export function mergeAttachments(
 }
 
 /**
- * Resolves audio selection conflicts using selection timestamps.
+ * Resolves audio selection conflicts purely by `selectionTimestamp`.
  *
- * Each side is classified into one of three states:
- *   - "absent":   the metadata object or `selectedAudioId` key is missing.
- *   - "cleared":  `selectedAudioId === ""` — the user explicitly deselected.
- *   - "explicit": `selectedAudioId` is a non-empty string.
+ * `selectedAudioId` is treated as user-intent data that is never auto-mutated by
+ * the merge path. Every code path that writes `selectedAudioId` also writes a
+ * fresh `selectionTimestamp`, so "newer timestamp wins" exactly equals "last
+ * user intent wins".
  *
  * Rules:
- *   - Both absent → return `{}` (no keys written).
- *   - One absent, the other has an opinion → the opinionated side wins.
- *   - Both have an opinion → newer `selectionTimestamp` wins; ties prefer ours.
- *   - Winner is "cleared" → `{ "", winnerTs }`.
- *   - Winner is "explicit" and the id exists + isn't deleted → `{ id, winnerTs }`.
- *     (Note: `isMissing === true` is intentionally ALLOWED so the UI can surface
- *     the missing indicator across a save round-trip.)
- *   - Winner is "explicit" but the id is absent from attachments or deleted →
- *     try the loser; failing that, normalize to `{ "", Date.now() }`.
+ *   - Both sides absent (key not set) → return `{}` (no keys written).
+ *   - One side absent → the other side's value wins verbatim.
+ *   - Both sides have a value (including `""` or a dangling id) → the side with
+ *     the newer `selectionTimestamp` wins; ties prefer ours. The winner's value
+ *     is kept verbatim — even if it doesn't resolve to a present attachment.
+ *
+ * Dangling ids (pointing to a nonexistent / deleted / non-audio attachment) can
+ * therefore persist through merges. The UI (`deriveAudioAvailability` in the
+ * webview, `resolveSelectedAttachmentState` on the provider) renders dangling
+ * ids as "nothing selected", so there is no user-visible corruption — only a
+ * preserved record of the user's last explicit intent.
  *
  * @param ourMetadata Our cell metadata
  * @param theirMetadata Their cell metadata
- * @param mergedAttachments The merged attachments object
+ * @param _mergedAttachments Kept for signature stability; no longer consulted.
  * @returns Resolved selection state
  */
 function resolveAudioSelection(
     ourMetadata?: any,
     theirMetadata?: any,
-    mergedAttachments?: { [key: string]: any; }
+    _mergedAttachments?: { [key: string]: any; }
 ): { selectedAudioId?: string; selectionTimestamp?: number; } {
     const ourSel: string | undefined = ourMetadata?.selectedAudioId;
     const ourTs: number | undefined = ourMetadata?.selectionTimestamp;
     const theirSel: string | undefined = theirMetadata?.selectedAudioId;
     const theirTs: number | undefined = theirMetadata?.selectionTimestamp;
 
-    type State = "absent" | "cleared" | "explicit";
-    const classify = (v: string | undefined | null): State =>
-        v === undefined || v === null ? "absent" : v === "" ? "cleared" : "explicit";
+    const ourMissing = ourSel === undefined || ourSel === null;
+    const theirMissing = theirSel === undefined || theirSel === null;
 
-    const ourState = classify(ourSel);
-    const theirState = classify(theirSel);
-
-    // An explicit id is "resolvable" only if the attachment is present and not deleted.
-    // We intentionally DO NOT reject on `isMissing` — a selected-but-missing id should
-    // persist across saves so the UI can render a "missing" indicator for that cell.
-    const explicitExists = (id?: string): boolean => {
-        if (!id || !mergedAttachments) return false;
-        const a = mergedAttachments[id];
-        return !!a && a.type === "audio" && !a.isDeleted;
-    };
-
-    if (ourState === "absent" && theirState === "absent") {
+    if (ourMissing && theirMissing) {
         return {};
     }
 
-    if (ourState === "absent") {
-        if (theirState === "cleared") {
-            return { selectedAudioId: "", selectionTimestamp: theirTs };
-        }
-        // theirState === "explicit"
-        if (explicitExists(theirSel)) {
-            debugLog(`Using their audio selection ${theirSel} (ours absent)`);
-            return { selectedAudioId: theirSel, selectionTimestamp: theirTs };
-        }
-        return { selectedAudioId: "", selectionTimestamp: Date.now() };
+    if (ourMissing) {
+        debugLog(`Using their audio selection ${theirSel} (ours absent)`);
+        return { selectedAudioId: theirSel, selectionTimestamp: theirTs };
     }
 
-    if (theirState === "absent") {
-        if (ourState === "cleared") {
-            return { selectedAudioId: "", selectionTimestamp: ourTs };
-        }
-        // ourState === "explicit"
-        if (explicitExists(ourSel)) {
-            debugLog(`Keeping our audio selection ${ourSel} (theirs absent)`);
-            return { selectedAudioId: ourSel, selectionTimestamp: ourTs };
-        }
-        return { selectedAudioId: "", selectionTimestamp: Date.now() };
+    if (theirMissing) {
+        debugLog(`Keeping our audio selection ${ourSel} (theirs absent)`);
+        return { selectedAudioId: ourSel, selectionTimestamp: ourTs };
     }
 
-    // Both sides have an opinion (cleared or explicit). Newer timestamp wins;
-    // ties prefer ours (matches the prior implementation's tie-break).
     const ourTime = ourTs ?? 0;
     const theirTime = theirTs ?? 0;
     const winnerIsOurs = theirTime > ourTime ? false : true;
 
-    const winSel = winnerIsOurs ? ourSel : theirSel;
-    const winState = winnerIsOurs ? ourState : theirState;
-    const winTs = winnerIsOurs ? ourTs : theirTs;
+    debugLog(
+        `Using ${winnerIsOurs ? "our" : "their"} audio selection ${winnerIsOurs ? ourSel : theirSel
+        } (newer or equal timestamp)`
+    );
 
-    if (winState === "cleared") {
-        debugLog(`Applying explicit clear (winner: ${winnerIsOurs ? "ours" : "theirs"})`);
-        return { selectedAudioId: "", selectionTimestamp: winTs };
-    }
-
-    // winState === "explicit"
-    if (explicitExists(winSel)) {
-        debugLog(
-            `Using ${winnerIsOurs ? "our" : "their"} audio selection ${winSel} (newer or equal timestamp)`
-        );
-        return { selectedAudioId: winSel, selectionTimestamp: winTs };
-    }
-
-    // Winner's explicit pick is nonexistent or deleted in the merged attachments.
-    // Fall back to the loser before normalizing.
-    const loseSel = winnerIsOurs ? theirSel : ourSel;
-    const loseState = winnerIsOurs ? theirState : ourState;
-    const loseTs = winnerIsOurs ? theirTs : ourTs;
-
-    if (loseState === "explicit" && explicitExists(loseSel)) {
-        debugLog(`Falling back to loser audio selection ${loseSel}`);
-        return { selectedAudioId: loseSel, selectionTimestamp: loseTs };
-    }
-    if (loseState === "cleared") {
-        return { selectedAudioId: "", selectionTimestamp: loseTs };
-    }
-
-    // Nothing usable anywhere — persist an explicit clear with a fresh timestamp
-    // so the dangling invalid id is purged from the file.
-    return { selectedAudioId: "", selectionTimestamp: Date.now() };
-}
-
-/**
- * Checks if a selection is valid (attachment exists and isn't deleted)
- * @param selectedId The selected attachment ID
- * @param attachments The attachments object
- * @returns True if selection is valid
- */
-function isValidSelection(selectedId: string, attachments?: { [key: string]: any; }): boolean {
-    if (!attachments || !selectedId) {
-        return false;
-    }
-
-    const attachment = attachments[selectedId];
-    return attachment &&
-        attachment.type === "audio" &&
-        !attachment.isDeleted &&
-        !attachment.isMissing;
+    return winnerIsOurs
+        ? { selectedAudioId: ourSel, selectionTimestamp: ourTs }
+        : { selectedAudioId: theirSel, selectionTimestamp: theirTs };
 }
 
 /**

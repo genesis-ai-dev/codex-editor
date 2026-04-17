@@ -3316,59 +3316,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
-     * Cleans up invalid audio selections for all cells (safe to call during document operations).
-     * This is separated from getCurrentAttachment to avoid modifying state during read operations.
-     *
-     * A selection is considered invalid only when the pointer is semantically dead:
-     *   - the attachment id is not present in `metadata.attachments`
-     *   - the attachment is not of type `"audio"`
-     *   - the attachment is soft-deleted (`isDeleted === true`)
-     *
-     * Missing-but-present selections (`isMissing === true`) are intentionally PRESERVED
-     * so the UI can render a "missing audio" indicator for that cell/row. This matches the
-     * invariant enforced by `resolveAudioSelection` in `src/projectManager/utils/merge/resolvers.ts`,
-     * which also refuses to drop a selection purely because the file bytes are unavailable.
-     *
-     * When a selection is cleared, it is set to `""` (empty string sentinel) with a fresh
-     * `selectionTimestamp` so the clear is CRDT-mergeable rather than a silent key removal.
-     */
-    public cleanupInvalidAudioSelections(): void {
-        try {
-            let hasChanges = false;
-
-            for (const cell of this._documentData.cells) {
-                if (!cell.metadata?.selectedAudioId || !cell.metadata.attachments) {
-                    continue;
-                }
-
-                const selectedAttachment = cell.metadata.attachments[cell.metadata.selectedAudioId];
-
-                const isInvalid = !selectedAttachment ||
-                    selectedAttachment.type !== "audio" ||
-                    selectedAttachment.isDeleted;
-
-                if (isInvalid) {
-                    cell.metadata.selectedAudioId = "";
-                    cell.metadata.selectionTimestamp = Date.now();
-                    hasChanges = true;
-                    if (cell.metadata?.id) {
-                        this._dirtyCellIds.add(cell.metadata.id);
-                    }
-                }
-            }
-
-            if (hasChanges) {
-                this._isDirty = true;
-                this._onDidChangeForVsCodeAndWebview.fire({
-                    edits: this._edits,
-                });
-            }
-        } catch (error) {
-            console.error("Error cleaning up invalid audio selections:", error);
-        }
-    }
-
-    /**
      * Removes an attachment from a cell's metadata (hard delete - use softDeleteCellAttachment instead)
      * @param cellId The ID of the cell to update
      * @param attachmentId The unique ID of the attachment to remove

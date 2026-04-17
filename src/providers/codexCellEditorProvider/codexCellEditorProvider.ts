@@ -105,23 +105,28 @@ export async function resolveSelectedAttachmentState(
     baseState: string,
     wsPath: string,
 ): Promise<string> {
+    const atts = cell?.metadata?.attachments || {};
     const selectedId = cell?.metadata?.selectedAudioId;
-    if (!selectedId) {
-        const atts = cell?.metadata?.attachments || {};
+    const selectedAtt = selectedId ? (atts as any)[selectedId] : undefined;
+
+    // Unified rule: the `missing` icon is shown ONLY when `selectedAudioId` validly
+    // resolves to an attachment with `isMissing: true`. In every other non-resolving
+    // case (no selection, empty-string deselect, invalid/dangling id) the cell icon
+    // falls back to `unselected` when any usable audio exists on the cell, else `none`.
+    //
+    // `selectedAudioId` itself is never auto-mutated by this read path — it stays as
+    // the user's last explicit intent in the JSON.
+    const selectionResolves =
+        !!selectedAtt && selectedAtt.type === "audio" && !selectedAtt.isDeleted;
+
+    if (!selectionResolves) {
         const vals = Object.values(atts) as any[];
         const hasUsable = vals.some(
             (att: any) => att?.type === "audio" && !att.isDeleted && !att.isMissing
         );
-        const hasDeleted = vals.some(
-            (att: any) => att?.type === "audio" && att.isDeleted
-        );
-        if (hasUsable) return "unselected";
-        if (baseState === "missing") return "missing";
-        if (hasDeleted) return "unselected";
-        return "none";
+        return hasUsable ? "unselected" : "none";
     }
-    const selectedAtt = (cell?.metadata?.attachments || {} as any)[selectedId];
-    if (!selectedAtt || selectedAtt.type !== "audio" || selectedAtt.isDeleted) return baseState;
+
     if (selectedAtt.isMissing) return "missing";
     const url = String(selectedAtt.url || "");
     if (!url) return baseState;
