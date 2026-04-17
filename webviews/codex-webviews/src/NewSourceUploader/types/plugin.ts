@@ -1,6 +1,7 @@
 import { NotebookPair, ProcessedNotebook } from './common';
 import type { CustomNotebookCellData } from 'types';
 import { WizardContext } from './wizard';
+import React from 'react';
 
 /**
  * Generate a stable, deterministic ID for paratext cells based on content.
