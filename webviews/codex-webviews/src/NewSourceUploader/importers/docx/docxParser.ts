@@ -75,7 +75,7 @@ export class DocxParser {
             extractTables: false, // TODO: Implement table support
             segmentationStrategy: 'paragraph',
             validateStructure: true,
-            targetCellLength: 160,
+            idealCellLength: 160,
             ...config,
         };
 

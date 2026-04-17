@@ -282,7 +282,7 @@ export interface DocxParseConfig {
      * boundaries (L1), then sub-sentence stops (L2), then whitespace (L3).
      * Defaults to 160. Set to 0 to disable splitting.
      */
-    targetCellLength: number;
+    idealCellLength: number;
 }
 
 // Error types

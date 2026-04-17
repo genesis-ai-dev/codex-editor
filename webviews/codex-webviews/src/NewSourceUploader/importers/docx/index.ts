@@ -78,9 +78,9 @@ export const validateFile = async (file: File): Promise<FileValidationResult> =>
 export const parseFile = async (
     file: File,
     onProgress?: ProgressCallback,
-    options?: { targetCellLength?: number }
+    options?: { idealCellLength?: number }
 ): Promise<ImportResult> => {
-    const targetCellLength = options?.targetCellLength ?? DEFAULT_IDEAL_CELL_LENGTH;
+    const idealCellLength = options?.idealCellLength ?? DEFAULT_IDEAL_CELL_LENGTH;
 
     try {
         onProgress?.(createProgress('Reading File', 'Reading DOCX file...', 10));
@@ -92,7 +92,7 @@ export const parseFile = async (
             extractFootnotes: true,
             segmentationStrategy: 'paragraph',
             validateStructure: true,
-            targetCellLength,
+            idealCellLength,
         });
 
         // Set up debug logging - pass through to progress callback
@@ -110,7 +110,7 @@ export const parseFile = async (
         onProgress?.(createProgress('Creating Cells', 'Converting paragraphs to cells...', 60));
 
         // Convert document content to cells (paragraphs + table cells)
-        const cells = createCellsFromDocx(docxDoc, file.name, targetCellLength);
+        const cells = createCellsFromDocx(docxDoc, file.name, idealCellLength);
 
         onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 80));
 
@@ -209,14 +209,14 @@ export const parseFile = async (
 
 /**
  * Convert DOCX paragraphs to Codex cells with complete metadata for round-trip.
- * Paragraphs whose plain text exceeds targetCellLength are split into multiple
+ * Paragraphs whose plain text exceeds idealCellLength are split into multiple
  * cells (one per segment).  Each segment's cell carries segmentIndex/segmentCount
  * so the exporter can recombine translations before writing them back.
  */
 const createCellsFromDocx = (
     docxDoc: DocxDocument,
     fileName: string,
-    targetCellLength: number = DEFAULT_IDEAL_CELL_LENGTH
+    idealCellLength: number = DEFAULT_IDEAL_CELL_LENGTH
 ): any[] => {
     const cells: any[] = [];
 
@@ -279,7 +279,7 @@ const createCellsFromDocx = (
         const fullText = paragraph.runs.map((r) => r.content).join('');
         if (!fullText.trim()) continue;
 
-        const ranges = splitTextIntoRanges(fullText, targetCellLength);
+        const ranges = splitTextIntoRanges(fullText, idealCellLength);
         const charRanges = buildRunCharRanges(paragraph.runs);
         const isMultiSegment = ranges.length > 1;
 
