@@ -28,20 +28,38 @@ interface ProjectMetadata {
 }
 
 /**
- * Compare two semantic version strings
- * Returns: 1 if a > b, -1 if a < b, 0 if equal
+ * Extract the numeric [major, minor, patch] triple from a version string,
+ * stripping any leading "v" and any pre-release suffix (e.g. -pr123, -pr123-shorthash).
+ * Returns null if the string doesn't contain a valid x.y.z core.
+ */
+function extractCoreVersionParts(version: string): [number, number, number] | null {
+    const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)/i);
+    if (!match) {
+        return null;
+    }
+    return [
+        parseInt(match[1], 10),
+        parseInt(match[2], 10),
+        parseInt(match[3], 10),
+    ];
+}
+
+/**
+ * Compare only the numeric x.y.z core of two version strings.
+ * Affixes like -pr123 or -pr123-shorthash are ignored.
+ * Returns: 1 if a > b, -1 if a < b, 0 if equal.
  */
 function compareVersions(a: string, b: string): number {
-    const normalize = (v: string) => v.trim().replace(/^v/i, "");
-    const parse = (v: string) => normalize(v).split(".").map((x) => parseInt(x, 10) || 0);
-    const pa = parse(a);
-    const pb = parse(b);
-    const len = Math.max(pa.length, pb.length);
-    for (let i = 0; i < len; i++) {
-        const ai = pa[i] ?? 0;
-        const bi = pb[i] ?? 0;
-        if (ai > bi) return 1;
-        if (ai < bi) return -1;
+    const pa = extractCoreVersionParts(a);
+    const pb = extractCoreVersionParts(b);
+
+    if (!pa || !pb) {
+        throw new Error(`Invalid version core: a=${a}, b=${b}`);
+    }
+
+    for (let i = 0; i < 3; i++) {
+        if (pa[i] > pb[i]) { return 1; }
+        if (pa[i] < pb[i]) { return -1; }
     }
     return 0;
 }
