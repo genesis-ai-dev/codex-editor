@@ -901,8 +901,8 @@ async function exportCodexContentAsMarkdownRoundtrip(
                     const fileName = basename(file.fsPath);
 
                     const codexNotebook = await readCodexNotebookFromUri(file);
-                    const corpusMarker = (codexNotebook.metadata as { corpusMarker?: string }).corpusMarker;
-                    const importerType = (codexNotebook.metadata as { importerType?: string }).importerType;
+                    const corpusMarker = (codexNotebook.metadata as { corpusMarker?: string; }).corpusMarker;
+                    const importerType = (codexNotebook.metadata as { importerType?: string; }).importerType;
                     if (corpusMarker !== "markdown" && importerType !== "markdown") {
                         console.warn(
                             `[Markdown Export] Skipping ${fileName} - not markdown importer (corpusMarker: ${corpusMarker}, importerType: ${importerType})`
@@ -912,8 +912,8 @@ async function exportCodexContentAsMarkdownRoundtrip(
                     }
 
                     const originalFileName =
-                        (codexNotebook.metadata as { originalFileName?: string }).originalFileName ||
-                        (codexNotebook.metadata as { originalName?: string }).originalName ||
+                        (codexNotebook.metadata as { originalFileName?: string; }).originalFileName ||
+                        (codexNotebook.metadata as { originalName?: string; }).originalName ||
                         `${fileName.split(".")[0]}.md`;
 
                     const originalFileUri = await resolveOriginalFileUri(workspaceFolders[0], originalFileName);

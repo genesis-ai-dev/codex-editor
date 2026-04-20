@@ -12,7 +12,7 @@ export interface MarkdownExportCell {
     metadata?: {
         id?: string;
         segmentIndex?: number;
-        sourceSpan?: { start: number; end: number };
+        sourceSpan?: { start: number; end: number; };
         segmentType?: string;
     };
 }
@@ -34,7 +34,7 @@ export function exportMarkdownWithTranslations(
 ): string {
     const skipEmpty = options.skipEmptyTranslations !== false;
 
-    type Replacement = { start: number; end: number; text: string };
+    type Replacement = { start: number; end: number; text: string; };
     const replacements: Replacement[] = [];
 
     for (const cell of cells) {

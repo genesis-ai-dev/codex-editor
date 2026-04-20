@@ -86,8 +86,7 @@ export const importerPlugins: ImporterPlugin[] = [
     {
         ...tmsImporterPlugin,
         name: "TMS Files",
-        description:
-            "Translation memory and localization files (TMX/XLIFF) with round-trip export support",
+        description: "Translation memory and localization files with round-trip export support",
         supportsTargetImport: true,
         tags: ["Essential", "Translation", "Localization", "Round-trip"],
     },

@@ -21,7 +21,10 @@ export async function getFrontierVersionStatus(): Promise<{ ok: boolean; install
     const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
     const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
 
-    if (!installedVersion || !semver.gte(installedVersion, REQUIRED_FRONTIER_VERSION)) {
+    // Strip prerelease suffix (e.g. "0.24.0-pr829-5489534a" → "0.24.0") so PR
+    // builds aren't rejected by the minimum-version gate.
+    const baseVersion = installedVersion ? semver.coerce(installedVersion)?.version : undefined;
+    if (!baseVersion || !semver.gte(baseVersion, REQUIRED_FRONTIER_VERSION)) {
         return { ok: false, installedVersion, requiredVersion: REQUIRED_FRONTIER_VERSION };
     }
 
