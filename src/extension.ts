@@ -66,6 +66,7 @@ import { initializeAudioExporter } from "./exportHandler/audioExporter";
 import { checkTools, getUnavailableTools } from "./utils/toolsManager";
 import { initToolPreferences, setNativeGitAvailable, getGitToolMode, getSqliteToolMode } from "./utils/toolPreferences";
 import { downloadFFmpeg } from "./utils/ffmpegManager";
+import { resetRetryCount } from "./utils/binaryIntegrityUtils";
 import { MissingToolsWarningProvider } from "./providers/MissingToolsWarning/MissingToolsWarningProvider";
 import { cleanupOrphanedProjectFiles } from "./utils/fileUtils";
 // markUserAsUpdatedInRemoteList is now called in performProjectUpdate before window reload
@@ -632,6 +633,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
                     if (!current.git) {
                         try {
+                            await resetRetryCount(context, "git");
                             await authApi?.retryGitBinaryDownload?.();
                         } catch (e) {
                             console.error("[Extension] Git binary retry failed:", e);
@@ -639,6 +641,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                     if (!current.sqlite) {
                         try {
+                            await resetRetryCount(context, "sqlite");
                             const binaryPath = await ensureSqliteNativeBinary(context);
                             if (binaryPath) {
                                 initNativeSqlite(binaryPath);
@@ -654,7 +657,10 @@ export async function activate(context: vscode.ExtensionContext) {
                         }
                     }
                     if (!current.ffmpeg) {
-                        try { await downloadFFmpeg(context); } catch (e) {
+                        try {
+                            await resetRetryCount(context, "ffmpeg");
+                            await downloadFFmpeg(context);
+                        } catch (e) {
                             console.error("[Extension] FFmpeg retry failed:", e);
                         }
                     }
