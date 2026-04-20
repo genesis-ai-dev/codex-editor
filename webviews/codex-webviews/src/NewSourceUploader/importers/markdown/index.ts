@@ -5,6 +5,7 @@ import {
     ImportResult,
     ProgressCallback,
 } from '../../types/common';
+import type { MarkdownNotebookMetadata } from '../../types/processedNotebookMetadata';
 import {
     createProgress,
     validateFileExtension,
@@ -17,105 +18,14 @@ import {
 } from '../../utils/markdownFootnoteExtractor';
 import { validateFootnotes } from '../../utils/footnoteUtils';
 import { createMarkdownCellMetadata } from './cellMetadata';
+import { preprocessParagraphForHardLineBreaks } from './markdownImportPreprocess';
+import { splitMarkdownIntoSpannedSegments } from './markdownSplit';
 
 const SUPPORTED_EXTENSIONS = ['md', 'markdown'];
 
-/**
- * Splits markdown content into granular elements (headings, list items, paragraphs, etc.)
- */
-const splitMarkdownIntoElements = (content: string): string[] => {
-    const lines = content.split('\n');
-    const elements: string[] = [];
-    let currentElement = '';
-    let inCodeBlock = false;
-    let inListContext = false;
-    let listDepth = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmedLine = line.trim();
-
-        // Handle code blocks
-        if (trimmedLine.startsWith('```')) {
-            inCodeBlock = !inCodeBlock;
-            currentElement += line + '\n';
-            if (!inCodeBlock && currentElement.trim()) {
-                elements.push(currentElement.trim());
-                currentElement = '';
-            }
-            continue;
-        }
-
-        // If we're in a code block, just accumulate
-        if (inCodeBlock) {
-            currentElement += line + '\n';
-            continue;
-        }
-
-        // Handle headings
-        if (trimmedLine.match(/^#{1,6}\s/)) {
-            // Finish any current element
-            if (currentElement.trim()) {
-                elements.push(currentElement.trim());
-                currentElement = '';
-            }
-            elements.push(trimmedLine);
-            inListContext = false;
-            continue;
-        }
-
-        // Handle list items
-        const listMatch = trimmedLine.match(/^(\s*)([-*+]|\d+\.)\s(.+)/);
-        if (listMatch) {
-            const indentation = listMatch[1];
-            const currentDepth = Math.floor(indentation.length / 2); // Assuming 2 spaces per level
-
-            // If we're starting a new list or changing depth significantly, finish current element
-            if (!inListContext || Math.abs(currentDepth - listDepth) > 0) {
-                if (currentElement.trim()) {
-                    elements.push(currentElement.trim());
-                    currentElement = '';
-                }
-            }
-
-            // Each list item becomes its own element
-            elements.push(trimmedLine);
-            inListContext = true;
-            listDepth = currentDepth;
-            continue;
-        }
-
-        // Handle empty lines
-        if (trimmedLine === '') {
-            // If we have accumulated content and hit an empty line, finish the element
-            if (currentElement.trim()) {
-                elements.push(currentElement.trim());
-                currentElement = '';
-                inListContext = false;
-            }
-            continue;
-        }
-
-        // Handle regular paragraphs and other content
-        if (inListContext) {
-            // If we were in a list but now have non-list content, finish any accumulated content
-            if (currentElement.trim()) {
-                elements.push(currentElement.trim());
-                currentElement = '';
-            }
-            inListContext = false;
-        }
-
-        currentElement += line + '\n';
-    }
-
-    // Don't forget the last element
-    if (currentElement.trim()) {
-        elements.push(currentElement.trim());
-    }
-
-    return elements.filter(element => element.length > 0);
-};
+function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+    return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
+}
 
 /**
  * Determines the type of markdown element
@@ -246,29 +156,37 @@ export const parseFile = async (
             breaks: false,
         });
 
-        // Split markdown into individual elements instead of sections
-        const elements = splitMarkdownIntoElements(processedText);
+        // Split markdown into segments with UTF-16 spans for round-trip export
+        const spannedSegments = splitMarkdownIntoSpannedSegments(processedText);
 
-        if (elements.length === 0) {
+        if (spannedSegments.length === 0) {
             throw new Error('No content elements could be extracted from the markdown file');
         }
+
+        const canonicalRoundTripBytes = new TextEncoder().encode(processedText);
+        const originalFileData = toArrayBuffer(canonicalRoundTripBytes);
 
         onProgress?.(createProgress('Converting to HTML', 'Converting markdown elements to HTML...', 60));
 
         // Convert each element to a cell
         const cells = await Promise.all(
-            elements.map(async (element, index) => {
-                // Convert markdown to HTML using marked library
-                const htmlContent = await marked.parse(element);
-
-                // Analyze the element type
+            spannedSegments.map(async ({ text: element, start, end }, index) => {
+                // Analyze the element type before optional paragraph preprocessing
                 const elementInfo = getElementType(element);
+                const markdownForParse =
+                    elementInfo.type === "paragraph"
+                        ? preprocessParagraphForHardLineBreaks(element)
+                        : element;
+
+                // Convert markdown to HTML using marked library
+                const htmlContent = await marked.parse(markdownForParse);
 
                 // Create cell metadata with UUID, globalReferences, and chapterNumber
                 const { cellId, metadata } = createMarkdownCellMetadata({
                     fileName: file.name,
                     segmentIndex: index,
                     originalMarkdown: element,
+                    sourceSpan: { start, end },
                     elementType: elementInfo.type,
                     headingLevel: elementInfo.level,
                     headingText: elementInfo.headingText,
@@ -285,8 +203,6 @@ export const parseFile = async (
                     images,
                     metadata: {
                         ...metadata,
-                        // Keep existing fields for backward compatibility
-                        type: 'markdown',
                         segmentIndex: index,
                         originalMarkdown: element,
                         elementType: elementInfo.type,
@@ -306,60 +222,76 @@ export const parseFile = async (
         const headingCount = cells.filter(cell => cell.metadata?.elementType === 'heading').length;
         const listItemCount = cells.filter(cell => cell.metadata?.elementType === 'list-item').length;
         const imageCount = cells.reduce((count, cell) => count + cell.images.length, 0);
-        const wordCount = elements.join(' ').split(/\s+/).filter(w => w.length > 0).length;
+        const wordCount = spannedSegments.map(s => s.text).join(' ').split(/\s+/).filter(w => w.length > 0).length;
 
         // Create notebook pair directly
         const baseName = file.name.replace(/\.[^/.]+$/, '');
-        const sourceNotebook = {
-            name: baseName,
-            cells,
-            metadata: {
-                id: uuidv4(),
+        const sourceMetadata: MarkdownNotebookMetadata = {
+            id: uuidv4(),
+            originalFileName: file.name,
+            sourceFile: file.name,
+            originalFileData,
+            corpusMarker: "markdown",
+            markdownRoundTripSource: "processed-utf8",
+            importerType: "markdown",
+            createdAt: new Date().toISOString(),
+            importContext: {
+                importerType: "markdown",
+                fileName: file.name,
                 originalFileName: file.name,
-                sourceFile: file.name,
-                importerType: 'markdown',
-                createdAt: new Date().toISOString(),
-                importContext: {
-                    importerType: 'markdown',
-                    fileName: file.name,
-                    originalFileName: file.name,
-                    fileSize: file.size,
-                    importTimestamp: new Date().toISOString(),
-                },
-                elementCount: elements.length,
-                headingCount,
-                listItemCount,
-                imageCount,
-                wordCount,
-                footnoteCount: footnotes.length,
-                features: {
-                    hasImages: imageCount > 0,
-                    hasHeadings: headingCount > 0,
-                    hasListItems: listItemCount > 0,
-                    hasTables: processedText.includes('|'),
-                    hasCodeBlocks: processedText.includes('```'),
-                    hasLinks: /\[.*?\]\(.*?\)/.test(processedText),
-                    hasFootnotes: footnotes.length > 0,
-                },
+                fileSize: file.size,
+                importTimestamp: new Date().toISOString(),
+            },
+            elementCount: spannedSegments.length,
+            headingCount,
+            listItemCount,
+            imageCount,
+            wordCount,
+            footnoteCount: footnotes.length,
+            features: {
+                hasImages: imageCount > 0,
+                hasHeadings: headingCount > 0,
+                hasListItems: listItemCount > 0,
+                hasTables: processedText.includes("|"),
+                hasCodeBlocks: processedText.includes("```"),
+                hasLinks: /\[.*?\]\(.*?\)/.test(processedText),
+                hasFootnotes: footnotes.length > 0,
             },
         };
 
-        const codexCells = cells.map(sourceCell => ({
+        const sourceNotebook = {
+            name: baseName,
+            cells,
+            metadata: sourceMetadata,
+        };
+
+        // Target (.codex) cells start empty so progress is not reported as complete when source
+        // and translation are identical. Image-only cells carry <img> tags so attachments stay wired.
+        const codexCells = cells.map((sourceCell) => ({
             id: sourceCell.id,
-            content: sourceCell.images.length > 0
-                ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
-                : '', // Empty for translation, preserve images
+            content:
+                sourceCell.images.length > 0
+                    ? sourceCell.images
+                          .map(
+                              (img) =>
+                                  `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ""} />`
+                          )
+                          .join("\n")
+                    : "",
             images: sourceCell.images,
             metadata: sourceCell.metadata,
         }));
 
+        const codexMetadata: MarkdownNotebookMetadata = {
+            ...sourceMetadata,
+            id: uuidv4(),
+            originalFileData: undefined,
+        };
+
         const codexNotebook = {
             name: baseName,
             cells: codexCells,
-            metadata: {
-                ...sourceNotebook.metadata,
-                id: uuidv4(),
-            },
+            metadata: codexMetadata,
         };
 
         const notebookPair = {

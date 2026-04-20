@@ -21,9 +21,7 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     maculabible: "Macula Bible",
     obs: "Bible Stories",
     biblica: "Biblica Study Notes",
-    reach4life: "Reach4Life",
     spreadsheet: "Spreadsheet with Audio data",
-    pdf: "PDF Files",
     paratext: "Paratext Projects",
     unknown: "Other Files",
 };
@@ -31,7 +29,7 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
 export interface FileGroup {
     groupKey: string;
     displayName: string;
-    files: Array<{ path: string; name: string; displayName: string }>;
+    files: Array<{ path: string; name: string; displayName: string; }>;
 }
 
 async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
@@ -168,18 +166,6 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         return "obs";
     }
 
-    // PDF Files (backward compatibility)
-    if (
-        corpusMarker === "pdf" ||
-        corpusMarker === "pdf-importer" ||
-        corpusMarker === "pdf-sentence" ||
-        importerType === "pdf" ||
-        fileType === "pdf" ||
-        (originalFileName && /\.pdf$/i.test(originalFileName))
-    ) {
-        return "pdf";
-    }
-
     // Spreadsheet with Audio data (CSV, TSV)
     if (
         corpusMarker === "spreadsheet" ||
@@ -203,7 +189,7 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
 export async function groupCodexFilesByImporterType(
     codexUris: vscode.Uri[]
 ): Promise<FileGroup[]> {
-    const groupsMap = new Map<string, Array<{ path: string; name: string; displayName: string }>>();
+    const groupsMap = new Map<string, Array<{ path: string; name: string; displayName: string; }>>();
 
     for (const uri of codexUris) {
         try {
@@ -252,7 +238,6 @@ export async function groupCodexFilesByImporterType(
         biblica: 11,
         reach4life: 12,
         spreadsheet: 13,
-        pdf: 14,
         unknown: 99,
     };
 
