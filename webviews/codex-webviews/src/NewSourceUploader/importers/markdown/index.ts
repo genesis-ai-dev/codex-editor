@@ -9,6 +9,7 @@ import {
     createProgress,
     validateFileExtension,
     addMilestoneCellsToNotebookPair,
+    createCodexCellsFromSource,
 } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { marked } from 'marked';
@@ -344,14 +345,7 @@ export const parseFile = async (
             },
         };
 
-        const codexCells = cells.map(sourceCell => ({
-            id: sourceCell.id,
-            content: sourceCell.images.length > 0
-                ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
-                : '', // Empty for translation, preserve images
-            images: sourceCell.images,
-            metadata: sourceCell.metadata,
-        }));
+        const codexCells = createCodexCellsFromSource(cells);
 
         const codexNotebook = {
             name: baseName,
