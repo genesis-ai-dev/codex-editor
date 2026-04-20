@@ -337,7 +337,9 @@ const CodexCellEditor: React.FC = () => {
             | "available"
             | "available-local"
             | "available-pointer"
+            | "available-cached"
             | "deletedOnly"
+            | "unselected"
             | "none"
             | "missing";
     }>({});
@@ -1263,6 +1265,71 @@ const CodexCellEditor: React.FC = () => {
         [milestoneIndex, refreshProgressForMilestone]
     );
 
+    // Keep cell.metadata.selectedAudioId in sync with provider-side selection changes so the
+    // cell list (AudioValidationButton, etc.) recomputes validators against the newly
+    // selected recording. Without this, translationUnits holds stale metadata and the
+    // validator count/users shown in the list reflect the previously selected audio.
+    useMessageHandler(
+        "codexCellEditor-audioSelectionSync",
+        (event: MessageEvent) => {
+            const message = event.data;
+
+            let targetCellId: string | undefined;
+            let nextSelectedAudioId: string | undefined;
+
+            if (
+                message?.type === "audioAttachmentSelected" &&
+                message.content?.success &&
+                typeof message.content.cellId === "string"
+            ) {
+                targetCellId = message.content.cellId;
+                // audioId is the new explicit selection; null/undefined means deselect
+                nextSelectedAudioId =
+                    typeof message.content.audioId === "string" && message.content.audioId
+                        ? message.content.audioId
+                        : "";
+            } else if (
+                message?.type === "providerUpdatesAudioValidationState" &&
+                typeof message.content?.cellId === "string" &&
+                typeof message.content?.selectedAudioId === "string"
+            ) {
+                targetCellId = message.content.cellId;
+                nextSelectedAudioId = message.content.selectedAudioId;
+            }
+
+            if (!targetCellId || nextSelectedAudioId === undefined) return;
+
+            const cellId = targetCellId;
+            const newSelectedId = nextSelectedAudioId;
+            const now = Date.now();
+
+            const patchUnit = (unit: QuillCellContent): QuillCellContent => {
+                if (unit.cellMarkers?.[0] !== cellId) return unit;
+                const currentSelected = (unit.metadata as any)?.selectedAudioId ?? "";
+                if (currentSelected === newSelectedId) return unit;
+                return {
+                    ...unit,
+                    metadata: {
+                        ...(unit.metadata || {}),
+                        selectedAudioId: newSelectedId,
+                        selectionTimestamp: now,
+                    } as typeof unit.metadata,
+                };
+            };
+
+            setTranslationUnits((prev) => prev.map(patchUnit));
+            setAllCellsInCurrentMilestone((prev) => prev.map(patchUnit));
+
+            cellsCacheRef.current.forEach((cells, key) => {
+                cellsCacheRef.current.set(key, cells.map(patchUnit));
+            });
+            milestoneCellsCacheRef.current.forEach((cells, key) => {
+                milestoneCellsCacheRef.current.set(key, cells.map(patchUnit));
+            });
+        },
+        []
+    );
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -1494,7 +1561,7 @@ const CodexCellEditor: React.FC = () => {
             setTextDirection(direction);
         },
         updateNotebookMetadata: (newMetadata) => {
-            setMetadata(newMetadata);
+            setMetadata((prev) => ({ ...prev, ...newMetadata }));
             // Clear temporary font size when metadata updates to ensure new font size takes effect
             setTempFontSize(null);
             // Update text direction when metadata changes (for global text direction updates)
@@ -1529,7 +1596,7 @@ const CodexCellEditor: React.FC = () => {
             }
             setChapterNumber(chapter);
         },
-        setAudioAttachments: setAudioAttachments,
+        setAudioAttachments,
         showABTestVariants: (data) => {
             const { variants, cellId, testId, testName, names, abProbability } = data as any;
             const count = Array.isArray(variants) ? variants.length : 0;

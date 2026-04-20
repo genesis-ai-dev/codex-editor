@@ -154,6 +154,7 @@ ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [autoDownloadAudioOnOpen, setAutoDownloadAudioOnOpenState] = useState<boolean>(false);
+    const [autoRecordOnMicClick, setAutoRecordOnMicClickState] = useState<boolean>(false);
     const [showMilestoneAccordion, setShowMilestoneAccordion] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
@@ -213,6 +214,12 @@ ChapterNavigationHeaderProps) {
             setAutoDownloadAudioOnOpenState(!!metadata.autoDownloadAudioOnOpen);
         }
     }, [metadata?.autoDownloadAudioOnOpen]);
+
+    useEffect(() => {
+        if (typeof metadata?.autoRecordOnMicClick === "boolean") {
+            setAutoRecordOnMicClickState(!!metadata.autoRecordOnMicClick);
+        }
+    }, [metadata?.autoRecordOnMicClick]);
 
     // Display milestone value directly (e.g., "Isaiah 1" or "1")
     const getDisplayTitle = useCallback(() => {
@@ -549,6 +556,22 @@ ChapterNavigationHeaderProps) {
                                 console.error("Error setting auto download audio on open", error);
                             }
                         }}
+                        autoRecordOnMicClick={autoRecordOnMicClick}
+                        onToggleAutoRecordOnMicClick={(val) => {
+                            setAutoRecordOnMicClickState(!!val);
+                            try {
+                                vscode.postMessage({
+                                    command: "setAutoRecordOnMicClick",
+                                    content: { value: !!val },
+                                });
+                            } catch (error) {
+                                console.error("Error setting auto record on mic click", error);
+                            }
+                            try {
+                                (window as any).__autoRecordOnMicClick = !!val;
+                                (window as any).__autoRecordOnMicClickInitialized = true;
+                            } catch { /* ignore */ }
+                        }}
                     />
                 </div>
             )}
@@ -832,19 +855,6 @@ ChapterNavigationHeaderProps) {
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" title="Advanced Settings" className="relative">
                             <i className="codicon codicon-settings-gear" />
-                            {autoDownloadAudioOnOpen ? (
-                                <span
-                                    className="absolute rounded-full"
-                                    style={{
-                                        width: 8,
-                                        height: 8,
-                                        right: 6,
-                                        top: 6,
-                                        backgroundColor: "var(--vscode-charts-blue)",
-                                    }}
-                                    title="Auto-download enabled"
-                                />
-                            ) : null}
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -911,6 +921,44 @@ ChapterNavigationHeaderProps) {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={() => {
+                                const next = !autoRecordOnMicClick;
+                                setAutoRecordOnMicClickState(next);
+                                try {
+                                    vscode.postMessage({
+                                        command: "setAutoRecordOnMicClick",
+                                        content: { value: next },
+                                    });
+                                } catch (error) {
+                                    console.error(
+                                        "Error setting auto record on mic click",
+                                        error
+                                    );
+                                }
+                                try {
+                                    (window as any).__autoRecordOnMicClick = next;
+                                    (window as any).__autoRecordOnMicClickInitialized = true;
+                                } catch { /* ignore */ }
+                            }}
+                            className="cursor-pointer"
+                        >
+                            <i className="codicon codicon-record mr-2 h-4 w-4" />
+                            <span className="flex-1">Auto-record on mic click</span>
+                            <span
+                                className="text-xs px-2 py-0.5 rounded-full"
+                                style={{
+                                    backgroundColor: autoRecordOnMicClick
+                                        ? "var(--vscode-charts-blue)"
+                                        : "var(--vscode-editorHoverWidget-border)",
+                                    color: autoRecordOnMicClick
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-foreground)",
+                                }}
+                            >
+                                {autoRecordOnMicClick ? "On" : "Off"}
+                            </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => {
                                 if (onToggleInlineBacktranslations) {
                                     onToggleInlineBacktranslations();
                                 }
@@ -966,7 +1014,6 @@ ChapterNavigationHeaderProps) {
                                     : "Show Line Numbers"}
                             </span>
                         </DropdownMenuItem>
-
                         {documentHasVideoAvailable && (
                             <>
                                 <DropdownMenuSeparator />

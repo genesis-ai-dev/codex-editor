@@ -3054,10 +3054,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
         attachment.isDeleted = true;
         attachment.updatedAt = Date.now();
 
-        // If we're deleting the selected audio, clear the selection (fall back to automatic)
+        // If we're deleting the selected audio, clear the selection (fall back to automatic).
+        // Preserve the keys with an empty string + fresh timestamp so the deselection is
+        // explicit and CRDT-mergeable rather than a silent key removal.
         if (attachment.type === "audio" && cell.metadata?.selectedAudioId === attachmentId) {
-            delete cell.metadata.selectedAudioId;
-            delete cell.metadata.selectionTimestamp;
+            cell.metadata.selectedAudioId = "";
+            cell.metadata.selectionTimestamp = Date.now();
         }
 
         // Record the edit
@@ -3110,7 +3112,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             // Selection is invalid or missing — fall through to automatic resolution
         }
 
-        // STEP 2: Fall back to latest non-deleted, non-missing attachment (prefer available files)
+        // STEP 2: Fall back to newest non-deleted, non-missing attachment (prefer available files)
         const attachments = Object.entries(cell.metadata.attachments)
             .filter(([_, attachment]: [string, any]) =>
                 attachment &&
@@ -3121,7 +3123,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 const aMissing = a.isMissing ? 1 : 0;
                 const bMissing = b.isMissing ? 1 : 0;
                 if (aMissing !== bMissing) return aMissing - bMissing;
-                return (b.updatedAt || 0) - (a.updatedAt || 0);
+                return (b.createdAt || 0) - (a.createdAt || 0);
             });
 
         if (attachments.length === 0) {
@@ -3273,12 +3275,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cell = this._documentData.cells[indexOfCellToUpdate];
 
+        // Preserve existing "nothing to clear" short-circuit: undefined AND "" both return.
+        // This avoids churning the file/edit log when deselect is called on a cell that
+        // was never selected or has already been explicitly cleared.
         if (!cell.metadata?.selectedAudioId) {
-            return; // Nothing to clear
+            return;
         }
 
-        delete cell.metadata.selectedAudioId;
-        delete cell.metadata.selectionTimestamp;
+        cell.metadata.selectedAudioId = "";
+        cell.metadata.selectionTimestamp = Date.now();
 
         // Record the edit
         this._edits.push({
@@ -3304,66 +3309,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
             (cell) => cell.metadata?.id === cellId
         );
 
-        return cell?.metadata?.selectedAudioId ?? null;
-    }
-
-    /**
-     * Cleans up invalid audio selections for all cells (safe to call during document operations)
-     * This is separated from getCurrentAttachment to avoid modifying state during read operations.
-     *
-     * When the selected audio is missing but a valid non-missing alternative exists,
-     * the selection is automatically updated to the best available attachment.
-     */
-    public cleanupInvalidAudioSelections(): void {
-        try {
-            let hasChanges = false;
-
-            for (const cell of this._documentData.cells) {
-                if (!cell.metadata?.selectedAudioId || !cell.metadata.attachments) {
-                    continue;
-                }
-
-                const selectedAttachment = cell.metadata.attachments[cell.metadata.selectedAudioId];
-
-                const isInvalid = !selectedAttachment ||
-                    selectedAttachment.type !== "audio" ||
-                    selectedAttachment.isDeleted;
-
-                const isMissing = !isInvalid && selectedAttachment.isMissing === true;
-
-                if (isInvalid || isMissing) {
-                    // Look for a valid non-missing audio attachment to auto-select
-                    const validAlternative = Object.entries(cell.metadata.attachments)
-                        .filter(([_, att]: [string, any]) =>
-                            att?.type === "audio" && !att.isDeleted && !att.isMissing
-                        )
-                        .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
-                            (b.updatedAt || 0) - (a.updatedAt || 0)
-                        )[0];
-
-                    if (validAlternative) {
-                        cell.metadata.selectedAudioId = validAlternative[0];
-                        cell.metadata.selectionTimestamp = Date.now();
-                    } else {
-                        delete cell.metadata.selectedAudioId;
-                        delete cell.metadata.selectionTimestamp;
-                    }
-                    hasChanges = true;
-                    if (cell.metadata?.id) {
-                        this._dirtyCellIds.add(cell.metadata.id);
-                    }
-                }
-            }
-
-            if (hasChanges) {
-                this._isDirty = true;
-                this._onDidChangeForVsCodeAndWebview.fire({
-                    edits: this._edits,
-                });
-            }
-        } catch (error) {
-            console.error("Error cleaning up invalid audio selections:", error);
-        }
+        // Treat an empty string (explicitly cleared) the same as an absent key, so callers
+        // that check for a "real" explicit selection don't get fooled by the sentinel "".
+        const val = cell?.metadata?.selectedAudioId;
+        return val ? val : null;
     }
 
     /**
