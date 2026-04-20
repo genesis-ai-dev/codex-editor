@@ -32,6 +32,31 @@ export interface FileGroup {
     files: Array<{ path: string; name: string; displayName: string; }>;
 }
 
+/**
+ * Config for which file types see which export options.
+ * - roundTrip: file types that support round-trip export
+ * - usfm: eBible, USFM, and Macula Bible files
+ * - html: eBible, USFM, and Macula Bible files
+ * - subtitles: only subtitle files (shown at top, expanded)
+ * - All others (plaintext, html, xliff, audio, backtranslations, dataExport): all file types
+ */
+export const EXPORT_OPTIONS_BY_FILE_TYPE: Record<string, string[]> = {
+    roundTrip: [
+        "docx",
+        "indesign",
+        "biblica",
+        "markdown",
+        "obs",
+        "tms",
+        "usfm",
+        "spreadsheet",
+    ],
+    // USFM and HTML generation for eBible, USFM, Macula Bible, and unknown (older projects without importer type)
+    usfm: ["ebible", "usfm", "maculabible", "unknown"],
+    html: ["ebible", "usfm", "maculabible", "unknown"],
+    subtitles: ["subtitles", "unknown"],
+};
+
 async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
     const fileData = await vscode.workspace.fs.readFile(uri);
     return JSON.parse(Buffer.from(fileData).toString()) as CodexNotebookAsJSONData;
