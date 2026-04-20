@@ -836,6 +836,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                                         ? "Audio validation requires audio"
                                                         : undefined
                                                 }
+                                                readOnly={audioState === "available-pointer"}
+                                                readOnlyReason="Download audio to validate"
                                             />
                                         </div>
                                     )}
