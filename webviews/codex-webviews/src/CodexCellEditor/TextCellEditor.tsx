@@ -18,6 +18,7 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
+import { AudioValidationBadge } from "./AudioValidationBadge";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import SourceTextDisplay from "./SourceTextDisplay";
 import { AudioHistoryViewer } from "./AudioHistoryViewer";
@@ -2875,6 +2876,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         audioAttachments[cellMarkers[0]] ===
                                                             "available-cached") ? (
                                                         <div className="flex flex-col items-center gap-2">
+                                                            {audioValidationIconProps && (
+                                                                <AudioValidationBadge
+                                                                    validationStatusProps={audioValidationIconProps}
+                                                                    popoverProps={audioValidationPopoverProps}
+                                                                    readOnly
+                                                                />
+                                                            )}
                                                             {isAudioLoading || audioFetchPending ? (
                                                                 <Button
                                                                     disabled
