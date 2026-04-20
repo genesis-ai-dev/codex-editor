@@ -720,6 +720,10 @@ type BaseCustomCellMetaData = {
     edits: EditHistory[];
     parentId?: string; // UUID of parent cell (for child cells like cues, paratext, etc.)
     isLocked?: boolean;
+    /**
+     * Markdown / OBS round-trip: UTF-16 start (inclusive) and end (exclusive) offsets into the canonical source string.
+     */
+    sourceSpan?: { start: number; end: number };
 };
 
 export type BaseCustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
@@ -815,6 +819,10 @@ export interface CustomNotebookMetadata {
      * Mismatches are flagged in the editor and warned about during round-trip export.
      */
     enforceHtmlStructure?: boolean;
+    /**
+     * Markdown round-trip: `originalFileData` / attachments store UTF-8 of post-footnote processed text; cell `sourceSpan` indices refer to that string.
+     */
+    markdownRoundTripSource?: "processed-utf8";
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

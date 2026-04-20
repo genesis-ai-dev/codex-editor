@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { CodexNotebookAsJSONData } from "../../types";
+import { CodexCellTypes } from "../../types/enums";
 
 /**
  * Reads a .codex notebook from disk and parses its JSON content
@@ -22,4 +23,12 @@ export function getActiveCells(cells: CodexNotebookAsJSONData["cells"]) {
         const isDeleted = !!(data && data.deleted);
         return !isMerged && !isDeleted;
     });
+}
+
+/**
+ * Checks whether a cell metadata type represents translatable content.
+ * Accepts CodexCellTypes.TEXT and the legacy "markdown" type from older markdown imports.
+ */
+export function isContentCellType(type: string | undefined): boolean {
+    return type === CodexCellTypes.TEXT || type === "markdown";
 }
