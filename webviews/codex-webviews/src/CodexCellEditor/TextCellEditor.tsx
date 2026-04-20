@@ -2864,7 +2864,23 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     audioUrl.startsWith("data:") ||
                                     audioUrl.startsWith("http")
                                 ) ? (
-                                    <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
+                                    <div className="relative bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
+                                        {!audioUrl &&
+                                            audioValidationIconProps &&
+                                            audioAttachments &&
+                                            (audioAttachments[cellMarkers[0]] === "available" ||
+                                                audioAttachments[cellMarkers[0]] ===
+                                                    "available-pointer" ||
+                                                audioAttachments[cellMarkers[0]] ===
+                                                    "available-cached") && (
+                                                <div className="absolute -top-2 -right-2 z-50">
+                                                    <AudioValidationBadge
+                                                        validationStatusProps={audioValidationIconProps}
+                                                        popoverProps={audioValidationPopoverProps}
+                                                        readOnly
+                                                    />
+                                                </div>
+                                            )}
                                         {!audioUrl && (
                                             <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
                                                 <div className="flex items-center justify-center h-20 text-[var(--vscode-foreground)] text-sm">
@@ -2876,13 +2892,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         audioAttachments[cellMarkers[0]] ===
                                                             "available-cached") ? (
                                                         <div className="flex flex-col items-center gap-2">
-                                                            {audioValidationIconProps && (
-                                                                <AudioValidationBadge
-                                                                    validationStatusProps={audioValidationIconProps}
-                                                                    popoverProps={audioValidationPopoverProps}
-                                                                    readOnly
-                                                                />
-                                                            )}
                                                             {isAudioLoading || audioFetchPending ? (
                                                                 <Button
                                                                     disabled
