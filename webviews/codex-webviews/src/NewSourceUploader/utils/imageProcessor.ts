@@ -85,7 +85,7 @@ export const extractImagesFromHtml = async (html: string): Promise<ProcessedImag
 
     const images: ProcessedImage[] = [];
 
-    for (const img of imgElements) {
+    for (const img of Array.from(imgElements)) {
         const src = img.getAttribute('src');
         if (src) {
             images.push({
