@@ -106,6 +106,7 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
     const codiconsUri = panel.webview.asWebviewUri(
         vscode.Uri.joinPath(
             context.extensionUri,
+            "out",
             "node_modules",
             "@vscode/codicons",
             "dist",
