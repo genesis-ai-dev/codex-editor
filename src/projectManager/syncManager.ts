@@ -890,6 +890,19 @@ export class SyncManager {
             return;
         }
 
+        // Block auto-sync when admin pin intent is active — admin is sanity-testing a pinned version
+        if (!isManualSync) {
+            try {
+                const hasAdminPinIntent = await vscode.commands.executeCommand<boolean>('codex.conductor.hasAdminPinIntent');
+                if (hasAdminPinIntent) {
+                    debug("Admin pin intent active — skipping auto-sync. Use explicit sync to push pin.");
+                    return;
+                }
+            } catch {
+                // Conductor not available (non-Codex environment); proceed normally
+            }
+        }
+
         // Check if there's a workspace folder open (unless it's a manual sync which user explicitly requested)
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace && !isManualSync) {
@@ -1327,6 +1340,16 @@ export class SyncManager {
             } catch (error) {
                 console.error("[SyncManager] Error refreshing webviews after sync:", error);
                 // Don't fail sync if webview refresh fails
+            }
+
+            // Record current user's Codex version after a successful sync
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                try {
+                    const { MetadataManager } = await import("../utils/metadataManager");
+                    await MetadataManager.ensureCurrentUserVersionRecorded(workspaceFolders[0].uri);
+                } catch (error) {
+                    console.warn("[SyncManager] Error recording user codex version after sync:", error);
+                }
             }
 
         } catch (error) {
