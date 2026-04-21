@@ -30,6 +30,15 @@ export interface AudioValidationBadgeProps {
     // Optional override for the ShadCN tooltip message shown on click (when readOnly)
     // and for the disabled trash tooltip. Defaults to "Download audio to validate" / "…invalidate".
     readOnlyReason?: string;
+    // When provided, these validators are used for the hover popover instead of the
+    // hook-derived ones (which reflect the cell's selected audio, not necessarily this entry).
+    initialValidators?: ValidationEntry[];
+    // When provided, the validation/invalidation targets this specific attachment
+    // instead of the cell's currently selected audio.
+    attachmentId?: string;
+    // When true, always use the status label from getValidationLabel() (e.g. "No validators")
+    // instead of the action label "Validate" when there are 0 validators.
+    alwaysShowStatusLabel?: boolean;
 }
 
 export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
@@ -37,6 +46,9 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
     popoverProps,
     readOnly,
     readOnlyReason,
+    initialValidators,
+    attachmentId,
+    alwaysShowStatusLabel,
 }) => {
     const [showValidatorsPopover, setShowValidatorsPopover] = useState(false);
     const [showReadOnlyTooltip, setShowReadOnlyTooltip] = useState(false);
@@ -128,7 +140,10 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
             if (
                 message?.type === "providerUpdatesAudioValidationState" &&
                 message.content?.cellId === popoverCellId &&
-                Array.isArray(message.content?.validatedBy)
+                Array.isArray(message.content?.validatedBy) &&
+                // When this badge targets a specific attachment, only accept updates for that attachment.
+                // When no attachmentId is set (waveform/cell-list), accept any update for the cell.
+                (!attachmentId || !message.content.attachmentId || message.content.attachmentId === attachmentId)
             ) {
                 setOverrideValidatedBy(message.content.validatedBy as ValidationEntry[]);
             }
@@ -136,42 +151,50 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
         [popoverCellId]
     );
 
-    // Effective validators: prefer the override (latest push from provider) when present,
-    // otherwise fall back to the hook-derived validators from cell state.
+    // Effective validators: for interactive (non-readOnly) badges, prefer the real-time
+    // override from provider messages; for readOnly badges, ignore overrides (they reflect
+    // the selected audio which may differ from this entry). Fall back to initialValidators
+    // (per-entry) then the hook-derived baseValidationUsers (cell-level).
     const uniqueValidationUsers = useMemo(() => {
-        if (!overrideValidatedBy) return baseValidationUsers;
-        const active = getActiveAudioValidations(overrideValidatedBy);
-        const userToLatest = new Map<string, ValidationEntry>();
-        for (const entry of active) {
-            const existing = userToLatest.get(entry.username);
-            if (!existing || entry.updatedTimestamp > existing.updatedTimestamp) {
-                userToLatest.set(entry.username, entry);
+        if (!readOnly && overrideValidatedBy) {
+            const active = getActiveAudioValidations(overrideValidatedBy);
+            const userToLatest = new Map<string, ValidationEntry>();
+            for (const v of active) {
+                const existing = userToLatest.get(v.username);
+                if (!existing || v.updatedTimestamp > existing.updatedTimestamp) {
+                    userToLatest.set(v.username, v);
+                }
             }
+            return Array.from(userToLatest.values());
         }
-        return Array.from(userToLatest.values());
-    }, [overrideValidatedBy, baseValidationUsers]);
+        if (initialValidators) return initialValidators;
+        return baseValidationUsers;
+    }, [readOnly, overrideValidatedBy, initialValidators, baseValidationUsers]);
 
-    // Derive effective icon values: when override is present, recompute from it; else use
-    // the validationStatusProps that were passed down from the parent.
+    // Derive effective icon values: for interactive badges, recompute from the real-time
+    // override when present; for readOnly badges, always use the parent-supplied props
+    // (which are already correct per-entry).
     const effectiveValidationStatusProps: ValidationStatusIconProps = useMemo(() => {
-        if (!overrideValidatedBy) return validationStatusProps;
-        const currentValidations = uniqueValidationUsers.length;
-        const lowerCurrentUser = (popoverCurrentUsername || "").toLowerCase();
-        const isValidatedByCurrentUser = lowerCurrentUser
-            ? uniqueValidationUsers.some(
-                (u) => (u.username || "").toLowerCase() === lowerCurrentUser
-            )
-            : false;
-        return {
-            ...validationStatusProps,
-            currentValidations,
-            isValidatedByCurrentUser,
-        };
-    }, [overrideValidatedBy, uniqueValidationUsers, popoverCurrentUsername, validationStatusProps]);
+        if (!readOnly && overrideValidatedBy) {
+            const currentValidations = uniqueValidationUsers.length;
+            const lowerCurrentUser = (popoverCurrentUsername || "").toLowerCase();
+            const isValidatedByCurrentUser = lowerCurrentUser
+                ? uniqueValidationUsers.some(
+                    (u) => (u.username || "").toLowerCase() === lowerCurrentUser
+                )
+                : false;
+            return {
+                ...validationStatusProps,
+                currentValidations,
+                isValidatedByCurrentUser,
+            };
+        }
+        return validationStatusProps;
+    }, [readOnly, overrideValidatedBy, uniqueValidationUsers, popoverCurrentUsername, validationStatusProps]);
 
     const handleValidation = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
-        enqueueValidation(popoverProps.cellId, true, true)
+        enqueueValidation(popoverProps.cellId, true, true, attachmentId)
             .then(() => { })
             .catch((error) => {
                 console.error("Audio validation queue error:", error);
@@ -206,7 +229,7 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
         const isFullyValidated = currentValidations >= requiredValidations;
         const canValidate = !isValidatedByCurrentUser;
         const label = getValidationLabel({ currentValidations, requiredValidations, isValidatedByCurrentUser });
-        const buttonLabel = currentValidations === 0 ? "Validate" : label;
+        const buttonLabel = (currentValidations === 0 && !readOnly && !alwaysShowStatusLabel) ? "Validate" : label;
 
         const iconClass = currentValidations === 0
             ? "codicon codicon-circle-outline"
@@ -254,7 +277,7 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
         return (
             <Tooltip open={showReadOnlyTooltip} onOpenChange={() => {}}>
                 <TooltipTrigger asChild>{button}</TooltipTrigger>
-                <TooltipContent side="top">
+                <TooltipContent side="top" className="z-[100001]">
                     {tooltipMessage}
                 </TooltipContent>
             </Tooltip>
@@ -268,6 +291,7 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
     return (
         <div
             ref={validationContainerRef}
+            style={{ position: "relative" }}
             onMouseEnter={(e) => {
                 e.stopPropagation();
                 cancelCloseTimer();
@@ -306,7 +330,7 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
                             readOnly
                                 ? undefined
                                 : () => {
-                                      enqueueValidation(popoverCellId!, false, true)
+                                      enqueueValidation(popoverCellId!, false, true, attachmentId)
                                           .then(() => { })
                                           .catch((error) =>
                                               console.error(
@@ -327,7 +351,7 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
                         }
                         removeSelfDisabledReason={
                             readOnly
-                                ? "Download audio to invalidate"
+                                ? (readOnlyReason?.replace(/validate$/i, "invalidate") ?? "Download audio to invalidate")
                                 : undefined
                         }
                         cancelCloseTimer={cancelCloseTimer}

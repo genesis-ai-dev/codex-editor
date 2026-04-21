@@ -1581,7 +1581,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             await provider.enqueueAudioValidation(
                 typedEvent.content.cellId,
                 document,
-                typedEvent.content.validate
+                typedEvent.content.validate,
+                typedEvent.content.attachmentId
             );
         }
     },

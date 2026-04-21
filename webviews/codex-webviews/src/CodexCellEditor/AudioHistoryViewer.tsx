@@ -17,9 +17,12 @@ import {
 } from "lucide-react";
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { ValidationEntry } from "../../../../types";
+import type { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getActiveAudioValidations } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
+import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon";
+import { AudioValidationBadge } from "./AudioValidationBadge";
+import type { AudioValidationPopoverProps } from "./AudioValidationBadge";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -50,6 +53,7 @@ interface AudioHistoryViewerProps {
     currentUsername?: string | null;
     requiredAudioValidations?: number;
     audioAvailability?: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
+    cell?: QuillCellContent;
 }
 
 export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
@@ -59,6 +63,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     currentUsername,
     requiredAudioValidations: requiredAudioValidationsProp,
     audioAvailability,
+    cell,
 }) => {
     const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>([]);
     const [entryAvailability, setEntryAvailability] = useState<Record<string, string>>({});
@@ -591,6 +596,10 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const hasError =
                                 errorIds.has(entry.attachmentId) ||
                                 entry.attachment?.isMissing === true;
+                            const entryState = entryAvailability[entry.attachmentId];
+                            const needsDownload = !audioUrls.has(entry.attachmentId) &&
+                                entryState !== "available-local" &&
+                                entryState !== "available-cached";
                             // Compute validation status from attachment.validatedBy
                             const activeValidations = getActiveAudioValidations(
                                 entry.attachment.validatedBy
@@ -611,6 +620,26 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                   )
                                 : false;
                             const otherValidatorCount = currentValidations - (isValidatedByCurrentUser ? 1 : 0);
+
+                            const entryValidators = Array.from(uniqueLatestByUser.values());
+                            const isEntryMissing = entry.attachment.isMissing === true || hasError;
+
+                            let entryReadOnly = true;
+                            let entryReadOnlyReason: string | undefined;
+
+                            if (entry.attachment.isDeleted && needsDownload) {
+                                entryReadOnlyReason = "Download and restore audio to validate";
+                            } else if (entry.attachment.isDeleted) {
+                                entryReadOnlyReason = "Restore audio to validate";
+                            } else if (isEntryMissing) {
+                                entryReadOnlyReason = "Cannot validate missing files";
+                            } else if (needsDownload) {
+                                entryReadOnlyReason = "Download audio to validate";
+                            } else {
+                                entryReadOnly = false;
+                            }
+
+                            
 
                             const durationLabel = entry.attachment.metadata?.durationSec != null
                                 ? ` (${formatDuration(entry.attachment.metadata.durationSec)})`
@@ -658,11 +687,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     {/* Bottom row: action buttons + metadata */}
                                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                         {(() => {
-                                            const entryState = entryAvailability[entry.attachmentId];
-                                            const needsDownload = !audioUrls.has(entry.attachmentId) &&
-                                                entryState !== "available-local" &&
-                                                entryState !== "available-cached" &&
-                                                entryState !== undefined;
                                             return (
                                                 <Button
                                                     size="sm"
@@ -748,17 +772,42 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <span style={{ fontSize: "0.75em", color: "var(--vscode-descriptionForeground)" }}>
                                                 ID: {entry.attachmentId.split("-").slice(-1)[0]}
                                             </span>
-                                            <span style={{ fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}>
-                                                <ValidationStatusIcon
-                                                    isValidationInProgress={false}
-                                                    isDisabled={entry.attachment.isDeleted || hasError}
-                                                    currentValidations={currentValidations}
-                                                    requiredValidations={effectiveRequiredAudioValidations}
-                                                    isValidatedByCurrentUser={isValidatedByCurrentUser}
-                                                    otherValidatorCount={otherValidatorCount}
-                                                    displayValidationText
+                                            {cell ? (
+                                                <AudioValidationBadge
+                                                    validationStatusProps={{
+                                                        isValidationInProgress: false,
+                                                        isDisabled: false,
+                                                        currentValidations,
+                                                        requiredValidations: effectiveRequiredAudioValidations,
+                                                        isValidatedByCurrentUser,
+                                                    }}
+                                                    popoverProps={{
+                                                        cellId,
+                                                        cell,
+                                                        vscode: vscode as any,
+                                                        isSourceText: false,
+                                                        currentUsername: username,
+                                                        requiredAudioValidations: effectiveRequiredAudioValidations,
+                                                    }}
+                                                    readOnly={entryReadOnly}
+                                                    readOnlyReason={entryReadOnlyReason}
+                                                    initialValidators={entryValidators}
+                                                    attachmentId={entry.attachmentId}
+                                                    alwaysShowStatusLabel
                                                 />
-                                            </span>
+                                            ) : (
+                                                <span style={{ fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}>
+                                                    <ValidationStatusIcon
+                                                        isValidationInProgress={false}
+                                                        isDisabled={entry.attachment.isDeleted || hasError}
+                                                        currentValidations={currentValidations}
+                                                        requiredValidations={effectiveRequiredAudioValidations}
+                                                        isValidatedByCurrentUser={isValidatedByCurrentUser}
+                                                        otherValidatorCount={otherValidatorCount}
+                                                        displayValidationText
+                                                    />
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

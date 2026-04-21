@@ -395,7 +395,7 @@ export type EditorPostMessages =
     | { command: "toggleSidebar"; content?: { isOpening: boolean; }; }
     | { command: "getEditorPosition"; }
     | { command: "validateCell"; content: { cellId: string; validate: boolean; }; }
-    | { command: "validateAudioCell"; content: { cellId: string; validate: boolean; }; }
+    | { command: "validateAudioCell"; content: { cellId: string; validate: boolean; attachmentId?: string; }; }
     | {
         command: "queueValidation";
         content: { cellId: string; validate: boolean; pending: boolean; };
@@ -2140,6 +2140,7 @@ type EditorReceiveMessages =
             cellId: string;
             validatedBy: ValidationEntry[];
             selectedAudioId?: string;
+            attachmentId?: string;
         };
     }
     | {

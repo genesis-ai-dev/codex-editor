@@ -2485,7 +2485,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Method to validate a cell's audio by a user
-    public async validateCellAudio(cellId: string, validate: boolean = true) {
+    public async validateCellAudio(cellId: string, validate: boolean = true, targetAttachmentId?: string) {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -2496,13 +2496,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
-        // Get the current audio attachment for this cell
-        const currentAttachment = this.getCurrentAttachment(cellId, "audio");
-        if (!currentAttachment) {
-            throw new Error("No audio attachment found for cell to validate");
-        }
+        let attachmentId: string;
+        let attachment: any;
 
-        const { attachmentId, attachment } = currentAttachment;
+        if (targetAttachmentId) {
+            attachment = cellToUpdate.metadata?.attachments?.[targetAttachmentId];
+            if (!attachment) {
+                throw new Error("Specified audio attachment not found");
+            }
+            attachmentId = targetAttachmentId;
+        } else {
+            const currentAttachment = this.getCurrentAttachment(cellId, "audio");
+            if (!currentAttachment) {
+                throw new Error("No audio attachment found for cell to validate");
+            }
+            ({ attachmentId, attachment } = currentAttachment);
+        }
 
         // Initialize validation array if it doesn't exist
         if (!attachment.validatedBy) {
@@ -2572,12 +2581,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 cellId,
                 type: "audioValidation",
                 validatedBy: attachment.validatedBy,
+                attachmentId,
             }),
             edits: [
                 {
                     cellId,
                     type: "audioValidation",
                     validatedBy: attachment.validatedBy,
+                    attachmentId,
                 },
             ],
         });

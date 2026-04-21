@@ -251,6 +251,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         document: CodexCellDocument;
         shouldValidate: boolean;
         isAudioValidation: boolean;
+        attachmentId?: string;
         resolve: (result: any) => void;
         reject: (error: any) => void;
     }[] = [];
@@ -1392,6 +1393,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             cellId: e.edits[0].cellId,
                             validatedBy: e.edits[0].validatedBy,
                             selectedAudioId,
+                            attachmentId: e.edits[0].attachmentId,
                         },
                     };
 
@@ -4157,7 +4159,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         });
                         await request.document.validateCellAudio(
                             request.cellId,
-                            request.shouldValidate
+                            request.shouldValidate,
+                            request.attachmentId
                         );
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === request.document.uri.toString()) {
@@ -4249,9 +4252,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public enqueueAudioValidation(
         cellId: string,
         document: CodexCellDocument,
-        shouldValidate: boolean
+        shouldValidate: boolean,
+        attachmentId?: string
     ): Promise<any> {
-        debug(`Enqueueing audio validation for cell ${cellId}, validate: ${shouldValidate}`);
+        debug(`Enqueueing audio validation for cell ${cellId}, validate: ${shouldValidate}, attachmentId: ${attachmentId ?? "(selected)"}`);
 
         return new Promise((resolve, reject) => {
             this.validationQueue.push({
@@ -4259,6 +4263,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 document,
                 shouldValidate,
                 isAudioValidation: true,
+                attachmentId,
                 resolve,
                 reject,
             });
