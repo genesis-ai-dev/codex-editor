@@ -7,7 +7,7 @@ import { processValidationQueue, enqueueValidation } from "./validationQueue";
 import { computeAudioValidationUpdate } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
-import { audioPopoverTracker } from "./validationUtils";
+import { audioPopoverTracker, readOnlyTooltipTracker } from "./validationUtils";
 import ValidatorPopover from "./components/ValidatorPopover";
 
 interface AudioValidationButtonProps {
@@ -67,13 +67,22 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         clearCloseTimer();
         closeTimerRef.current = window.setTimeout(callback, delay);
     };
+    const dismissReadOnlyTooltip = React.useCallback(() => {
+        setShowReadOnlyTooltip(false);
+        if (readOnlyTooltipTimerRef.current != null) {
+            clearTimeout(readOnlyTooltipTimerRef.current);
+            readOnlyTooltipTimerRef.current = null;
+        }
+    }, []);
     const flashReadOnlyTooltip = () => {
         if (readOnlyTooltipTimerRef.current != null) {
             clearTimeout(readOnlyTooltipTimerRef.current);
         }
+        readOnlyTooltipTracker.show(dismissReadOnlyTooltip);
         setShowReadOnlyTooltip(true);
         readOnlyTooltipTimerRef.current = window.setTimeout(() => {
             setShowReadOnlyTooltip(false);
+            readOnlyTooltipTracker.clear(dismissReadOnlyTooltip);
             readOnlyTooltipTimerRef.current = null;
         }, 2500);
     };
@@ -82,8 +91,9 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             if (readOnlyTooltipTimerRef.current != null) {
                 clearTimeout(readOnlyTooltipTimerRef.current);
             }
+            readOnlyTooltipTracker.clear(dismissReadOnlyTooltip);
         };
-    }, []);
+    }, [dismissReadOnlyTooltip]);
     const uniqueId = useRef(
         `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
     );
@@ -259,9 +269,12 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
 
         // In read-only mode (e.g. audio not downloaded yet), clicks surface a ShadCN
         // tooltip explaining why validation isn't allowed instead of mutating state.
-        // Hover continues to show the validators popover.
+        // Only shown when the user hasn't validated yet (if they have, there's nothing
+        // the pill can do — invalidation is handled via the trash icon in the popover).
         if (readOnly) {
-            flashReadOnlyTooltip();
+            if (!isValidated) {
+                flashReadOnlyTooltip();
+            }
             return;
         }
 
@@ -445,7 +458,7 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     }
                     removeSelfDisabledReason={
                         readOnly
-                            ? readOnlyReason || "Download audio to unvalidate"
+                            ? "Download audio to invalidate"
                             : undefined
                     }
                 />

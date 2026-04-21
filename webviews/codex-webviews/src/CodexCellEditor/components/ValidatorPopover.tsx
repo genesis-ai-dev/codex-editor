@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import type { ValidationEntry } from "../../../../../types";
-import { formatTimestamp, audioPopoverTracker } from "../validationUtils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
+import { formatTimestamp, audioPopoverTracker, readOnlyTooltipTracker } from "../validationUtils";
 
 interface ValidatorPopoverProps {
     anchorRef: React.RefObject<HTMLElement>;
@@ -24,6 +24,133 @@ interface ValidatorPopoverProps {
         setActivePopover: (id: string | null) => void;
     };
 }
+
+const TrashSvg: React.FC = () => (
+    <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+    >
+        <path d="M3 6H5H21" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10 11V17" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M14 11V17" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+);
+
+interface TrashActionProps {
+    onRemoveSelf?: () => void;
+    removeSelfDisabledReason?: string;
+    setShow: (show: boolean) => void;
+    uniqueId: string;
+    popoverTracker: {
+        getActivePopover: () => string | null;
+        setActivePopover: (id: string | null) => void;
+    };
+}
+
+const TrashAction: React.FC<TrashActionProps> = ({
+    onRemoveSelf,
+    removeSelfDisabledReason,
+    setShow,
+    uniqueId,
+    popoverTracker,
+}) => {
+    const isDisabled = !onRemoveSelf;
+    const [showDisabledTip, setShowDisabledTip] = useState(false);
+    const tipTimerRef = useRef<number | null>(null);
+    const trashRef = useRef<HTMLSpanElement>(null);
+
+    const dismissTip = useCallback(() => {
+        setShowDisabledTip(false);
+        if (tipTimerRef.current != null) {
+            clearTimeout(tipTimerRef.current);
+            tipTimerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (tipTimerRef.current != null) clearTimeout(tipTimerRef.current);
+            readOnlyTooltipTracker.clear(dismissTip);
+        };
+    }, [dismissTip]);
+
+    const flashTip = () => {
+        if (tipTimerRef.current != null) clearTimeout(tipTimerRef.current);
+        readOnlyTooltipTracker.show(dismissTip);
+        setShowDisabledTip(true);
+        tipTimerRef.current = window.setTimeout(() => {
+            setShowDisabledTip(false);
+            readOnlyTooltipTracker.clear(dismissTip);
+            tipTimerRef.current = null;
+        }, 2500);
+    };
+
+    const tipPosition = (() => {
+        if (!showDisabledTip || !trashRef.current) return null;
+        const rect = trashRef.current.getBoundingClientRect();
+        return { top: rect.bottom + 4, left: rect.right };
+    })();
+
+    return (
+        <>
+            <span
+                ref={trashRef}
+                tabIndex={isDisabled ? -1 : 0}
+                aria-disabled={isDisabled}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (isDisabled) {
+                        if (removeSelfDisabledReason) flashTip();
+                        return;
+                    }
+                    onRemoveSelf!();
+                    setShow(false);
+                    if (popoverTracker.getActivePopover() === uniqueId) {
+                        popoverTracker.setActivePopover(null);
+                    }
+                }}
+                onKeyDown={(e) => {
+                    if (isDisabled) return;
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        onRemoveSelf!();
+                        setShow(false);
+                    }
+                }}
+                title={isDisabled ? undefined : "Remove your audio validation"}
+                className="audio-validation-trash-icon flex items-start justify-center h-8"
+                style={{
+                    transition: "background-color 0.2s",
+                    cursor: "pointer",
+                    opacity: isDisabled ? 0.55 : 1,
+                }}
+            >
+                <TrashSvg />
+            </span>
+            {showDisabledTip &&
+                removeSelfDisabledReason &&
+                tipPosition &&
+                ReactDOM.createPortal(
+                    <div
+                        role="tooltip"
+                        className="bg-primary text-primary-foreground fixed z-[100001] rounded-md px-3 py-1.5 text-xs whitespace-nowrap pointer-events-none shadow-md animate-in fade-in-0 zoom-in-95"
+                        style={{
+                            top: tipPosition.top,
+                            left: tipPosition.left,
+                            transform: "translateX(-100%)",
+                        }}
+                    >
+                        {removeSelfDisabledReason}
+                    </div>,
+                    document.body
+                )}
+        </>
+    );
+};
 
 export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
     anchorRef,
@@ -232,104 +359,15 @@ export const ValidatorPopover: React.FC<ValidatorPopoverProps> = ({
                                 </div>
 
                                 {isCurrentUser &&
-                                    (onRemoveSelf || removeSelfDisabledReason) &&
-                                    (() => {
-                                        const isDisabled = !onRemoveSelf;
-                                        const trashSvg = (
-                                            <svg
-                                                width="16"
-                                                height="16"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                xmlns="http://www.w3.org/2000/svg"
-                                            >
-                                                <path
-                                                    d="M3 6H5H21"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                                <path
-                                                    d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                                <path
-                                                    d="M10 11V17"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                                <path
-                                                    d="M14 11V17"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                            </svg>
-                                        );
-
-                                        const trashSpan = (
-                                            <span
-                                                tabIndex={isDisabled ? -1 : 0}
-                                                aria-disabled={isDisabled}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (isDisabled || !onRemoveSelf) return;
-                                                    onRemoveSelf();
-                                                    setShow(false);
-                                                    if (
-                                                        popoverTracker.getActivePopover() ===
-                                                        uniqueId
-                                                    ) {
-                                                        popoverTracker.setActivePopover(null);
-                                                    }
-                                                }}
-                                                onKeyDown={(e) => {
-                                                    if (isDisabled || !onRemoveSelf) return;
-                                                    if (e.key === "Enter") {
-                                                        e.preventDefault();
-                                                        onRemoveSelf();
-                                                        setShow(false);
-                                                    }
-                                                }}
-                                                title={
-                                                    isDisabled
-                                                        ? undefined
-                                                        : "Remove your audio validation"
-                                                }
-                                                className="audio-validation-trash-icon flex items-start justify-center h-8"
-                                                style={{
-                                                    transition: "background-color 0.2s",
-                                                    cursor: isDisabled
-                                                        ? "not-allowed"
-                                                        : "pointer",
-                                                    opacity: isDisabled ? 0.55 : 1,
-                                                }}
-                                            >
-                                                {trashSvg}
-                                            </span>
-                                        );
-
-                                        if (isDisabled && removeSelfDisabledReason) {
-                                            return (
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        {trashSpan}
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="left">
-                                                        {removeSelfDisabledReason}
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            );
-                                        }
-                                        return trashSpan;
-                                    })()}
+                                    (onRemoveSelf || removeSelfDisabledReason) && (
+                                        <TrashAction
+                                            onRemoveSelf={onRemoveSelf}
+                                            removeSelfDisabledReason={removeSelfDisabledReason}
+                                            setShow={setShow}
+                                            uniqueId={uniqueId}
+                                            popoverTracker={popoverTracker}
+                                        />
+                                    )}
                             </div>
                         </div>
                     );

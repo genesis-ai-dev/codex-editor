@@ -6,7 +6,7 @@ import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon.tsx"
 import type { QuillCellContent, ValidationEntry } from "../../../../types";
 import { enqueueValidation, processValidationQueue } from "./validationQueue";
 import ValidatorPopover from "./components/ValidatorPopover";
-import { audioPopoverTracker, getActiveAudioValidations } from "./validationUtils";
+import { audioPopoverTracker, getActiveAudioValidations, readOnlyTooltipTracker } from "./validationUtils";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 
@@ -28,7 +28,7 @@ export interface AudioValidationBadgeProps {
     // tooltip explaining why; hover popover still works so users can see validators.
     readOnly?: boolean;
     // Optional override for the ShadCN tooltip message shown on click (when readOnly)
-    // and for the disabled trash tooltip. Defaults to "Download audio to validate/unvalidate".
+    // and for the disabled trash tooltip. Defaults to "Download audio to validate" / "…invalidate".
     readOnlyReason?: string;
 }
 
@@ -54,13 +54,22 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
         cancelCloseTimer();
         popoverCloseTimerRef.current = window.setTimeout(cb, delay);
     };
+    const dismissReadOnlyTooltip = React.useCallback(() => {
+        setShowReadOnlyTooltip(false);
+        if (readOnlyTooltipTimerRef.current != null) {
+            clearTimeout(readOnlyTooltipTimerRef.current);
+            readOnlyTooltipTimerRef.current = null;
+        }
+    }, []);
     const flashReadOnlyTooltip = () => {
         if (readOnlyTooltipTimerRef.current != null) {
             clearTimeout(readOnlyTooltipTimerRef.current);
         }
+        readOnlyTooltipTracker.show(dismissReadOnlyTooltip);
         setShowReadOnlyTooltip(true);
         readOnlyTooltipTimerRef.current = window.setTimeout(() => {
             setShowReadOnlyTooltip(false);
+            readOnlyTooltipTracker.clear(dismissReadOnlyTooltip);
             readOnlyTooltipTimerRef.current = null;
         }, 2500);
     };
@@ -69,8 +78,9 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
             if (readOnlyTooltipTimerRef.current != null) {
                 clearTimeout(readOnlyTooltipTimerRef.current);
             }
+            readOnlyTooltipTracker.clear(dismissReadOnlyTooltip);
         };
-    }, []);
+    }, [dismissReadOnlyTooltip]);
 
     const popoverCurrentUsername = popoverProps?.currentUsername;
     const popoverCell = popoverProps?.cell;
@@ -194,7 +204,7 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
         const { currentValidations, requiredValidations, isValidatedByCurrentUser } =
             effectiveValidationStatusProps;
         const isFullyValidated = currentValidations >= requiredValidations;
-        const canValidate = currentValidations === 0 || (!isFullyValidated && !isValidatedByCurrentUser);
+        const canValidate = !isValidatedByCurrentUser;
         const label = getValidationLabel({ currentValidations, requiredValidations, isValidatedByCurrentUser });
         const buttonLabel = currentValidations === 0 ? "Validate" : label;
 
@@ -212,7 +222,12 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
         const onClickHandler = readOnly
             ? (e: React.MouseEvent<HTMLButtonElement>) => {
                   e.stopPropagation();
-                  flashReadOnlyTooltip();
+                  // Only flash the tooltip when the user hasn't validated yet.
+                  // If they have, there's nothing the pill can do — invalidation
+                  // is handled via the trash icon in the popover.
+                  if (!isValidatedByCurrentUser) {
+                      flashReadOnlyTooltip();
+                  }
               }
             : canValidate
                 ? handleValidation
@@ -234,11 +249,13 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
 
         if (!readOnly) return button;
 
+        const tooltipMessage = readOnlyReason || "Download audio to validate";
+
         return (
-            <Tooltip open={showReadOnlyTooltip} onOpenChange={setShowReadOnlyTooltip}>
+            <Tooltip open={showReadOnlyTooltip} onOpenChange={() => {}}>
                 <TooltipTrigger asChild>{button}</TooltipTrigger>
                 <TooltipContent side="top">
-                    {readOnlyReason || "Download audio to validate"}
+                    {tooltipMessage}
                 </TooltipContent>
             </Tooltip>
         );
@@ -310,7 +327,7 @@ export const AudioValidationBadge: React.FC<AudioValidationBadgeProps> = ({
                         }
                         removeSelfDisabledReason={
                             readOnly
-                                ? readOnlyReason || "Download audio to unvalidate"
+                                ? "Download audio to invalidate"
                                 : undefined
                         }
                         cancelCloseTimer={cancelCloseTimer}
