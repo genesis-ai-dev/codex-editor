@@ -2760,11 +2760,8 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveMetadata = () => {
         const updatedMetadata = { ...metadata };
-        if (tempVideoUrl) {
-            updatedMetadata.videoUrl = tempVideoUrl;
-            setVideoUrl(tempVideoUrl);
-            setTempVideoUrl("");
-        }
+        setVideoUrl(updatedMetadata.videoUrl || "");
+        setTempVideoUrl("");
         debug("metadata", "Saving metadata:", updatedMetadata);
         vscode.postMessage({
             command: "updateNotebookMetadata",

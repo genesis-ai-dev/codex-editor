@@ -84,7 +84,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
     };
 
     const renderField = (key: string, config: typeof USER_EDITABLE_FIELDS[keyof typeof USER_EDITABLE_FIELDS]) => {
-        const currentValue = key === "videoUrl" && tempVideoUrl ? tempVideoUrl : (metadata[key as keyof CustomNotebookMetadata] || "");
+        const currentValue = metadata[key as keyof CustomNotebookMetadata] || "";
         
         return (
             <div key={key} className="space-y-2">
