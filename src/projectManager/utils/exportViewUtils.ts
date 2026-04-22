@@ -21,9 +21,7 @@ export const FILE_TYPE_DISPLAY_NAMES: Record<string, string> = {
     maculabible: "Macula Bible",
     obs: "Bible Stories",
     biblica: "Biblica Study Notes",
-    reach4life: "Reach4Life",
     spreadsheet: "Spreadsheet with Audio data",
-    pdf: "PDF Files",
     paratext: "Paratext Projects",
     unknown: "Other Files",
 };
@@ -58,7 +56,7 @@ function isActiveTextCell(cell: CellEntry): boolean {
     if (cellType !== "text") {
         return false;
     }
-    const data = meta.data as { merged?: boolean; deleted?: boolean } | undefined;
+    const data = meta.data as { merged?: boolean; deleted?: boolean; } | undefined;
     return !(data?.merged) && !(data?.deleted);
 }
 
@@ -72,7 +70,7 @@ function cellHasNonEmptyValue(cell: CellEntry): boolean {
 
 function cellHasAudioAttachment(cell: CellEntry): boolean {
     const attachments = (cell.metadata as Record<string, unknown>)?.attachments as
-        | Record<string, { type?: string; isDeleted?: boolean; isMissing?: boolean; url?: string }>
+        | Record<string, { type?: string; isDeleted?: boolean; isMissing?: boolean; url?: string; }>
         | undefined;
     if (!attachments) {
         return false;
@@ -235,18 +233,6 @@ function getGroupKeyFromMetadata(metadata: Record<string, unknown>): string {
         return "obs";
     }
 
-    // PDF Files (backward compatibility)
-    if (
-        corpusMarker === "pdf" ||
-        corpusMarker === "pdf-importer" ||
-        corpusMarker === "pdf-sentence" ||
-        importerType === "pdf" ||
-        fileType === "pdf" ||
-        (originalFileName && /\.pdf$/i.test(originalFileName))
-    ) {
-        return "pdf";
-    }
-
     // Spreadsheet with Audio data (CSV, TSV)
     if (
         corpusMarker === "spreadsheet" ||
@@ -324,7 +310,6 @@ export async function groupCodexFilesByImporterType(
         biblica: 11,
         reach4life: 12,
         spreadsheet: 13,
-        pdf: 14,
         unknown: 99,
     };
 
