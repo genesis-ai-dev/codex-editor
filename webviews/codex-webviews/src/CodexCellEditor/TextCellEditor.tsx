@@ -3219,6 +3219,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             audioValidationPopoverProps={
                                                 audioValidationPopoverProps
                                             }
+                                            targetDuration={
+                                                cellTimestamps?.startTime !== undefined &&
+                                                cellTimestamps?.endTime !== undefined
+                                                    ? cellTimestamps.endTime -
+                                                      cellTimestamps.startTime
+                                                    : null
+                                            }
                                         />
 
                                         {confirmingDiscard && (
