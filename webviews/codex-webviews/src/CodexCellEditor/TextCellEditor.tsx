@@ -1211,109 +1211,124 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setRecordingElapsedTime(0);
     };
 
-    const saveAudioToCell = useCallback((blob: Blob) => {
-        setIsAudioSaving(true);
-        setRecordingStatus("Saving audio…");
+    const saveAudioToCell = useCallback(
+        (blob: Blob) => {
+            setIsAudioSaving(true);
+            setRecordingStatus("Saving audio…");
 
-        // Generate a unique ID for the audio file
-        const normalizedCellId = cellMarkers[0].replace(/\s+/g, "-").toLowerCase();
-        const uniqueId = `audio-${normalizedCellId}-${Date.now()}-${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-        const documentSegment = cellMarkers[0].split(" ")[0]; // Extract "JUD" from "JUD 1:1"
+            // Generate a unique ID for the audio file
+            const normalizedCellId = cellMarkers[0].replace(/\s+/g, "-").toLowerCase();
+            const uniqueId = `audio-${normalizedCellId}-${Date.now()}-${Math.random()
+                .toString(36)
+                .substr(2, 9)}`;
+            const documentSegment = cellMarkers[0].split(" ")[0]; // Extract "JUD" from "JUD 1:1"
 
-        // Normalize file extension from MIME type
-        const normalizeExtension = (mimeType: string): string => {
-            if (!mimeType || !mimeType.includes("/")) return "webm";
+            // Normalize file extension from MIME type
+            const normalizeExtension = (mimeType: string): string => {
+                if (!mimeType || !mimeType.includes("/")) return "webm";
 
-            let ext = mimeType.split("/")[1] || "webm";
+                let ext = mimeType.split("/")[1] || "webm";
 
-            // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
-            ext = ext.split(";")[0];
+                // Remove codec parameters (e.g., "webm;codecs=opus" -> "webm")
+                ext = ext.split(";")[0];
 
-            // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
-            if (ext.startsWith("x-")) {
-                ext = ext.substring(2);
-            }
+                // Normalize non-standard MIME types (e.g., "x-m4a" -> "m4a")
+                if (ext.startsWith("x-")) {
+                    ext = ext.substring(2);
+                }
 
-            // Handle common MIME type aliases
-            if (ext === "mp4" || ext === "mpeg") {
-                return "m4a";
-            }
+                // Handle common MIME type aliases
+                if (ext === "mp4" || ext === "mpeg") {
+                    return "m4a";
+                }
 
-            // Validate against supported formats
-            const allowedExtensions = new Set(["webm", "wav", "mp3", "m4a", "ogg", "aac", "flac"]);
-            return allowedExtensions.has(ext) ? ext : "webm";
-        };
-
-        const fileExtension = normalizeExtension(blob.type);
-
-        // Convert blob to base64 for transfer to provider
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-            const base64data = reader.result as string;
-
-            // Attempt to compute simple metadata using Web Audio API (best-effort)
-            let meta: any = {
-                mimeType: blob.type || undefined,
-                sizeBytes: blob.size,
+                // Validate against supported formats
+                const allowedExtensions = new Set([
+                    "webm",
+                    "wav",
+                    "mp3",
+                    "m4a",
+                    "ogg",
+                    "aac",
+                    "flac",
+                ]);
+                return allowedExtensions.has(ext) ? ext : "webm";
             };
-            try {
-                const arrayBuf = await blob.arrayBuffer();
-                // Decode to PCM to obtain duration and channels
-                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
-                    sampleRate: 48000,
-                } as any);
-                const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-                const durationSec = decoded.duration;
-                const channels = decoded.numberOfChannels;
-                // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
-                const bitrateKbps =
-                    durationSec > 0 ? Math.round((blob.size * 8) / durationSec / 1000) : undefined;
-                meta = {
-                    ...meta,
-                    sampleRate: decoded.sampleRate,
-                    channels,
-                    durationSec,
-                    bitrateKbps,
+
+            const fileExtension = normalizeExtension(blob.type);
+
+            // Convert blob to base64 for transfer to provider
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64data = reader.result as string;
+
+                // Attempt to compute simple metadata using Web Audio API (best-effort)
+                let meta: any = {
+                    mimeType: blob.type || undefined,
+                    sizeBytes: blob.size,
                 };
                 try {
-                    audioCtx.close();
+                    const arrayBuf = await blob.arrayBuffer();
+                    // Decode to PCM to obtain duration and channels
+                    const audioCtx = new (window.AudioContext ||
+                        (window as any).webkitAudioContext)({
+                        sampleRate: 48000,
+                    } as any);
+                    const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+                    const durationSec = decoded.duration;
+                    const channels = decoded.numberOfChannels;
+                    // Approximated bitrate in kbps: size(bytes)*8 / duration(seconds) / 1000
+                    const bitrateKbps =
+                        durationSec > 0
+                            ? Math.round((blob.size * 8) / durationSec / 1000)
+                            : undefined;
+                    meta = {
+                        ...meta,
+                        sampleRate: decoded.sampleRate,
+                        channels,
+                        durationSec,
+                        bitrateKbps,
+                    };
+                    try {
+                        audioCtx.close();
+                    } catch {
+                        void 0;
+                    }
                 } catch {
-                    void 0;
+                    // ignore metadata decode errors
                 }
-            } catch {
-                // ignore metadata decode errors
-            }
-            // Send to provider to save file
-            const requestId =
-                typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function"
-                    ? (crypto as any).randomUUID()
-                    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            audioSaveRequestIdRef.current = requestId;
+                // Send to provider to save file
+                const requestId =
+                    typeof crypto !== "undefined" &&
+                    typeof (crypto as any).randomUUID === "function"
+                        ? (crypto as any).randomUUID()
+                        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                audioSaveRequestIdRef.current = requestId;
 
-            const messageContent: EditorPostMessages = {
-                command: "saveAudioAttachment",
-                requestId,
-                content: {
-                    cellId: cellMarkers[0],
-                    audioData: base64data,
-                    audioId: uniqueId,
-                    fileExtension: fileExtension,
-                    metadata: meta,
-                },
+                const messageContent: EditorPostMessages = {
+                    command: "saveAudioAttachment",
+                    requestId,
+                    content: {
+                        cellId: cellMarkers[0],
+                        audioData: base64data,
+                        audioId: uniqueId,
+                        fileExtension: fileExtension,
+                        metadata: meta,
+                    },
+                };
+
+                window.vscodeApi.postMessage(messageContent);
+
+                // Store the audio ID temporarily
+                sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
+
+                // Set the audioBlob (audioUrl will be derived automatically)
+                setAudioBlob(blob);
             };
-
-            window.vscodeApi.postMessage(messageContent);
-
-            // Store the audio ID temporarily
-            sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
-
-            // Set the audioBlob (audioUrl will be derived automatically)
-            setAudioBlob(blob);
-        };
-        reader.readAsDataURL(blob);
-    }, [cellMarkers]);
+            reader.readAsDataURL(blob);
+        },
+        [cellMarkers]
+    );
 
     // Keep ref updated with saveAudioToCell function
     useEffect(() => {
@@ -2371,9 +2386,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 });
                             }}
                         />
-                        <span className="text-xs text-muted-foreground">
-                            Paste as plain text
-                        </span>
+                        <span className="text-xs text-muted-foreground">Paste as plain text</span>
                     </label>
                     <span className="text-xs text-muted-foreground">
                         {characterCount} characters
@@ -3011,10 +3024,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         className={cn(
                                                                             "h-24 w-24 rounded-full text-2xl font-bold transition-all",
                                                                             isRecording
-                                                                                ? "ring-4 ring-red-500 animate-pulse bg-red-600 hover:bg-red-700"
+                                                                                ? "animate-pulse bg-red-600 hover:bg-red-700 border-0"
                                                                                 : countdown !== null
-                                                                                ? "ring-4 ring-green-500 bg-green-500 hover:bg-green-600"
-                                                                                : "ring-4 ring-blue-500 bg-blue-600 hover:bg-blue-700",
+                                                                                ? "bg-green-500 hover:bg-green-600 border-0"
+                                                                                : "bg-blue-600 hover:bg-blue-700 border-0",
                                                                             isCellLocked ||
                                                                                 !targetDuration
                                                                                 ? "opacity-50 cursor-not-allowed"
@@ -3033,11 +3046,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         }
                                                                     >
                                                                         {isRecording ? (
-                                                                            <Mic className="h-8 w-8" />
+                                                                            <Square className="h-8 w-8" />
                                                                         ) : countdown !== null ? (
                                                                             countdown
                                                                         ) : (
-                                                                            <CircleDotDashed className="h-8 w-8" />
+                                                                            <Mic className="h-8 w-8" />
                                                                         )}
                                                                     </Button>
 
