@@ -327,6 +327,104 @@ suite("Milestone Subdivisions Test Suite", () => {
             );
         });
 
+        test("getRootContentCellIdsForMilestone returns all root content cells in order", async () => {
+            const cells = buildCellsWithSubdivisions();
+            const document = await createDocumentWithCells(cells);
+            const rootIds = document.getRootContentCellIdsForMilestone(0);
+            assert.deepStrictEqual(
+                rootIds,
+                ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"],
+            );
+        });
+
+        test("getRootContentCellIdsForMilestone excludes paratext, deleted, and child cells", async () => {
+            const cells: any[] = [
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "Luke 1",
+                    metadata: { type: CodexCellTypes.MILESTONE, id: "m1" },
+                },
+                { kind: 2, languageId: "scripture", value: "v1", metadata: { type: CodexCellTypes.TEXT, id: "v1" } },
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "v1-child",
+                    metadata: { type: CodexCellTypes.TEXT, id: "v1c", parentId: "v1" },
+                },
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "paratext",
+                    metadata: { type: CodexCellTypes.PARATEXT, id: "p1" },
+                },
+                {
+                    kind: 2,
+                    languageId: "scripture",
+                    value: "deleted",
+                    metadata: { type: CodexCellTypes.TEXT, id: "d1", data: { deleted: true } },
+                },
+                { kind: 2, languageId: "scripture", value: "v2", metadata: { type: CodexCellTypes.TEXT, id: "v2" } },
+            ];
+            const document = await createDocumentWithCells(cells);
+            const rootIds = document.getRootContentCellIdsForMilestone(0);
+            assert.deepStrictEqual(rootIds, ["v1", "v2"]);
+        });
+
+        test("updateCellData('subdivisions') invalidates pagination cache", async () => {
+            const document = await createDocumentWithCells(buildCellsWithSubdivisions());
+
+            // First read: no custom breaks → arithmetic
+            const before = document.buildMilestoneIndex(50);
+            assert.strictEqual(before.milestones[0].subdivisions!.length, 1);
+
+            // Update subdivisions via the same path the message handler uses.
+            document.updateCellData("milestone-1", {
+                subdivisions: [{ startCellId: "v6" }],
+            });
+
+            const after = document.buildMilestoneIndex(50);
+            assert.strictEqual(
+                after.milestones[0].subdivisions!.length,
+                2,
+                "New subdivisions must be reflected after updateCellData",
+            );
+            assert.strictEqual(after.milestones[0].subdivisions![1].startCellId, "v6");
+        });
+
+        test("updateCellData('subdivisionNames') picks up name overrides", async () => {
+            const cells = buildCellsWithSubdivisions([{ startCellId: "v6" }]);
+            const document = await createDocumentWithCells(cells);
+
+            document.updateCellData("milestone-1", {
+                subdivisionNames: {
+                    [FIRST_SUBDIVISION_KEY]: "Opening",
+                    v6: "Later Half",
+                },
+            });
+
+            const index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones[0].subdivisions![0].name, "Opening");
+            assert.strictEqual(index.milestones[0].subdivisions![1].name, "Later Half");
+        });
+
+        test("empty subdivisions array restores arithmetic pagination", async () => {
+            const cells = buildCellsWithSubdivisions([{ startCellId: "v6" }]);
+            const document = await createDocumentWithCells(cells);
+
+            // Sanity: starts custom
+            let index = document.buildMilestoneIndex(50);
+            assert.strictEqual(index.milestones[0].subdivisions![0].source, "custom");
+
+            document.updateCellData("milestone-1", { subdivisions: [] });
+            index = document.buildMilestoneIndex(50);
+            assert.strictEqual(
+                index.milestones[0].subdivisions![0].source,
+                "auto",
+                "Clearing placements should fall back to arithmetic pagination",
+            );
+        });
+
         test("legacy behavior preserved when no subdivisions on milestone", async () => {
             // Sanity check: 125 cells with cellsPerPage=50 → 3 subsections and each page
             // sized exactly as before the refactor.

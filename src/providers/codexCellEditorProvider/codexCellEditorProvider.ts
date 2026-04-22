@@ -48,7 +48,7 @@ import {
     isSourceFileFlexible,
     isMatchingFilePair as isMatchingFilePairUtil,
 } from "../../utils/fileTypeUtils";
-import { getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
+import { getCorrespondingCodexUri, getCorrespondingSourceUri } from "../../utils/codexNotebookUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -1684,6 +1684,48 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private isCodexFile(uri: vscode.Uri | string): boolean {
         return isCodexFileFlexible(uri);
+    }
+
+    /**
+     * Resolves the paired notebook URI for a given source/codex URI. Returns
+     * null when the mapping cannot be determined (no workspace folder, or the
+     * URI is neither `.source` nor `.codex`).
+     *
+     * Used by milestone subdivision writes to mirror source-authoritative
+     * placements onto the corresponding target document.
+     */
+    public getPairedNotebookUri(uri: vscode.Uri): vscode.Uri | null {
+        if (this.isSourceText(uri)) {
+            return getCorrespondingCodexUri(uri);
+        }
+        if (this.isCodexFile(uri)) {
+            return getCorrespondingSourceUri(uri);
+        }
+        return null;
+    }
+
+    /**
+     * Returns an open `CodexCellDocument` for `uri` when one is already backing
+     * a webview panel; otherwise opens a fresh instance via
+     * `openCustomDocument`. Callers receive a document they can mutate and save
+     * without worrying about whether a live editor is attached.
+     */
+    public async getOrOpenDocumentForUri(
+        uri: vscode.Uri
+    ): Promise<CodexCellDocument> {
+        const uriString = uri.toString();
+        for (const [panelUri] of this.webviewPanels.entries()) {
+            if (this.isMatchingFilePair(uriString, panelUri) && panelUri === uriString) {
+                // Reuse the document backing the open panel. openCustomDocument
+                // returns the cached instance when one exists for this exact URI.
+                return await this.openCustomDocument(
+                    vscode.Uri.parse(panelUri),
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+        }
+        return await this.openCustomDocument(uri, {}, new vscode.CancellationTokenSource().token);
     }
 
     private updateTextDirection(
