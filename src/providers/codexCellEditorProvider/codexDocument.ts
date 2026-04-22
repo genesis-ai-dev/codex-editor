@@ -15,6 +15,8 @@ import {
     MilestoneIndex,
     MilestoneInfo,
     CustomCellMetaData,
+    MilestoneSubdivisionPlacement,
+    SubdivisionInfo,
 } from "../../../types";
 import { EditMapUtils, deduplicateFileMetadataEdits } from "../../utils/editMapUtils";
 import { CodexCellTypes, EditType } from "../../../types/enums";
@@ -25,6 +27,7 @@ import { debounce } from "lodash";
 import { getSQLiteIndexManager, isDBShuttingDown } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 import { getCellValueData, cellHasAudioUsingAttachments, computeValidationStats, computeProgressPercents, shouldExcludeCellFromProgress, shouldExcludeQuillCellFromProgress, countActiveValidations, hasTextContent } from "../../../sharedUtils";
 import { extractParentCellIdFromParatext, convertCellToQuillContent } from "./utils/cellUtils";
+import { FIRST_SUBDIVISION_KEY, findSubdivisionIndexForRoot, resolveSubdivisions } from "./utils/subdivisionUtils";
 import { formatJsonForNotebookFile, normalizeNotebookFileText } from "../../utils/notebookFileFormattingUtils";
 import { atomicWriteUriText, readExistingFileOrThrow } from "../../utils/notebookSafeSaveUtils";
 
@@ -1310,6 +1313,69 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Returns the ordered list of root content cell IDs within the given index
+     * range. Root content cells are non-milestone, non-paratext, non-deleted cells
+     * without a `parentId`. Pagination (both arithmetic and subdivision-based)
+     * operates over these roots; children and paratext are attached during slicing.
+     */
+    private getRootContentCellIdsInRange(
+        startCellIndex: number,
+        endCellIndex: number
+    ): string[] {
+        const cells = this._documentData.cells || [];
+        const rootIds: string[] = [];
+        for (let i = startCellIndex; i < endCellIndex; i++) {
+            const cell = cells[i];
+            if (
+                cell.metadata?.type !== CodexCellTypes.MILESTONE &&
+                cell.metadata?.type !== CodexCellTypes.PARATEXT &&
+                cell.metadata?.data?.deleted !== true
+            ) {
+                const parentId =
+                    cell.metadata?.parentId ??
+                    (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
+                if (!parentId) {
+                    const id = cell.metadata?.id;
+                    if (id) rootIds.push(id);
+                }
+            }
+        }
+        return rootIds;
+    }
+
+    /**
+     * Resolves the subdivisions for a single milestone by index. Reads stored
+     * placements from the milestone cell's `metadata.data.subdivisions` and
+     * overrides from `metadata.data.subdivisionNames`. When either is absent the
+     * arithmetic fallback is used, preserving legacy 50-cell pagination.
+     *
+     * `cellIndex` must be the absolute index of the milestone cell within
+     * `_documentData.cells`; `nextMilestoneCellIndex` is the index of the next
+     * milestone cell (or `cells.length`) and defines the range end.
+     */
+    private resolveSubdivisionsForMilestoneCell(
+        cellIndex: number,
+        nextMilestoneCellIndex: number,
+        cellsPerPage: number
+    ): SubdivisionInfo[] {
+        const cells = this._documentData.cells || [];
+        const rootContentCellIds = this.getRootContentCellIdsInRange(
+            cellIndex,
+            nextMilestoneCellIndex
+        );
+        const milestoneCell = cells[cellIndex];
+        const data = milestoneCell?.metadata?.data as
+            | { subdivisions?: MilestoneSubdivisionPlacement[]; subdivisionNames?: { [key: string]: string; }; }
+            | undefined;
+        return resolveSubdivisions({
+            rootContentCellIds,
+            placements: data?.subdivisions,
+            nameOverrides: data?.subdivisionNames,
+            cellsPerPage,
+        });
+    }
+
+    /**
      * Builds a milestone index from the document cells.
      * This index is cached and reused until cells are modified.
      * 
@@ -1424,13 +1490,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             }
 
+            const virtualMilestone: MilestoneInfo = {
+                index: 0,
+                cellIndex: 0,
+                value: "1",
+                cellCount: totalContentCells,
+            };
+            // Virtual milestone has no backing milestone cell; fall back to
+            // arithmetic subdivisions across the full cell range.
+            virtualMilestone.subdivisions = resolveSubdivisions({
+                rootContentCellIds: this.getRootContentCellIdsInRange(0, cells.length),
+                placements: undefined,
+                nameOverrides: undefined,
+                cellsPerPage,
+            });
+
             const result: MilestoneIndex = {
-                milestones: [{
-                    index: 0,
-                    cellIndex: 0,
-                    value: "1",
-                    cellCount: totalContentCells,
-                }],
+                milestones: [virtualMilestone],
                 totalCells: totalContentCells,
                 cellsPerPage,
             };
@@ -1441,6 +1517,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this._cachedMilestoneIndexCellCount = currentCellCount;
 
             return result;
+        }
+
+        // Attach resolved subdivisions to each milestone so slicing APIs and the
+        // webview share a single source of truth.
+        for (let i = 0; i < milestones.length; i++) {
+            const milestone = milestones[i];
+            const nextMilestone = milestones[i + 1];
+            const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
+            milestone.subdivisions = this.resolveSubdivisionsForMilestoneCell(
+                milestone.cellIndex,
+                endCellIndex,
+                cellsPerPage
+            );
         }
 
         const result: MilestoneIndex = {
@@ -1617,10 +1706,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     const parentId = cell.metadata?.parentId ?? (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
                     cellRootIndex = parentId != null ? cellIdToRootIndex.get(parentId) : undefined;
                 }
-                const subsectionIndex =
-                    cellRootIndex !== undefined
-                        ? Math.max(0, Math.floor(cellRootIndex / cellsPerPage))
-                        : 0;
+                // Use resolved subdivisions (custom or arithmetic) to locate the
+                // right subsection. When no rootIndex could be derived (e.g. the
+                // located cell is a milestone boundary), fall back to 0.
+                const subdivisions = milestone.subdivisions ?? [];
+                let subsectionIndex = 0;
+                if (cellRootIndex !== undefined && subdivisions.length > 0) {
+                    const found = findSubdivisionIndexForRoot(subdivisions, cellRootIndex);
+                    subsectionIndex = found >= 0 ? found : 0;
+                } else if (cellRootIndex !== undefined) {
+                    subsectionIndex = Math.max(0, Math.floor(cellRootIndex / cellsPerPage));
+                }
 
                 return { milestoneIndex: i, subsectionIndex };
             }
@@ -1804,19 +1900,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
             contentCells.push(quillContent);
         }
 
-        // Use root-based subsections to match getCellsForMilestone pagination
+        // Use root-based subsections to match getCellsForMilestone pagination.
+        // When the milestone has user-defined subdivisions, use them; otherwise
+        // fall back to arithmetic chunks of `cellsPerPage`.
         const getContentCellParentId = (c: QuillCellContent) =>
             (c.metadata?.parentId as string | undefined) ?? (c.data?.parentId as string | undefined);
         const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
-        const totalSubsections = Math.ceil(rootContentCells.length / cellsPerPage);
+        const subdivisions = milestone.subdivisions ?? resolveSubdivisions({
+            rootContentCellIds: rootContentCells.map((c) => c.cellMarkers[0]).filter(Boolean),
+            placements: undefined,
+            nameOverrides: undefined,
+            cellsPerPage,
+        });
+        const totalSubsections = Math.max(1, subdivisions.length);
 
         // Calculate progress for each subsection
         for (let subsectionIdx = 0; subsectionIdx < totalSubsections; subsectionIdx++) {
-            const startRootIndex = subsectionIdx * cellsPerPage;
-            const endRootIndex = Math.min(
-                startRootIndex + cellsPerPage,
-                rootContentCells.length
-            );
+            const subdivision = subdivisions[subsectionIdx];
+            const startRootIndex = subdivision?.startRootIndex ?? 0;
+            const endRootIndex = subdivision?.endRootIndex ?? rootContentCells.length;
             const rootsOnSubsection = rootContentCells.slice(startRootIndex, endRootIndex);
             const contentCellIdsForSubsection = new Set(
                 rootsOnSubsection.map((c) => c.cellMarkers[0])
@@ -2008,17 +2110,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Paginate by root content cells only, so adding a child (e.g. to cell 44) does not bump
         // the last root (e.g. cell 50) to the next page. Each page shows N roots + all their descendants.
         const rootContentCells = contentCells.filter((c) => !getContentCellParentId(c));
-        const totalSubsections = Math.ceil(rootContentCells.length / cellsPerPage);
+        // Subdivisions computed by buildMilestoneIndex drive both the legacy
+        // arithmetic chunking (as "auto" subdivisions) and any user-defined custom
+        // breaks. Using them here keeps slicing, counting, and webview rendering
+        // consistent.
+        const subdivisions = milestone.subdivisions ?? resolveSubdivisions({
+            rootContentCellIds: rootContentCells.map((c) => c.cellMarkers[0]).filter(Boolean),
+            placements: undefined,
+            nameOverrides: undefined,
+            cellsPerPage,
+        });
+        const totalSubsections = Math.max(1, subdivisions.length);
         const validSubsectionIndex = Math.min(
             Math.max(0, subsectionIndex),
             Math.max(0, totalSubsections - 1)
         );
-
-        const startRootIndex = validSubsectionIndex * cellsPerPage;
-        const endRootIndex = Math.min(
-            startRootIndex + cellsPerPage,
-            rootContentCells.length
-        );
+        const activeSubdivision = subdivisions[validSubsectionIndex];
+        const startRootIndex = activeSubdivision?.startRootIndex ?? 0;
+        const endRootIndex = activeSubdivision?.endRootIndex ?? rootContentCells.length;
         const rootsOnPage = rootContentCells.slice(startRootIndex, endRootIndex);
 
         // Include roots on this page and all their descendant content cells (children, grandchildren, etc.)
@@ -2152,7 +2261,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @returns Number of subsections (pages) for this milestone
      */
     public getSubsectionCountForMilestone(milestoneIndex: number, cellsPerPage: number = 50): number {
-        const cells = this._documentData.cells || [];
         const milestoneInfo = this.buildMilestoneIndex(cellsPerPage);
 
         if (milestoneIndex < 0 || milestoneIndex >= milestoneInfo.milestones.length) {
@@ -2160,25 +2268,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const milestone = milestoneInfo.milestones[milestoneIndex];
-        const nextMilestone = milestoneInfo.milestones[milestoneIndex + 1];
-        const startCellIndex = milestone.cellIndex;
-        const endCellIndex = nextMilestone ? nextMilestone.cellIndex : cells.length;
-
-        let rootContentCount = 0;
-        for (let i = startCellIndex; i < endCellIndex; i++) {
-            const cell = cells[i];
-            if (
-                cell.metadata?.type !== CodexCellTypes.MILESTONE &&
-                cell.metadata?.type !== CodexCellTypes.PARATEXT &&
-                cell.metadata?.data?.deleted !== true
-            ) {
-                const parentId = cell.metadata?.parentId ?? (cell.metadata?.data as { parentId?: string; } | undefined)?.parentId;
-                if (!parentId) {
-                    rootContentCount++;
-                }
-            }
-        }
-        return Math.ceil(rootContentCount / cellsPerPage) || 1;
+        // Prefer the resolved subdivision list (includes custom placements). It is
+        // always non-empty when the milestone has root content cells, and empty
+        // when the milestone is empty; treat empty milestones as 1 subsection for
+        // back-compat with prior behavior.
+        return Math.max(1, milestone.subdivisions?.length ?? 0);
     }
 
     public updateCellLabel(cellId: string, newLabel: string) {
