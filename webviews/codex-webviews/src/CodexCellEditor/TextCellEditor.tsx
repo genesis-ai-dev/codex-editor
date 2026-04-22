@@ -1174,13 +1174,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             return;
         }
 
-        // Check if timestamps are available
-        if (!cellTimestamps?.startTime || !cellTimestamps?.endTime) {
-            setRecordingStatus("Cannot record: video timestamps not available for this cell");
-            return;
-        }
-
-        // Start countdown from 3
         setCountdown(3);
         setRecordingStatus("Starting in 3...");
     };
@@ -3017,10 +3010,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                 ? stopRecording
                                                                                 : startRecording
                                                                         }
-                                                                        disabled={
-                                                                            isCellLocked ||
-                                                                            !targetDuration
-                                                                        }
+                                                                        disabled={isCellLocked}
                                                                         className={cn(
                                                                             "h-24 w-24 rounded-full text-2xl font-bold transition-all",
                                                                             isRecording
@@ -3028,16 +3018,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                 : countdown !== null
                                                                                 ? "bg-green-500 hover:bg-green-600 border-0"
                                                                                 : "bg-blue-600 hover:bg-blue-700 border-0",
-                                                                            isCellLocked ||
-                                                                                !targetDuration
+                                                                            isCellLocked
                                                                                 ? "opacity-50 cursor-not-allowed"
                                                                                 : ""
                                                                         )}
                                                                         title={
                                                                             isCellLocked
                                                                                 ? "Cannot record: cell is locked"
-                                                                                : !targetDuration
-                                                                                ? "Cannot record: video timestamps not available"
                                                                                 : isRecording
                                                                                 ? "Stop Recording"
                                                                                 : countdown !== null
@@ -3054,7 +3041,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                         )}
                                                                     </Button>
 
-                                                                    {/* Progress Bar */}
+                                                                    {/* Progress Bar (only when we have a timestamp-derived target) */}
                                                                     {targetDuration ? (
                                                                         <div className="w-full space-y-2">
                                                                             <div className="relative w-full h-3 bg-blue-200/60 rounded-full overflow-hidden">
@@ -3098,12 +3085,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                                 </span>
                                                                             </div>
                                                                         </div>
-                                                                    ) : (
-                                                                        <div className="text-xs text-muted-foreground text-center">
-                                                                            Video timestamps not
-                                                                            available for this cell
-                                                                        </div>
-                                                                    )}
+                                                                    ) : null}
                                                                 </div>
                                                             );
                                                         })()
