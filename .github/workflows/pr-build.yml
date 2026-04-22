@@ -136,6 +136,20 @@ jobs:
             - name: Production build
               run: pnpm run package
 
+            - name: Bundle dugite (if installed)
+              run: |
+                  set -euo pipefail
+                  # vsce package --no-dependencies excludes pnpm symlinked node_modules.
+                  # Since dugite is marked as an external dependency in webpack to preserve
+                  # its binary path resolution, it and its dependencies must be manually
+                  # installed into the 'out' directory so they are bundled into the VSIX.
+                  if jq -e '.dependencies.dugite' package.json > /dev/null; then
+                    echo "dugite is a dependency, installing flattened version for VSIX packaging..."
+                    npm install --prefix ./out dugite --no-save
+                  else
+                    echo "dugite not found in dependencies, skipping."
+                  fi
+
             - name: Package VSIX
               run: xvfb-run -a pnpm dlx @vscode/vsce package --no-dependencies
 
