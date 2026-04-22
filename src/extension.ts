@@ -594,89 +594,36 @@ export async function activate(context: vscode.ExtensionContext) {
             `[Extension] Tools status — git: ${ok(toolCheckResult.git)}, sqlite: ${ok(toolCheckResult.sqlite)}, ffmpeg: ${ok(toolCheckResult.ffmpeg)}`
         );
 
-        // When offline, non-critical tools (git, audio) being unavailable is
-        // expected and not actionable -- skip the blocking warning panel.
-        const hasCriticalMissing = !toolCheckResult.sqlite;
-        const showWarningPanel =
-            unavailableTools.length > 0 && (networkAvailable || hasCriticalMissing);
-
-        if (unavailableTools.length > 0 && !showWarningPanel) {
-            console.log(
-                "[Extension] Offline -- non-critical tools unavailable (%s), continuing without warning panel",
+        // We used to display a blocking "Missing Tools" webview at this point
+        // whenever any tool failed to download. That startup interruption is
+        // now suppressed for all tools: the extension continues with its
+        // fallback implementations (isomorphic-git for sync, fts5 WASM for
+        // sqlite, wavUtils for audio) and the user can inspect or retry via
+        // the "Tools Status" command in the command palette at any time.
+        if (unavailableTools.length > 0) {
+            console.warn(
+                "[Extension] Unavailable tools after download attempts (continuing with fallbacks):",
                 unavailableTools.join(", ")
             );
         }
 
-        if (showWarningPanel) {
-            console.warn(
-                "[Extension] Unavailable tools after download attempts:",
-                unavailableTools.join(", ")
+        // Critical guard: if sqlite is genuinely broken (neither the native
+        // binary nor the fts5 WASM fallback is ready), the extension cannot
+        // function. Surface a lightweight notification and abort activation
+        // rather than silently producing a broken editor.
+        if (!toolCheckResult.sqlite) {
+            console.error(
+                "[Extension] SQLite is unavailable (both native and fts5 fallback failed) — aborting activation"
             );
-
-            const warningProvider = new MissingToolsWarningProvider(context);
-            context.subscriptions.push(warningProvider);
-
-            // Start showing the warning panel (creates the tab synchronously),
-            // then close the splash. This ensures a visible tab exists at all
-            // times, preventing the WelcomeView from flashing during the gap.
-            const userActionPromise = warningProvider.show(
-                toolCheckResult,
-                async () => {
-                    const retryOnline = await isOnline();
-                    if (!retryOnline) {
-                        console.warn("[Extension] Offline — cannot retry tool downloads");
-                        return checkTools(context, authApi).catch(() => toolCheckResult);
-                    }
-
-                    const current = await checkTools(context, authApi).catch(() => toolCheckResult);
-
-                    if (!current.git) {
-                        try {
-                            await resetRetryCount(context, "git");
-                            await authApi?.retryGitBinaryDownload?.();
-                        } catch (e) {
-                            console.error("[Extension] Git binary retry failed:", e);
-                        }
-                    }
-                    if (!current.sqlite) {
-                        try {
-                            await resetRetryCount(context, "sqlite");
-                            const binaryPath = await ensureSqliteNativeBinary(context);
-                            if (binaryPath) {
-                                initNativeSqlite(binaryPath);
-                            } else {
-                                await initFts5Sqlite(context);
-                            }
-                        } catch {
-                            try {
-                                await initFts5Sqlite(context);
-                            } catch (e) {
-                                console.error("[Extension] SQLite retry failed (both native and fts5):", e);
-                            }
-                        }
-                    }
-                    if (!current.ffmpeg) {
-                        try {
-                            await resetRetryCount(context, "ffmpeg");
-                            await downloadFFmpeg(context);
-                        } catch (e) {
-                            console.error("[Extension] FFmpeg retry failed:", e);
-                        }
-                    }
-                    return checkTools(context, authApi).catch(() => current);
+            vscode.window.showErrorMessage(
+                "Codex could not initialize its search backend. Open the Command Palette and run \"Status\" to view tool status and retry the download.",
+                "View Tools Status"
+            ).then((choice) => {
+                if (choice === "View Tools Status") {
+                    vscode.commands.executeCommand("codex-editor.openToolsStatus");
                 }
-            );
-
-            // Now that the warning tab exists, close the splash screen.
-            closeSplashScreen();
-
-            const userAction = await userActionPromise;
-
-            if (userAction === "blocked" && !toolCheckResult.sqlite) {
-                // SQLite is missing and the user closed the panel without
-                // continuing. The extension cannot function without SQLite.
-                return;
-            }
+            });
+            return;
         }
 
         // Check for pending update (swap) downloads (after workspace is ready)

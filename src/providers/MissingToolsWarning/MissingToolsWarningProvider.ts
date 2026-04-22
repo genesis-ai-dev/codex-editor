@@ -75,7 +75,7 @@ export class MissingToolsWarningProvider {
             return;
         }
 
-        await this._createPanel("Codex — Status", result, "status");
+        await this._createPanel("Codex — Tools Status", result, "status");
         this._setupStatusMessageHandler();
         this._subscribeSyncStatus();
     }
@@ -383,16 +383,62 @@ export class MissingToolsWarningProvider {
                     await resetRetryCount(this._context, "sqlite");
                     const { ensureSqliteNativeBinary } = await import("../../utils/sqliteNativeBinaryManager");
                     const { initNativeSqlite } = await import("../../utils/nativeSqlite");
+                    const { isUsingNativeBackend } = await import("../../utils/sqliteDatabaseFactory");
+
+                    // Snapshot which backend is active BEFORE any state
+                    // changes so we can tell whether a real switch happens.
+                    // Without this, a user who is already on native and
+                    // clicks "Download and Install" again would pay the cost
+                    // of a full database close/reopen for no benefit.
+                    const wasUsingNative = isUsingNativeBackend();
+
+                    // Let `ensureSqliteNativeBinary` show its own progress
+                    // notification ("Downloading AI Learning and Search
+                    // Tools…"). The card button also animates a spinner — the
+                    // two give the user consistent feedback matching how git
+                    // and ffmpeg behave.
                     const binaryPath = await ensureSqliteNativeBinary(this._context);
                     if (binaryPath) {
+                        // Idempotent — becomes a no-op if the binding was
+                        // already loaded in this process.
                         initNativeSqlite(binaryPath);
 
-                        const { getSQLiteIndexManager } = await import(
-                            "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
-                        );
-                        const manager = getSQLiteIndexManager();
-                        if (manager && !manager.isClosed) {
-                            await manager.reopenWithCurrentBackend();
+                        // If the user had opted into the fallback ("builtin"),
+                        // flip back to "auto" so the newly-installed native
+                        // backend is actually used. Force-builtin (admin lock)
+                        // is preserved.
+                        if (getSqliteToolMode() === "builtin") {
+                            const { setSqliteToolMode } = await import("../../utils/toolPreferences");
+                            await setSqliteToolMode("auto");
+                        }
+
+                        // Compute the target backend after all mutations. If
+                        // it matches the previous active backend, there is
+                        // literally nothing to switch — skip the reopen AND
+                        // the progress notification.
+                        const willUseNative = isUsingNativeBackend();
+
+                        if (wasUsingNative !== willUseNative) {
+                            await vscode.window.withProgress(
+                                {
+                                    location: vscode.ProgressLocation.Notification,
+                                    title: "Switching to Native AI Learning and Search Tools\u2026",
+                                    cancellable: false,
+                                },
+                                async () => {
+                                    const { getSQLiteIndexManager } = await import(
+                                        "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+                                    );
+                                    const manager = getSQLiteIndexManager();
+                                    if (manager && !manager.isClosed) {
+                                        await manager.reopenWithCurrentBackend();
+                                    }
+                                },
+                            );
+                        } else {
+                            console.log(
+                                "[MissingToolsWarning] Native SQLite binary ready but active backend is unchanged — skipping reopen",
+                            );
                         }
 
                         success = true;
@@ -410,6 +456,13 @@ export class MissingToolsWarningProvider {
                         success = await frontierApi.retryGitBinaryDownload();
                         if (success) {
                             setNativeGitAvailable(true);
+                            // Flip "builtin" preference back to "auto" so the
+                            // native git binary is actually used. Force-builtin
+                            // (admin lock) is preserved.
+                            if (getGitToolMode() === "builtin") {
+                                const { setGitToolMode } = await import("../../utils/toolPreferences");
+                                await setGitToolMode("auto");
+                            }
                         }
                     }
                     break;
@@ -417,8 +470,17 @@ export class MissingToolsWarningProvider {
                 case "ffmpeg": {
                     await resetRetryCount(this._context, "ffmpeg");
                     const { downloadFFmpeg } = await import("../../utils/ffmpegManager");
-                    const result = await downloadFFmpeg(this._context);
+                    // Show the standalone progress notification so the user
+                    // gets consistent feedback across all three tools.
+                    const result = await downloadFFmpeg(this._context, { showProgress: true });
                     success = result !== null;
+                    if (success && getAudioToolMode() === "builtin") {
+                        // Flip "builtin" preference back to "auto" so the
+                        // newly-installed ffmpeg binary is actually used.
+                        // Force-builtin (admin lock) is preserved.
+                        const { setAudioToolMode } = await import("../../utils/toolPreferences");
+                        await setAudioToolMode("auto");
+                    }
                     break;
                 }
             }
@@ -649,7 +711,7 @@ export class MissingToolsWarningProvider {
             webview,
             { extensionUri: this._extensionUri } as vscode.ExtensionContext,
             {
-                title: mode === "status" ? "Codex — Status" : "Codex — Missing Tools",
+                title: mode === "status" ? "Codex — Tools Status" : "Codex — Missing Tools",
                 scriptPath: ["MissingToolsWarning", "index.js"],
                 initialData,
                 inlineStyles: `

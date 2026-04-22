@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
 import { execFile as execFileCb } from "child_process";
 import { promisify } from "util";
-import * as path from "path";
 import * as fs from "fs";
 import { isNativeSqliteReady } from "./nativeSqlite";
 import { isDatabaseReady } from "./sqliteDatabaseFactory";
 import { getAudioToolMode, getGitToolMode, getSqliteToolMode } from "./toolPreferences";
+import { getFfmpegBinaryPath } from "./ffmpegManager";
 import type { FrontierAPI } from "../../webviews/codex-webviews/src/StartupFlow/types";
 
 const execFile = promisify(execFileCb);
@@ -100,26 +100,20 @@ export function isAudioToolRequired(
  * Verify that the extension-owned FFmpeg binary is present and executable.
  * Only checks the downloaded binary in extension globalStorage — never
  * falls back to system-installed binaries on the PATH.
+ *
+ * The path is resolved via `getFfmpegBinaryPath` in ffmpegManager, which is
+ * the single source of truth for the versioned binary location.
  */
 async function verifyBinaryAvailable(
     tool: "ffmpeg",
     context: vscode.ExtensionContext,
 ): Promise<boolean> {
-    const downloadedPath = getDownloadedBinaryPath(tool, context);
+    const downloadedPath = getFfmpegBinaryPath(context);
     if (downloadedPath && fs.existsSync(downloadedPath) && (await canExecute(downloadedPath))) {
         return true;
     }
 
     return false;
-}
-
-function getDownloadedBinaryPath(
-    tool: "ffmpeg",
-    context: vscode.ExtensionContext,
-): string {
-    const storagePath = context.globalStorageUri.fsPath;
-    const binaryName = process.platform === "win32" ? `${tool}.exe` : tool;
-    return path.join(storagePath, tool, binaryName);
 }
 
 async function canExecute(binaryPath: string): Promise<boolean> {

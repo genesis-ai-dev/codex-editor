@@ -22,7 +22,29 @@ import {
     resetRetryCount,
 } from "./binaryIntegrityUtils";
 
-/** Version of the TryGhost sqlite3 prebuilt binary we download */
+/**
+ * ============================================================================
+ * VERSION CONSTANT — read carefully before changing
+ * ============================================================================
+ * This version string is used in TWO places:
+ *   1. The download URL (what we fetch from GitHub releases)
+ *   2. The storage folder name (where we save it on disk):
+ *      `{globalStorage}/sqlite3-native/{SQLITE3_VERSION}/node_sqlite3.node`
+ *
+ * To upgrade SQLite:
+ *   1. Change the value below to the new TryGhost/node-sqlite3 release tag
+ *      (without the leading "v" — e.g. "5.1.8" not "v5.1.8")
+ *   2. Verify the release exists at:
+ *      https://github.com/TryGhost/node-sqlite3/releases/tag/v{NEW_VERSION}
+ *   3. Verify prebuilt binaries are published for all supported platforms
+ *      (darwin-arm64, darwin-x64, linux-arm64, linux-x64, linuxmusl-*, win32-*)
+ *   4. On next extension startup, users will download the new version into
+ *      a new subfolder: globalStorage/sqlite3-native/{NEW_VERSION}/
+ *   5. The old version folder is LEFT IN PLACE as a harmless orphan; only the
+ *      version matching the current constant is ever read at runtime.
+ *      Users can manually clean up old folders via the "Delete Binary" button.
+ * ============================================================================
+ */
 const SQLITE3_VERSION = "5.1.7";
 
 /** N-API version for the prebuilt binary (v6 is supported by all modern Node/Electron) */
@@ -40,8 +62,15 @@ const BINARY_NAME = "node_sqlite3.node";
 /** Minimum expected binary size in bytes — real binaries are ~2 MB; anything below this is corrupt/truncated */
 const MIN_BINARY_SIZE_BYTES = 500_000;
 
-/** Maximum download attempts before giving up */
+/** Maximum HTTP-level download attempts inside `withRetry` (per GET). */
 const MAX_DOWNLOAD_ATTEMPTS = 3;
+
+/**
+ * Maximum full-flow retry attempts (download + extract + verify). Matches
+ * git/dugite's `MAX_FULL_RETRIES = 3` so all three tools have consistent
+ * retry behavior visible to the user.
+ */
+const MAX_FULL_RETRIES = 3;
 
 /** Cached binary path (set after first successful resolution) */
 let cachedBinaryPath: string | null = null;
@@ -108,25 +137,38 @@ function getBinaryDownloadUrl(platformKey: string): string {
 }
 
 /**
- * Get the expected binary file path in extension global storage.
+ * Get the directory holding the SQLite binary for the current version.
+ * This is the single source of truth for the versioned storage folder.
  */
-function getBinaryStoragePath(context: vscode.ExtensionContext): string {
+function getVersionedStorageDir(context: vscode.ExtensionContext): string {
     return path.join(
         context.globalStorageUri.fsPath,
         SQLITE_STORAGE_DIR,
-        BINARY_NAME
+        SQLITE3_VERSION
     );
+}
+
+/**
+ * Get the parent directory that contains all version subfolders.
+ * Used by the migration routine and by callers that need to detect
+ * legacy (unversioned) installs.
+ */
+function getParentStorageDir(context: vscode.ExtensionContext): string {
+    return path.join(context.globalStorageUri.fsPath, SQLITE_STORAGE_DIR);
+}
+
+/**
+ * Get the expected binary file path in extension global storage.
+ */
+function getBinaryStoragePath(context: vscode.ExtensionContext): string {
+    return path.join(getVersionedStorageDir(context), BINARY_NAME);
 }
 
 /**
  * Get the path to the version marker file next to the binary.
  */
 function getVersionFilePath(context: vscode.ExtensionContext): string {
-    return path.join(
-        context.globalStorageUri.fsPath,
-        SQLITE_STORAGE_DIR,
-        "version.txt"
-    );
+    return path.join(getVersionedStorageDir(context), "version.txt");
 }
 
 /**
@@ -269,6 +311,98 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
 }
 
 /**
+ * Migrate a legacy flat-layout install into the new versioned folder.
+ *
+ * Before this change, binaries lived at:
+ *   `{globalStorage}/sqlite3-native/node_sqlite3.node`
+ * Now they live at:
+ *   `{globalStorage}/sqlite3-native/{SQLITE3_VERSION}/node_sqlite3.node`
+ *
+ * This function runs on every startup but only performs work when a legacy
+ * binary is detected. It always tries to preserve the existing binary by
+ * moving it into a correctly-named version subfolder, so no re-download is
+ * needed when the user's existing install matches the current version.
+ *
+ * Behavior:
+ *   - `version.txt` matches current `SQLITE3_VERSION` → move into versioned
+ *     folder (reused as-is, no re-download).
+ *   - `version.txt` says a different version → move into that version's
+ *     folder (preserved but inactive; current version downloaded fresh).
+ *   - `version.txt` is missing/unreadable → delete orphan files (can't
+ *     verify they're trustworthy).
+ *   - Any IO error → silently fall through; the normal download path will
+ *     re-fetch into the correct versioned folder.
+ */
+function migrateUnversionedSqlite(context: vscode.ExtensionContext): void {
+    try {
+        const parentDir = getParentStorageDir(context);
+        const legacyBinary = path.join(parentDir, BINARY_NAME);
+        const legacyVersionFile = path.join(parentDir, "version.txt");
+        const legacyHashFile = path.join(parentDir, "sha256.txt");
+
+        if (!fs.existsSync(legacyBinary)) {
+            return;
+        }
+
+        let foundVersion: string | null = null;
+        try {
+            foundVersion = fs.readFileSync(legacyVersionFile, "utf8").trim();
+            if (!foundVersion) {
+                foundVersion = null;
+            }
+        } catch {
+            foundVersion = null;
+        }
+
+        if (!foundVersion) {
+            console.warn(
+                "[SQLite] Legacy unversioned binary found but version.txt is missing/unreadable — removing orphan files"
+            );
+            try { fs.unlinkSync(legacyBinary); } catch { /* best-effort */ }
+            try { fs.unlinkSync(legacyHashFile); } catch { /* may not exist */ }
+            return;
+        }
+
+        const targetDir = path.join(parentDir, foundVersion);
+        if (fs.existsSync(targetDir)) {
+            console.log(
+                `[SQLite] Versioned folder ${foundVersion} already exists — skipping migration, cleaning up legacy files`
+            );
+            try { fs.unlinkSync(legacyBinary); } catch { /* best-effort */ }
+            try { fs.unlinkSync(legacyVersionFile); } catch { /* best-effort */ }
+            try { fs.unlinkSync(legacyHashFile); } catch { /* may not exist */ }
+            return;
+        }
+
+        fs.mkdirSync(targetDir, { recursive: true });
+        fs.renameSync(legacyBinary, path.join(targetDir, BINARY_NAME));
+        try {
+            fs.renameSync(legacyVersionFile, path.join(targetDir, "version.txt"));
+        } catch { /* version.txt move is best-effort; we can regenerate it */ }
+        try {
+            fs.renameSync(legacyHashFile, path.join(targetDir, "sha256.txt"));
+        } catch { /* sha256.txt move is best-effort; verifyIntegrity will return false if missing */ }
+
+        if (foundVersion === SQLITE3_VERSION) {
+            console.log(
+                `[SQLite] Migrated legacy binary (v${foundVersion}) into versioned folder — no re-download needed`
+            );
+        } else {
+            console.log(
+                `[SQLite] Migrated legacy binary (v${foundVersion}) into its own versioned folder; current version v${SQLITE3_VERSION} will be downloaded on demand`
+            );
+        }
+    } catch (error) {
+        // Any failure here is non-fatal: the normal download logic will run
+        // next and produce a correct versioned install from scratch.
+        console.warn(
+            "[SQLite] Migration of legacy binary failed — falling through to normal download logic:",
+            error instanceof Error ? error.message : String(error)
+        );
+    }
+}
+
+/**
  * Download and extract the SQLite native binary to extension storage.
  */
 async function downloadBinary(
@@ -278,7 +412,7 @@ async function downloadBinary(
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const tar = require("tar");
     const downloadUrl = getBinaryDownloadUrl(platformKey);
-    const storageDir = path.join(context.globalStorageUri.fsPath, SQLITE_STORAGE_DIR);
+    const storageDir = getVersionedStorageDir(context);
     const binaryPath = path.join(storageDir, BINARY_NAME);
     const versionFilePath = getVersionFilePath(context);
     const tmpFile = path.join(os.tmpdir(), `sqlite3-native-${Date.now()}.tar.gz`);
@@ -337,14 +471,33 @@ async function downloadBinary(
 }
 
 /**
+ * Options for `ensureSqliteNativeBinary`.
+ */
+export interface EnsureSqliteOptions {
+    /**
+     * When true, suppress the standalone progress notification that normally
+     * appears at the bottom of the window during a download. The caller is
+     * expected to provide its own progress UI (for example, the "Downloading…"
+     * button state in the Tools Status panel). The startup path keeps the
+     * default (false) because nothing else indicates sqlite progress during
+     * activation.
+     */
+    suppressProgress?: boolean;
+}
+
+/**
  * Ensure the SQLite native binary is available, downloading it if necessary.
  * This should be called on extension startup BEFORE any database operations.
  *
- * Shows a blocking progress dialog if download is needed.
+ * By default shows a progress notification ("Setting up search…") if a
+ * download is needed. Callers that already surface a progress UI can pass
+ * `{ suppressProgress: true }` to opt out.
+ *
  * Returns the path to the .node binary file.
  */
 export async function ensureSqliteNativeBinary(
-    context: vscode.ExtensionContext
+    context: vscode.ExtensionContext,
+    options: EnsureSqliteOptions = {}
 ): Promise<string | null> {
     const { getSqliteToolMode } = await import("./toolPreferences");
     if (getSqliteToolMode() === "force-builtin") {
@@ -352,9 +505,13 @@ export async function ensureSqliteNativeBinary(
         return null;
     }
 
+    // Opportunistically migrate legacy flat-layout installs into versioned folders.
+    // This is cheap (single existsSync check in the common case) and idempotent.
+    migrateUnversionedSqlite(context);
+
     const binaryPath = getBinaryStoragePath(context);
     const versionFilePath = getVersionFilePath(context);
-    const storageDir = path.join(context.globalStorageUri.fsPath, SQLITE_STORAGE_DIR);
+    const storageDir = getVersionedStorageDir(context);
 
     // Fast path: in-memory cache still valid (same process, already verified)
     if (cachedBinaryPath && cachedBinaryPath === binaryPath && fs.existsSync(cachedBinaryPath)) {
@@ -412,32 +569,64 @@ export async function ensureSqliteNativeBinary(
         return downloadInProgress;
     }
 
-    downloadInProgress = Promise.resolve(
-        vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: "Setting up Codex Editor",
-                cancellable: false,
-            },
-            async (progress) => {
-                progress.report({
-                    message: "Setting up search... (one-time setup)",
-                });
-
-                try {
-                    const downloadedPath = await downloadBinary(context, platformKey);
-                    await resetRetryCount(context, "sqlite");
-                    progress.report({ message: "Search is ready!" });
-                    return downloadedPath;
-                } catch (error) {
-                    await incrementRetryCount(context, "sqlite");
-                    const msg = error instanceof Error ? error.message : String(error);
-                    console.warn(`[SQLite] Binary download failed: ${msg}`);
-                    return null;
+    // Shared body of the download operation. Reused whether or not we wrap
+    // the work in a progress notification, so error handling and retry-count
+    // bookkeeping stay identical across both paths.
+    //
+    // Runs a full-flow retry loop with exponential backoff (2s/4s) mirroring
+    // git/dugite's behavior, so a transient failure during download, extract,
+    // or verification can recover without user intervention. Each retry
+    // surfaces its state through the optional progress reporter, and the
+    // persistent retry counter is bumped only once after ALL attempts are
+    // exhausted (consistent with git).
+    const runDownload = async (
+        progress?: vscode.Progress<{ message?: string }>
+    ): Promise<string | null> => {
+        let lastError: Error | undefined;
+        for (let attempt = 1; attempt <= MAX_FULL_RETRIES; attempt++) {
+            try {
+                const prefix = attempt > 1 ? `Retry ${attempt}/${MAX_FULL_RETRIES} — ` : "";
+                progress?.report({ message: `${prefix}Downloading...` });
+                const downloadedPath = await downloadBinary(context, platformKey);
+                await resetRetryCount(context, "sqlite");
+                progress?.report({ message: "Search is ready!" });
+                return downloadedPath;
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                console.warn(
+                    `[SQLite] Full attempt ${attempt}/${MAX_FULL_RETRIES} failed: ${lastError.message}`,
+                );
+                if (attempt < MAX_FULL_RETRIES) {
+                    const delay = 2000 * Math.pow(2, attempt - 1); // 2s, 4s
+                    progress?.report({
+                        message: `Attempt ${attempt} failed — retrying in ${(delay / 1000).toFixed(0)}s...`,
+                    });
+                    await new Promise((r) => setTimeout(r, delay));
                 }
             }
-        )
-    );
+        }
+        await incrementRetryCount(context, "sqlite");
+        console.warn(
+            `[SQLite] All ${MAX_FULL_RETRIES} download attempts failed: ${lastError?.message ?? "unknown"}`,
+        );
+        return null;
+    };
+
+    if (options.suppressProgress) {
+        // Caller owns the progress UI; skip the standalone notification.
+        downloadInProgress = runDownload();
+    } else {
+        downloadInProgress = Promise.resolve(
+            vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Downloading AI Learning and Search Tools",
+                    cancellable: false,
+                },
+                async (progress) => runDownload(progress)
+            )
+        );
+    }
 
     try {
         const result = await downloadInProgress;
