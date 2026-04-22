@@ -33,6 +33,7 @@ import {
 import "./TranslationAnimations.css";
 import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection, ProgressPercentages } from "../lib/types";
+import { buildSubsectionsForMilestone } from "./utils/subdivisionUtils";
 import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
 import { createCacheHelpers, createProgressCacheHelpers } from "./utils";
@@ -1847,38 +1848,8 @@ const CodexCellEditor: React.FC = () => {
             }
 
             const milestone = milestoneIndex.milestones[milestoneIdx];
-            const { cellCount, value } = milestone;
             const effectiveCellsPerPage = milestoneIndex.cellsPerPage || cellsPerPage;
-
-            // When milestone has 0 cells, return a single empty subsection (avoid invalid "1-0" label)
-            if (cellCount === 0) {
-                return [
-                    {
-                        id: `milestone-${milestoneIdx}-page-0`,
-                        label: "0",
-                        startIndex: 0,
-                        endIndex: 0,
-                    },
-                ];
-            }
-
-            // Calculate number of pages based on content cells
-            const totalPages = Math.ceil(cellCount / effectiveCellsPerPage) || 1;
-            const subsections: Subsection[] = [];
-
-            for (let i = 0; i < totalPages; i++) {
-                const startCellNumber = i * effectiveCellsPerPage + 1;
-                const endCellNumber = Math.min((i + 1) * effectiveCellsPerPage, cellCount);
-
-                subsections.push({
-                    id: `milestone-${milestoneIdx}-page-${i}`,
-                    label: `${startCellNumber}-${endCellNumber}`,
-                    startIndex: i * effectiveCellsPerPage,
-                    endIndex: endCellNumber,
-                });
-            }
-
-            return subsections;
+            return buildSubsectionsForMilestone(milestoneIdx, milestone, effectiveCellsPerPage);
         },
         [milestoneIndex, cellsPerPage]
     );
