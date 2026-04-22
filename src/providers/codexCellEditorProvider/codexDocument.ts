@@ -1313,6 +1313,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
+     * Returns the ordered list of root content cell IDs belonging to a milestone,
+     * in document order. Useful for anchor validation (incoming
+     * `updateMilestoneSubdivisions` writes) and for source↔target alignment
+     * sanity checks before mirroring placements.
+     *
+     * Returns an empty array if the milestone index is out of bounds.
+     */
+    public getRootContentCellIdsForMilestone(milestoneIndex: number): string[] {
+        const cells = this._documentData.cells || [];
+        const info = this.buildMilestoneIndex();
+        if (milestoneIndex < 0 || milestoneIndex >= info.milestones.length) return [];
+        const milestone = info.milestones[milestoneIndex];
+        const next = info.milestones[milestoneIndex + 1];
+        const end = next ? next.cellIndex : cells.length;
+        return this.getRootContentCellIdsInRange(milestone.cellIndex, end);
+    }
+
+    /**
      * Returns the ordered list of root content cell IDs within the given index
      * range. Root content cells are non-milestone, non-paratext, non-deleted cells
      * without a `parentId`. Pagination (both arithmetic and subdivision-based)
@@ -3014,7 +3032,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Check if this is a milestone cell and if we're modifying data that affects milestone index
         const isMilestoneCell = cellToUpdate.metadata?.type === CodexCellTypes.MILESTONE;
         const isModifyingDeletedFlag = 'deleted' in newData;
-        const shouldInvalidateCache = isMilestoneCell && isModifyingDeletedFlag;
+        // Subdivision-related changes alter pagination, so the cached index must
+        // be invalidated alongside the deleted-flag case. Name-only overrides
+        // also flow through this path so that resolved `MilestoneInfo.subdivisions`
+        // picks up new names on next render.
+        const isModifyingSubdivisions =
+            'subdivisions' in newData || 'subdivisionNames' in newData;
+        const shouldInvalidateCache =
+            isMilestoneCell && (isModifyingDeletedFlag || isModifyingSubdivisions);
 
         // Ensure metadata exists
         if (!this._documentData.cells[indexOfCellToUpdate].metadata) {
