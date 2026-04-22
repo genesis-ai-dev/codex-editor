@@ -3849,8 +3849,12 @@ export class SQLiteIndexManager {
         query: string,
         limit: number = 30,
         returnRawContent: boolean = false,
-        searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search
+        searchSourceOnly: boolean = true,  // true for few-shot examples, false for UI search
+        searchScope?: "source" | "target" | "both"
     ): Promise<any[]> {
+        // searchScope takes precedence over the legacy searchSourceOnly flag when provided.
+        const effectiveScope: "source" | "target" | "both" =
+            searchScope ?? (searchSourceOnly ? "source" : "both");
         this.ensureOpen();
 
         // Handle empty query by returning recent complete pairs
@@ -3948,10 +3952,14 @@ export class SQLiteIndexManager {
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
+        const ftsContentTypeFilter =
+            effectiveScope === "source" ? "cells_fts.content_type = 'source'"
+            : effectiveScope === "target" ? "cells_fts.content_type = 'target'"
+            : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
-        const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+        const likeConditions =
+            effectiveScope === "source" ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+            : effectiveScope === "target" ? "(c.t_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')"
             : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
 
         const sql = `
@@ -4039,10 +4047,11 @@ export class SQLiteIndexManager {
                 score: number;
             };
             let rows: SearchRow[];
-            if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
-            } else {
+            if (effectiveScope === "both") {
                 rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
+            } else {
+                // source-only and target-only both need 2 LIKE params
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {
@@ -4086,11 +4095,15 @@ export class SQLiteIndexManager {
         limit: number = 30,
         returnRawContent: boolean = false,
         onlyValidated: boolean = false,
-        searchSourceOnly: boolean = true  // true for few-shot examples, false for UI search when searchScope === "both"
+        searchSourceOnly: boolean = true,  // true for few-shot examples, false for UI search when searchScope === "both"
+        searchScope?: "source" | "target" | "both"
     ): Promise<any[]> {
+        const effectiveScope: "source" | "target" | "both" =
+            searchScope ?? (searchSourceOnly ? "source" : "both");
+
         // If validation filtering is not required, use the existing method
         if (!onlyValidated) {
-            return this.searchCompleteTranslationPairs(query, limit, returnRawContent, searchSourceOnly);
+            return this.searchCompleteTranslationPairs(query, limit, returnRawContent, searchSourceOnly, effectiveScope);
         }
 
         this.ensureOpen();
@@ -4191,11 +4204,15 @@ export class SQLiteIndexManager {
         const escapedQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
         const likePattern = `%${escapedQuery}%`;
 
-        const ftsContentTypeFilter = searchSourceOnly ? "cells_fts.content_type = 'source'" : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
+        const ftsContentTypeFilter =
+            effectiveScope === "source" ? "cells_fts.content_type = 'source'"
+            : effectiveScope === "target" ? "cells_fts.content_type = 'target'"
+            : "(cells_fts.content_type = 'source' OR cells_fts.content_type = 'target')";
 
-        // Build LIKE conditions - search source always, target only if searchSourceOnly is false
-        const likeConditions = searchSourceOnly
-            ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+        // Build LIKE conditions based on which side we are searching
+        const likeConditions =
+            effectiveScope === "source" ? "(c.s_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\')"
+            : effectiveScope === "target" ? "(c.t_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')"
             : "(c.s_content LIKE ? ESCAPE '\\' OR c.t_content LIKE ? ESCAPE '\\' OR c.s_raw_content LIKE ? ESCAPE '\\' OR c.t_raw_content LIKE ? ESCAPE '\\')";
 
         // FTS5 query with validation filtering
@@ -4289,10 +4306,10 @@ export class SQLiteIndexManager {
                 score: number;
             };
             let rows: SearchRow[];
-            if (searchSourceOnly) {
-                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
-            } else {
+            if (effectiveScope === "both") {
                 rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, likePattern, likePattern, limit]);
+            } else {
+                rows = await this.db!.all<SearchRow>(sql, [`content: (${cleanQuery})`, likePattern, likePattern, limit]);
             }
 
             for (const row of rows) {

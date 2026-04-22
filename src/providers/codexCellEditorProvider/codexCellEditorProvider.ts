@@ -1311,6 +1311,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 debug("Text direction configuration changed");
                 this.updateTextDirection(webviewPanel, document);
             }
+            if (
+                e.affectsConfiguration("codex-editor-extension.showEngramHighlights") ||
+                e.affectsConfiguration("codex-editor-extension.engramHighlightsMinTokens")
+            ) {
+                this.sendEngramHighlightsSettings(webviewPanel);
+            }
         });
         listeners.push(configListenerDisposable);
 
@@ -2425,6 +2431,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         } catch (error) {
             console.error("Failed to post message to webview:", error);
         }
+    }
+
+    public sendEngramHighlightsSettings(webviewPanel: vscode.WebviewPanel) {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        this.postMessageToWebview(webviewPanel, {
+            type: "engramHighlightsSettings",
+            content: {
+                enabled: config.get<boolean>("showEngramHighlights", false),
+                minTokens: config.get<number>("engramHighlightsMinTokens", 3),
+            },
+        });
     }
 
     public scrollOtherPanelsToCell(cellId: string, senderPanel: vscode.WebviewPanel) {

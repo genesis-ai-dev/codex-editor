@@ -317,7 +317,13 @@ async function getAudioFilePathForCell(
 
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
-    webviewReady: () => { /* no-op */ },
+    webviewReady: ({ webviewPanel, provider }) => {
+        try {
+            provider.sendEngramHighlightsSettings(webviewPanel);
+        } catch (e) {
+            console.warn("Failed to send engram highlights settings on webview ready", e);
+        }
+    },
     setAutoDownloadAudioOnOpen: async ({ event, document, webviewPanel, provider }) => {
         try {
             const typed = event as any;
@@ -768,6 +774,51 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState"; }>;
         const uri = document.uri.toString();
         provider.updateCellIdState(typedEvent.content.currentLineId, uri, document);
+    },
+
+    requestEngramHighlights: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestEngramHighlights"; }>;
+        const { cellId, targetContent } = typedEvent.content;
+
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        if (!config.get<boolean>("showEngramHighlights", false)) return;
+        const minTokens = Math.max(2, config.get<number>("engramHighlightsMinTokens", 3));
+
+        const { getSQLiteIndexManager } = await import(
+            "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager"
+        );
+        const indexManager = getSQLiteIndexManager();
+        if (!indexManager) return;
+
+        const { analyzeCellEngrams } = await import(
+            "../../activationHelpers/contextAware/contentIndexes/engramAnalysis"
+        );
+        const { plainText, engrams } = await analyzeCellEngrams(indexManager, {
+            cellId,
+            targetContent,
+            minTokens,
+        });
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "engramHighlights",
+            content: { cellId, plainText, engrams },
+        });
+    },
+
+    openEngramInParallelPassages: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "openEngramInParallelPassages"; }>;
+        const query = (typedEvent.content?.query ?? "").trim();
+        if (!query) return;
+        try {
+            const { GlobalProvider } = await import("../../globalProvider");
+            const provider = GlobalProvider.getInstance().getProvider("search-passages-sidebar");
+            if (provider && "setPendingSearch" in provider) {
+                (provider as { setPendingSearch: (q: string) => void; }).setPendingSearch(query);
+            }
+            await vscode.commands.executeCommand("search-passages-sidebar.focus");
+        } catch (e) {
+            console.warn("Failed to open Parallel Passages for engram", e);
+        }
     },
 
     llmCompletion: async ({ event, document, webviewPanel, provider }) => {

@@ -980,6 +980,20 @@
                             "Custom search algorithm (when available)"
                         ],
                         "description": "Choose which search algorithm to use for finding similar translation pairs for AI few-shot examples."
+                    },
+                    "codex-editor-extension.showEngramHighlights": {
+                        "title": "Show Engram Highlights",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When opening a cell in the editor, highlight spans of the target text that also appear elsewhere in the project's translations. Helps spot where the AI is learning patterns from — including possible mistranslations that are propagating — and which spans have no corpus match. Hover a highlight for its source; click to open Parallel Passages with that span as the query."
+                    },
+                    "codex-editor-extension.engramHighlightsMinTokens": {
+                        "title": "Engram Highlights: Minimum Tokens",
+                        "type": "integer",
+                        "default": 3,
+                        "minimum": 2,
+                        "maximum": 10,
+                        "description": "Minimum number of tokens (whitespace-separated words) a span must contain before it is highlighted. Raising this filters out incidental short matches; lowering it surfaces more spans."
                     }
                 }
             }

@@ -227,6 +227,30 @@ const CodexCellEditor: React.FC = () => {
     );
     const [currentEditingCellId, setCurrentEditingCellId] = useState<string | null>(null);
 
+    // Engram highlights: SBS-derived spans of a cell's target text that also
+    // appear elsewhere in the corpus. Populated on demand when a cell is
+    // opened, and kept for the lifetime of the session so users can revisit.
+    const [engramSettings, setEngramSettings] = useState<{
+        enabled: boolean;
+        minTokens: number;
+    }>({ enabled: false, minTokens: 3 });
+    const [engramsByCellId, setEngramsByCellId] = useState<
+        Record<
+            string,
+            Array<{
+                text: string;
+                startOffset: number;
+                endOffset: number;
+                tokenCount: number;
+                matchedCellId?: string;
+                matchedCellLabel?: string;
+                matchedSnippet?: string;
+                isOrphan: boolean;
+            }>
+        >
+    >({});
+    const requestedEngramsRef = useRef<Set<string>>(new Set());
+
     // Add a state for pending validations count
     const [pendingValidationsCount, setPendingValidationsCount] = useState(0);
 
@@ -599,6 +623,56 @@ const CodexCellEditor: React.FC = () => {
         },
         []
     );
+
+    // Engram highlight settings broadcast from the provider. When the feature
+    // is toggled off we drop any cached engrams so the UI clears immediately.
+    useMessageHandler(
+        "codexCellEditor-engramSettings",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "engramHighlightsSettings" && message?.content) {
+                const next = {
+                    enabled: !!message.content.enabled,
+                    minTokens: Math.max(2, Number(message.content.minTokens) || 3),
+                };
+                setEngramSettings(next);
+                if (!next.enabled) {
+                    setEngramsByCellId({});
+                    requestedEngramsRef.current.clear();
+                }
+            }
+        },
+        []
+    );
+
+    // Engram highlight results for a specific cell.
+    useMessageHandler(
+        "codexCellEditor-engramHighlights",
+        (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "engramHighlights" && message?.content?.cellId) {
+                const { cellId, engrams } = message.content;
+                setEngramsByCellId((prev) => ({ ...prev, [cellId]: engrams || [] }));
+            }
+        },
+        []
+    );
+
+    // Request engram analysis when a cell is opened for editing. Cache per
+    // session so re-opening the same cell doesn't repeat the SBS work.
+    useEffect(() => {
+        if (!engramSettings.enabled) return;
+        if (isSourceText) return;
+        const openedCellId = contentBeingUpdated?.cellMarkers?.[0];
+        const openedContent = contentBeingUpdated?.cellContent;
+        if (!openedCellId || !openedContent) return;
+        if (requestedEngramsRef.current.has(openedCellId)) return;
+        requestedEngramsRef.current.add(openedCellId);
+        vscode.postMessage({
+            command: "requestEngramHighlights",
+            content: { cellId: openedCellId, targetContent: openedContent },
+        } as EditorPostMessages);
+    }, [contentBeingUpdated, engramSettings.enabled, isSourceText, vscode]);
 
     // Handle search match counts response from extension
     useMessageHandler(
@@ -3324,6 +3398,8 @@ const CodexCellEditor: React.FC = () => {
                             currentMilestoneIndex={currentMilestoneIndex}
                             currentSubsectionIndex={currentSubsectionIndex}
                             cellsPerPage={cellsPerPage}
+                            engramsByCellId={engramsByCellId}
+                            engramsEnabled={engramSettings.enabled}
                         />
                     </div>
                 </div>

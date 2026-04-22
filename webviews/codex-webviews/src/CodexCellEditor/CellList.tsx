@@ -74,6 +74,21 @@ export interface CellListProps {
     currentMilestoneIndex?: number;
     currentSubsectionIndex?: number;
     cellsPerPage?: number;
+    // SBS-derived engram highlights keyed by target cellId
+    engramsByCellId?: Record<
+        string,
+        Array<{
+            text: string;
+            startOffset: number;
+            endOffset: number;
+            tokenCount: number;
+            matchedCellId?: string;
+            matchedCellLabel?: string;
+            matchedSnippet?: string;
+            isOrphan: boolean;
+        }>
+    >;
+    engramsEnabled?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -123,6 +138,8 @@ const CellList: React.FC<CellListProps> = ({
     currentMilestoneIndex = 0,
     currentSubsectionIndex = 0,
     cellsPerPage = 50,
+    engramsByCellId = {},
+    engramsEnabled = false,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -862,6 +879,7 @@ const CellList: React.FC<CellListProps> = ({
                                 showInlineBacktranslations={showInlineBacktranslations}
                                 backtranslation={backtranslationsMap.get(cellMarkers[0])}
                                 htmlStructureError={htmlStructureErrors.get(cellMarkers[0])}
+                                engrams={engramsEnabled ? engramsByCellId[cellMarkers[0]] : undefined}
                             />
                         </span>
                     );
@@ -896,6 +914,8 @@ const CellList: React.FC<CellListProps> = ({
             isAudioOnly,
             lineNumbersEnabled,
             htmlStructureErrors,
+            engramsByCellId,
+            engramsEnabled,
         ]
     );
 

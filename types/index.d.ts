@@ -376,6 +376,8 @@ export type EditorPostMessages =
         };
     }
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
+    | { command: "requestEngramHighlights"; content: { cellId: string; targetContent: string; }; }
+    | { command: "openEngramInParallelPassages"; content: { query: string; }; }
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
     | { command: "updateCellIsLocked"; content: { cellId: string; isLocked: boolean; }; }
@@ -2254,6 +2256,30 @@ type EditorReceiveMessages =
     }
     | {
         type: "toggleSearch";
+    }
+    | {
+        type: "engramHighlights";
+        content: {
+            cellId: string;
+            plainText: string;
+            engrams: Array<{
+                text: string;
+                startOffset: number;
+                endOffset: number;
+                tokenCount: number;
+                matchedCellId?: string;
+                matchedCellLabel?: string;
+                matchedSnippet?: string;
+                isOrphan: boolean;
+            }>;
+        };
+    }
+    | {
+        type: "engramHighlightsSettings";
+        content: {
+            enabled: boolean;
+            minTokens: number;
+        };
     }
     | {
         type: "searchMatchCounts";

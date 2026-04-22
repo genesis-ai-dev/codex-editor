@@ -75,6 +75,16 @@ interface CellContentDisplayProps {
     showInlineBacktranslations?: boolean;
     backtranslation?: any;
     htmlStructureError?: string;
+    engrams?: Array<{
+        text: string;
+        startOffset: number;
+        endOffset: number;
+        tokenCount: number;
+        matchedCellId?: string;
+        matchedCellLabel?: string;
+        matchedSnippet?: string;
+        isOrphan: boolean;
+    }>;
 }
 
 const DEBUG_ENABLED = false;
@@ -137,6 +147,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         showInlineBacktranslations = false,
         backtranslation,
         htmlStructureError,
+        engrams,
     }) => {
         // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
@@ -224,6 +235,94 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             window.addEventListener("htmlStructureResolved", handler);
             return () => window.removeEventListener("htmlStructureResolved", handler);
         }, [cellIds]);
+
+        // Apply SBS engram highlights to the rendered target text. The
+        // analysis runs in the extension host after the cell is opened, and
+        // results arrive via postMessage to the parent. Re-applying on
+        // engram or content changes is safe: applyEngramHighlights skips
+        // spans that have already been wrapped.
+        useEffect(() => {
+            if (!engrams || engrams.length === 0 || !contentRef.current) return;
+            let cancelled = false;
+            const run = async () => {
+                const { applyEngramHighlights } = await import("./utils/engramHighlight");
+                if (cancelled || !contentRef.current) return;
+                applyEngramHighlights(contentRef.current, engrams);
+            };
+            run();
+            return () => {
+                cancelled = true;
+            };
+        }, [engrams, cell.cellContent]);
+
+        // Delegate hover + click on engram highlights to show a snippet
+        // tooltip and open Parallel Passages, respectively.
+        useEffect(() => {
+            const container = contentRef.current;
+            if (!container) return;
+
+            const handleEngramEnter = (e: Event) => {
+                const target = e.target as HTMLElement | null;
+                const span = target?.closest?.(".engram-highlight") as HTMLElement | null;
+                if (!span) return;
+                const isOrphan = span.dataset.engramOrphan === "1";
+                const label = span.dataset.engramMatchedLabel;
+                const snippet = span.dataset.engramSnippet;
+                const rect = span.getBoundingClientRect();
+                const node = (
+                    <div style={{ maxWidth: 320 }}>
+                        {isOrphan ? (
+                            <div style={{ fontWeight: 600 }}>
+                                This span isn't found anywhere else in your translations.
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                                    Also appears in
+                                    {label ? `: ${label}` : " another cell"}
+                                </div>
+                                {snippet && (
+                                    <div style={{ opacity: 0.85, fontSize: "0.85em" }}>
+                                        {snippet}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                        <div style={{ opacity: 0.7, fontSize: "0.8em", marginTop: 4 }}>
+                            Click to search this span in Parallel Passages.
+                        </div>
+                    </div>
+                );
+                showTooltip(node, rect.left + rect.width / 2, rect.top);
+            };
+            const handleEngramLeave = (e: Event) => {
+                const target = e.target as HTMLElement | null;
+                if (target?.closest?.(".engram-highlight")) hideTooltip();
+            };
+            const handleEngramClick = (e: Event) => {
+                const target = e.target as HTMLElement | null;
+                const span = target?.closest?.(".engram-highlight") as HTMLElement | null;
+                if (!span) return;
+                const query = span.dataset.engramText?.trim();
+                if (!query) return;
+                e.stopPropagation();
+                e.preventDefault();
+                hideTooltip();
+                vscode.postMessage({
+                    command: "openEngramInParallelPassages",
+                    content: { query },
+                });
+            };
+
+            container.addEventListener("mouseover", handleEngramEnter);
+            container.addEventListener("mouseout", handleEngramLeave);
+            container.addEventListener("click", handleEngramClick, true);
+            return () => {
+                container.removeEventListener("mouseover", handleEngramEnter);
+                container.removeEventListener("mouseout", handleEngramLeave);
+                container.removeEventListener("click", handleEngramClick, true);
+            };
+        }, [engrams, showTooltip, hideTooltip, vscode]);
 
         // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 

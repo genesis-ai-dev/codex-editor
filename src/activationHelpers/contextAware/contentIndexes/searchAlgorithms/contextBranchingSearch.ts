@@ -5,10 +5,22 @@
  * (by FTS score with a coverage boost), removes the longest covered
  * contiguous substring from the query branch, and continues until enough
  * results are found or branches are exhausted.
+ *
+ * The search can match against either the source or target side of each
+ * translation pair depending on `SearchOptions.searchScope`. When set to
+ * "target" it scores coverage against the target content (used by engram
+ * analysis over a project's own translations).
  */
 
 import { TranslationPair } from "../../../../../types";
 import { BaseSearchAlgorithm, SearchOptions } from "./base";
+
+/** A single branch step: the covered substring plus the pair it matched. */
+export interface SBSEngramMatch {
+	engramText: string;
+	pair: TranslationPair;
+	score: number;
+}
 
 export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 
@@ -21,17 +33,32 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 	}
 
 	async search(query: string, options: Partial<SearchOptions> = {}): Promise<TranslationPair[]> {
+		const { results } = await this.searchWithEngrams(query, options);
+		return results.map(r => r.pair);
+	}
+
+	/**
+	 * Like `search`, but also returns the covered substring that was removed
+	 * from the branch when each pair was selected. Useful for engram analysis
+	 * UIs that need to highlight the matched spans in the original query.
+	 */
+	async searchWithEngrams(
+		query: string,
+		options: Partial<SearchOptions> = {}
+	): Promise<{ results: SBSEngramMatch[]; }> {
 		const searchOptions = this.validateOptions(options);
 		const originalQuery = this.cleanQuery(query);
-		if (!originalQuery) return [];
+		if (!originalQuery) return { results: [] };
 
 		const limit = Math.max(1, searchOptions.limit || 5);
 		const coverageWeight = 0.5;
 		const candidatesPerBranch = Math.max(limit * 30, 150);
 		const maxRestarts = 2;
 		const maxBranches = 12;
+		const searchScope = searchOptions.searchScope ?? "source";
+		const excluded = new Set(searchOptions.excludeCellIds ?? []);
 
-		const results: TranslationPair[] = [];
+		const results: SBSEngramMatch[] = [];
 		let queryBranches: string[] = [originalQuery];
 		const usedCellIds = new Set<string>();
 		let restartCount = 0;
@@ -48,18 +75,19 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 			let bestPair: TranslationPair | null = null;
 			let bestBranchIndex = -1;
 			let bestBranchQuery = "";
-			let bestSourceText = "";
+			let bestMatchText = "";
 
 			for (let branchIdx = 0; branchIdx < queryBranches.length; branchIdx++) {
 				const branchQuery = queryBranches[branchIdx];
 				if (!branchQuery.trim()) continue;
 
-				// Fetch FTS candidates for this branch
 				const sqliteResults = await this.indexManager.searchCompleteTranslationPairsWithValidation(
 					branchQuery,
 					candidatesPerBranch,
 					/* returnRawContent */ false,
-					searchOptions.onlyValidated
+					searchOptions.onlyValidated,
+					/* searchSourceOnly */ searchScope === "source",
+					searchScope
 				);
 
 				const branchQueryTokens = this.tokenizeText(branchQuery);
@@ -67,13 +95,15 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 
 				for (const r of sqliteResults) {
 					const cellId: string = r.cell_id || r.cellId;
-					if (!cellId || usedCellIds.has(cellId)) continue;
+					if (!cellId || usedCellIds.has(cellId) || excluded.has(cellId)) continue;
 
 					const sourceContent: string = r.source_content || r.sourceContent || "";
 					const targetContent: string = r.target_content || r.targetContent || "";
 					if (!sourceContent?.trim() || !targetContent?.trim()) continue;
 
-					const coverage = this.computeCoverage(branchQueryTokenSet, sourceContent);
+					// Score against whichever side the query is supposed to match.
+					const matchText = searchScope === "target" ? targetContent : sourceContent;
+					const coverage = this.computeCoverage(branchQueryTokenSet, matchText);
 					const baseScore = typeof r.score === "number" ? r.score : 0;
 					const score = baseScore * (1 + coverageWeight * coverage);
 
@@ -81,7 +111,7 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 						bestScore = score;
 						bestBranchIndex = branchIdx;
 						bestBranchQuery = branchQuery;
-						bestSourceText = sourceContent;
+						bestMatchText = matchText;
 						bestPair = {
 							cellId,
 							sourceCell: { cellId, content: sourceContent, uri: r.uri || "", line: r.line || 0 },
@@ -93,11 +123,10 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 
 			if (!bestPair) break;
 
-			results.push(bestPair);
+			const covered = this.findLongestCoveredSubstring(bestBranchQuery, bestMatchText);
+			results.push({ engramText: covered, pair: bestPair, score: bestScore });
 			usedCellIds.add(bestPair.cellId);
 
-			// Update branches: remove the longest covered substring from the chosen branch
-			const covered = this.findLongestCoveredSubstring(bestBranchQuery, bestSourceText);
 			if (bestBranchIndex >= 0) {
 				queryBranches.splice(bestBranchIndex, 1);
 			}
@@ -110,7 +139,7 @@ export class ContextBranchingSearchAlgorithm extends BaseSearchAlgorithm {
 			}
 		}
 
-		return results.slice(0, limit);
+		return { results: results.slice(0, limit) };
 	}
 
 	private computeCoverage(queryTokenSet: Set<string>, verseText: string): number {

@@ -2,6 +2,9 @@
  * Search Algorithms - Unified exports
  */
 
-export { BaseSearchAlgorithm, SearchResult, SearchOptions } from "./base";
-export { SearchManager, SearchAlgorithmType } from "./searchManager";
+export { BaseSearchAlgorithm } from "./base";
+export type { SearchResult, SearchOptions, SearchScope } from "./base";
+export { SearchManager } from "./searchManager";
+export type { SearchAlgorithmType } from "./searchManager";
 export { ContextBranchingSearchAlgorithm } from "./contextBranchingSearch";
+export type { SBSEngramMatch } from "./contextBranchingSearch";
