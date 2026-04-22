@@ -33,6 +33,7 @@ import { exportCodexContentAsPlaintext } from "./plaintextExporter";
 import { exportCodexContentAsXliff } from "./xliffExporter";
 import { exportCodexContentAsUsfm } from "./usfmExporter";
 import { exportCodexContentAsHtml } from "./htmlExporter";
+import { analyzeNotebookContent } from "../projectManager/utils/exportViewUtils";
 
 // Debug flag
 const DEBUG = false;
@@ -1798,6 +1799,65 @@ export async function exportCodexContent(
     }
 
     await Promise.all(exportPromises);
+
+    // Write NOTICE.txt in per-file folders that will be empty due to missing content
+    const isTextFormat = format !== CodexExportFormat.AUDIO;
+    const isAudioExport = includeAudio || format === CodexExportFormat.AUDIO;
+    if (isTextFormat || isAudioExport) {
+        try {
+            await generateMissingContentNotices(
+                filesToExport,
+                isTextFormat ? formatPath : null,
+                isAudioExport ? audioPath : null
+            );
+        } catch (e) {
+            debug("Failed to generate NOTICE.txt files:", e);
+        }
+    }
+}
+
+async function generateMissingContentNotices(
+    filesToExport: string[],
+    textExportPath: string | null,
+    audioExportPath: string | null
+): Promise<void> {
+    for (const filePath of filesToExport) {
+        try {
+            const uri = vscode.Uri.file(filePath);
+            const notebook = await readCodexNotebookFromUri(uri);
+            const { hasTranslations, hasAudio } = analyzeNotebookContent(notebook);
+            const bookCode = basename(filePath).split(".")[0] || "BOOK";
+
+            if (audioExportPath && !hasAudio) {
+                const noticeUri = vscode.Uri.file(
+                    path.join(audioExportPath, bookCode, "NOTICE.txt")
+                );
+                await vscode.workspace.fs.createDirectory(
+                    vscode.Uri.file(path.join(audioExportPath, bookCode))
+                );
+                await vscode.workspace.fs.writeFile(
+                    noticeUri,
+                    Buffer.from(
+                        "This folder is empty because the source file contained no audio translations.\n"
+                    )
+                );
+            }
+
+            if (textExportPath && !hasTranslations) {
+                const noticeUri = vscode.Uri.file(
+                    path.join(textExportPath, `${bookCode}-NOTICE.txt`)
+                );
+                await vscode.workspace.fs.writeFile(
+                    noticeUri,
+                    Buffer.from(
+                        "No text file was generated because the source file contained no text translations.\n"
+                    )
+                );
+            }
+        } catch (e) {
+            debug(`Failed to check content for ${filePath}:`, e);
+        }
+    }
 }
 
 // Compact helpers for id handling and lookups
