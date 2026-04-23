@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { globalAudioController, type AudioControllerEvent } from "../lib/audioController";
+import { getCachedAudioDataUrl, getCachedAttachmentAudioDataUrl, setCachedAttachmentAudioDataUrl } from "../lib/audioCache";
 import { Button } from "../components/ui/button";
 import {
     Play,
@@ -16,9 +17,12 @@ import {
 } from "lucide-react";
 import { WebviewApi } from "vscode-webview";
 import { useMessageHandler } from "./hooks/useCentralizedMessageDispatcher";
-import { ValidationEntry } from "../../../../types";
+import type { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getActiveAudioValidations } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
+import type { ValidationStatusIconProps } from "./AudioValidationStatusIcon";
+import { AudioValidationBadge } from "./AudioValidationBadge";
+import type { AudioValidationPopoverProps } from "./AudioValidationBadge";
 
 interface AudioHistoryEntry {
     attachmentId: string;
@@ -28,8 +32,17 @@ interface AudioHistoryEntry {
         createdAt: number;
         updatedAt: number;
         isDeleted: boolean;
-        isMissing?: boolean; // Added for missing audio
+        isMissing?: boolean;
         validatedBy?: ValidationEntry[];
+        createdBy?: string;
+        metadata?: {
+            durationSec?: number;
+            mimeType?: string;
+            sizeBytes?: number;
+            sampleRate?: number;
+            channels?: number;
+            bitrateKbps?: number;
+        };
     };
 }
 
@@ -39,6 +52,8 @@ interface AudioHistoryViewerProps {
     onClose: () => void;
     currentUsername?: string | null;
     requiredAudioValidations?: number;
+    audioAvailability?: "available" | "available-local" | "available-pointer" | "available-cached" | "missing" | "deletedOnly" | "none";
+    cell?: QuillCellContent;
 }
 
 export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
@@ -47,15 +62,16 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     onClose,
     currentUsername,
     requiredAudioValidations: requiredAudioValidationsProp,
+    audioAvailability,
+    cell,
 }) => {
     const [audioHistory, setAudioHistory] = useState<AudioHistoryEntry[]>([]);
+    const [entryAvailability, setEntryAvailability] = useState<Record<string, string>>({});
     const [playingId, setPlayingId] = useState<string | null>(null);
     const [audioUrls, setAudioUrls] = useState<Map<string, string>>(new Map());
     const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
     const [delayedLoadingIds, setDelayedLoadingIds] = useState<Set<string>>(new Set());
     const [errorIds, setErrorIds] = useState<Set<string>>(new Set());
-    const [validatingIds, setValidatingIds] = useState<Set<string>>(new Set());
-    const validatingIdsRef = useRef<Set<string>>(new Set());
     const fetchCurrentOnCloseRef = useRef<boolean>(false);
     const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
     const [hasExplicitSelection, setHasExplicitSelection] = useState<boolean>(false);
@@ -67,7 +83,6 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     const [requiredAudioValidations, setRequiredAudioValidations] = useState<number | null>(
         requiredAudioValidationsProp ?? null
     );
-
     const effectiveRequiredAudioValidations =
         (requiredAudioValidationsProp ?? requiredAudioValidations ?? 1) || 1;
 
@@ -113,9 +128,47 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             const message = event.data;
             if (message.type === "audioHistoryReceived" && message.content.cellId === cellId) {
                 setAudioHistory(message.content.audioHistory);
+                if (message.content.entryAvailability) {
+                    setEntryAvailability(message.content.entryAvailability);
+                }
                 // Use the currentAttachmentId from the backend (this reflects the actual selection state)
-                setSelectedAudioId(message.content.currentAttachmentId);
+                const currentId = message.content.currentAttachmentId;
+                setSelectedAudioId(currentId);
                 setHasExplicitSelection(message.content.hasExplicitSelection);
+
+                // Hydrate entries from per-attachment cache (survives selection changes)
+                const entries = message.content.audioHistory as { attachmentId: string }[];
+                for (const entry of entries) {
+                    if (audioUrls.has(entry.attachmentId)) continue;
+                    try {
+                        const cached = getCachedAttachmentAudioDataUrl(entry.attachmentId);
+                        if (!cached && entry.attachmentId === currentId) {
+                            // Fallback: try cell-level cache for the selected entry
+                            const cellCached = getCachedAudioDataUrl(cellId);
+                            if (cellCached) {
+                                fetch(cellCached)
+                                    .then((res) => res.blob())
+                                    .then((blob) => {
+                                        const blobUrl = URL.createObjectURL(blob);
+                                        blobUrlsRef.current.add(blobUrl);
+                                        setAudioUrls((prev) => new Map(prev).set(entry.attachmentId, blobUrl));
+                                    })
+                                    .catch(() => { /* ignore */ });
+                            }
+                            continue;
+                        }
+                        if (cached) {
+                            fetch(cached)
+                                .then((res) => res.blob())
+                                .then((blob) => {
+                                    const blobUrl = URL.createObjectURL(blob);
+                                    blobUrlsRef.current.add(blobUrl);
+                                    setAudioUrls((prev) => new Map(prev).set(entry.attachmentId, blobUrl));
+                                })
+                                .catch(() => { /* ignore */ });
+                        }
+                    } catch { /* ignore */ }
+                }
 
                 // Pre-mark entries that are known missing
                 try {
@@ -156,9 +209,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             }
             if (message.type === "audioAttachmentSelected" && message.content.cellId === cellId) {
                 if (message.content.success) {
-                    // Immediately update the selected state
                     setSelectedAudioId(message.content.audioId);
-                    setHasExplicitSelection(true);
+                    setHasExplicitSelection(!!message.content.audioId);
                 }
             }
             if (message.type === "audioAttachmentDeleted" && message.content.cellId === cellId) {
@@ -237,12 +289,15 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                     }
 
                     if (audioData) {
-                        // Convert base64 to blob URL
+                        try {
+                            setCachedAttachmentAudioDataUrl(audioId, audioData);
+                        } catch { /* ignore */ }
+                        setEntryAvailability((prev) => ({ ...prev, [audioId]: "available-cached" }));
                         fetch(audioData)
                             .then((res) => res.blob())
                             .then((blob) => {
                                 const blobUrl = URL.createObjectURL(blob);
-                                blobUrlsRef.current.add(blobUrl); // Track for cleanup
+                                blobUrlsRef.current.add(blobUrl);
                                 setAudioUrls((prev) => new Map(prev).set(audioId, blobUrl));
 
                                 // Auto-play if there was a pending play request
@@ -271,37 +326,12 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     }
                                 }
 
-                                // If we were validating for selection, select now
-                                if (validatingIdsRef.current.has(audioId)) {
-                                    validatingIdsRef.current.delete(audioId);
-                                    setValidatingIds((prev) => {
-                                        const next = new Set(prev);
-                                        next.delete(audioId);
-                                        return next;
-                                    });
-                                    // Selection succeeded; do not force fallback on close
-                                    fetchCurrentOnCloseRef.current = false;
-                                    vscode.postMessage({
-                                        command: "selectAudioAttachment",
-                                        content: { cellId, audioId },
-                                    });
-                                }
                             })
                             .catch(console.error);
                     } else {
                         // No audio data found - set error state
                         setErrorIds((prev) => new Set(prev).add(audioId));
-                        // Clear any in-progress validation for this audioId
-                        if (validatingIdsRef.current.has(audioId)) {
-                            validatingIdsRef.current.delete(audioId);
-                            setValidatingIds((prev) => {
-                                const next = new Set(prev);
-                                next.delete(audioId);
-                                return next;
-                            });
-                            // Mark that we should request the current audio when the user closes history
-                            fetchCurrentOnCloseRef.current = true;
-                        }
+                        fetchCurrentOnCloseRef.current = true;
                     }
                 }
             }
@@ -350,10 +380,10 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
         return () => globalAudioController.removeListener(listener);
     }, []);
 
-    const handlePlayAudio = async (attachmentId: string) => {
+    const handlePlayAudio = async (attachmentId: string, downloadOnly = false) => {
         try {
-            // Stop any currently playing audio
-            if (playingId && playingId !== attachmentId) {
+            // Stop any currently playing audio (skip when just downloading)
+            if (!downloadOnly && playingId && playingId !== attachmentId) {
                 const currentAudio = audioRefs.current.get(playingId);
                 if (currentAudio) {
                     currentAudio.pause();
@@ -361,7 +391,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                 }
             }
 
-            if (playingId === attachmentId) {
+            if (!downloadOnly && playingId === attachmentId) {
                 // Stop current audio
                 const audio = audioRefs.current.get(attachmentId);
                 if (audio) {
@@ -375,7 +405,7 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             // Request audio data if not already loaded
             if (!audioUrls.has(attachmentId)) {
                 setLoadingIds((prev) => new Set(prev).add(attachmentId));
-                pendingPlayRefs.current.set(attachmentId, true);
+                pendingPlayRefs.current.set(attachmentId, !downloadOnly);
 
                 // Set a timer to show loading text after 300ms
                 const timer = setTimeout(() => {
@@ -441,27 +471,23 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
     };
 
     const handleSelectAudio = (attachmentId: string) => {
-        // If previously determined missing, block selection
         if (errorIds.has(attachmentId)) {
             return;
         }
 
-        // If we already have the audio loaded or cached, select immediately
-        if (audioUrls.has(attachmentId)) {
+        if (selectedAudioId === attachmentId) {
+            vscode.postMessage({
+                command: "deselectAudioAttachment",
+                content: { cellId },
+            });
+            setSelectedAudioId(null);
+            setHasExplicitSelection(false);
+        } else {
             vscode.postMessage({
                 command: "selectAudioAttachment",
                 content: { cellId, audioId: attachmentId },
             });
-            return;
         }
-
-        // Otherwise, validate by requesting the audio; on success, selection happens in handler
-        validatingIdsRef.current.add(attachmentId);
-        setValidatingIds((prev) => new Set(prev).add(attachmentId));
-        vscode.postMessage({
-            command: "requestAudioForCell",
-            content: { cellId, audioId: attachmentId },
-        });
     };
 
     // Helper function to determine current attachment (latest non-deleted)
@@ -482,6 +508,12 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
             hour: "2-digit",
             minute: "2-digit",
         });
+    };
+
+    const formatDuration = (seconds: number): string => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, "0")}`;
     };
 
     const getLatestAttachment = () => {
@@ -564,8 +596,10 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                             const hasError =
                                 errorIds.has(entry.attachmentId) ||
                                 entry.attachment?.isMissing === true;
-                            const isValidating = validatingIds.has(entry.attachmentId);
-
+                            const entryState = entryAvailability[entry.attachmentId];
+                            const needsDownload = !audioUrls.has(entry.attachmentId) &&
+                                entryState !== "available-local" &&
+                                entryState !== "available-cached";
                             // Compute validation status from attachment.validatedBy
                             const activeValidations = getActiveAudioValidations(
                                 entry.attachment.validatedBy
@@ -585,180 +619,123 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                           (username || "").toLowerCase()
                                   )
                                 : false;
+                            const otherValidatorCount = currentValidations - (isValidatedByCurrentUser ? 1 : 0);
 
+                            const entryValidators = Array.from(uniqueLatestByUser.values());
+                            const isEntryMissing = entry.attachment.isMissing === true || hasError;
+
+                            let entryReadOnly = true;
+                            let entryReadOnlyReason: string | undefined;
+
+                            if (entry.attachment.isDeleted && needsDownload) {
+                                entryReadOnlyReason = "Download and restore audio to validate";
+                            } else if (entry.attachment.isDeleted) {
+                                entryReadOnlyReason = "Restore audio to validate";
+                            } else if (isEntryMissing) {
+                                entryReadOnlyReason = "Cannot validate missing files";
+                            } else if (needsDownload) {
+                                entryReadOnlyReason = "Download audio to validate";
+                            } else {
+                                entryReadOnly = false;
+                            }
+
+                            
+
+                            const durationLabel = entry.attachment.metadata?.durationSec != null
+                                ? ` (${formatDuration(entry.attachment.metadata.durationSec)})`
+                                : "";
                             return (
                                 <div
                                     key={entry.attachmentId}
                                     style={{
-                                        padding: "12px",
+                                        padding: "10px 12px",
                                         border: "1px solid var(--vscode-panel-border)",
                                         borderRadius: "6px",
                                         backgroundColor: entry.attachment.isDeleted
                                             ? "var(--vscode-inputValidation-errorBackground)"
-                                            : isCurrent
+                                            : isSelected
                                             ? "var(--vscode-editor-selectionBackground)"
                                             : "var(--vscode-editorWidget-background)",
                                         opacity: entry.attachment.isDeleted ? 0.9 : 1,
                                     }}
                                 >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            alignItems: "center",
-                                            marginBottom: "8px",
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "8px",
-                                                fontSize: "0.95em",
-                                                color: "var(--vscode-foreground)",
-                                            }}
-                                        >
-                                            <Clock size={14} />
-                                            <span>
-                                                Created: {formatDate(entry.attachment.createdAt)}
-                                            </span>
-                                            {entry.attachment.updatedAt !==
-                                                entry.attachment.createdAt && (
-                                                <span>
-                                                    • Updated:{" "}
-                                                    {formatDate(entry.attachment.updatedAt)}
+                                    {/* Top row: timestamps + status badges */}
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.9em", color: "var(--vscode-foreground)", flexWrap: "wrap" }}>
+                                            <Clock size={13} />
+                                            <span>{formatDate(entry.attachment.createdAt)}</span>
+                                            {entry.attachment.updatedAt !== entry.attachment.createdAt && (
+                                                <span style={{ color: "var(--vscode-descriptionForeground)" }}>
+                                                    • Updated: {formatDate(entry.attachment.updatedAt)}
                                                 </span>
                                             )}
                                         </div>
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "4px",
-                                            }}
-                                        >
-                                            {isSelected && (
-                                                <span
-                                                    style={{
-                                                        backgroundColor:
-                                                            "var(--vscode-badge-background)",
-                                                        color: "var(--vscode-badge-foreground)",
-                                                        padding: "2px 6px",
-                                                        borderRadius: "3px",
-                                                        fontSize: "0.8em",
-                                                        fontWeight: "bold",
-                                                    }}
-                                                >
-                                                    SELECTED
-                                                </span>
-                                            )}
-                                            {isCurrent && !hasExplicitSelection && (
-                                                <span
-                                                    style={{
-                                                        backgroundColor:
-                                                            "var(--vscode-editorInfo-foreground)",
-                                                        color: "var(--vscode-editor-background)",
-                                                        padding: "2px 6px",
-                                                        borderRadius: "3px",
-                                                        fontSize: "0.8em",
-                                                        fontWeight: "bold",
-                                                    }}
-                                                >
-                                                    CURRENT
-                                                </span>
-                                            )}
+                                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                                             {entry.attachment.isDeleted && (
-                                                <span
-                                                    style={{
-                                                        backgroundColor:
-                                                            "var(--vscode-inputValidation-errorBorder)",
-                                                        color: "var(--vscode-editor-background)",
-                                                        padding: "2px 6px",
-                                                        borderRadius: "3px",
-                                                        fontSize: "0.8em",
-                                                        fontWeight: "bold",
-                                                    }}
-                                                >
+                                                <span style={{ backgroundColor: "var(--vscode-inputValidation-errorBorder)", color: "var(--vscode-editor-background)", padding: "2px 6px", borderRadius: "3px", fontSize: "0.8em", fontWeight: "bold" }}>
                                                     DELETED
                                                 </span>
                                             )}
-                                            {entry.attachment.isMissing &&
-                                                !entry.attachment.isDeleted && (
-                                                    <span
-                                                        style={{
-                                                            backgroundColor:
-                                                                "var(--vscode-inputValidation-warningBorder)",
-                                                            color: "var(--vscode-editor-background)",
-                                                            padding: "2px 6px",
-                                                            borderRadius: "3px",
-                                                            fontSize: "0.8em",
-                                                            fontWeight: "bold",
-                                                        }}
-                                                    >
-                                                        MISSING
-                                                    </span>
-                                                )}
+                                            {entry.attachment.isMissing && !entry.attachment.isDeleted && (
+                                                <span style={{ backgroundColor: "var(--vscode-inputValidation-warningBorder)", color: "var(--vscode-editor-background)", padding: "2px 6px", borderRadius: "3px", fontSize: "0.8em", fontWeight: "bold" }}>
+                                                    MISSING
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "8px",
-                                            flexWrap: "wrap",
-                                        }}
-                                    >
-                                        <Button
-                                            size="sm"
-                                            variant={hasError ? "destructive" : "outline"}
-                                            onClick={() => handlePlayAudio(entry.attachmentId)}
-                                            disabled={isLoading || hasError}
-                                            className={hasError ? "opacity-100" : undefined}
-                                            title={hasError ? "File missing" : undefined}
-                                        >
-                                            {isLoading ? (
-                                                <span>Loading...</span>
-                                            ) : hasError ? (
-                                                <>
-                                                    <XCircle className="h-4 w-4 mr-1" />
-                                                    Play
-                                                </>
-                                            ) : isPlaying ? (
-                                                <>
-                                                    <Pause className="h-4 w-4 mr-1" />
-                                                    Stop
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Play className="h-4 w-4 mr-1" />
-                                                    Play
-                                                </>
-                                            )}
-                                        </Button>
+                                    {/* Bottom row: action buttons + metadata */}
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                        {(() => {
+                                            return (
+                                                <Button
+                                                    size="sm"
+                                                    variant={hasError ? "destructive" : "outline"}
+                                                    onClick={() => handlePlayAudio(entry.attachmentId, needsDownload)}
+                                                    disabled={isLoading || hasError}
+                                                    className={hasError ? "opacity-100" : undefined}
+                                                    title={hasError ? "File missing" : needsDownload ? "Download audio" : undefined}
+                                                >
+                                                    {isLoading ? (
+                                                        <span>Loading...</span>
+                                                    ) : hasError ? (
+                                                        <>
+                                                            <XCircle className="h-4 w-4 mr-1" />
+                                                            Play
+                                                        </>
+                                                    ) : isPlaying ? (
+                                                        <>
+                                                            <Pause className="h-4 w-4 mr-1" />
+                                                            Stop{durationLabel}
+                                                        </>
+                                                    ) : needsDownload ? (
+                                                        <>
+                                                            <Download className="h-4 w-4 mr-1" />
+                                                            Download{durationLabel}
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Play className="h-4 w-4 mr-1" />
+                                                            Play{durationLabel}
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            );
+                                        })()}
 
                                         {!entry.attachment.isDeleted && !hasError && (
                                             <Button
                                                 size="sm"
                                                 variant={isSelected ? "default" : "outline"}
                                                 className="transition-none"
-                                                onClick={() =>
-                                                    handleSelectAudio(entry.attachmentId)
-                                                }
-                                                disabled={isSelected || isValidating}
+                                                onClick={() => handleSelectAudio(entry.attachmentId)}
                                             >
                                                 {isSelected ? (
                                                     <CheckCircle className="h-4 w-4 mr-1" />
-                                                ) : isValidating ? (
-                                                    <span className="h-4 w-4 mr-1" />
                                                 ) : (
                                                     <Circle className="h-4 w-4 mr-1" />
                                                 )}
-                                                {isSelected
-                                                    ? "Selected"
-                                                    : isValidating
-                                                    ? "Validating..."
-                                                    : "Select"}
+                                                {isSelected ? "Selected" : "Select"}
                                             </Button>
                                         )}
 
@@ -766,22 +743,17 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                onClick={() =>
-                                                    handleRestoreAudio(entry.attachmentId)
-                                                }
+                                                onClick={() => handleRestoreAudio(entry.attachmentId)}
                                             >
                                                 <RotateCcw className="h-4 w-4 mr-1" />
                                                 Restore
                                             </Button>
                                         ) : (
-                                            !isSelected &&
                                             !hasError && (
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    onClick={() =>
-                                                        handleDeleteAudio(entry.attachmentId)
-                                                    }
+                                                    onClick={() => handleDeleteAudio(entry.attachmentId)}
                                                 >
                                                     <Trash2 className="h-4 w-4 mr-1" />
                                                     Delete
@@ -789,38 +761,53 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             )
                                         )}
 
-                                        <div className="flex flex-col flex-grow items-end justify-end gap-1">
-                                            <span
-                                                style={{
-                                                    fontSize: "0.8em",
-                                                    color: "var(--vscode-descriptionForeground)",
-                                                    marginLeft: "auto",
-                                                }}
-                                            >
+                                        {/* Right-aligned: author, ID, validators */}
+                                        <div className="flex flex-col flex-grow items-end justify-end gap-0.5">
+                                            {entry.attachment.createdBy && (
+                                                <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}>
+                                                    <User size={11} />
+                                                    {entry.attachment.createdBy}
+                                                </span>
+                                            )}
+                                            <span style={{ fontSize: "0.75em", color: "var(--vscode-descriptionForeground)" }}>
                                                 ID: {entry.attachmentId.split("-").slice(-1)[0]}
                                             </span>
-                                            <span
-                                                style={{
-                                                    fontSize: "0.8em",
-                                                    color: "var(--vscode-descriptionForeground)",
-                                                    marginLeft: "auto",
-                                                }}
-                                            >
-                                                <ValidationStatusIcon
-                                                    isValidationInProgress={false}
-                                                    isDisabled={
-                                                        entry.attachment.isDeleted || hasError
-                                                    }
-                                                    currentValidations={currentValidations}
-                                                    requiredValidations={
-                                                        effectiveRequiredAudioValidations
-                                                    }
-                                                    isValidatedByCurrentUser={
-                                                        isValidatedByCurrentUser
-                                                    }
-                                                    displayValidationText
+                                            {cell ? (
+                                                <AudioValidationBadge
+                                                    validationStatusProps={{
+                                                        isValidationInProgress: false,
+                                                        isDisabled: false,
+                                                        currentValidations,
+                                                        requiredValidations: effectiveRequiredAudioValidations,
+                                                        isValidatedByCurrentUser,
+                                                    }}
+                                                    popoverProps={{
+                                                        cellId,
+                                                        cell,
+                                                        vscode: vscode as any,
+                                                        isSourceText: false,
+                                                        currentUsername: username,
+                                                        requiredAudioValidations: effectiveRequiredAudioValidations,
+                                                    }}
+                                                    readOnly={entryReadOnly}
+                                                    readOnlyReason={entryReadOnlyReason}
+                                                    initialValidators={entryValidators}
+                                                    attachmentId={entry.attachmentId}
+                                                    alwaysShowStatusLabel
                                                 />
-                                            </span>
+                                            ) : (
+                                                <span style={{ fontSize: "0.8em", color: "var(--vscode-descriptionForeground)" }}>
+                                                    <ValidationStatusIcon
+                                                        isValidationInProgress={false}
+                                                        isDisabled={entry.attachment.isDeleted || hasError}
+                                                        currentValidations={currentValidations}
+                                                        requiredValidations={effectiveRequiredAudioValidations}
+                                                        isValidatedByCurrentUser={isValidatedByCurrentUser}
+                                                        otherValidatorCount={otherValidatorCount}
+                                                        displayValidationText
+                                                    />
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

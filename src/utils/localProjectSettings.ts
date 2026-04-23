@@ -59,6 +59,8 @@ export interface LocalProjectSettings {
     keepFilesOnStreamAndSave?: boolean;
     /** When true, the editor will download/stream audio as soon as a cell opens */
     autoDownloadAudioOnOpen?: boolean;
+    /** When true, clicking the microphone icon in the cell list auto-starts recording */
+    autoRecordOnMicClick?: boolean;
     /** When true, AI Metrics view shows detailed technical metrics instead of simple mode */
     detailedAIMetrics?: boolean;
     /** Track in-progress update for restart-safe cleanup */
@@ -213,6 +215,7 @@ async function writeLocalProjectSettingsInternal(
             keepFilesOnStreamAndSave: settings.keepFilesOnStreamAndSave,
             forceCloseAfterSuccessfulSwap: settings.forceCloseAfterSuccessfulSwap,
             autoDownloadAudioOnOpen: settings.autoDownloadAudioOnOpen ?? false,
+            autoRecordOnMicClick: settings.autoRecordOnMicClick ?? false,
             detailedAIMetrics: settings.detailedAIMetrics,
             lfsSourceRemoteUrl: settings.lfsSourceRemoteUrl,
             updateState: settings.updateState,
@@ -361,6 +364,7 @@ export async function ensureLocalProjectSettingsExists(
         changesApplied: true,
         mediaFileStrategyApplyState: "applied",
         autoDownloadAudioOnOpen: false,
+        autoRecordOnMicClick: false,
         mediaFileStrategySwitchStarted: false,
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
@@ -380,6 +384,20 @@ export async function setAutoDownloadAudioOnOpen(
 ): Promise<void> {
     const settings = await readLocalProjectSettings(workspaceFolderUri);
     settings.autoDownloadAudioOnOpen = !!value;
+    await writeLocalProjectSettings(settings, workspaceFolderUri);
+}
+
+export async function getAutoRecordOnMicClick(workspaceFolderUri?: vscode.Uri): Promise<boolean> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    return !!settings.autoRecordOnMicClick;
+}
+
+export async function setAutoRecordOnMicClick(
+    value: boolean,
+    workspaceFolderUri?: vscode.Uri
+): Promise<void> {
+    const settings = await readLocalProjectSettings(workspaceFolderUri);
+    settings.autoRecordOnMicClick = !!value;
     await writeLocalProjectSettings(settings, workspaceFolderUri);
 }
 

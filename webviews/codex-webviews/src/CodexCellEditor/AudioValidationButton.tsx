@@ -7,7 +7,7 @@ import { processValidationQueue, enqueueValidation } from "./validationQueue";
 import { computeAudioValidationUpdate } from "./validationUtils";
 import ValidationStatusIcon from "./AudioValidationStatusIcon";
 import { useAudioValidationStatus } from "./hooks/useAudioValidationStatus";
-import { audioPopoverTracker } from "./validationUtils";
+import { audioPopoverTracker, readOnlyTooltipTracker } from "./validationUtils";
 import ValidatorPopover from "./components/ValidatorPopover";
 
 interface AudioValidationButtonProps {
@@ -19,6 +19,12 @@ interface AudioValidationButtonProps {
     requiredAudioValidations?: number;
     disabled?: boolean;
     disabledReason?: string;
+    // When true, the button renders normally and the hover popover still works,
+    // but clicks and the "remove my validation" action in the popover are suppressed.
+    // Used when the audio reference exists but the media isn't downloaded locally
+    // (e.g. LFS pointer) so users can't validate something they haven't heard.
+    readOnly?: boolean;
+    readOnlyReason?: string;
     setShowSparkleButton?: Dispatch<SetStateAction<boolean>>;
 }
 
@@ -31,6 +37,8 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     requiredAudioValidations: requiredAudioValidationsProp,
     disabled: externallyDisabled,
     disabledReason,
+    readOnly,
+    readOnlyReason,
     setShowSparkleButton,
 }) => {
     const [isValidated, setIsValidated] = useState(false);
@@ -43,8 +51,10 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
     const [isPendingValidation, setIsPendingValidation] = useState(false);
     const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
+    const [showReadOnlyTooltip, setShowReadOnlyTooltip] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const closeTimerRef = useRef<number | null>(null);
+    const readOnlyTooltipTimerRef = useRef<number | null>(null);
     const ignoreHoverRef = useRef(false);
     const wasKeyboardNavigationRef = useRef(false);
     const clearCloseTimer = () => {
@@ -57,6 +67,33 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
         clearCloseTimer();
         closeTimerRef.current = window.setTimeout(callback, delay);
     };
+    const dismissReadOnlyTooltip = React.useCallback(() => {
+        setShowReadOnlyTooltip(false);
+        if (readOnlyTooltipTimerRef.current != null) {
+            clearTimeout(readOnlyTooltipTimerRef.current);
+            readOnlyTooltipTimerRef.current = null;
+        }
+    }, []);
+    const flashReadOnlyTooltip = () => {
+        if (readOnlyTooltipTimerRef.current != null) {
+            clearTimeout(readOnlyTooltipTimerRef.current);
+        }
+        readOnlyTooltipTracker.show(dismissReadOnlyTooltip);
+        setShowReadOnlyTooltip(true);
+        readOnlyTooltipTimerRef.current = window.setTimeout(() => {
+            setShowReadOnlyTooltip(false);
+            readOnlyTooltipTracker.clear(dismissReadOnlyTooltip);
+            readOnlyTooltipTimerRef.current = null;
+        }, 2500);
+    };
+    useEffect(() => {
+        return () => {
+            if (readOnlyTooltipTimerRef.current != null) {
+                clearTimeout(readOnlyTooltipTimerRef.current);
+            }
+            readOnlyTooltipTracker.clear(dismissReadOnlyTooltip);
+        };
+    }, [dismissReadOnlyTooltip]);
     const uniqueId = useRef(
         `audio-validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`
     );
@@ -230,15 +267,23 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
             }
         }, 0);
 
-        if (!isValidated) {
-            // Briefly ignore hover so the popover can't re-open immediately after validating.
-            ignoreHoverRef.current = true;
-            window.setTimeout(() => {
-                ignoreHoverRef.current = false;
-            }, 200);
+        // In read-only mode (e.g. audio not downloaded yet), clicks surface a ShadCN
+        // tooltip explaining why validation isn't allowed instead of mutating state.
+        // Only shown when the user hasn't validated yet (if they have, there's nothing
+        // the pill can do — invalidation is handled via the trash icon in the popover).
+        if (readOnly) {
+            if (!isValidated) {
+                flashReadOnlyTooltip();
+            }
+            return;
+        }
 
+        if (!isValidated) {
+            // Fire the validation action and keep the popover open so the user sees
+            // themselves appear in the validator list (and can remove via trash).
             handleValidate(e);
-            handleRequestClose();
+            setShowPopover(true);
+            audioPopoverTracker.setActivePopover(uniqueId.current);
         } else {
             // Already validated — toggle the popover so the user can see validators / unvalidate
             if (showPopover) {
@@ -340,7 +385,6 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 appearance="icon"
                 style={{
                     ...buttonStyle,
-                    // Add orange border for pending validations - use a consistent orange color
                     ...(isPendingValidation && {
                         border: "2px solid #f5a623",
                         borderRadius: "50%",
@@ -351,7 +395,11 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                 onFocus={handleFocus}
                 onBlur={handleBlur}
                 disabled={isDisabled}
-                title={isDisabled ? disabledReason || "Audio validation requires audio" : undefined}
+                title={
+                    isDisabled
+                        ? disabledReason || "Audio validation requires audio"
+                        : undefined
+                }
             >
                 <ValidationStatusIcon
                     isValidationInProgress={isValidationInProgress}
@@ -361,6 +409,19 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     isValidatedByCurrentUser={isValidated}
                 />
             </VSCodeButton>
+
+            {/* Read-only flash tooltip: standalone absolutely-positioned element so
+                it never interferes with the button's layout (wrapping VSCodeButton
+                in TooltipTrigger asChild visibly shrinks the icon). Styled to match
+                ShadCN Tooltip. */}
+            {readOnly && showReadOnlyTooltip && (
+                <div
+                    role="tooltip"
+                    className="bg-primary text-primary-foreground absolute left-0 top-full z-50 mt-2 rounded-md px-3 py-1.5 text-xs whitespace-nowrap pointer-events-none shadow-md animate-in fade-in-0 zoom-in-95"
+                >
+                    {readOnlyReason || "Download audio to validate"}
+                </div>
+            )}
 
             {/* Popover for validation users */}
             {showPopover && uniqueValidationUsers.length > 0 && (
@@ -374,17 +435,32 @@ const AudioValidationButton: React.FC<AudioValidationButtonProps> = ({
                     onRequestClose={() => handleRequestClose()}
                     cancelCloseTimer={clearCloseTimer}
                     scheduleCloseTimer={scheduleCloseTimer}
-                    onRemoveSelf={() => {
-                        enqueueValidation(cellId, false, true)
-                            .then(() => {})
-                            .catch((error) =>
-                                console.error("Audio validation queue error:", error)
-                            );
-                        processValidationQueue(vscode, true).catch((error) =>
-                            console.error("Audio validation queue processing error:", error)
-                        );
-                        handleRequestClose();
-                    }}
+                    onRemoveSelf={
+                        readOnly
+                            ? undefined
+                            : () => {
+                                  enqueueValidation(cellId, false, true)
+                                      .then(() => { })
+                                      .catch((error) =>
+                                          console.error(
+                                              "Audio validation queue error:",
+                                              error
+                                          )
+                                      );
+                                  processValidationQueue(vscode, true).catch((error) =>
+                                      console.error(
+                                          "Audio validation queue processing error:",
+                                          error
+                                      )
+                                  );
+                                  handleRequestClose();
+                              }
+                    }
+                    removeSelfDisabledReason={
+                        readOnly
+                            ? "Download audio to invalidate"
+                            : undefined
+                    }
                 />
             )}
 
