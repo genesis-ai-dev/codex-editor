@@ -247,7 +247,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(cellAfter, "Cell should still exist after save");
 
         // Assert value reflects the USER_EDIT (not the INITIAL_IMPORT)
-        assert.strictEqual(cellAfter.value, newValue, "Cell value should be updated to the user edit value");
+        // On disk, cell.value is now a CellValueOnDisk object when activeEditId is set
+        if (cellAfter.metadata.activeEditId) {
+            const matchingEdit = (cellAfter.metadata.edits || []).find((e: any) => e.id === cellAfter.value.selectedEdit);
+            assert.strictEqual(matchingEdit?.value, newValue, "Selected edit value should be the user edit value");
+        } else {
+            assert.strictEqual(cellAfter.value, newValue, "Cell value should be updated to the user edit value");
+        }
 
         // Assert edits include INITIAL_IMPORT followed by USER_EDIT, with timestamp ordering
         const edits = cellAfter.metadata.edits || [];

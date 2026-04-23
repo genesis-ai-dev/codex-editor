@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import * as dugiteGit from "../../utils/dugiteGit";
 import { CodexContentSerializer } from "@/serializer";
 import { vrefData } from "@/utils/verseRefUtils/verseData";
-import { EditMapUtils } from "@/utils/editMapUtils";
+import { EditMapUtils, generateEditId } from "@/utils/editMapUtils";
 import { EditType, CodexCellTypes } from "../../../types/enums";
 import type { ValidationEntry } from "../../../types";
 import { getAuthApi } from "../../extension";
@@ -4017,5 +4017,191 @@ export const migration_recoverTempFilesAndMergeDuplicates = async (context?: vsc
 
     } catch (error) {
         console.error("Error running temp files recovery and duplicate merge migration:", error);
+    }
+};
+
+/**
+ * Migration: Backfill edit IDs and convert cell.value to CellValueOnDisk object format.
+ *
+ * 1. Backfill `id` on all edits (cell-level and file-level) using SHA-256 deterministic hash.
+ *    Skips edits that already have UUID-format IDs (from randomUUID).
+ * 2. Find matching edit for current cell.value string → set as activeEditId.
+ * 3. Convert cell.value from string to { selectedEdit: id, updatedAt: timestamp }.
+ * 4. Create INITIAL_IMPORT edit if cell has content but no matching edit.
+ * 5. Also backfill IDs on file-level metadata.edits.
+ */
+export const migration_editValueObject = async (context?: vscode.ExtensionContext) => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        const migrationKey = "editValueObjectMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        let hasMigrationRun = false;
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
+        if (hasMigrationRun) {
+            return;
+        }
+
+        debug("Running edit value object migration...");
+
+        const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+        if (codexFiles.length === 0) {
+            // No codex files — mark migration as done
+            try {
+                await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+            } catch (e) {
+                await context?.workspaceState.update(migrationKey, true);
+            }
+            return;
+        }
+
+        let migratedFiles = 0;
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Migrating edit IDs and cell value objects...",
+                cancellable: false,
+            },
+            async (progress) => {
+                for (let i = 0; i < codexFiles.length; i++) {
+                    const file = codexFiles[i];
+                    progress.report({
+                        message: `Processing file ${i + 1}/${codexFiles.length}`,
+                        increment: (100 / codexFiles.length),
+                    });
+
+                    try {
+                        const fileData = await vscode.workspace.fs.readFile(file);
+                        const content = new TextDecoder().decode(fileData);
+                        const notebook = JSON.parse(content);
+
+                        let fileModified = false;
+
+                        // Get author for deterministic IDs
+                        let author = "anonymous";
+                        try {
+                            const authApi = await getAuthApi();
+                            const userInfo = await authApi?.getUserInfo();
+                            if (userInfo?.username) {
+                                author = userInfo.username;
+                            }
+                        } catch (_) { /* ignore */ }
+
+                        // Process each cell
+                        for (const cell of (notebook.cells || [])) {
+                            if (!cell.metadata?.edits) {
+                                cell.metadata = cell.metadata || { id: randomUUID(), type: "text", edits: [] };
+                                if (!cell.metadata.edits) {
+                                    cell.metadata.edits = [];
+                                }
+                            }
+
+                            // 1. Backfill IDs on all cell-level edits
+                            for (const edit of cell.metadata.edits) {
+                                if (!edit.id || !isUuidFormat(edit.id)) {
+                                    const valueStr = typeof edit.value === 'object' && edit.value !== null
+                                        ? JSON.stringify(edit.value)
+                                        : String(edit.value ?? '');
+                                    const authorStr = edit.author || author;
+                                    edit.id = await generateEditId(valueStr, edit.timestamp, authorStr);
+                                    fileModified = true;
+                                }
+                            }
+
+                            // 2. Find matching edit for current cell.value
+                            const currentValue = typeof cell.value === "string" ? cell.value : "";
+                            if (currentValue) {
+                                const valueEdits = cell.metadata.edits.filter(
+                                    (e: any) => e.editMap && Array.isArray(e.editMap) && e.editMap.length === 1 && e.editMap[0] === "value" && !e.preview
+                                );
+
+                                // Try to find exact match first
+                                let matchingEdit = valueEdits.find((e: any) => e.value === currentValue);
+
+                                // If no match, find latest non-preview value edit
+                                if (!matchingEdit && valueEdits.length > 0) {
+                                    matchingEdit = valueEdits[valueEdits.length - 1];
+                                }
+
+                                // 4. Create INITIAL_IMPORT edit if cell has content but no matching value edit
+                                if (!matchingEdit && currentValue.trim()) {
+                                    const importTimestamp = cell.metadata.edits.length > 0
+                                        ? Math.min(...cell.metadata.edits.map((e: any) => e.timestamp || Date.now())) - 1000
+                                        : Date.now() - 1000;
+                                    const importId = await generateEditId(currentValue, importTimestamp, author);
+                                    const importEdit = {
+                                        id: importId,
+                                        editMap: ["value"],
+                                        value: currentValue,
+                                        timestamp: importTimestamp,
+                                        type: EditType.INITIAL_IMPORT,
+                                        author: author,
+                                        validatedBy: [],
+                                    };
+                                    cell.metadata.edits.unshift(importEdit);
+                                    matchingEdit = importEdit;
+                                    fileModified = true;
+                                }
+
+                                if (matchingEdit) {
+                                    // Set activeEditId
+                                    cell.metadata.activeEditId = matchingEdit.id;
+
+                                    // 3. Convert cell.value to object format
+                                    cell.value = {
+                                        selectedEdit: matchingEdit.id,
+                                        updatedAt: matchingEdit.timestamp,
+                                    };
+                                    fileModified = true;
+                                }
+                            }
+                        }
+
+                        // 5. Backfill IDs on file-level metadata.edits
+                        if (notebook.metadata?.edits) {
+                            for (const edit of notebook.metadata.edits) {
+                                if (!edit.id || !isUuidFormat(edit.id)) {
+                                    const valueStr = typeof edit.value === 'object' && edit.value !== null
+                                        ? JSON.stringify(edit.value)
+                                        : String(edit.value ?? '');
+                                    const authorStr = edit.author || author;
+                                    edit.id = await generateEditId(valueStr, edit.timestamp, authorStr);
+                                    fileModified = true;
+                                }
+                            }
+                        }
+
+                        if (fileModified) {
+                            const newContent = formatJsonForNotebookFile(notebook);
+                            await atomicWriteUriText(file, newContent);
+                            migratedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error migrating file ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as complete
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            await context?.workspaceState.update(migrationKey, true);
+        }
+
+        if (migratedFiles > 0) {
+            debug(`Edit value object migration completed: ${migratedFiles} files migrated.`);
+        }
+    } catch (error) {
+        console.error("Error running edit value object migration:", error);
     }
 };
