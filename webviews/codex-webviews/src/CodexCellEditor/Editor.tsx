@@ -831,7 +831,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     html: props.initialValue,
                     text: "",
                 });
-                quill.setContents(initialDelta, Quill.sources.SILENT);
+                quill.setContents(initialDelta, "silent");
 
                 // Position cursor at the end of the content for immediate editing
                 setTimeout(() => {
