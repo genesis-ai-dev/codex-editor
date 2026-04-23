@@ -4,7 +4,7 @@ The Codex Translation Editor Extension is a powerful Visual Studio Code extensio
 
 > Note: this extension is in active development and may have bugs or incomplete features. Please report any issues or suggestions on the [GitHub repository](https://github.com/genesis-ai-dev/codex-editor).
 
-Read more about Codex Translation Editor Extension in the [documentation](https://codex-editor.gitbook.io/).
+Read more about Codex Translation Editor Extension in the [documentation](https://docs.codexeditor.app/docs).
 
 ## Features
 

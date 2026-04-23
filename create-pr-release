@@ -66,6 +66,7 @@ ORIGINAL_VERSION="$(jq -r .version package.json)"
 VSIX_FILE="${NAME}-${VERSION}.vsix"
 PACKAGE_JSON_BACKUP="$(mktemp "${TMPDIR:-/tmp}/package.json.backup.XXXXXX")"
 cp -p package.json "$PACKAGE_JSON_BACKUP"
+NOTES_FILE="$(mktemp "${TMPDIR:-/tmp}/release-notes.XXXXXX.md")"
 
 cleanup() {
   if [[ -f "$PACKAGE_JSON_BACKUP" ]]; then
@@ -73,6 +74,7 @@ cleanup() {
     cp -p "$PACKAGE_JSON_BACKUP" package.json
   fi
   rm -f "$PACKAGE_JSON_BACKUP"
+  rm -f "$NOTES_FILE"
 }
 trap cleanup EXIT
 
@@ -106,20 +108,36 @@ trap - EXIT
 # Skip verify as we just built and tested successfully.
 git push --no-verify
 
+REPO_URL="$(gh repo view --json url -q .url)"
+REPO_SLUG="${REPO_URL#https://github.com/}"
+RELEASE_URL="${REPO_URL}/releases/tag/${VERSION}"
+
+# Build release notes with PR header
+GENERATED_NOTES="$(gh api "repos/${REPO_SLUG}/releases/generate-notes" \
+  --method POST \
+  --field tag_name="$VERSION" \
+  --field target_commitish="$(git rev-parse HEAD)" \
+  -q .body)"
+if [[ -n "${PR_NUMBER:-}" ]]; then
+  PR_URL="${REPO_URL}/pull/${PR_NUMBER}"
+  PR_TITLE="$(gh pr view "$PR_NUMBER" --json title -q .title)"
+  printf 'For PR #%s: [%s](%s)\n\n%s\n' \
+    "$PR_NUMBER" "$PR_TITLE" "$PR_URL" "$GENERATED_NOTES" > "$NOTES_FILE"
+else
+  printf '%s\n' "$GENERATED_NOTES" > "$NOTES_FILE"
+fi
+
 echo "==> Creating GitHub prerelease: $VERSION"
 gh release create "$VERSION" \
   --target "$(git rev-parse HEAD)" \
   --prerelease \
   --title "$VERSION" \
-  --generate-notes \
+  --notes-file "$NOTES_FILE" \
   "./$VSIX_FILE"
 
-REPO_URL="$(gh repo view --json url -q .url)"
-RELEASE_URL="${REPO_URL}/releases/tag/${VERSION}"
 echo "Done! Prerelease $VERSION created with $VSIX_FILE"
 
 if [[ -n "${PR_NUMBER:-}" ]]; then
-  PR_URL="${REPO_URL}/pull/${PR_NUMBER}"
   gh pr comment "$PR_NUMBER" --body "Pre-release: ${VERSION} ${RELEASE_URL}"
   echo "Commented PR #${PR_NUMBER} ${PR_URL}"
 fi
