@@ -10,7 +10,7 @@ Read more about Codex Translation Editor Extension in the [documentation](https:
 
 -   **Notebook Support**: Utilize `.codex` notebooks for organizing and managing your scripture translation projects. 
 -   **Language Support**: Syntax highlighting and language support for `.scripture` and `.codex` files to improve readability and editing. 
--   **Translator's Copilot Integration**: Access to Translator's Copilot Language Server for advanced drafting and diagnostics.
+-   **Translator's Copilot Integration**: Access to Translator's Copilot Language Server for advanced drafting and diagnostics. 
 -   **Custom Views and Panels**: Dedicated views for resources, comments, search passages, and more, tailored for scripture translation workflows.
 -   **Commands and Shortcuts**: A set of commands for common tasks such as creating new projects, opening files, indexing references, and more, accessible directly from the command palette.
 -   **Customizable Settings**: Configure the extension to suit your workflow with settings for the language server, document selectors, and more.
