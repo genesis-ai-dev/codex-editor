@@ -15,7 +15,7 @@ Read more about Codex Translation Editor Extension in the [documentation](https:
 -   **Commands and Shortcuts**: A set of commands for common tasks such as creating new projects, opening files, indexing references, and more, accessible directly from the command palette. 
 -   **Customizable Settings**: Configure the extension to suit your workflow with settings for the language server, document selectors, and more. 
  
-### Getting Started
+### Getting Started 
 
 1. **Installation**: Install the extension from the Visual Studio Code Marketplace.
 2. **Setup a Project**: Use the "Start a new Project" command to initialize your translation project. If you open the Scripture Explorer panel, you will see a button to create a new project as well.
